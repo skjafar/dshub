@@ -1,0 +1,21 @@
+// Device info
+uint32_t    DEVICE_ID;
+
+/***** Ethernet settings *****/
+uint32_t    USES_DHCP;
+
+uint32_t    IP_ADDR[4];
+uint32_t    GATEWAY_ADDR[4];
+uint32_t    DNS_SERVER_ADDR[4];
+uint32_t    NET_MASK[4];
+hex    MAC_ADDR[6];
+
+/*********************/
+/***** read only *****/
+/*********************/
+
+// This parameter is set automatically
+uint32_t    PARAMETERS_SETS_IN_FLASH; // number of parameter sets in flash
+
+// This parameter is set automatically, if this parameter is ever changed the settings will be reset to default
+hex    PARAMETERS_INITIALIZATION_MARKER;

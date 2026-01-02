@@ -1,0 +1,107 @@
+# ============================================
+# DeviceMon Web - Unified .gitignore
+# ============================================
+
+# ============================================
+# Dependencies
+# ============================================
+node_modules/
+client/node_modules/
+/.pnp
+.pnp.js
+jspm_packages/
+
+# ============================================
+# Build Output & Distribution
+# ============================================
+dist/
+build/
+client/build/
+client/dist/
+.next
+.nuxt
+.vuepress/dist
+
+# ============================================
+# Environment Variables
+# ============================================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ============================================
+# Testing & Coverage
+# ============================================
+/coverage
+client/coverage/
+*.lcov
+
+# ============================================
+# Logs
+# ============================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+pnpm-debug.log*
+
+# ============================================
+# Runtime Data
+# ============================================
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# ============================================
+# Cache & Temporary Files
+# ============================================
+.npm
+.eslintcache
+.cache
+.parcel-cache
+.node_repl_history
+*.tgz
+
+# ============================================
+# Yarn
+# ============================================
+.yarn-integrity
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# ============================================
+# Serverless & Cloud
+# ============================================
+.serverless
+.fusebox/
+.dynamodb/
+
+# ============================================
+# IDE & Editor Files
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+.tern-port
+
+# ============================================
+# OS Generated Files
+# ============================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
