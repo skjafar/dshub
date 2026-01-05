@@ -69,8 +69,11 @@ export interface PlotSeries {
   visible: boolean;
 }
 
+export type LogCategory = 'connection' | 'register' | 'parameter' | 'packet' | 'autoRefresh' | 'plotting';
+
 export interface LogEntry {
   level: 'info' | 'warning' | 'error' | 'success' | 'packet';
+  category: LogCategory;
   message: string;
   timestamp: number;
   packetData?: PacketInfo;

@@ -39,12 +39,12 @@ export class DeviceScanner {
     onScanComplete: () => void
   ): void {
     if (this.isScanning) {
-      this.logger.warning('Scan already in progress');
+      this.logger.warning('Scan already in progress', 'connection');
       return;
     }
 
     this.isScanning = true;
-    this.logger.info('Starting device discovery scan');
+    this.logger.info('Starting device discovery scan', 'connection');
 
     // Create UDP socket for discovery
     this.socket = dgram.createSocket('udp4');
@@ -62,22 +62,22 @@ export class DeviceScanner {
       try {
         const device = this.parseDiscoveryResponse(msg, rinfo.address);
         if (device) {
-          this.logger.info(`Device discovered: ${device.board_name} at ${device.ip_address}`);
+          this.logger.info(`Device discovered: ${device.board_name} at ${device.ip_address}`, 'connection');
           onDeviceFound(device);
         }
       } catch (error) {
-        this.logger.error('Error parsing discovery response:', error as Error);
+        this.logger.error('Error parsing discovery response:', 'connection', error as Error);
       }
     });
 
     this.socket.on('error', (error) => {
-      this.logger.error('Discovery socket error:', error);
+      this.logger.error('Discovery socket error:', 'connection', error);
       this.stopScan();
     });
 
     // Stop scan after timeout
     this.scanTimeout = setTimeout(() => {
-      this.logger.info('Discovery scan completed');
+      this.logger.info('Discovery scan completed', 'connection');
       this.stopScan();
       onScanComplete();
     }, 5000); // 5 second timeout
@@ -105,11 +105,11 @@ export class DeviceScanner {
           const netmask = addr.netmask.split('.').map(Number);
           const broadcast = ip.map((octet, i) => octet | (255 - netmask[i])).join('.');
 
-          this.logger.info(`Broadcasting discovery request on ${interfaceName} (${addr.address}) -> ${broadcast}`);
-          
+          this.logger.info(`Broadcasting discovery request on ${interfaceName} (${addr.address}) -> ${broadcast}`, 'connection');
+
           this.socket!.send(request, DISCOVERY_PORT, broadcast, (error) => {
             if (error) {
-              this.logger.error(`Failed to broadcast on ${broadcast}:`, error);
+              this.logger.error(`Failed to broadcast on ${broadcast}:`, 'connection', error);
             }
           });
         }
@@ -168,7 +168,7 @@ export class DeviceScanner {
         udp_port
       };
     } catch (error) {
-      this.logger.error('Error parsing discovery response:', error as Error);
+      this.logger.error('Error parsing discovery response:', 'connection', error as Error);
       return null;
     }
   }

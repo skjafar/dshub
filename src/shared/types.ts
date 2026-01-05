@@ -61,8 +61,11 @@ export interface PlotSeries {
   visible: boolean;
 }
 
+export type LogCategory = 'connection' | 'register' | 'parameter' | 'packet' | 'autoRefresh' | 'plotting';
+
 export interface LogEntry {
   level: 'info' | 'warning' | 'error' | 'success' | 'packet';
+  category: LogCategory;
   message: string;
   timestamp: number;
   packetData?: PacketInfo;
@@ -76,6 +79,16 @@ export interface PacketInfo {
   responseTime?: number;
   interface: string;
   destination: string;
+}
+
+export interface LogSettings {
+  enableConnectionLogs: boolean;
+  enableRegisterLogs: boolean;
+  enableParameterLogs: boolean;
+  enablePacketLogs: boolean; // Detailed packet hex dumps and analysis (very verbose)
+  enableAutoRefreshLogs: boolean;
+  enablePlottingLogs: boolean;
+  maxLogCount: number;
 }
 
 // Socket.IO event types
@@ -101,6 +114,7 @@ export interface ClientToServerEvents {
   startPlotting: (registerName: string, pollInterval: number) => void;
   stopPlotting: (registerName: string) => void;
   sendCommand: (command: number, value: number) => void;
+  updateLogSettings: (settings: LogSettings) => void;
 }
 
 // Discovery protocol constants

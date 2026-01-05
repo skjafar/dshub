@@ -1,9 +1,10 @@
-import { MapEntry, ParsedMap, parseMapFile, loadMapFile } from './mapParser';
+import { MapEntry, ParsedMap, parseMapFile, loadMapFile, BoardTypeEntry, parseBoardTypesMap, getDefaultBoardTypes } from './mapParser';
 import { MapProfile, DEFAULT_PROFILE_ID } from '../types/settings';
 
 export class MapManager {
   private registersMap: ParsedMap | null = null;
   private parametersMap: ParsedMap | null = null;
+  private boardTypesMap: BoardTypeEntry[] = [];
   private isLoaded = false;
 
   async initialize(profile?: MapProfile | null): Promise<void> {
@@ -16,9 +17,15 @@ export class MapManager {
         this.registersMap = parseMapFile(profile.registersMap, true);
         this.parametersMap = parseMapFile(profile.parametersMap, false);
 
+        // Parse board types map if provided, otherwise use defaults
+        this.boardTypesMap = profile.boardTypesMap
+          ? parseBoardTypesMap(profile.boardTypesMap)
+          : getDefaultBoardTypes();
+
         console.log('Profile maps loaded:', {
           registers: this.registersMap.entries.length,
-          parameters: this.parametersMap.entries.length
+          parameters: this.parametersMap.entries.length,
+          boardTypes: this.boardTypesMap.length
         });
       } else if (profile && profile.id === DEFAULT_PROFILE_ID) {
         // Use default profile (already loaded from /maps folder)
@@ -27,9 +34,15 @@ export class MapManager {
         this.registersMap = parseMapFile(profile.registersMap, true);
         this.parametersMap = parseMapFile(profile.parametersMap, false);
 
+        // Parse board types map if provided, otherwise use defaults
+        this.boardTypesMap = profile.boardTypesMap
+          ? parseBoardTypesMap(profile.boardTypesMap)
+          : getDefaultBoardTypes();
+
         console.log('Default maps loaded:', {
           registers: this.registersMap.entries.length,
-          parameters: this.parametersMap.entries.length
+          parameters: this.parametersMap.entries.length,
+          boardTypes: this.boardTypesMap.length
         });
       } else {
         // Fallback: Load default map files directly
@@ -43,9 +56,19 @@ export class MapManager {
         this.registersMap = parseMapFile(registersContent, true);
         this.parametersMap = parseMapFile(parametersContent, false);
 
+        // Try to load board types map, fall back to defaults if not found
+        try {
+          const boardTypesContent = await loadMapFile('boardtypes.map');
+          this.boardTypesMap = parseBoardTypesMap(boardTypesContent);
+        } catch (error) {
+          console.log('Board types map not found, using defaults');
+          this.boardTypesMap = getDefaultBoardTypes();
+        }
+
         console.log('Default maps loaded:', {
           registers: this.registersMap.entries.length,
-          parameters: this.parametersMap.entries.length
+          parameters: this.parametersMap.entries.length,
+          boardTypes: this.boardTypesMap.length
         });
       }
 
@@ -106,6 +129,16 @@ export class MapManager {
   
   isInitialized(): boolean {
     return this.isLoaded;
+  }
+
+  // Board types methods
+  getBoardTypeName(typeId: number): string {
+    const entry = this.boardTypesMap.find(bt => bt.id === typeId);
+    return entry ? entry.name : `Unknown (${typeId})`;
+  }
+
+  getAllBoardTypes(): BoardTypeEntry[] {
+    return this.boardTypesMap;
   }
 }
 

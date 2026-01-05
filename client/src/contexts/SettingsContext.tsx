@@ -12,11 +12,11 @@ interface SettingsContextType {
   // Map profile management
   getAllProfiles: () => MapProfile[]; // Returns all profiles including default
   getActiveProfile: () => MapProfile | null;
-  createProfile: (name: string, registersContent: string, parametersContent: string) => string;
-  updateProfile: (profileId: string, registersContent: string, parametersContent: string) => boolean;
+  createProfile: (name: string, registersContent: string, parametersContent: string, boardTypesContent?: string) => string;
+  updateProfile: (profileId: string, registersContent: string, parametersContent: string, boardTypesContent?: string) => boolean;
   deleteProfile: (profileId: string) => boolean;
   activateProfile: (profileId: string) => boolean;
-  downloadProfileMaps: (profileId: string) => { registers: string; parameters: string } | null;
+  downloadProfileMaps: (profileId: string) => { registers: string; parameters: string; boardTypes?: string } | null;
   loadDefaultProfile: () => Promise<MapProfile>;
 }
 
@@ -111,12 +111,24 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
       const registersMap = await registersResponse.text();
       const parametersMap = await parametersResponse.text();
 
+      // Try to load board types map (optional)
+      let boardTypesMap: string | undefined = undefined;
+      try {
+        const boardTypesResponse = await fetch('/maps/boardtypes.map');
+        if (boardTypesResponse.ok) {
+          boardTypesMap = await boardTypesResponse.text();
+        }
+      } catch (error) {
+        console.log('Board types map not found, will use defaults');
+      }
+
       return {
         id: DEFAULT_PROFILE_ID,
         name: 'Default Maps',
         isDefault: true,
         registersMap,
         parametersMap,
+        boardTypesMap,
         createdAt: 0,
       };
     } catch (error) {
@@ -144,7 +156,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   }, [settings.activeMapProfileId, settings.mapProfiles, defaultProfile]);
 
   // Create a new profile
-  const createProfile = useCallback((name: string, registersContent: string, parametersContent: string): string => {
+  const createProfile = useCallback((name: string, registersContent: string, parametersContent: string, boardTypesContent?: string): string => {
     const profileId = `profile_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const newProfile: MapProfile = {
       id: profileId,
@@ -152,6 +164,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
       isDefault: false,
       registersMap: registersContent,
       parametersMap: parametersContent,
+      boardTypesMap: boardTypesContent,
       createdAt: Date.now(),
     };
 
@@ -164,7 +177,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   }, []);
 
   // Update an existing profile (cannot update default)
-  const updateProfile = useCallback((profileId: string, registersContent: string, parametersContent: string): boolean => {
+  const updateProfile = useCallback((profileId: string, registersContent: string, parametersContent: string, boardTypesContent?: string): boolean => {
     if (profileId === DEFAULT_PROFILE_ID) {
       console.error('Cannot update default profile');
       return false;
@@ -179,6 +192,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
         ...updatedProfiles[profileIndex],
         registersMap: registersContent,
         parametersMap: parametersContent,
+        boardTypesMap: boardTypesContent,
       };
 
       return {
@@ -236,13 +250,14 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   }, [defaultProfile, settings.mapProfiles]);
 
   // Download profile maps
-  const downloadProfileMaps = useCallback((profileId: string): { registers: string; parameters: string } | null => {
+  const downloadProfileMaps = useCallback((profileId: string): { registers: string; parameters: string; boardTypes?: string } | null => {
     const profile = getAllProfiles().find(p => p.id === profileId);
     if (!profile) return null;
 
     return {
       registers: profile.registersMap,
-      parameters: profile.parametersMap
+      parameters: profile.parametersMap,
+      boardTypes: profile.boardTypesMap
     };
   }, [getAllProfiles]);
 

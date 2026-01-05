@@ -1,0 +1,17 @@
+// Board Type Definitions
+// Format: BOARD_TYPE_NAME = ID, "Display Name" (optional)
+// If display name is not provided, the enum name will be converted to readable format
+//
+// Example:
+// BOARD_TYPE_PS_TRIGGER_FANOUT = 1, "PS Trigger Fanout"
+// BOARD_TYPE_CUSTOM = 2
+//
+// This file can be customized per profile in the Settings panel
+
+typedef enum
+{
+    BOARD_TYPE_UNKNOWN = 0,
+    BOARD_TYPE_CUSTOM_1 = 1,
+    BOARD_TYPE_CUSTOM_2 = 2,
+    BOARD_TYPE_CUSTOM_3 = 3
+} ds_board_type_t;

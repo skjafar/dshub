@@ -14,13 +14,19 @@ import {
   Button,
   Alert,
   Stack,
-  InputAdornment
+  InputAdornment,
+  Checkbox,
+  FormGroup,
+  Chip,
+  Tooltip
 } from '@mui/material';
 import {
   Brightness4 as ThemeIcon,
   Upload as UploadIcon,
   Download as DownloadIcon,
-  RestartAlt as ResetIcon
+  RestartAlt as ResetIcon,
+  Warning as WarningIcon,
+  Error as ErrorIcon
 } from '@mui/icons-material';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
@@ -41,6 +47,7 @@ export default function SettingsPanel() {
   const [maxDataPointsInput, setMaxDataPointsInput] = useState(settings.plotDefaults.maxDataPoints.toString());
   const [autoConnectRetriesInput, setAutoConnectRetriesInput] = useState(settings.autoConnectRetries.toString());
   const [autoConnectRetryDelayInput, setAutoConnectRetryDelayInput] = useState(settings.autoConnectRetryDelay.toString());
+  const [maxLogCountInput, setMaxLogCountInput] = useState(settings.logSettings.maxLogCount.toString());
 
   // Sync local state when settings change externally
   useEffect(() => {
@@ -50,6 +57,7 @@ export default function SettingsPanel() {
     setMaxDataPointsInput(settings.plotDefaults.maxDataPoints.toString());
     setAutoConnectRetriesInput(settings.autoConnectRetries.toString());
     setAutoConnectRetryDelayInput(settings.autoConnectRetryDelay.toString());
+    setMaxLogCountInput(settings.logSettings.maxLogCount.toString());
   }, [settings]);
 
   // Sync maxDataPoints setting with DeviceMonContext on mount and when setting changes
@@ -155,6 +163,34 @@ export default function SettingsPanel() {
     const validation = validateNumber(value, 500, 10000);
     if (validation.valid) {
       updateSettings({ autoConnectRetryDelay: parseInt(value) });
+    }
+  };
+
+  // Log settings handlers
+  const handleLogSettingChange = (setting: keyof typeof settings.logSettings, value: boolean | number) => {
+    updateSettings({
+      logSettings: {
+        ...settings.logSettings,
+        [setting]: value
+      }
+    });
+  };
+
+  const handleMaxLogCountChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    setMaxLogCountInput(value);
+
+    const validation = validateNumber(value, 100, 10000);
+    if (validation.valid) {
+      const numValue = parseInt(value);
+      handleLogSettingChange('maxLogCount', numValue);
+
+      // Show warnings based on value
+      if (numValue > 1000) {
+        showWarning('High log count may impact performance and memory usage');
+      } else if (numValue > 500) {
+        showWarning('Moderate log count - monitor performance');
+      }
     }
   };
 
@@ -395,6 +431,168 @@ export default function SettingsPanel() {
                   Higher values allow viewing longer historical data but use more memory.
                   Each series uses approximately {Math.round(settings.plotDefaults.maxDataPoints * 16 / 1024)} KB with current setting.
                   Values above 50,000 may impact performance on slower devices.
+                </Typography>
+              </Alert>
+            </Stack>
+          </CardContent>
+        </Card>
+
+        {/* Activity Log Configuration */}
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Activity Log Configuration</Typography>
+
+            <Stack spacing={2}>
+              <Alert severity="info">
+                <Typography variant="body2">
+                  Control which types of log entries are recorded. Disabling verbose log categories reduces processing and memory usage.
+                </Typography>
+              </Alert>
+
+              <FormGroup>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={settings.logSettings.enableConnectionLogs}
+                      onChange={(e) => handleLogSettingChange('enableConnectionLogs', e.target.checked)}
+                    />
+                  }
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Tooltip title="System events, device connection status, and scanning activity">
+                        <span>Connection & State Logs</span>
+                      </Tooltip>
+                      <Chip label="Recommended" color="success" size="small" />
+                    </Box>
+                  }
+                />
+
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={settings.logSettings.enableRegisterLogs}
+                      onChange={(e) => handleLogSettingChange('enableRegisterLogs', e.target.checked)}
+                    />
+                  }
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Tooltip title="Read and write responses for register operations">
+                        <span>Register Data Logs</span>
+                      </Tooltip>
+                      <Chip label="Medium Impact" color="warning" size="small" />
+                    </Box>
+                  }
+                />
+
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={settings.logSettings.enableParameterLogs}
+                      onChange={(e) => handleLogSettingChange('enableParameterLogs', e.target.checked)}
+                    />
+                  }
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Tooltip title="Read and write responses for parameter operations">
+                        <span>Parameter Data Logs</span>
+                      </Tooltip>
+                      <Chip label="Medium Impact" color="warning" size="small" />
+                    </Box>
+                  }
+                />
+
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={settings.logSettings.enablePacketLogs}
+                      onChange={(e) => handleLogSettingChange('enablePacketLogs', e.target.checked)}
+                    />
+                  }
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Tooltip title="Detailed packet analysis with hex dumps (very verbose)">
+                        <span>Packet Analysis Logs</span>
+                      </Tooltip>
+                      <Chip label="High Impact" color="error" size="small" />
+                    </Box>
+                  }
+                />
+
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={settings.logSettings.enableAutoRefreshLogs}
+                      onChange={(e) => handleLogSettingChange('enableAutoRefreshLogs', e.target.checked)}
+                    />
+                  }
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Tooltip title="Periodic auto-refresh operation messages">
+                        <span>Auto-Refresh Logs</span>
+                      </Tooltip>
+                      <Chip label="Low Impact" color="default" size="small" />
+                    </Box>
+                  }
+                />
+
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={settings.logSettings.enablePlottingLogs}
+                      onChange={(e) => handleLogSettingChange('enablePlottingLogs', e.target.checked)}
+                    />
+                  }
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Tooltip title="Plot start and stop events">
+                        <span>Plotting Logs</span>
+                      </Tooltip>
+                      <Chip label="Low Impact" color="default" size="small" />
+                    </Box>
+                  }
+                />
+              </FormGroup>
+
+              <TextField
+                label="Maximum Log Entries"
+                type="number"
+                value={maxLogCountInput}
+                onChange={handleMaxLogCountChange}
+                error={!validateNumber(maxLogCountInput, 100, 10000).valid}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">
+                    {parseInt(maxLogCountInput) > 1000 && <ErrorIcon color="error" sx={{ mr: 1 }} />}
+                    {parseInt(maxLogCountInput) > 500 && parseInt(maxLogCountInput) <= 1000 && <WarningIcon color="warning" sx={{ mr: 1 }} />}
+                    entries
+                  </InputAdornment>,
+                }}
+                helperText={
+                  validateNumber(maxLogCountInput, 100, 10000).error ||
+                  "Maximum number of log entries to retain (100-10000)"
+                }
+                fullWidth
+              />
+
+              {parseInt(maxLogCountInput) > 1000 && validateNumber(maxLogCountInput, 100, 10000).valid && (
+                <Alert severity="error" icon={<ErrorIcon />}>
+                  <Typography variant="body2">
+                    <strong>Warning:</strong> Log counts above 1000 may significantly impact performance and memory usage, especially with verbose logging enabled.
+                  </Typography>
+                </Alert>
+              )}
+
+              {parseInt(maxLogCountInput) > 500 && parseInt(maxLogCountInput) <= 1000 && validateNumber(maxLogCountInput, 100, 10000).valid && (
+                <Alert severity="warning" icon={<WarningIcon />}>
+                  <Typography variant="body2">
+                    Log counts between 500-1000 may impact performance. Monitor system responsiveness.
+                  </Typography>
+                </Alert>
+              )}
+
+              <Alert severity="info">
+                <Typography variant="caption">
+                  Estimated memory usage: ~{Math.round(parseInt(maxLogCountInput || '1000') * 0.5)} KB with current max log count.
+                  Packet analysis logs can use significantly more memory when enabled.
                 </Typography>
               </Alert>
             </Stack>

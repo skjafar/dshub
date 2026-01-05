@@ -24,7 +24,9 @@ import {
 import { Refresh as RefreshIcon, Link as ConnectIcon, Add as AddIcon } from '@mui/icons-material';
 import { useDeviceMon } from '../contexts/DeviceMonContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { useToast } from './ToastNotification';
 import { InterfaceType, DEFAULT_TCP_PORT, DEFAULT_UDP_PORT } from '../types/shared';
+import { mapManager } from '../maps/mapManager';
 
 const formatMacAddress = (mac: string): string => {
   return mac.toUpperCase();
@@ -36,22 +38,28 @@ const formatFirmwareVersion = (version: number): string => {
   return `${major}.${minor}`;
 };
 
-const getBoardTypeName = (type: number): string => {
-  switch (type) {
-    case 1:
-      return 'PS Trigger Fanout';
-    default:
-      return `Unknown (${type})`;
-  }
-};
-
 export default function DeviceScannerPanel() {
   const { state, actions } = useDeviceMon();
-  const { settings, updateSettings } = useSettings();
+  const { settings, getActiveProfile, updateSettings } = useSettings();
+  const { showSuccess, showWarning } = useToast();
   const [manualIp, setManualIp] = useState('');
   const [manualPort, setManualPort] = useState(DEFAULT_TCP_PORT);
   const [manualInterface, setManualInterface] = useState<InterfaceType>(InterfaceType.TCP);
   const [ipError, setIpError] = useState('');
+
+  // Initialize map manager on mount to load board types
+  useEffect(() => {
+    const initializeMaps = async () => {
+      try {
+        const activeProfile = getActiveProfile();
+        await mapManager.initialize(activeProfile);
+      } catch (error) {
+        console.error('Failed to load board types map:', error);
+      }
+    };
+
+    initializeMaps();
+  }, [settings.activeMapProfileId, getActiveProfile]);
 
   // Load saved settings on mount
   useEffect(() => {
@@ -61,15 +69,32 @@ export default function DeviceScannerPanel() {
     setManualInterface(settings.lastInterfaceType === 'TCP' ? InterfaceType.TCP : InterfaceType.UDP);
   }, [settings.lastDeviceIP, settings.lastInterfaceType]);
 
+  // Get board type name from map manager
+  const getBoardTypeName = (typeId: number): string => {
+    return mapManager.getBoardTypeName(typeId);
+  };
+
   const validateIp = (ip: string): boolean => {
     const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
     return ipRegex.test(ip);
   };
 
   const handleConnect = (ip: string, tcpPort: number, udpPort: number, deviceName?: string) => {
-    // Save the device IP to settings
-    updateSettings({ lastDeviceIP: ip, lastInterfaceType: 'TCP' });
+    // Check if a device is already connected
+    if (state.connection?.connected) {
+      showWarning('A device is already connected. Disconnect the current device before connecting to another.');
+      return;
+    }
+
+    // Save the device IP and name to settings
+    updateSettings({
+      lastDeviceIP: ip,
+      lastDeviceName: deviceName,
+      lastInterfaceType: 'TCP'
+    });
+
     actions.connectDevice(ip, InterfaceType.TCP, deviceName);
+    showSuccess(`Connecting to ${deviceName || ip}...`);
   };
 
   const handleManualConnect = () => {
@@ -83,13 +108,27 @@ export default function DeviceScannerPanel() {
       return;
     }
 
+    // Check if a device is already connected
+    if (state.connection?.connected) {
+      showWarning('A device is already connected. Disconnect the current device before connecting to another.');
+      return;
+    }
+
     setIpError('');
-    // Save the device IP and interface to settings
+
+    // Look up device name from discovered devices if available
+    const discoveredDevice = state.discoveredDevices.find(d => d.ip_address === manualIp);
+    const deviceName = discoveredDevice?.board_name;
+
+    // Save the device IP, name, and interface to settings
     updateSettings({
       lastDeviceIP: manualIp,
+      lastDeviceName: deviceName,
       lastInterfaceType: manualInterface === InterfaceType.TCP ? 'TCP' : 'UDP'
     });
-    actions.connectDevice(manualIp, manualInterface);
+
+    actions.connectDevice(manualIp, manualInterface, deviceName);
+    showSuccess(`Connecting to ${deviceName || manualIp}...`);
   };
 
   const handleIpChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -207,7 +246,7 @@ export default function DeviceScannerPanel() {
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>Device Name</TableCell>
+                    <TableCell>Board Name</TableCell>
                     <TableCell>IP Address</TableCell>
                     <TableCell>MAC Address</TableCell>
                     <TableCell>Board Type</TableCell>

@@ -111,3 +111,95 @@ export async function loadMapFile(filename: string): Promise<string> {
     throw error;
   }
 }
+
+// Board types map interface and parser
+export interface BoardTypeEntry {
+  id: number;
+  name: string;
+}
+
+// Default board type definitions (fallback if no map file provided)
+const DEFAULT_BOARD_TYPES: BoardTypeEntry[] = [
+  { id: 0, name: 'Unknown' },
+  { id: 1, name: 'Custom 1' },
+  { id: 2, name: 'Custom 2' },
+  { id: 3, name: 'Custom 3' }
+];
+
+/**
+ * Parse board types map file
+ * Expected format:
+ * BOARD_TYPE_UNKNOWN = 0
+ * BOARD_TYPE_CUSTOM_1 = 1
+ * or with names:
+ * BOARD_TYPE_PS_TRIGGER = 1, "PS Trigger Fanout"
+ */
+export function parseBoardTypesMap(content: string): BoardTypeEntry[] {
+  if (!content || content.trim() === '') {
+    return DEFAULT_BOARD_TYPES;
+  }
+
+  const lines = content.split('\n');
+  const entries: BoardTypeEntry[] = [];
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+
+    // Skip empty lines and comments
+    if (!trimmedLine ||
+        trimmedLine.startsWith('//') ||
+        trimmedLine.startsWith('#') ||
+        trimmedLine.startsWith('/*') ||
+        trimmedLine.startsWith('*') ||
+        trimmedLine.startsWith('}') ||
+        trimmedLine.includes('typedef') ||
+        trimmedLine.includes('enum')) {
+      continue;
+    }
+
+    // Remove inline comments
+    let workingLine = trimmedLine;
+    const commentIndex = workingLine.indexOf('//');
+    if (commentIndex > 0) {
+      workingLine = workingLine.substring(0, commentIndex).trim();
+    }
+
+    // Remove trailing comma if present
+    workingLine = workingLine.replace(/,$/, '');
+
+    // Parse format: BOARD_TYPE_NAME = ID, "Display Name"
+    const withNameMatch = workingLine.match(/(\w+)\s*=\s*(\d+)\s*,\s*"([^"]+)"/);
+    if (withNameMatch) {
+      const [, , idStr, displayName] = withNameMatch;
+      entries.push({
+        id: parseInt(idStr, 10),
+        name: displayName
+      });
+      continue;
+    }
+
+    // Parse format: BOARD_TYPE_NAME = ID
+    const simpleMatch = workingLine.match(/(\w+)\s*=\s*(\d+)/);
+    if (simpleMatch) {
+      const [, enumName, idStr] = simpleMatch;
+      // Convert BOARD_TYPE_PS_TRIGGER to "PS Trigger"
+      const name = enumName
+        .replace(/^BOARD_TYPE_/, '')
+        .split('_')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ');
+
+      entries.push({
+        id: parseInt(idStr, 10),
+        name
+      });
+    }
+  }
+
+  // Return defaults if parsing failed
+  return entries.length > 0 ? entries : DEFAULT_BOARD_TYPES;
+}
+
+export function getDefaultBoardTypes(): BoardTypeEntry[] {
+  return DEFAULT_BOARD_TYPES;
+}

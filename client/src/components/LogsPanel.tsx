@@ -241,17 +241,57 @@ export default function LogsPanel() {
                           >
                             {log.level.toUpperCase()}:
                           </Typography>
-                          <Typography 
-                            variant="body2" 
+                          <Typography
+                            variant="body2"
                             component="span"
                             sx={{ color: '#ffffff', flex: 1 }}
                           >
                             {log.message}
                             {log.level === 'packet' && log.packetData && (
-                              <Typography variant="caption" sx={{ display: 'block', color: '#BB86FC', mt: 0.5 }}>
-                                {log.packetData.direction} | {log.packetData.interface} | {log.packetData.size} bytes
-                                {log.packetData.responseTime && ` | ${log.packetData.responseTime}ms`}
-                              </Typography>
+                              <Box sx={{ mt: 1 }}>
+                                <Typography variant="caption" sx={{ display: 'block', color: '#BB86FC', mb: 0.5 }}>
+                                  {log.packetData.direction} | {log.packetData.interface} | {log.packetData.destination} | {log.packetData.size} bytes
+                                  {log.packetData.responseTime && ` | Response Time: ${log.packetData.responseTime}ms`}
+                                </Typography>
+                                {log.packetData.hexData && (
+                                  <Box sx={{ bgcolor: '#1a1a1a', p: 1, borderRadius: 1, mb: 0.5 }}>
+                                    <Typography variant="caption" sx={{ display: 'block', color: '#4CAF50', fontWeight: 'bold', mb: 0.5 }}>
+                                      HEX DUMP:
+                                    </Typography>
+                                    <Typography
+                                      variant="caption"
+                                      component="pre"
+                                      sx={{
+                                        color: '#E0E0E0',
+                                        fontFamily: 'monospace',
+                                        margin: 0,
+                                        whiteSpace: 'pre-wrap',
+                                        wordBreak: 'break-all'
+                                      }}
+                                    >
+                                      {log.packetData.hexData}
+                                    </Typography>
+                                  </Box>
+                                )}
+                                {log.packetData.analysis && (
+                                  <Box sx={{ bgcolor: '#1a1a1a', p: 1, borderRadius: 1 }}>
+                                    <Typography variant="caption" sx={{ display: 'block', color: '#FF9800', fontWeight: 'bold', mb: 0.5 }}>
+                                      PACKET ANALYSIS:
+                                    </Typography>
+                                    <Typography
+                                      variant="caption"
+                                      sx={{
+                                        color: '#E0E0E0',
+                                        fontFamily: 'monospace',
+                                        display: 'block',
+                                        whiteSpace: 'pre-wrap'
+                                      }}
+                                    >
+                                      {log.packetData.analysis}
+                                    </Typography>
+                                  </Box>
+                                )}
+                              </Box>
                             )}
                           </Typography>
                         </Box>

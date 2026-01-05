@@ -58,8 +58,10 @@ export default function MapProfilesPanel() {
   // File inputs
   const [registersFile, setRegistersFile] = useState<File | null>(null);
   const [parametersFile, setParametersFile] = useState<File | null>(null);
+  const [boardTypesFile, setBoardTypesFile] = useState<File | null>(null);
   const registersInputRef = useRef<HTMLInputElement>(null);
   const parametersInputRef = useRef<HTMLInputElement>(null);
+  const boardTypesInputRef = useRef<HTMLInputElement>(null);
 
   const profiles = getAllProfiles();
 
@@ -77,14 +79,16 @@ export default function MapProfilesPanel() {
     try {
       const registersContent = await registersFile.text();
       const parametersContent = await parametersFile.text();
+      const boardTypesContent = boardTypesFile ? await boardTypesFile.text() : undefined;
 
-      const profileId = createProfile(profileName, registersContent, parametersContent);
+      const profileId = createProfile(profileName, registersContent, parametersContent, boardTypesContent);
       showSuccess(`Profile "${profileName}" created successfully`);
 
       setCreateDialogOpen(false);
       setProfileName('');
       setRegistersFile(null);
       setParametersFile(null);
+      setBoardTypesFile(null);
 
       // Activate the newly created profile
       handleActivateProfile(profileId);
@@ -104,14 +108,16 @@ export default function MapProfilesPanel() {
     try {
       const registersContent = await registersFile.text();
       const parametersContent = await parametersFile.text();
+      const boardTypesContent = boardTypesFile ? await boardTypesFile.text() : undefined;
 
-      const success = updateProfile(selectedProfileId, registersContent, parametersContent);
+      const success = updateProfile(selectedProfileId, registersContent, parametersContent, boardTypesContent);
 
       if (success) {
         showSuccess('Profile updated successfully');
         setEditDialogOpen(false);
         setRegistersFile(null);
         setParametersFile(null);
+        setBoardTypesFile(null);
 
         // If updating the active profile, re-activate it to refresh maps
         if (selectedProfileId === settings.activeMapProfileId) {
@@ -187,7 +193,21 @@ export default function MapProfilesPanel() {
     document.body.removeChild(parametersLink);
     URL.revokeObjectURL(parametersUrl);
 
-    showSuccess('Maps downloaded');
+    // Download board types map if available
+    if (maps.boardTypes) {
+      const boardTypesBlob = new Blob([maps.boardTypes], { type: 'text/plain' });
+      const boardTypesUrl = URL.createObjectURL(boardTypesBlob);
+      const boardTypesLink = document.createElement('a');
+      boardTypesLink.href = boardTypesUrl;
+      boardTypesLink.download = `${baseName}_boardtypes.map`;
+      document.body.appendChild(boardTypesLink);
+      boardTypesLink.click();
+      document.body.removeChild(boardTypesLink);
+      URL.revokeObjectURL(boardTypesUrl);
+    }
+
+    const downloadedFiles = maps.boardTypes ? '3 files' : '2 files';
+    showSuccess(`Maps downloaded (${downloadedFiles})`);
     setAnchorEl(null);
   };
 
@@ -376,12 +396,32 @@ export default function MapProfilesPanel() {
               startIcon={<UploadIcon />}
               onClick={() => parametersInputRef.current?.click()}
               fullWidth
+              sx={{ mb: 2 }}
             >
               {parametersFile ? parametersFile.name : 'Upload Parameters Map'}
             </Button>
 
+            <Typography variant="subtitle2" gutterBottom>
+              Board Types Map File (Optional)
+            </Typography>
+            <input
+              type="file"
+              accept=".map"
+              ref={boardTypesInputRef}
+              onChange={(e) => setBoardTypesFile(e.target.files?.[0] || null)}
+              style={{ display: 'none' }}
+            />
+            <Button
+              variant="outlined"
+              startIcon={<UploadIcon />}
+              onClick={() => boardTypesInputRef.current?.click()}
+              fullWidth
+            >
+              {boardTypesFile ? boardTypesFile.name : 'Upload Board Types Map (Optional)'}
+            </Button>
+
             <Alert severity="info" sx={{ mt: 2 }}>
-              Upload both register and parameter map files (.map format) to create a new profile.
+              Upload register and parameter map files (.map format) to create a new profile. Board types map is optional.
             </Alert>
           </DialogContent>
           <DialogActions>
@@ -438,13 +478,35 @@ export default function MapProfilesPanel() {
                 component="span"
                 startIcon={<UploadIcon />}
                 fullWidth
+                sx={{ mb: 2 }}
               >
                 {parametersFile ? parametersFile.name : 'Upload Parameters Map'}
               </Button>
             </label>
 
+            <Typography variant="subtitle2" gutterBottom>
+              Board Types Map File (Optional)
+            </Typography>
+            <input
+              type="file"
+              accept=".map"
+              onChange={(e) => setBoardTypesFile(e.target.files?.[0] || null)}
+              style={{ display: 'none' }}
+              id="edit-boardtypes-input"
+            />
+            <label htmlFor="edit-boardtypes-input">
+              <Button
+                variant="outlined"
+                component="span"
+                startIcon={<UploadIcon />}
+                fullWidth
+              >
+                {boardTypesFile ? boardTypesFile.name : 'Upload Board Types Map (Optional)'}
+              </Button>
+            </label>
+
             <Alert severity="warning" sx={{ mt: 2 }}>
-              Both files must be uploaded to update the profile.
+              Register and parameter map files are required. Board types map is optional.
             </Alert>
           </DialogContent>
           <DialogActions>

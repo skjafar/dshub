@@ -95,8 +95,9 @@ io.on('connection', (socket) => {
   });
 
   // Parameter operations
-  socket.on('readParameter', (address) => {
-    deviceCommunicator.readParameter(address);
+  socket.on('readParameter', (data) => {
+    const { address, name } = typeof data === 'object' ? data : { address: data, name: undefined };
+    deviceCommunicator.readParameter(address, name);
   });
 
   socket.on('writeParameter', (address, value) => {
@@ -118,6 +119,12 @@ io.on('connection', (socket) => {
   // Commands
   socket.on('sendCommand', (command, value) => {
     deviceCommunicator.sendCommand(command, value);
+  });
+
+  // Log settings
+  socket.on('updateLogSettings', (settings) => {
+    logger.info('Received log settings update from client');
+    deviceCommunicator.updateLogSettings(settings);
   });
 
   // Forward log entries to client

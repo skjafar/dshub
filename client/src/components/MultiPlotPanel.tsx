@@ -15,15 +15,12 @@ import {
   FormControlLabel,
   Chip,
   IconButton,
-  Paper,
-  Tooltip
+  Paper
 } from '@mui/material';
 import {
   Add as AddIcon,
   Remove as RemoveIcon,
   Download as SaveIcon,
-  RestartAlt as ResetIcon,
-  Info as InfoIcon,
   Delete as DeleteIcon
 } from '@mui/icons-material';
 import {
@@ -57,17 +54,24 @@ ChartJS.register(
 );
 
 const COLORS = [
-  '#4A9EFF',
-  '#FF6B9D',
-  '#FFA726',
-  '#FF5722',
-  '#AB47BC',
-  '#4CAF50',
-  '#FF9800',
-  '#9C27B0'
+  '#4A9EFF',  // Bright Blue
+  '#FF6B9D',  // Pink
+  '#FFA726',  // Orange
+  '#66BB6A',  // Green
+  '#d17ae0',  // Purple
+  '#FF5252',  // Red
+  '#26C6DA',  // Cyan
+  '#FFCA28',  // Amber
+  '#EC407A',  // Magenta
+  '#5C6BC0',  // Indigo
+  '#26A69A',  // Teal
+  '#FF7043',  // Deep Orange
+  '#9CCC65',  // Light Green
+  '#7E57C2',  // Deep Purple
+  '#FFA726'   // Yellow Orange
 ];
 
-const DEFAULT_PLOT_HEIGHT = 400;
+const DEFAULT_PLOT_HEIGHT = 300;
 const MAX_PLOTS = 10;
 
 interface PlotSeries {
@@ -155,6 +159,25 @@ export default function MultiPlotPanel() {
   // Chart refs for each plot
   const chartRefs = useRef<Map<string, React.RefObject<ChartJS<"line", any, any>>>>(new Map());
   const chartContainerRefs = useRef<Map<string, React.RefObject<HTMLDivElement>>>(new Map());
+
+  // Resize handler cleanup refs
+  const resizeHandlersRef = useRef<{
+    handleMouseMove: ((e: MouseEvent) => void) | null;
+    handleMouseUp: (() => void) | null;
+  }>({ handleMouseMove: null, handleMouseUp: null });
+
+  // Refs for keyboard handler to avoid stale closures
+  const plotsRef = useRef<PlotPanel[]>(plots);
+  const isAutoscaleEnabledRef = useRef<boolean>(isAutoscaleEnabled);
+
+  // Keep refs updated
+  useEffect(() => {
+    plotsRef.current = plots;
+  }, [plots]);
+
+  useEffect(() => {
+    isAutoscaleEnabledRef.current = isAutoscaleEnabled;
+  }, [isAutoscaleEnabled]);
 
   // Validation helpers
   const validatePollInterval = (value: string): { valid: boolean; error?: string } => {
@@ -273,6 +296,10 @@ export default function MultiPlotPanel() {
         return newSet;
       });
     });
+
+    // Clean up chart refs to prevent memory leaks
+    chartRefs.current.delete(plotId);
+    chartContainerRefs.current.delete(plotId);
 
     setPlots(prev => prev.filter(p => p.id !== plotId));
 
@@ -395,7 +422,14 @@ export default function MultiPlotPanel() {
       document.removeEventListener('mouseup', handleMouseUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      // Clear refs after cleanup
+      resizeHandlersRef.current.handleMouseMove = null;
+      resizeHandlersRef.current.handleMouseUp = null;
     };
+
+    // Store handlers in ref for cleanup on unmount
+    resizeHandlersRef.current.handleMouseMove = handleMouseMove;
+    resizeHandlersRef.current.handleMouseUp = handleMouseUp;
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
@@ -547,10 +581,10 @@ export default function MultiPlotPanel() {
     maintainAspectRatio: false,
     layout: {
       padding: {
-        left: 50,
-        right: 20,
-        top: 20,
-        bottom: 40
+        left: 10,
+        right: 10,
+        top: 10,
+        bottom: 10
       }
     },
     interaction: {
@@ -929,23 +963,33 @@ export default function MultiPlotPanel() {
 
   // Add native wheel event listener to prevent page scroll for each plot
   useEffect(() => {
+    const wheelHandlers = new Map<string, (e: WheelEvent) => void>();
+
     plots.forEach(plot => {
       const chartContainer = chartContainerRefs.current.get(plot.id)?.current;
       if (!chartContainer) return;
 
       const handleNativeWheel = (e: WheelEvent) => {
-        if (!isAutoscaleEnabled) {
+        // Use ref to get current value without re-attaching listener
+        if (!isAutoscaleEnabledRef.current) {
           e.preventDefault();
         }
       };
 
+      wheelHandlers.set(plot.id, handleNativeWheel);
       chartContainer.addEventListener('wheel', handleNativeWheel, { passive: false });
-
-      return () => {
-        chartContainer.removeEventListener('wheel', handleNativeWheel);
-      };
     });
-  }, [plots, isAutoscaleEnabled]);
+
+    return () => {
+      // Clean up all wheel event listeners
+      wheelHandlers.forEach((handler, plotId) => {
+        const chartContainer = chartContainerRefs.current.get(plotId)?.current;
+        if (chartContainer) {
+          chartContainer.removeEventListener('wheel', handler);
+        }
+      });
+    };
+  }, [plots]); // Only re-attach when plots array changes, use ref for isAutoscaleEnabled
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -955,13 +999,14 @@ export default function MultiPlotPanel() {
         return;
       }
 
-      if (isAutoscaleEnabled) return;
+      // Use ref to get current value without dependency
+      if (isAutoscaleEnabledRef.current) return;
 
       switch (e.key) {
         case '+':
         case '=':
-          // Zoom in all plots
-          plots.forEach(plot => {
+          // Zoom in all plots - use ref to get current plots
+          plotsRef.current.forEach(plot => {
             const chartRef = chartRefs.current.get(plot.id);
             if (chartRef?.current) {
               const chart = chartRef.current;
@@ -999,8 +1044,8 @@ export default function MultiPlotPanel() {
 
         case '-':
         case '_':
-          // Zoom out all plots
-          plots.forEach(plot => {
+          // Zoom out all plots - use ref to get current plots
+          plotsRef.current.forEach(plot => {
             const chartRef = chartRefs.current.get(plot.id);
             if (chartRef?.current) {
               const chart = chartRef.current;
@@ -1046,7 +1091,23 @@ export default function MultiPlotPanel() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAutoscaleEnabled, plots, resetZoom]);
+  }, [resetZoom]); // Removed isAutoscaleEnabled and plots - using refs instead to avoid re-attaching listener
+
+  // Cleanup resize handlers on unmount
+  useEffect(() => {
+    return () => {
+      // Clean up any active resize handlers when component unmounts
+      if (resizeHandlersRef.current.handleMouseMove) {
+        document.removeEventListener('mousemove', resizeHandlersRef.current.handleMouseMove);
+      }
+      if (resizeHandlersRef.current.handleMouseUp) {
+        document.removeEventListener('mouseup', resizeHandlersRef.current.handleMouseUp);
+      }
+      // Reset cursor and user select
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, []);
 
   return (
     <Box>

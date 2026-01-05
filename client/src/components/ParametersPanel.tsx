@@ -171,7 +171,8 @@ export default function ParametersPanel() {
     // Read only parameters that have been previously read (have actual values)
     parameters.forEach((parameter) => {
       if (parameter.value !== null && parameter.value !== undefined) {
-        actions.readParameter(parameter.address);
+        const mapEntry = getMapEntryForParameter(parameter.address);
+        actions.readParameter(parameter.address, mapEntry?.name || parameter.name);
       }
     });
   };
@@ -179,7 +180,7 @@ export default function ParametersPanel() {
   const handleReadAllMapped = () => {
     // Read all parameters defined in the map
     mapEntries.forEach((mapEntry) => {
-      actions.readParameter(mapEntry.address);
+      actions.readParameter(mapEntry.address, mapEntry.name);
     });
   };
 
@@ -191,8 +192,8 @@ export default function ParametersPanel() {
     actions.writeParameter(address, value);
   };
 
-  const handleReadParameter = (address: number) => {
-    actions.readParameter(address);
+  const handleReadParameter = (address: number, name?: string) => {
+    actions.readParameter(address, name);
   };
 
   const handleAutoRefreshToggle = (enabled: boolean) => {
@@ -467,7 +468,10 @@ export default function ParametersPanel() {
                             <Tooltip title="Refresh parameter value">
                               <IconButton
                                 size="small"
-                                onClick={() => actions.readParameter(parameter.address)}
+                                onClick={() => {
+                                  const mapEntry = getMapEntryForParameter(parameter.address);
+                                  actions.readParameter(parameter.address, mapEntry?.name || parameter.name);
+                                }}
                                 disabled={!state.connection?.connected}
                               >
                                 <RefreshIcon fontSize="small" />

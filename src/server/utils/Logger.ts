@@ -1,5 +1,5 @@
 import winston from 'winston';
-import { LogEntry } from '../../shared/types';
+import { LogEntry, LogCategory } from '../../shared/types';
 
 export class Logger {
   private static instance: Logger;
@@ -38,37 +38,38 @@ export class Logger {
     return Logger.instance;
   }
 
-  public info(message: string): void {
+  public info(message: string, category: LogCategory = 'connection'): void {
     this.logger.info(message);
-    this.notifyCallbacks('info', message);
+    this.notifyCallbacks('info', category, message);
   }
 
-  public warning(message: string): void {
+  public warning(message: string, category: LogCategory = 'connection'): void {
     this.logger.warn(message);
-    this.notifyCallbacks('warning', message);
+    this.notifyCallbacks('warning', category, message);
   }
 
-  public error(message: string, error?: Error): void {
+  public error(message: string, category: LogCategory = 'connection', error?: Error): void {
     this.logger.error(message, error);
-    this.notifyCallbacks('error', message);
+    this.notifyCallbacks('error', category, message);
   }
 
-  public success(message: string): void {
+  public success(message: string, category: LogCategory = 'connection'): void {
     this.logger.info(`✓ ${message}`);
-    this.notifyCallbacks('success', message);
+    this.notifyCallbacks('success', category, message);
   }
 
   public onLogEntry(callback: (entry: LogEntry) => void): void {
     this.logCallbacks.push(callback);
   }
 
-  private notifyCallbacks(level: LogEntry['level'], message: string): void {
+  private notifyCallbacks(level: LogEntry['level'], category: LogCategory, message: string): void {
     const entry: LogEntry = {
       level,
+      category,
       message,
       timestamp: Date.now()
     };
-    
+
     this.logCallbacks.forEach(callback => {
       try {
         callback(entry);

@@ -14,6 +14,12 @@ export interface ParameterMapItem {
   access: string;
 }
 
+// Board type mapping entry
+export interface BoardTypeEntry {
+  id: number;
+  name: string;
+}
+
 // Map profile with separate register and parameter map files
 export interface MapProfile {
   id: string;
@@ -21,13 +27,25 @@ export interface MapProfile {
   isDefault: boolean;
   registersMap: string; // File content as string
   parametersMap: string; // File content as string
+  boardTypesMap?: string; // Optional board types map content
   createdAt: number;
   lastUsed?: number;
+}
+
+export interface LogSettings {
+  enableConnectionLogs: boolean; // Connection, state, scanning, system events
+  enableRegisterLogs: boolean; // Register read/write responses
+  enableParameterLogs: boolean; // Parameter read/write responses
+  enablePacketLogs: boolean; // Detailed packet hex dumps and analysis (very verbose)
+  enableAutoRefreshLogs: boolean; // Auto-refresh operation logs
+  enablePlottingLogs: boolean; // Plot start/stop logs
+  maxLogCount: number; // Maximum number of log entries to retain (100-10000)
 }
 
 export interface UserSettings {
   theme: ThemeMode;
   lastDeviceIP: string;
+  lastDeviceName?: string; // Board name of last connected device
   lastInterfaceType: 'TCP' | 'UDP';
   autoScan: boolean; // Auto-scan for devices on startup
   autoConnect: boolean; // Auto-connect to last device on startup
@@ -42,6 +60,7 @@ export interface UserSettings {
   themeTransitionDuration: number; // Duration of theme transitions in ms
   mapProfiles: MapProfile[]; // Saved map profiles (not including default)
   activeMapProfileId: string; // Currently active profile ID (default or custom)
+  logSettings: LogSettings; // Activity log filtering and retention settings
 }
 
 export const DEFAULT_PROFILE_ID = 'default';
@@ -62,5 +81,14 @@ export const DEFAULT_SETTINGS: UserSettings = {
   },
   themeTransitionDuration: 300,
   mapProfiles: [],
-  activeMapProfileId: DEFAULT_PROFILE_ID
+  activeMapProfileId: DEFAULT_PROFILE_ID,
+  logSettings: {
+    enableConnectionLogs: true, // Recommended: Always show important system events
+    enableRegisterLogs: false, // Default off: Medium impact
+    enableParameterLogs: false, // Default off: Medium impact
+    enablePacketLogs: false, // Default off: Very high impact (verbose hex dumps)
+    enableAutoRefreshLogs: false, // Default off: Low impact but can be noisy
+    enablePlottingLogs: false, // Default off: Low impact
+    maxLogCount: 1000 // Default: 1000 entries (balanced performance)
+  }
 };
