@@ -96,8 +96,9 @@ deploy-pm2.bat
 ### What the Script Does
 
 The deployment script will:
-1. Install PM2 if not already installed
-2. Install all dependencies
+1. Check if PM2 is installed (globally or locally)
+2. If PM2 is not found, install it locally as a dev dependency (no root/sudo required)
+3. Install all dependencies
 3. Build client and server
 4. Start the application with PM2
 5. Configure auto-start on system reboot
@@ -117,9 +118,21 @@ The application will be accessible at:
 cd /path/to/devicemon-web
 ```
 
-### Step 2: Install PM2 Globally (if not installed)
+### Step 2: Install PM2 (Optional - Auto-installed by script)
+
+You have two options for PM2 installation:
+
+**Option A: Let the deployment script install PM2 locally (Recommended - No sudo required)**
+
+The deployment script will automatically install PM2 as a local dev dependency if it's not found. This avoids permission issues.
+
+**Option B: Install PM2 globally (Optional)**
 
 ```bash
+# Linux/macOS
+sudo npm install -g pm2
+
+# Windows (run as Administrator)
 npm install -g pm2
 ```
 
@@ -127,6 +140,8 @@ Verify PM2 installation:
 
 ```bash
 pm2 --version
+# or if installed locally:
+npx pm2 --version
 ```
 
 ### Step 3: Install Dependencies
@@ -358,11 +373,39 @@ pm2 reload devicemon-web
 
 ## Troubleshooting
 
+### Permission Issues During Deployment
+
+**Problem:** When running the deployment script, you're asked to use sudo, but this creates permission issues for all generated files and folders.
+
+**Solution:** The deployment scripts now install PM2 locally as a dev dependency instead of globally, which avoids requiring root/sudo permissions.
+
+If you previously installed PM2 globally with sudo and have permission issues:
+
+```bash
+# Fix file ownership (replace 'youruser' with your username)
+sudo chown -R youruser:youruser /path/to/devicemon-web
+
+# Remove global PM2 installation (optional)
+sudo npm uninstall -g pm2
+
+# Run deployment script again (it will install PM2 locally)
+./deploy-pm2.sh
+```
+
+When using locally installed PM2, prefix all PM2 commands with `npx`:
+```bash
+npx pm2 list
+npx pm2 logs devicemon-web
+npx pm2 restart devicemon-web
+```
+
 ### Application Not Starting
 
 **Check PM2 logs:**
 ```bash
 pm2 logs devicemon-web --lines 50
+# or if PM2 is installed locally:
+npx pm2 logs devicemon-web --lines 50
 ```
 
 **Check if port is already in use:**
@@ -452,13 +495,31 @@ sudo firewall-cmd --reload
 
 ## Windows-Specific Notes
 
+### Important: Using `call` with Batch Commands
+
+**CRITICAL for Windows:** When running PM2 commands from batch files or Command Prompt, you must use `call` before `npm`, `npx`, or `pm2` commands to ensure they execute properly:
+
+```cmd
+REM Correct - with call
+call npm install
+call npx pm2 list
+call pm2 start ecosystem.config.js
+
+REM Incorrect - without call (will fail or not return properly)
+npm install
+npx pm2 list
+pm2 start ecosystem.config.js
+```
+
+The deployment scripts automatically include `call`, so this is handled for you when using `deploy-pm2.bat` or `update-pm2.bat`.
+
 ### Auto-Start on Windows Boot
 
 PM2's standard `pm2 startup` command is designed for Linux/macOS. For Windows, use **pm2-windows-startup**:
 
 ```cmd
 npm install -g pm2-windows-startup
-pm2-startup install
+call pm2-startup install
 ```
 
 This creates a Windows service that starts PM2 on boot.

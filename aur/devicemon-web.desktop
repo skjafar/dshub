@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=DeviceMon Web
+GenericName=Device Monitor
+Comment=Monitor and control embedded devices via TCP/UDP
+Icon=devicemon-web
+Exec=xdg-open http://localhost:3002
+Terminal=false
+Categories=Development;Electronics;Engineering;Monitor;
+Keywords=device;monitor;embedded;tcp;udp;registers;parameters;
+StartupNotify=true

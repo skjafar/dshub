@@ -24,20 +24,32 @@ echo NPM version:
 npm --version
 echo.
 
-REM Check if PM2 is installed, install if not
+REM Check if PM2 is available (globally or locally)
+set PM2_CMD=
 where pm2 >nul 2>nul
-if %ERRORLEVEL% neq 0 (
-    echo PM2 is not installed. Installing PM2 globally...
-    call npm install -g pm2
+if %ERRORLEVEL% equ 0 (
+    set PM2_CMD=call pm2
+    echo PM2 is installed globally:
+    call pm2 --version
+) else if exist "node_modules\.bin\pm2.cmd" (
+    set PM2_CMD=call npx pm2
+    echo PM2 is installed locally:
+    call npx pm2 --version
+) else (
+    echo PM2 is not installed.
+    echo.
+    echo Installing PM2 as a local dev dependency...
+    call npm install --save-dev pm2
     if %ERRORLEVEL% neq 0 (
         echo ERROR: Failed to install PM2
         pause
         exit /b 1
     )
+    set PM2_CMD=call npx pm2
     echo PM2 installed successfully!
-) else (
-    echo PM2 is already installed:
-    pm2 --version
+    echo.
+    echo NOTE: PM2 is installed locally to this project.
+    echo To install PM2 globally ^(optional^), run: npm install -g pm2
 )
 echo.
 
@@ -70,11 +82,12 @@ cd ..
 echo.
 
 REM Build client
-echo Building client production bundle...
+echo Building client production bundle with Vite...
 cd client
 call npm run build
 if %ERRORLEVEL% neq 0 (
-    echo ERROR: Failed to build client
+    echo ERROR: Client build failed.
+    echo Check the error messages above for details.
     cd ..
     pause
     exit /b 1
@@ -93,33 +106,20 @@ if %ERRORLEVEL% neq 0 (
 echo.
 
 REM Check if app is already running in PM2
-pm2 list | findstr "devicemon-web" >nul 2>nul
+%PM2_CMD% list | findstr "devicemon-web" >nul 2>nul
 if %ERRORLEVEL% equ 0 (
     echo DeviceMon is already running in PM2.
     echo Reloading application with zero downtime...
-    pm2 reload ecosystem.config.js
+    %PM2_CMD% reload ecosystem.config.js
 ) else (
     echo Starting DeviceMon with PM2...
-    pm2 start ecosystem.config.js
+    %PM2_CMD% start ecosystem.config.js
 )
 echo.
 
 REM Save PM2 process list
 echo Saving PM2 process list...
-pm2 save
-echo.
-
-REM Configure PM2 to start on system boot
-echo Configuring PM2 startup script...
-echo NOTE: This will configure PM2 to start automatically on Windows boot.
-echo.
-pm2 startup
-if %ERRORLEVEL% neq 0 (
-    echo WARNING: Could not configure startup script automatically.
-    echo To enable auto-start on Windows boot, you may need to use pm2-windows-startup:
-    echo   npm install -g pm2-windows-startup
-    echo   pm2-startup install
-)
+%PM2_CMD% save
 echo.
 
 REM Display status
@@ -127,15 +127,32 @@ echo ======================================
 echo Deployment Complete!
 echo ======================================
 echo.
-pm2 list
+%PM2_CMD% list
 echo.
 echo Useful PM2 commands:
-echo   pm2 list              - Show all running processes
-echo   pm2 logs devicemon-web - View application logs
-echo   pm2 monit             - Monitor CPU/Memory usage
-echo   pm2 restart devicemon-web - Restart application
-echo   pm2 stop devicemon-web    - Stop application
-echo   pm2 start devicemon-web   - Start application
+if "%PM2_CMD%"=="call pm2" (
+    echo   call pm2 list              - Show all running processes
+    echo   call pm2 logs devicemon-web - View application logs
+    echo   call pm2 monit             - Monitor CPU/Memory usage
+    echo   call pm2 restart devicemon-web - Restart application
+    echo   call pm2 stop devicemon-web    - Stop application
+    echo   call pm2 start devicemon-web   - Start application
+    echo.
+    echo To configure auto-start on system boot ^(optional^):
+    echo   npm install -g pm2-windows-startup
+    echo   call pm2-startup install
+    echo   call pm2 save
+) else (
+    echo   call npx pm2 list              - Show all running processes
+    echo   call npx pm2 logs devicemon-web - View application logs
+    echo   call npx pm2 monit             - Monitor CPU/Memory usage
+    echo   call npx pm2 restart devicemon-web - Restart application
+    echo   call npx pm2 stop devicemon-web    - Stop application
+    echo   call npx pm2 start devicemon-web   - Start application
+    echo.
+    echo To install PM2 globally ^(optional^):
+    echo   npm install -g pm2
+)
 echo.
 echo Access DeviceMon at: http://localhost:3001
 echo ^(Server runs on port 3002, client served on port 3001^)

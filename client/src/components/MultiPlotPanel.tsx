@@ -531,13 +531,13 @@ export default function MultiPlotPanel() {
   // Time config for axis
   const getTimeConfig = (spanSeconds: number) => {
     if (spanSeconds <= 120) {
-      return { unit: 'second' as const, minUnit: 'second', format: 'HH:mm:ss' };
+      return { unit: 'second' as const, minUnit: 'second' as const, format: 'HH:mm:ss' };
     } else if (spanSeconds <= 3600) {
-      return { unit: 'minute' as const, minUnit: 'minute', format: 'HH:mm' };
+      return { unit: 'minute' as const, minUnit: 'minute' as const, format: 'HH:mm' };
     } else if (spanSeconds <= 86400) {
-      return { unit: 'hour' as const, minUnit: 'hour', format: 'HH:mm' };
+      return { unit: 'hour' as const, minUnit: 'hour' as const, format: 'HH:mm' };
     } else {
-      return { unit: 'day' as const, minUnit: 'hour', format: 'MMM dd HH:mm' };
+      return { unit: 'day' as const, minUnit: 'hour' as const, format: 'MMM dd HH:mm' };
     }
   };
 
@@ -634,12 +634,12 @@ export default function MultiPlotPanel() {
           maxRotation: 0,
           autoSkip: true,
           maxTicksLimit: 10,
-          source: 'auto',
+          source: 'auto' as const,
           major: {
             enabled: true
           }
         },
-        bounds: 'ticks',
+        bounds: 'ticks' as const,
         grid: {
           display: true,
           drawTicks: true,
@@ -658,7 +658,9 @@ export default function MultiPlotPanel() {
         grace: plot.zoomPan.yMin !== null ? undefined : '5%',
       },
     },
-    animation: false,
+    animation: {
+      duration: 0
+    },
     transitions: {
       active: {
         animation: {

@@ -547,16 +547,16 @@ export default function PlotterPanel() {
   const getTimeConfig = (spanSeconds: number) => {
     if (spanSeconds <= 120) {
       // Up to 2 minutes: show seconds
-      return { unit: 'second' as const, minUnit: 'second', format: 'HH:mm:ss' };
+      return { unit: 'second' as const, minUnit: 'second' as const, format: 'HH:mm:ss' };
     } else if (spanSeconds <= 3600) {
       // Up to 1 hour: show minutes
-      return { unit: 'minute' as const, minUnit: 'minute', format: 'HH:mm' };
+      return { unit: 'minute' as const, minUnit: 'minute' as const, format: 'HH:mm' };
     } else if (spanSeconds <= 86400) {
       // Up to 1 day: show hours
-      return { unit: 'hour' as const, minUnit: 'hour', format: 'HH:mm' };
+      return { unit: 'hour' as const, minUnit: 'hour' as const, format: 'HH:mm' };
     } else {
       // More than 1 day: show days
-      return { unit: 'day' as const, minUnit: 'hour', format: 'MMM dd HH:mm' };
+      return { unit: 'day' as const, minUnit: 'hour' as const, format: 'MMM dd HH:mm' };
     }
   };
 
@@ -655,12 +655,12 @@ export default function PlotterPanel() {
           maxRotation: 0,
           autoSkip: true,       // Enable auto-skip for large time spans
           maxTicksLimit: 10,    // Fixed number of ticks for consistent spacing
-          source: 'auto',       // Let Chart.js generate optimal ticks
+          source: 'auto' as const,       // Let Chart.js generate optimal ticks
           major: {
             enabled: true
           }
         },
-        bounds: 'ticks',        // Scale boundaries based on ticks, not data
+        bounds: 'ticks' as const,        // Scale boundaries based on ticks, not data
         grid: {
           display: true,
           drawTicks: true,
@@ -679,7 +679,9 @@ export default function PlotterPanel() {
         grace: zoomPan.yMin !== null ? undefined : '5%',  // No grace when zoomed
       },
     },
-    animation: false,
+    animation: {
+      duration: 0
+    },
     transitions: {
       active: {
         animation: {

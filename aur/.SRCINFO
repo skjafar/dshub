@@ -1,0 +1,23 @@
+pkgbase = devicemon-web
+	pkgdesc = Modern web application for monitoring and controlling embedded devices via TCP/UDP
+	pkgver = 2.0.0
+	pkgrel = 1
+	url = https://github.com/yourusername/devicemon-web
+	install = devicemon-web.install
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	makedepends = git
+	makedepends = npm
+	depends = nodejs>=18.0.0
+	depends = npm
+	optdepends = python: for board emulator
+	optdepends = pm2: for process management (recommended)
+	backup = etc/devicemon-web/config.env
+	backup = etc/devicemon-web/maps/registers.map
+	backup = etc/devicemon-web/maps/parameters.map
+	backup = etc/devicemon-web/maps/boardtypes.map
+	source = git+https://github.com/yourusername/devicemon-web.git#tag=v2.0.0
+	sha256sums = SKIP
+
+pkgname = devicemon-web

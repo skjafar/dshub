@@ -1,0 +1,57 @@
+#!/bin/bash
+# DeviceMon Emulator Wrapper
+
+ACTION="${1:-help}"
+
+case "$ACTION" in
+    start)
+        sudo systemctl start devicemon-web-emulator
+        echo "DeviceMon Emulator started"
+        echo "Listening on localhost (UDP discovery on port 2011)"
+        ;;
+    stop)
+        sudo systemctl stop devicemon-web-emulator
+        echo "DeviceMon Emulator stopped"
+        ;;
+    restart)
+        sudo systemctl restart devicemon-web-emulator
+        echo "DeviceMon Emulator restarted"
+        ;;
+    status)
+        systemctl status devicemon-web-emulator
+        ;;
+    logs)
+        journalctl -u devicemon-web-emulator -f
+        ;;
+    enable)
+        sudo systemctl enable devicemon-web-emulator
+        echo "DeviceMon Emulator enabled (auto-start on boot)"
+        ;;
+    disable)
+        sudo systemctl disable devicemon-web-emulator
+        echo "DeviceMon Emulator disabled (no auto-start)"
+        ;;
+    run)
+        # Run emulator directly (not as service)
+        cd /opt/devicemon-web/emulator
+        python3 devicemon_emulator.py
+        ;;
+    *)
+        echo "DeviceMon Board Emulator"
+        echo ""
+        echo "Usage: devicemon-web-emulator <command>"
+        echo ""
+        echo "Commands:"
+        echo "  start    - Start the emulator service"
+        echo "  stop     - Stop the emulator service"
+        echo "  restart  - Restart the emulator service"
+        echo "  status   - Show service status"
+        echo "  logs     - Show live logs"
+        echo "  enable   - Enable auto-start on boot"
+        echo "  disable  - Disable auto-start"
+        echo "  run      - Run emulator directly (foreground)"
+        echo ""
+        echo "Documentation: /opt/devicemon-web/emulator/README.md"
+        echo ""
+        ;;
+esac

@@ -1,0 +1,107 @@
+# Maintainer: Your Name <your.email@example.com>
+pkgname=devicemon-web
+pkgver=2.0.0
+pkgrel=1
+pkgdesc="Modern web application for monitoring and controlling embedded devices via TCP/UDP"
+arch=('x86_64' 'aarch64')
+url="https://github.com/skjafar/devicemon-web"
+license=('MIT')
+depends=('nodejs>=18.0.0' 'npm')
+optdepends=(
+    'python: for board emulator'
+    'pm2: for process management (recommended)'
+)
+makedepends=('git' 'npm')
+backup=(
+    'etc/devicemon-web/config.env'
+    'etc/devicemon-web/maps/registers.map'
+    'etc/devicemon-web/maps/parameters.map'
+    'etc/devicemon-web/maps/boardtypes.map'
+)
+source=("git+${url}.git#tag=v${pkgver}")
+sha256sums=('SKIP')
+install=devicemon-web.install
+
+build() {
+    cd "${srcdir}/${pkgname}"
+
+    # Install dependencies
+    npm install --production=false
+    cd client
+    npm install --production=false
+    cd ..
+
+    # Build the application
+    npm run build
+}
+
+package() {
+    cd "${srcdir}/${pkgname}"
+
+    # Install to /opt/devicemon-web
+    install -dm755 "${pkgdir}/opt/${pkgname}"
+
+    # Copy application files
+    cp -r dist "${pkgdir}/opt/${pkgname}/"
+    cp -r client/build "${pkgdir}/opt/${pkgname}/client/"
+    cp -r node_modules "${pkgdir}/opt/${pkgname}/"
+    cp package.json package-lock.json "${pkgdir}/opt/${pkgname}/"
+    cp ecosystem.config.js "${pkgdir}/opt/${pkgname}/"
+
+    # Copy emulator
+    install -dm755 "${pkgdir}/opt/${pkgname}/emulator"
+    install -Dm755 emulator/devicemon_emulator.py "${pkgdir}/opt/${pkgname}/emulator/"
+    install -Dm755 emulator/run_emulator.sh "${pkgdir}/opt/${pkgname}/emulator/"
+    install -Dm644 emulator/README.md "${pkgdir}/opt/${pkgname}/emulator/"
+
+    # Install systemd service
+    install -Dm644 "${srcdir}/${pkgname}/aur/devicemon-web.service" \
+        "${pkgdir}/usr/lib/systemd/system/${pkgname}.service"
+    install -Dm644 "${srcdir}/${pkgname}/aur/devicemon-web-emulator.service" \
+        "${pkgdir}/usr/lib/systemd/system/${pkgname}-emulator.service"
+
+    # Install desktop entry
+    install -Dm644 "${srcdir}/${pkgname}/aur/devicemon-web.desktop" \
+        "${pkgdir}/usr/share/applications/${pkgname}.desktop"
+
+    # Install icon
+    install -Dm644 "${srcdir}/${pkgname}/client/public/favicon.ico" \
+        "${pkgdir}/usr/share/pixmaps/${pkgname}.ico"
+
+    # Install configuration
+    install -dm755 "${pkgdir}/etc/${pkgname}"
+    install -Dm644 "${srcdir}/${pkgname}/aur/config.env" \
+        "${pkgdir}/etc/${pkgname}/config.env"
+
+    # Install maps
+    install -dm755 "${pkgdir}/etc/${pkgname}/maps"
+    install -Dm644 "${srcdir}/${pkgname}/client/public/maps/registers.map" \
+        "${pkgdir}/etc/${pkgname}/maps/"
+    install -Dm644 "${srcdir}/${pkgname}/client/public/maps/parameters.map" \
+        "${pkgdir}/etc/${pkgname}/maps/"
+    install -Dm644 "${srcdir}/${pkgname}/client/public/maps/boardtypes.map" \
+        "${pkgdir}/etc/${pkgname}/maps/"
+
+    # Create symlink for config
+    ln -s /etc/${pkgname}/config.env "${pkgdir}/opt/${pkgname}/.env"
+
+    # Create symlink for maps
+    ln -s /etc/${pkgname}/maps "${pkgdir}/opt/${pkgname}/client/build/maps"
+
+    # Install documentation
+    install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+    install -Dm644 QUICK_START.md "${pkgdir}/usr/share/doc/${pkgname}/QUICK_START.md"
+    install -Dm644 DEPLOYMENT-PM2.md "${pkgdir}/usr/share/doc/${pkgname}/DEPLOYMENT-PM2.md"
+
+    # Install license
+    install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+
+    # Install binary wrapper
+    install -Dm755 "${srcdir}/${pkgname}/aur/devicemon-web-server" \
+        "${pkgdir}/usr/bin/${pkgname}"
+    install -Dm755 "${srcdir}/${pkgname}/aur/devicemon-web-emulator-bin" \
+        "${pkgdir}/usr/bin/${pkgname}-emulator"
+
+    # Create logs directory
+    install -dm755 "${pkgdir}/var/log/${pkgname}"
+}

@@ -1,0 +1,56 @@
+#!/bin/bash
+# DeviceMon Web Server Wrapper
+
+ACTION="${1:-help}"
+
+case "$ACTION" in
+    start)
+        sudo systemctl start devicemon-web
+        echo "DeviceMon Web started"
+        echo "Access at: http://localhost:3002"
+        ;;
+    stop)
+        sudo systemctl stop devicemon-web
+        echo "DeviceMon Web stopped"
+        ;;
+    restart)
+        sudo systemctl restart devicemon-web
+        echo "DeviceMon Web restarted"
+        ;;
+    status)
+        systemctl status devicemon-web
+        ;;
+    logs)
+        journalctl -u devicemon-web -f
+        ;;
+    enable)
+        sudo systemctl enable devicemon-web
+        echo "DeviceMon Web enabled (auto-start on boot)"
+        ;;
+    disable)
+        sudo systemctl disable devicemon-web
+        echo "DeviceMon Web disabled (no auto-start)"
+        ;;
+    open)
+        xdg-open http://localhost:3002
+        ;;
+    *)
+        echo "DeviceMon Web - Device Monitoring Application"
+        echo ""
+        echo "Usage: devicemon-web <command>"
+        echo ""
+        echo "Commands:"
+        echo "  start    - Start the service"
+        echo "  stop     - Stop the service"
+        echo "  restart  - Restart the service"
+        echo "  status   - Show service status"
+        echo "  logs     - Show live logs"
+        echo "  enable   - Enable auto-start on boot"
+        echo "  disable  - Disable auto-start"
+        echo "  open     - Open in browser"
+        echo ""
+        echo "Configuration: /etc/devicemon-web/config.env"
+        echo "Documentation: /usr/share/doc/devicemon-web/"
+        echo ""
+        ;;
+esac

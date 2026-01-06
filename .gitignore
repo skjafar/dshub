@@ -18,9 +18,8 @@ dist/
 build/
 client/build/
 client/dist/
-.next
-.nuxt
-.vuepress/dist
+*.js.map
+*.css.map
 
 # ============================================
 # Environment Variables
@@ -30,6 +29,11 @@ client/dist/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.production
+client/.env.local
+client/.env.development.local
+client/.env.test.local
+client/.env.production.local
 
 # ============================================
 # Testing & Coverage
@@ -49,6 +53,10 @@ yarn-error.log*
 lerna-debug.log*
 pnpm-debug.log*
 
+# PM2 Logs
+.pm2/
+pm2-*.log
+
 # ============================================
 # Runtime Data
 # ============================================
@@ -66,6 +74,10 @@ pids
 .parcel-cache
 .node_repl_history
 *.tgz
+.vite/
+client/.vite/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
 
 # ============================================
 # Yarn
@@ -105,3 +117,54 @@ pids
 ehthumbs.db
 Thumbs.db
 Desktop.ini
+
+# ============================================
+# Python (Emulator)
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# ============================================
+# TypeScript
+# ============================================
+*.tsbuildinfo
+.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# ============================================
+# AUR Package Build Artifacts
+# ============================================
+aur/pkg/
+aur/src/
+aur/*.pkg.tar.zst
+aur/*.pkg.tar.xz
+aur/*.tar.gz
+
+# ============================================
+# Development & Documentation (Keep in Git)
+# ============================================
+# Keep these files - they're important
+!README.md
+!QUICK_START.md
+!DEPLOYMENT-PM2.md
+!VITE-MIGRATION.md
+!emulator/README.md
+!aur/README.md
+!client/public/maps/*.map
+!ecosystem.config.js
+!vite.config.ts
+!tsconfig*.json
+!aur/PKGBUILD
+!aur/.SRCINFO
+!aur/*.service
+!aur/*.desktop
+!aur/*.install
+!aur/config.env

@@ -21,13 +21,24 @@ echo "Node version: $(node --version)"
 echo "NPM version: $(npm --version)"
 echo ""
 
-# Check if PM2 is installed, install if not
-if ! command -v pm2 &> /dev/null; then
-    echo "PM2 is not installed. Installing PM2 globally..."
-    npm install -g pm2
-    echo "PM2 installed successfully!"
+# Check if PM2 is available (globally or locally)
+PM2_CMD=""
+if command -v pm2 &> /dev/null; then
+    PM2_CMD="pm2"
+    echo "PM2 is installed globally: $(pm2 --version)"
+elif [ -f "node_modules/.bin/pm2" ]; then
+    PM2_CMD="npx pm2"
+    echo "PM2 is installed locally: $(npx pm2 --version)"
 else
-    echo "PM2 is already installed: $(pm2 --version)"
+    echo "PM2 is not installed."
+    echo ""
+    echo "Installing PM2 as a local dev dependency..."
+    npm install --save-dev pm2
+    PM2_CMD="npx pm2"
+    echo "PM2 installed successfully!"
+    echo ""
+    echo "NOTE: PM2 is installed locally to this project."
+    echo "To install PM2 globally (optional), run: npm install -g pm2"
 fi
 echo ""
 
@@ -49,9 +60,14 @@ cd ..
 echo ""
 
 # Build client
-echo "Building client production bundle..."
+echo "Building client production bundle with Vite..."
 cd client
-npm run build
+npm run build || {
+    echo "ERROR: Client build failed."
+    echo "Check the error messages above for details."
+    cd ..
+    exit 1
+}
 cd ..
 echo ""
 
@@ -61,30 +77,20 @@ npm run build
 echo ""
 
 # Check if app is already running in PM2
-if pm2 list | grep -q "devicemon-web"; then
+if $PM2_CMD list | grep -q "devicemon-web"; then
     echo "DeviceMon is already running in PM2."
     echo "Reloading application with zero downtime..."
-    pm2 reload ecosystem.config.js
+    $PM2_CMD reload ecosystem.config.js
     echo ""
 else
     echo "Starting DeviceMon with PM2..."
-    pm2 start ecosystem.config.js
+    $PM2_CMD start ecosystem.config.js
     echo ""
 fi
 
 # Save PM2 process list
 echo "Saving PM2 process list..."
-pm2 save
-echo ""
-
-# Configure PM2 to start on system boot
-echo "Configuring PM2 startup script..."
-echo "NOTE: The following command may require sudo password to configure system startup."
-echo "If you don't want auto-start on boot, press Ctrl+C now."
-echo ""
-sleep 3
-
-pm2 startup || echo "WARNING: Could not configure startup script. You may need to run 'pm2 startup' manually with appropriate permissions."
+$PM2_CMD save
 echo ""
 
 # Display status
@@ -92,15 +98,31 @@ echo "======================================"
 echo "Deployment Complete!"
 echo "======================================"
 echo ""
-pm2 list
+$PM2_CMD list
 echo ""
 echo "Useful PM2 commands:"
-echo "  pm2 list              - Show all running processes"
-echo "  pm2 logs devicemon-web - View application logs"
-echo "  pm2 monit             - Monitor CPU/Memory usage"
-echo "  pm2 restart devicemon-web - Restart application"
-echo "  pm2 stop devicemon-web    - Stop application"
-echo "  pm2 start devicemon-web   - Start application"
+if [ "$PM2_CMD" = "pm2" ]; then
+    echo "  pm2 list              - Show all running processes"
+    echo "  pm2 logs devicemon-web - View application logs"
+    echo "  pm2 monit             - Monitor CPU/Memory usage"
+    echo "  pm2 restart devicemon-web - Restart application"
+    echo "  pm2 stop devicemon-web    - Stop application"
+    echo "  pm2 start devicemon-web   - Start application"
+    echo ""
+    echo "To configure auto-start on system boot (optional):"
+    echo "  pm2 startup           - Generate startup script"
+    echo "  pm2 save              - Save process list"
+else
+    echo "  npx pm2 list              - Show all running processes"
+    echo "  npx pm2 logs devicemon-web - View application logs"
+    echo "  npx pm2 monit             - Monitor CPU/Memory usage"
+    echo "  npx pm2 restart devicemon-web - Restart application"
+    echo "  npx pm2 stop devicemon-web    - Stop application"
+    echo "  npx pm2 start devicemon-web   - Start application"
+    echo ""
+    echo "To install PM2 globally (optional):"
+    echo "  sudo npm install -g pm2"
+fi
 echo ""
 echo "Access DeviceMon at: http://localhost:3001"
 echo "(Server runs on port 3002, client served on port 3001)"

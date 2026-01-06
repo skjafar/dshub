@@ -1,224 +1,366 @@
-# DeviceMon Web Application - Professional Edition
+# DeviceMon Web
 
-A modern, professional web interface for monitoring and controlling embedded devices via TCP/UDP protocols.
+A modern, professional web application for monitoring and controlling embedded devices via TCP/UDP protocols. Built with React, TypeScript, and Node.js.
 
-## 🎉 New Professional Features
-
-This version includes comprehensive UI/UX improvements:
-
-- ✨ **Modern UI Theme** - Professional Material-UI design with smooth animations
-- 🛡️ **Error Boundaries** - Prevents crashes, graceful error handling
-- 🔔 **Toast Notifications** - Beautiful, non-intrusive user feedback
-- ✅ **Input Validation** - Prevents invalid data entry
-- 📊 **Loading States** - Clear feedback during operations
-- 🔒 **Security Improvements** - Configurable server URL, input sanitization
-- 📱 **Responsive Design** - Works on desktop, tablet, and mobile
-- ♿ **Accessibility** - WCAG AA compliant components
-
-## Quick Start
-
-### Development Mode
-```bash
-cd /home/sofian/UserWorkspace/devicemonApps/devicemon-web
-./start.sh dev
-```
-
-Then open:
-- **Client**: http://localhost:3000
-- **Server**: http://localhost:3002
-
-### Production Mode
-```bash
-./start.sh build    # Build once
-./start.sh prod     # Start production server
-```
-
-### Build Only
-```bash
-./start.sh build
-```
-
-## What's New in Professional Edition
-
-### Enhanced Startup Script
-The `start.sh` script now includes:
-- ✅ Colored output for better readability
-- ✅ Automatic .env file creation
-- ✅ Memory optimization (4GB for builds)
-- ✅ Better error messages and recovery
-- ✅ Feature announcements
-
-### New Components
-1. **ErrorBoundary** - Catches errors, prevents crashes
-2. **ToastNotification** - Modern notification system
-3. **LoadingState** - Professional loading indicators
-4. **Validation Utilities** - Type-safe input validation
-5. **Professional Theme** - Modern Material-UI design
-
-### Bug Fixes
-- Fixed hardcoded server URL
-- Fixed packet address format (1-byte addresses)
-- Fixed plot data filtering
-- Fixed memory leaks
-- Fixed dependency array warnings
-
-## Documentation
-
-- **QUICK_START.md** - User-friendly getting started guide
-- **IMPROVEMENTS_SUMMARY.md** - Complete technical documentation
-- **README.old.md** - Previous README (backup)
-
-## Requirements
-
-- **Node.js**: 18.x or higher
-- **npm**: 9.x or higher
-- **Memory**: 4GB RAM recommended for building
-
-## Configuration
-
-The `start.sh` script automatically creates a `.env` file with:
-
-```bash
-# Build optimizations
-TSC_COMPILE_ON_ERROR=true
-GENERATE_SOURCEMAP=false
-
-# Server URL (optional - auto-detects by default)
-# REACT_APP_SERVER_URL=http://192.168.1.100:3002
-```
-
-To override server URL, uncomment and modify the last line.
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)
+![TypeScript](https://img.shields.io/badge/typescript-5.7.3-blue.svg)
 
 ## Features
 
-### Device Communication
-- TCP/UDP protocol support
-- Automatic device discovery
-- Real-time WebSocket updates
-- Configurable connection settings
+- 🔍 **Auto-Discovery** - UDP broadcast scan finds devices automatically
+- 🌐 **Dual Protocol** - Connect via TCP or UDP with seamless switching
+- 📊 **Real-Time Plotting** - Live charting with configurable poll intervals
+- 📝 **Register/Parameter Management** - Read/write operations with validation
+- 🎨 **Modern UI** - Material-UI design with dark/light themes
+- 📱 **Responsive** - Works on desktop, tablet, and mobile
+- 🔒 **Type-Safe** - Full TypeScript coverage
+- ⚡ **Fast** - Vite-powered builds (5s vs 2-5min with CRA)
 
-### Register & Parameter Management
-- Read/write individual or batch operations
-- Support for uint32_t, int32_t, float, hex types
-- Input validation prevents invalid data
-- Auto-refresh with configurable intervals
+## Quick Start
 
-### Real-time Plotting
-- Plot multiple registers simultaneously
-- Configurable poll intervals (10ms - 60s)
-- Data persists when navigating away
-- Adjustable time window
+### Prerequisites
 
-### Activity Logging
-- Comprehensive operation logging
-- Severity levels (info, success, warning, error)
-- Memory efficient (1000 entry limit)
-- Export-ready format
+- Node.js 18.x or higher
+- npm 9.x or higher
+- Python 3.6+ (for emulator only)
 
-## Usage Examples
+### Installation
 
-### Using Toast Notifications
-```typescript
-import { useToast } from './components/ToastNotification';
+#### Arch Linux (AUR)
 
-function MyComponent() {
-  const { showSuccess, showError } = useToast();
+```bash
+# Using yay
+yay -S devicemon-web
 
-  const handleAction = () => {
-    try {
-      // ... operation
-      showSuccess('Operation completed!');
-    } catch (error) {
-      showError('Operation failed');
-    }
-  };
-}
+# Using paru
+paru -S devicemon-web
+
+# Start the service
+sudo systemctl start devicemon-web
+sudo systemctl enable devicemon-web
+
+# Open in browser
+xdg-open http://localhost:3002
 ```
 
-### Using Validation
-```typescript
-import { validateValue } from './utils/validation';
+See [aur/README.md](aur/README.md) for complete Arch Linux installation guide.
 
-const result = validateValue(userInput, 'uint32_t');
-if (!result.isValid) {
-  showError(result.error);
-  return;
-}
+#### From Source
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd devicemon-web
+
+# Install dependencies
+npm install
+cd client && npm install && cd ..
 ```
 
-## Troubleshooting
+### Testing Without Hardware
 
-### Build Out of Memory
-The `start.sh` script now automatically sets `NODE_OPTIONS=--max-old-space-size=4096` to prevent this issue.
+Use the included Python emulator to test without physical devices:
 
-### Can't Connect to Server
-- Ensure server is running: Check port 3002
-- Verify `.env` configuration
-- Check firewall settings
+```bash
+# Terminal 1: Start emulator
+cd emulator
+./run_emulator.sh        # Linux/macOS
+# or
+run_emulator.bat         # Windows
 
-### Device Discovery Not Working
-- Ensure device is on same network
-- Check UDP port 2011 is open
-- Verify device firmware is running
+# Terminal 2: Start application
+cd ..
+npm run dev              # Start both client and server
+```
+
+Open http://localhost:3000 and click "Scan for Devices"
+
+### Development
+
+```bash
+# Start development servers (client + server)
+npm run dev
+
+# Or start individually
+npm run dev:server       # Server only (port 3002)
+npm run dev:client       # Client only (port 3000)
+```
+
+### Production Deployment
+
+#### Option 1: PM2 (Recommended)
+
+```bash
+# Automated deployment
+./deploy-pm2.sh          # Linux/macOS
+# or
+deploy-pm2.bat           # Windows
+
+# Manual PM2 commands
+npm run build            # Build both client and server
+npx pm2 start ecosystem.config.js
+```
+
+#### Option 2: Systemd
+
+```bash
+npm run build
+npm start                # Production server on port 3002
+```
+
+See [DEPLOYMENT-PM2.md](DEPLOYMENT-PM2.md) for detailed deployment instructions.
+
+## Project Structure
+
+```
+devicemon-web/
+├── client/              # React frontend (Vite + TypeScript)
+│   ├── src/
+│   │   ├── components/  # UI components
+│   │   ├── contexts/    # React contexts
+│   │   ├── maps/        # Register/parameter maps
+│   │   ├── types/       # TypeScript types
+│   │   └── utils/       # Utilities
+│   ├── public/          # Static assets
+│   └── build/           # Production build output
+├── src/                 # Node.js backend
+│   ├── server/          # Express + Socket.IO server
+│   │   ├── services/    # Device scanner & communicator
+│   │   └── utils/       # Logger and utilities
+│   └── shared/          # Shared types between client/server
+├── emulator/            # Python board emulator
+│   ├── devicemon_emulator.py
+│   └── README.md
+├── dist/                # Compiled server
+└── ecosystem.config.js  # PM2 configuration
+```
+
+## Core Components
+
+### Frontend (Client)
+
+| Component | Description |
+|-----------|-------------|
+| **DeviceMonContext** | Global state management for device connection and data |
+| **SettingsContext** | User preferences, themes, and map profiles |
+| **DiscoveryPanel** | UDP device scanning with auto-discovery |
+| **RegisterPanel** | Read/write individual registers |
+| **ParameterPanel** | Device parameter configuration |
+| **PlotterPanel** | Single register real-time plotting |
+| **MultiPlotPanel** | Multiple register plotting on single chart |
+| **MapProfilesPanel** | Custom register/parameter map management |
+| **ActivityLogPanel** | Comprehensive operation logging |
+
+### Backend (Server)
+
+| Service | Description |
+|---------|-------------|
+| **DeviceScanner** | UDP broadcast discovery protocol handler |
+| **DeviceCommunicator** | TCP/UDP data communication with packet queuing |
+| **Logger** | Categorized logging with configurable filtering |
+| **Socket.IO Server** | Real-time WebSocket communication with clients |
+
+### Emulator
+
+| Feature | Description |
+|---------|-------------|
+| **Discovery Service** | Responds to UDP broadcast scans on port 2011 |
+| **TCP/UDP Data** | Full protocol implementation (ports 2009/2011) |
+| **Register Map** | 4 registers including auto-incrementing 1Hz counter |
+| **Parameter Map** | 26 parameters including network settings |
+| **Pure Python** | Zero external dependencies, cross-platform |
+
+## Protocol
+
+### Discovery Protocol (UDP Port 2011)
+
+**Request (5 bytes):**
+```
+[0xDEADBEEF (4B, LE)] [0x01 (1B)]
+```
+
+**Response (variable):**
+```
+[0xDEADBEEF (4B)] [0x02 (1B)] [BoardType (1B)] [Firmware (2B)]
+[BoardID (4B)] [IP (4B)] [TCPPort (2B)] [UDPPort (2B)]
+[MAC (6B)] [Reserved (2B)] [Name (null-terminated)]
+```
+
+### Data Protocol (TCP/UDP)
+
+**Packet Format (6 bytes):**
+```
+[Command (1B)] [Address (1B)] [Value (4B, signed LE)]
+```
+
+**Commands:**
+- `1` - Read Register
+- `2` - Write Register
+- `3` - Read Parameter
+- `4` - Write Parameter
+- `5` - Take Control
+
+## Configuration
+
+### Environment Variables
+
+Create `.env` in the root directory:
+
+```bash
+# Server configuration
+PORT=3002
+
+# Build optimizations
+TSC_COMPILE_ON_ERROR=true
+GENERATE_SOURCEMAP=false
+```
+
+Create `client/.env`:
+
+```bash
+# Server URL (optional - auto-detects if not set)
+VITE_SERVER_URL=http://localhost:3002
+```
+
+### Map Profiles
+
+Custom register/parameter maps can be loaded from:
+- `client/public/maps/registers.map`
+- `client/public/maps/parameters.map`
+- `client/public/maps/boardtypes.map`
+
+Format:
+```c
+// C-style comments supported
+uint32_t    REGISTER_NAME;      // Register definition
+int32_t     SIGNED_REGISTER;
+float       FLOAT_REGISTER;
+hex         HEX_VALUE;
+```
+
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start both client and server in development mode |
+| `npm run dev:client` | Start Vite dev server (port 3000) |
+| `npm run dev:server` | Start Node.js server with nodemon (port 3002) |
+| `npm run build` | Build both client and server for production |
+| `npm run build:client` | Build client only with Vite |
+| `npm run build:server` | Compile TypeScript server |
+| `npm start` | Start production server |
+| `npm run clean` | Remove build artifacts |
 
 ## Performance
 
-- **Bundle Size**: 271 KB gzipped
-- **Load Time**: <2 seconds on broadband
-- **Memory Usage**: ~50 MB (client)
-- **Update Rate**: Up to 100 Hz plotting
-
-## Browser Support
-
-- Chrome 90+
-- Firefox 88+
-- Safari 14+
-- Edge 90+
+- **Build Time**: ~5 seconds (Vite)
+- **Bundle Size**: ~910 KB (all chunks)
+- **Dev Server Start**: <2 seconds
+- **Hot Reload**: <100ms
+- **Memory Usage**: ~75 MB (client runtime)
+- **Max Plot Rate**: 100 Hz
 
 ## Technology Stack
 
 **Frontend:**
-- React 19.x
-- Material-UI 7.x
-- Chart.js
-- Socket.IO Client
-- TypeScript
+- React 19.1.1
+- TypeScript 5.7.3
+- Vite 6.0.7
+- Material-UI 7.3.2
+- Chart.js 4.5.0
+- Socket.IO Client 4.8.1
 
 **Backend:**
-- Node.js
-- Express
-- Socket.IO
-- TypeScript
+- Node.js 18+
+- Express 4.18.2
+- Socket.IO 4.7.4
+- TypeScript 5.7.3
+- Winston 3.11.0 (logging)
 
-## Changelog
+**Development:**
+- PM2 6.0.14 (process manager)
+- ESLint 9.17.0
+- Nodemon 3.1.9
 
-### Version 2.0 (Professional Edition) - December 2024
+## Browser Support
 
-**New Features:**
-- Modern professional UI theme
-- Error boundaries
-- Toast notifications
-- Input validation
-- Loading states
-- Enhanced startup script
+- Chrome/Edge 90+
+- Firefox 88+
+- Safari 14+
 
-**Improvements:**
-- Configurable server URL
-- Connection state tracking
-- Plot persistence
-- Better error messages
-- Memory management
+## Troubleshooting
 
-**Bug Fixes:**
-- Packet format fixes
-- Dependency warnings
-- Plot filtering
-- Memory leaks
+### Build Errors
+
+**Out of Memory:**
+```bash
+export NODE_OPTIONS=--max-old-space-size=4096
+npm run build
+```
+
+**TypeScript Errors:**
+```bash
+npm run clean
+npm install
+npm run build
+```
+
+### Connection Issues
+
+**Cannot discover devices:**
+- Check firewall allows UDP port 2011
+- Ensure device and server on same network
+- Verify device firmware is running
+
+**Cannot connect to device:**
+- Click "Take Control" after connecting
+- Check firewall allows TCP port 2009 or UDP port 2011
+- Verify device IP address
+
+**WebSocket connection failed:**
+- Ensure server is running on port 3002
+- Check `VITE_SERVER_URL` in `client/.env`
+- Verify no firewall blocking WebSocket connections
+
+### Emulator Issues
+
+**Emulator not discovered:**
+```bash
+# Check if emulator is running
+ps aux | grep devicemon_emulator
+
+# Check if ports are available
+netstat -tuln | grep -E '2009|2011'
+
+# Restart emulator
+cd emulator
+./run_emulator.sh
+```
+
+## Documentation
+
+- [DEPLOYMENT-PM2.md](DEPLOYMENT-PM2.md) - Production deployment with PM2
+- [emulator/README.md](emulator/README.md) - Board emulator documentation
+- [VITE-MIGRATION.md](VITE-MIGRATION.md) - Vite migration details
+- [QUICK_START.md](QUICK_START.md) - User guide
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License.
+
+## Acknowledgments
+
+Built with modern web technologies for professional embedded device monitoring.
 
 ---
 
-For detailed information, see:
-- **QUICK_START.md** - Getting started guide
-- **IMPROVEMENTS_SUMMARY.md** - Technical details
-
-**Made with ❤️ for professional device monitoring**
+**Need Help?** Check the documentation in the `docs/` folder or open an issue.

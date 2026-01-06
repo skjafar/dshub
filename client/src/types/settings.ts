@@ -14,6 +14,13 @@ export interface ParameterMapItem {
   access: string;
 }
 
+// Custom maps structure for validation
+export interface CustomMaps {
+  name?: string;
+  registers?: RegisterMapItem[];
+  parameters?: ParameterMapItem[];
+}
+
 // Board type mapping entry
 export interface BoardTypeEntry {
   id: number;

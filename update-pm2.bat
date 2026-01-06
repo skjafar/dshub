@@ -9,8 +9,22 @@ echo DeviceMon Web - Update with PM2
 echo ======================================
 echo.
 
+REM Detect PM2 command (global or local via npx)
+set PM2_CMD=
+where pm2 >nul 2>nul
+if %ERRORLEVEL% equ 0 (
+    set PM2_CMD=call pm2
+) else if exist "node_modules\.bin\pm2.cmd" (
+    set PM2_CMD=call npx pm2
+) else (
+    echo ERROR: PM2 is not installed.
+    echo Please run 'deploy-pm2.bat' first to deploy the application.
+    pause
+    exit /b 1
+)
+
 REM Check if PM2 is running the app
-pm2 list | findstr "devicemon-web" >nul 2>nul
+%PM2_CMD% list | findstr "devicemon-web" >nul 2>nul
 if %ERRORLEVEL% neq 0 (
     echo ERROR: DeviceMon is not running in PM2.
     echo Please run 'deploy-pm2.bat' first to deploy the application.
@@ -56,11 +70,12 @@ cd ..
 echo.
 
 REM Build client
-echo Building client production bundle...
+echo Building client production bundle with Vite...
 cd client
 call npm run build
 if %ERRORLEVEL% neq 0 (
-    echo ERROR: Failed to build client
+    echo ERROR: Client build failed.
+    echo Check the error messages above for details.
     cd ..
     pause
     exit /b 1
@@ -80,7 +95,7 @@ echo.
 
 REM Reload application with zero downtime
 echo Reloading application with zero downtime...
-pm2 reload ecosystem.config.js
+%PM2_CMD% reload ecosystem.config.js
 echo.
 
 REM Display status
@@ -88,11 +103,15 @@ echo ======================================
 echo Update Complete!
 echo ======================================
 echo.
-pm2 list
+%PM2_CMD% list
 echo.
-pm2 logs devicemon-web --lines 20 --nostream
+%PM2_CMD% logs devicemon-web --lines 20 --nostream
 echo.
 echo Application has been updated and reloaded successfully.
-echo Run 'pm2 logs devicemon-web' to monitor the application.
+if "%PM2_CMD%"=="call pm2" (
+    echo Run 'call pm2 logs devicemon-web' to monitor the application.
+) else (
+    echo Run 'call npx pm2 logs devicemon-web' to monitor the application.
+)
 echo.
 pause

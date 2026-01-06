@@ -362,7 +362,7 @@ export function DeviceMonProvider({ children }: DeviceMonProviderProps) {
   useEffect(() => {
     // Connect to Socket.IO server
     // Use environment variable or default to current host
-    const serverUrl = process.env.REACT_APP_SERVER_URL || `${window.location.protocol}//${window.location.hostname}:3002`;
+    const serverUrl = import.meta.env.VITE_SERVER_URL || `${window.location.protocol}//${window.location.hostname}:3002`;
     const socket = io(serverUrl);
 
     // Send log settings IMMEDIATELY upon connection (before any other operations)
