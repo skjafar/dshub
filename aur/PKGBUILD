@@ -1,6 +1,6 @@
-# Maintainer: Your Name <your.email@example.com>
+# Maintainer: Sofian Jafar <skjafar@gmail.com>
 pkgname=devicemon-web
-pkgver=2.0.0
+pkgver=0.1.0
 pkgrel=1
 pkgdesc="Modern web application for monitoring and controlling embedded devices via TCP/UDP"
 arch=('x86_64' 'aarch64')

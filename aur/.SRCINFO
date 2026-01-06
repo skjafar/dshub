@@ -1,8 +1,8 @@
 pkgbase = devicemon-web
 	pkgdesc = Modern web application for monitoring and controlling embedded devices via TCP/UDP
-	pkgver = 2.0.0
+	pkgver = 0.1.0
 	pkgrel = 1
-	url = https://github.com/yourusername/devicemon-web
+	url = https://github.com/skjafar/devicemon-web
 	install = devicemon-web.install
 	arch = x86_64
 	arch = aarch64
@@ -17,7 +17,7 @@ pkgbase = devicemon-web
 	backup = etc/devicemon-web/maps/registers.map
 	backup = etc/devicemon-web/maps/parameters.map
 	backup = etc/devicemon-web/maps/boardtypes.map
-	source = git+https://github.com/yourusername/devicemon-web.git#tag=v2.0.0
+	source = git+https://github.com/skjafar/devicemon-web.git#tag=v0.1.0
 	sha256sums = SKIP
 
 pkgname = devicemon-web
