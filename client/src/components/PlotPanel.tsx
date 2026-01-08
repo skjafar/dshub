@@ -141,7 +141,7 @@ const createEmptyPlot = (id: string, plotNumber: number): PlotPanel => ({
   height: DEFAULT_PLOT_HEIGHT
 });
 
-export default function MultiPlotPanel() {
+export default function PlotPanel() {
   const { state, actions } = useDeviceMon();
   const { settings, getActiveProfile } = useSettings();
   const { showSuccess, showError } = useToast();
@@ -395,7 +395,7 @@ export default function MultiPlotPanel() {
     }));
 
     setUsedColors(prev => new Set([...prev, color]));
-    console.log(`[MultiPlotPanel] Starting plotting: ${selectedRegister}, pollInterval: ${pollInterval}ms, address: ${register.address}`);
+    console.log(`[PlotPanel] Starting plotting: ${selectedRegister}, pollInterval: ${pollInterval}ms, address: ${register.address}`);
     actions.startPlotting(selectedRegister, pollInterval, register.address);
     actions.setPlotTimeSpan(selectedRegister, timeSpan);
     setSelectedRegister('');
@@ -530,7 +530,7 @@ export default function MultiPlotPanel() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `devicemon-multiplot-data-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `devicemon-plot-data-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -1218,7 +1218,7 @@ export default function MultiPlotPanel() {
   return (
     <Box>
       <Typography variant="h5" component="h1" gutterBottom>
-        Multi-Plot Real-time Data Plotter
+        Real-time Data Plotter
       </Typography>
 
       {/* Controls */}

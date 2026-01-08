@@ -19,7 +19,7 @@ import {
   Menu as MenuIcon,
   AssessmentOutlined as StatusIcon,
   Search as SearchIcon,
-  Timeline as MultiPlotIcon,
+  Timeline as PlotIcon,
   Memory as ParametersIcon,
   Storage as RegistersIcon,
   History as LogsIcon,
@@ -34,7 +34,7 @@ import { useToast } from './ToastNotification';
 import { InterfaceType, ControlInterfaceState } from '../types/shared';
 import DeviceScannerPanel from './DeviceScannerPanel';
 import DeviceDashboard from './DeviceDashboard';
-import MultiPlotPanel from './MultiPlotPanel';
+import PlotPanel from './PlotPanel';
 import RegistersPanel from './RegistersPanel';
 import ParametersPanel from './ParametersPanel';
 import LogsPanel from './LogsPanel';
@@ -43,12 +43,12 @@ import SettingsPanel from './SettingsPanel';
 const drawerWidth = 240;
 const drawerWidthCollapsed = 64;
 
-type ViewType = 'scanner' | 'status' | 'multiplot' | 'registers' | 'parameters' | 'logs' | 'settings' | 'about';
+type ViewType = 'scanner' | 'status' | 'plot' | 'registers' | 'parameters' | 'logs' | 'settings' | 'about';
 
 const views: Array<{ key: ViewType; label: string; icon: React.ReactNode }> = [
   { key: 'scanner', label: 'Device Scanner', icon: <SearchIcon /> },
   { key: 'status', label: 'Status', icon: <StatusIcon /> },
-  { key: 'multiplot', label: 'Multi-Plot', icon: <MultiPlotIcon /> },
+  { key: 'plot', label: 'Plot', icon: <PlotIcon /> },
   { key: 'registers', label: 'Registers', icon: <RegistersIcon /> },
   { key: 'parameters', label: 'Parameters', icon: <ParametersIcon /> },
   { key: 'logs', label: 'Activity Logs', icon: <LogsIcon /> },
@@ -148,8 +148,8 @@ export default function MainLayout() {
         return <DeviceScannerPanel />;
       case 'status':
         return <DeviceDashboard />;
-      case 'multiplot':
-        return <MultiPlotPanel />;
+      case 'plot':
+        return <PlotPanel />;
       case 'registers':
         return <RegistersPanel />;
       case 'parameters':
