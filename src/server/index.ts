@@ -107,6 +107,7 @@ io.on('connection', (socket) => {
   // Plotting
   socket.on('startPlotting', (data) => {
     const { registerName, pollInterval, address } = typeof data === 'object' ? data : { registerName: data, pollInterval: 250, address: 0 };
+    console.log(`[Server] startPlotting received: registerName=${registerName}, pollInterval=${pollInterval}ms, address=${address}`);
     deviceCommunicator.startPlotting(registerName, pollInterval, address, (seriesName, point) => {
       socket.emit('plotData', seriesName, point);
     });

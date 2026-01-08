@@ -15,7 +15,14 @@ import {
   FormControlLabel,
   Chip,
   IconButton,
-  Paper
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  useTheme
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -79,6 +86,7 @@ interface PlotSeries {
   color: string;
   visible: boolean;
   pollInterval: number;
+  address: number;
 }
 
 interface ZoomPanState {
@@ -137,15 +145,23 @@ export default function MultiPlotPanel() {
   const { state, actions } = useDeviceMon();
   const { settings, getActiveProfile } = useSettings();
   const { showSuccess, showError } = useToast();
+  const theme = useTheme();
 
   const [selectedRegister, setSelectedRegister] = useState('');
   const [pollIntervalInput, setPollIntervalInput] = useState(settings.plotDefaults.pollInterval.toString());
   const [selectedPlotId, setSelectedPlotId] = useState('plot-1');
   const [isAutoscaleEnabled, setIsAutoscaleEnabled] = useState(true);
+  const [showStatistics, setShowStatistics] = useState(false);
   const [plots, setPlots] = useState<PlotPanel[]>([createEmptyPlot('plot-1', 1)]);
   const [timeSpan, setTimeSpan] = useState(settings.plotDefaults.timeSpan);
   const [timeSpanInput, setTimeSpanInput] = useState(settings.plotDefaults.timeSpan.toString());
   const [availableRegisters, setAvailableRegisters] = useState<MapEntry[]>([]);
+
+  // Counter for plot numbering - always increments, never reuses numbers
+  const nextPlotNumberRef = useRef(2);
+
+  // Force re-render for real-time updates
+  const [, forceUpdate] = useState(0);
 
   // Shared X-axis zoom across all plots
   const [sharedXZoom, setSharedXZoom] = useState<{ xMin: number | null; xMax: number | null }>({
@@ -178,6 +194,31 @@ export default function MultiPlotPanel() {
   useEffect(() => {
     isAutoscaleEnabledRef.current = isAutoscaleEnabled;
   }, [isAutoscaleEnabled]);
+
+
+  // Force re-render when plot data changes to update charts in real-time
+  useEffect(() => {
+    // Check if there are any active plots
+    const hasActivePlots = plots.some(plot => plot.series.size > 0);
+    if (!hasActivePlots) return;
+
+    // Set up interval to force updates - use shortest poll interval from active series
+    let minPollInterval = 1000; // Default to 1 second
+    plots.forEach(plot => {
+      plot.series.forEach(series => {
+        if (series.pollInterval < minPollInterval) {
+          minPollInterval = series.pollInterval;
+        }
+      });
+    });
+
+    // Update at the fastest poll rate to catch all data points
+    const interval = setInterval(() => {
+      forceUpdate(prev => prev + 1);
+    }, minPollInterval);
+
+    return () => clearInterval(interval);
+  }, [plots, forceUpdate]);
 
   // Validation helpers
   const validatePollInterval = (value: string): { valid: boolean; error?: string } => {
@@ -268,9 +309,11 @@ export default function MultiPlotPanel() {
       return;
     }
 
-    const newPlotNumber = plots.length + 1;
+    const newPlotNumber = nextPlotNumberRef.current;
     const newPlotId = `plot-${newPlotNumber}`;
     const newPlot = createEmptyPlot(newPlotId, newPlotNumber);
+
+    nextPlotNumberRef.current += 1;
 
     setPlots(prev => [...prev, newPlot]);
     setSelectedPlotId(newPlotId);
@@ -338,7 +381,8 @@ export default function MultiPlotPanel() {
       name: selectedRegister,
       color,
       visible: true,
-      pollInterval
+      pollInterval,
+      address: register.address
     };
 
     setPlots(prev => prev.map(plot => {
@@ -351,6 +395,7 @@ export default function MultiPlotPanel() {
     }));
 
     setUsedColors(prev => new Set([...prev, color]));
+    console.log(`[MultiPlotPanel] Starting plotting: ${selectedRegister}, pollInterval: ${pollInterval}ms, address: ${register.address}`);
     actions.startPlotting(selectedRegister, pollInterval, register.address);
     actions.setPlotTimeSpan(selectedRegister, timeSpan);
     setSelectedRegister('');
@@ -503,13 +548,15 @@ export default function MultiPlotPanel() {
 
   // Restore active plots from global state when component mounts
   useEffect(() => {
+
     const restoredSeries = new Map<string, PlotSeries>();
     state.activePlots.forEach((plotInfo, registerName) => {
       restoredSeries.set(registerName, {
         name: registerName,
         color: COLORS[restoredSeries.size % COLORS.length],
         visible: true,
-        pollInterval: plotInfo.pollInterval
+        pollInterval: plotInfo.pollInterval,
+        address: plotInfo.address
       });
     });
     if (restoredSeries.size > 0) {
@@ -528,16 +575,26 @@ export default function MultiPlotPanel() {
   const now = Date.now();
   const timeWindowStart = now - (timeSpan * 1000);
 
-  // Time config for axis
+  // Time config for axis with fixed step sizes
   const getTimeConfig = (spanSeconds: number) => {
     if (spanSeconds <= 120) {
-      return { unit: 'second' as const, minUnit: 'second' as const, format: 'HH:mm:ss' };
+      // Up to 2 minutes: 10 second intervals
+      return { unit: 'second' as const, minUnit: 'second' as const, stepSize: 10, format: 'HH:mm:ss' };
+    } else if (spanSeconds <= 600) {
+      // Up to 10 minutes: 1 minute intervals
+      return { unit: 'minute' as const, minUnit: 'minute' as const, stepSize: 1, format: 'HH:mm' };
     } else if (spanSeconds <= 3600) {
-      return { unit: 'minute' as const, minUnit: 'minute' as const, format: 'HH:mm' };
+      // Up to 1 hour: 5 minute intervals
+      return { unit: 'minute' as const, minUnit: 'minute' as const, stepSize: 5, format: 'HH:mm' };
+    } else if (spanSeconds <= 21600) {
+      // Up to 6 hours: 30 minute intervals
+      return { unit: 'minute' as const, minUnit: 'minute' as const, stepSize: 30, format: 'HH:mm' };
     } else if (spanSeconds <= 86400) {
-      return { unit: 'hour' as const, minUnit: 'hour' as const, format: 'HH:mm' };
+      // Up to 1 day: 2 hour intervals
+      return { unit: 'hour' as const, minUnit: 'hour' as const, stepSize: 2, format: 'HH:mm' };
     } else {
-      return { unit: 'day' as const, minUnit: 'hour' as const, format: 'MMM dd HH:mm' };
+      // More than 1 day: 6 hour intervals
+      return { unit: 'hour' as const, minUnit: 'hour' as const, stepSize: 6, format: 'MMM dd HH:mm' };
     }
   };
 
@@ -547,6 +604,24 @@ export default function MultiPlotPanel() {
   const getFilteredData = (data: any[], windowStartMs: number) => {
     if (data.length === 0) return [];
     return data.filter(point => (point.x * 1000) >= windowStartMs);
+  };
+
+  // Calculate statistics for a series
+  const calculateStatistics = (seriesName: string) => {
+    const seriesData = state.plotData.get(seriesName) || [];
+    const filteredData = getFilteredData(seriesData, timeWindowStart);
+
+    if (filteredData.length === 0) {
+      return { min: 0, max: 0, avg: 0, count: 0 };
+    }
+
+    const values = filteredData.map(point => point.y);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const sum = values.reduce((acc, val) => acc + val, 0);
+    const avg = sum / values.length;
+
+    return { min, max, avg, count: values.length };
   };
 
   // Generate chart data for a specific plot
@@ -576,107 +651,136 @@ export default function MultiPlotPanel() {
   };
 
   // Generate chart options for a specific plot
-  const getChartOptionsForPlot = (plot: PlotPanel) => ({
-    responsive: true,
-    maintainAspectRatio: false,
-    layout: {
-      padding: {
-        left: 10,
-        right: 10,
-        top: 10,
-        bottom: 10
-      }
-    },
-    interaction: {
-      mode: 'index' as const,
-      intersect: false,
-    },
-    plugins: {
-      legend: {
-        display: false,
-      },
-      title: {
-        display: false,
-      },
-      tooltip: {
-        callbacks: {
-          title: (context: any) => {
-            return new Date(context[0].parsed.x).toLocaleTimeString();
-          }
+  const getChartOptionsForPlot = (plot: PlotPanel) => {
+    // High contrast colors for text based on theme
+    const textColor = theme.palette.mode === 'dark' ? '#FFFFFF' : '#000000';
+    const gridColor = theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      layout: {
+        padding: {
+          left: 10,
+          right: 10,
+          top: 10,
+          bottom: 10
         }
       },
-      decimation: {
-        enabled: true,
-        algorithm: 'lttb' as const,
-        samples: 500
-      }
-    },
-    scales: {
-      x: {
-        type: 'time' as const,
-        min: sharedXZoom.xMin ?? timeWindowStart,
-        max: sharedXZoom.xMax ?? now,
-        time: {
-          unit: timeConfig.unit,
-          minUnit: timeConfig.minUnit,
-          displayFormats: {
-            second: 'HH:mm:ss',
-            minute: 'HH:mm',
-            hour: 'HH:mm',
-            day: 'MMM dd HH:mm'
-          }
+      interaction: {
+        mode: 'x' as const,
+        intersect: false,
+      },
+      plugins: {
+        legend: {
+          display: false,
         },
         title: {
-          display: true,
-          text: 'Time'
+          display: false,
         },
-        ticks: {
-          maxRotation: 0,
-          autoSkip: true,
-          maxTicksLimit: 10,
-          source: 'auto' as const,
-          major: {
-            enabled: true
+        tooltip: {
+          filter: (tooltipItem: any, index: number, tooltipItems: any[]) => {
+            // Only show one tooltip item per dataset
+            const datasetIndex = tooltipItem.datasetIndex;
+            const firstOccurrence = tooltipItems.findIndex(item => item.datasetIndex === datasetIndex);
+            return index === firstOccurrence;
+          },
+          callbacks: {
+            title: (context: any) => {
+              return new Date(context[0].parsed.x).toLocaleTimeString();
+            }
           }
         },
-        bounds: 'ticks' as const,
-        grid: {
-          display: true,
-          drawTicks: true,
-          tickLength: 8
+        decimation: {
+          enabled: false
         }
       },
-      y: {
-        type: 'linear' as const,
-        title: {
-          display: true,
-          text: 'Value'
+      scales: {
+        x: {
+          type: 'time' as const,
+          min: sharedXZoom.xMin ?? timeWindowStart,
+          max: sharedXZoom.xMax ?? now,
+          time: {
+            unit: timeConfig.unit,
+            stepSize: timeConfig.stepSize,
+            displayFormats: {
+              second: 'HH:mm:ss',
+              minute: 'HH:mm',
+              hour: 'HH:mm',
+              day: 'MMM dd HH:mm'
+            }
+          },
+          title: {
+            display: true,
+            text: 'Time',
+            color: textColor,
+            font: {
+              size: 14,
+              weight: 'bold' as const
+            }
+          },
+          ticks: {
+            maxRotation: 0,
+            source: 'auto' as const,
+            color: textColor,
+            font: {
+              size: 12
+            }
+          },
+          bounds: 'ticks' as const,
+          grid: {
+            display: true,
+            drawTicks: true,
+            tickLength: 8,
+            color: gridColor
+          }
         },
-        min: plot.zoomPan.yMin ?? undefined,
-        max: plot.zoomPan.yMax ?? undefined,
-        beginAtZero: false,
-        grace: plot.zoomPan.yMin !== null ? undefined : '5%',
+        y: {
+          type: 'linear' as const,
+          title: {
+            display: true,
+            text: 'Value',
+            color: textColor,
+            font: {
+              size: 14,
+              weight: 'bold' as const
+            }
+          },
+          ticks: {
+            color: textColor,
+            font: {
+              size: 12
+            }
+          },
+          grid: {
+            color: gridColor
+          },
+          min: plot.zoomPan.yMin ?? undefined,
+          max: plot.zoomPan.yMax ?? undefined,
+          beginAtZero: false,
+          grace: plot.zoomPan.yMin !== null ? undefined : '5%',
+        },
       },
-    },
-    animation: {
-      duration: 0
-    },
-    transitions: {
-      active: {
-        animation: {
-          duration: 0
+      animation: {
+        duration: 0
+      },
+      transitions: {
+        active: {
+          animation: {
+            duration: 0
+          }
+        }
+      },
+      elements: {
+        line: {
+          tension: 0
+        },
+        point: {
+          radius: 0
         }
       }
-    },
-    elements: {
-      line: {
-        tension: 0
-      },
-      point: {
-        radius: 0
-      }
-    }
-  });
+    };
+  };
 
   // Initialize refs for each plot
   useEffect(() => {
@@ -1191,8 +1295,8 @@ export default function MultiPlotPanel() {
                 helperText={validateTimeSpan(timeSpanInput).error}
               />
             </Grid>
-            <Grid size={{ xs: 12, sm: 2 }}>
-              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <Grid size={{ xs: 12 }}>
+              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', justifyContent: 'flex-start' }}>
                 <FormControlLabel
                   control={
                     <Switch
@@ -1202,6 +1306,16 @@ export default function MultiPlotPanel() {
                     />
                   }
                   label="Autoscale"
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={showStatistics}
+                      onChange={(e) => setShowStatistics(e.target.checked)}
+                      color="primary"
+                    />
+                  }
+                  label="Statistics"
                 />
                 <IconButton
                   color="secondary"
@@ -1219,7 +1333,7 @@ export default function MultiPlotPanel() {
 
       {/* Plots */}
       {plots.map((plot, plotIndex) => (
-        <Card key={plot.id} sx={{ mb: 2 }}>
+        <Card key={`${plot.id}-${showStatistics}`} sx={{ mb: 2 }}>
           <CardContent>
             {/* Plot Header */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
@@ -1258,15 +1372,16 @@ export default function MultiPlotPanel() {
               </Box>
             </Box>
 
-            {/* Chart */}
-            <Box sx={{ position: 'relative' }}>
+            {/* Chart and Statistics */}
+            <Box sx={{ display: 'flex', gap: 2, position: 'relative' }}>
               <Paper
                 ref={chartContainerRefs.current.get(plot.id)}
                 sx={{
                   p: 2,
                   height: plot.height,
                   position: 'relative',
-                  cursor: plot.mouseState.isPanning ? 'grabbing' : (plot.mouseState.isDrawing ? 'crosshair' : 'default')
+                  cursor: plot.mouseState.isPanning ? 'grabbing' : (plot.mouseState.isDrawing ? 'crosshair' : 'default'),
+                  flex: showStatistics ? '1 1 70%' : '1 1 100%'
                 }}
                 onWheel={(e) => handleWheel(plot.id, e)}
                 onMouseDown={(e) => handleMouseDown(plot.id, e)}
@@ -1314,6 +1429,59 @@ export default function MultiPlotPanel() {
                   </Box>
                 )}
               </Paper>
+
+              {/* Statistics Table */}
+              {showStatistics && plot.series.size > 0 && (
+                <TableContainer component={Paper} sx={{ flex: '0 0 30%', minWidth: '250px', maxHeight: plot.height }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 'bold' }}>Curve</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 'bold' }}>Min</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 'bold' }}>Max</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 'bold' }}>Avg</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {Array.from(plot.series.entries()).map(([name, series]) => {
+                        const stats = calculateStatistics(name);
+                        return (
+                          <TableRow
+                            key={name}
+                            sx={{
+                              opacity: series.visible ? 1 : 0.5,
+                              '&:hover': { backgroundColor: 'action.hover' }
+                            }}
+                          >
+                            <TableCell
+                              sx={{
+                                cursor: 'pointer',
+                                fontWeight: 'bold'
+                              }}
+                              onClick={() => handleSeriesVisibilityToggle(plot.id, name)}
+                            >
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Box
+                                  sx={{
+                                    width: '3px',
+                                    height: '16px',
+                                    backgroundColor: series.color,
+                                    borderRadius: '2px'
+                                  }}
+                                />
+                                {name}
+                              </Box>
+                            </TableCell>
+                            <TableCell align="right">{stats.min.toFixed(2)}</TableCell>
+                            <TableCell align="right">{stats.max.toFixed(2)}</TableCell>
+                            <TableCell align="right">{stats.avg.toFixed(2)}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
 
               {/* Resize Handle */}
               <Box

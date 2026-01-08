@@ -16,7 +16,8 @@ import {
   Chip,
   IconButton,
   Paper,
-  Tooltip
+  Tooltip,
+  useTheme
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -99,13 +100,18 @@ export default function PlotterPanel() {
   const { state, actions } = useDeviceMon();
   const { settings, getActiveProfile } = useSettings();
   const { showSuccess, showError } = useToast();
+  const theme = useTheme();
   const [selectedRegister, setSelectedRegister] = useState('');
   const [pollIntervalInput, setPollIntervalInput] = useState(settings.plotDefaults.pollInterval.toString());
   const [isAutoscaleEnabled, setIsAutoscaleEnabled] = useState(true);
+  const [showStatistics, setShowStatistics] = useState(false);
   const [activeSeries, setActiveSeries] = useState<Map<string, PlotSeries>>(new Map());
   const [timeSpan, setTimeSpan] = useState(settings.plotDefaults.timeSpan);
   const [timeSpanInput, setTimeSpanInput] = useState(settings.plotDefaults.timeSpan.toString());
   const [availableRegisters, setAvailableRegisters] = useState<MapEntry[]>([]);
+
+  // Force re-render for real-time updates
+  const [, forceUpdate] = useState(0);
 
   const chartRef = useRef<ChartJS<"line", any, any>>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -539,24 +545,50 @@ export default function PlotterPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run on mount to restore saved plots
 
+  // Force re-render when plot data changes to update charts in real-time
+  useEffect(() => {
+    if (activeSeries.size === 0) return;
+
+    // Find the shortest poll interval among active series
+    let minPollInterval = 1000; // Default to 1 second
+    activeSeries.forEach(series => {
+      if (series.pollInterval < minPollInterval) {
+        minPollInterval = series.pollInterval;
+      }
+    });
+
+    // Update at the fastest poll rate to catch all data points
+    const interval = setInterval(() => {
+      forceUpdate(prev => prev + 1);
+    }, minPollInterval);
+
+    return () => clearInterval(interval);
+  }, [activeSeries, forceUpdate]);
+
   // Calculate fixed time window for stable x-axis (eliminates jitter)
   const now = Date.now();
   const timeWindowStart = now - (timeSpan * 1000);
 
-  // Determine appropriate time unit and display format based on time span
+  // Determine appropriate time unit and display format based on time span with fixed step sizes
   const getTimeConfig = (spanSeconds: number) => {
     if (spanSeconds <= 120) {
-      // Up to 2 minutes: show seconds
-      return { unit: 'second' as const, minUnit: 'second' as const, format: 'HH:mm:ss' };
+      // Up to 2 minutes: 10 second intervals
+      return { unit: 'second' as const, minUnit: 'second' as const, stepSize: 10, format: 'HH:mm:ss' };
+    } else if (spanSeconds <= 600) {
+      // Up to 10 minutes: 1 minute intervals
+      return { unit: 'minute' as const, minUnit: 'minute' as const, stepSize: 1, format: 'HH:mm' };
     } else if (spanSeconds <= 3600) {
-      // Up to 1 hour: show minutes
-      return { unit: 'minute' as const, minUnit: 'minute' as const, format: 'HH:mm' };
+      // Up to 1 hour: 5 minute intervals
+      return { unit: 'minute' as const, minUnit: 'minute' as const, stepSize: 5, format: 'HH:mm' };
+    } else if (spanSeconds <= 21600) {
+      // Up to 6 hours: 30 minute intervals
+      return { unit: 'minute' as const, minUnit: 'minute' as const, stepSize: 30, format: 'HH:mm' };
     } else if (spanSeconds <= 86400) {
-      // Up to 1 day: show hours
-      return { unit: 'hour' as const, minUnit: 'hour' as const, format: 'HH:mm' };
+      // Up to 1 day: 2 hour intervals
+      return { unit: 'hour' as const, minUnit: 'hour' as const, stepSize: 2, format: 'HH:mm' };
     } else {
-      // More than 1 day: show days
-      return { unit: 'day' as const, minUnit: 'hour' as const, format: 'MMM dd HH:mm' };
+      // More than 1 day: 6 hour intervals
+      return { unit: 'hour' as const, minUnit: 'hour' as const, stepSize: 6, format: 'MMM dd HH:mm' };
     }
   };
 
@@ -594,6 +626,10 @@ export default function PlotterPanel() {
       })
   };
 
+  // High contrast colors for text based on theme
+  const textColor = theme.palette.mode === 'dark' ? '#FFFFFF' : '#000000';
+  const gridColor = theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
@@ -608,18 +644,35 @@ export default function PlotterPanel() {
       }
     },
     interaction: {
-      mode: 'index' as const,
+      mode: 'x' as const,
       intersect: false,
     },
     plugins: {
       legend: {
         position: 'top' as const,
+        labels: {
+          color: textColor,
+          font: {
+            size: 12
+          }
+        }
       },
       title: {
         display: true,
         text: 'Real-time Device Data',
+        color: textColor,
+        font: {
+          size: 16,
+          weight: 'bold' as const
+        }
       },
       tooltip: {
+        filter: (tooltipItem: any, index: number, tooltipItems: any[]) => {
+          // Only show one tooltip item per dataset
+          const datasetIndex = tooltipItem.datasetIndex;
+          const firstOccurrence = tooltipItems.findIndex(item => item.datasetIndex === datasetIndex);
+          return index === firstOccurrence;
+        },
         callbacks: {
           title: (context: any) => {
             return new Date(context[0].parsed.x).toLocaleTimeString();
@@ -627,9 +680,7 @@ export default function PlotterPanel() {
         }
       },
       decimation: {
-        enabled: true,
-        algorithm: 'lttb' as const,
-        samples: 500
+        enabled: false
       }
     },
     scales: {
@@ -639,7 +690,7 @@ export default function PlotterPanel() {
         max: zoomPan.xMax ?? now,              // Use zoom state if available
         time: {
           unit: timeConfig.unit,
-          minUnit: timeConfig.minUnit,
+          stepSize: timeConfig.stepSize,
           displayFormats: {
             second: 'HH:mm:ss',
             minute: 'HH:mm',
@@ -649,29 +700,48 @@ export default function PlotterPanel() {
         },
         title: {
           display: true,
-          text: 'Time'
+          text: 'Time',
+          color: textColor,
+          font: {
+            size: 14,
+            weight: 'bold' as const
+          }
         },
         ticks: {
           maxRotation: 0,
-          autoSkip: true,       // Enable auto-skip for large time spans
-          maxTicksLimit: 10,    // Fixed number of ticks for consistent spacing
-          source: 'auto' as const,       // Let Chart.js generate optimal ticks
-          major: {
-            enabled: true
+          source: 'auto' as const,
+          color: textColor,
+          font: {
+            size: 12
           }
         },
-        bounds: 'ticks' as const,        // Scale boundaries based on ticks, not data
+        bounds: 'ticks' as const,
         grid: {
           display: true,
           drawTicks: true,
-          tickLength: 8
+          tickLength: 8,
+          color: gridColor
         }
       },
       y: {
         type: 'linear' as const,
         title: {
           display: true,
-          text: 'Value'
+          text: 'Value',
+          color: textColor,
+          font: {
+            size: 14,
+            weight: 'bold' as const
+          }
+        },
+        ticks: {
+          color: textColor,
+          font: {
+            size: 12
+          }
+        },
+        grid: {
+          color: gridColor
         },
         min: zoomPan.yMin ?? undefined,
         max: zoomPan.yMax ?? undefined,
