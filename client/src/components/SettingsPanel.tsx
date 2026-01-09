@@ -250,10 +250,6 @@ export default function SettingsPanel() {
 
   return (
     <Box>
-      <Typography variant="h5" component="h1" gutterBottom>
-        Settings
-      </Typography>
-
       <Stack spacing={3}>
         {/* Theme Settings */}
         <Card>

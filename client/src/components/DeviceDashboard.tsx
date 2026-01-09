@@ -68,10 +68,6 @@ export default function DeviceDashboard() {
 
   return (
     <Box>
-      <Typography variant="h5" component="h1" gutterBottom>
-        Device Dashboard
-      </Typography>
-
       <Grid container spacing={3}>
         {/* Connection Status */}
         <Grid size={{ xs: 12, md: 6 }}>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   AppBar,
   Box,
@@ -13,41 +13,51 @@ import {
   Typography,
   Badge,
   useTheme,
-  Tooltip
+  Tooltip,
+  Button,
+  Slider,
+  CircularProgress
 } from '@mui/material';
 import {
   Menu as MenuIcon,
   AssessmentOutlined as StatusIcon,
   Search as SearchIcon,
   Timeline as PlotIcon,
+  Dashboard as DashboardIcon,
   Memory as ParametersIcon,
   Storage as RegistersIcon,
   History as LogsIcon,
   Info as AboutIcon,
   SettingsApplications as SettingsIcon,
   ChevronLeft as ChevronLeftIcon,
-  ChevronRight as ChevronRightIcon
+  ChevronRight as ChevronRightIcon,
+  Edit as EditIcon,
+  Add as AddIcon,
+  Refresh as RefreshIcon
 } from '@mui/icons-material';
 import { useDeviceMon } from '../contexts/DeviceMonContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import { InterfaceType, ControlInterfaceState } from '../types/shared';
+import { DEFAULT_GRID_CONFIG } from '../types/dashboard';
 import DeviceScannerPanel from './DeviceScannerPanel';
 import DeviceDashboard from './DeviceDashboard';
+import DashboardPanel, { DashboardPanelRef } from './DashboardPanel';
 import PlotPanel from './PlotPanel';
-import RegistersPanel from './RegistersPanel';
-import ParametersPanel from './ParametersPanel';
+import RegistersPanel, { RegistersPanelRef } from './RegistersPanel';
+import ParametersPanel, { ParametersPanelRef } from './ParametersPanel';
 import LogsPanel from './LogsPanel';
 import SettingsPanel from './SettingsPanel';
 
 const drawerWidth = 240;
 const drawerWidthCollapsed = 64;
 
-type ViewType = 'scanner' | 'status' | 'plot' | 'registers' | 'parameters' | 'logs' | 'settings' | 'about';
+type ViewType = 'scanner' | 'status' | 'dashboard' | 'plot' | 'registers' | 'parameters' | 'logs' | 'settings' | 'about';
 
 const views: Array<{ key: ViewType; label: string; icon: React.ReactNode }> = [
   { key: 'scanner', label: 'Device Scanner', icon: <SearchIcon /> },
   { key: 'status', label: 'Status', icon: <StatusIcon /> },
+  { key: 'dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
   { key: 'plot', label: 'Plot', icon: <PlotIcon /> },
   { key: 'registers', label: 'Registers', icon: <RegistersIcon /> },
   { key: 'parameters', label: 'Parameters', icon: <ParametersIcon /> },
@@ -67,6 +77,33 @@ export default function MainLayout() {
   const [autoConnectAttempts, setAutoConnectAttempts] = useState(0);
   const [isAutoConnecting, setIsAutoConnecting] = useState(false);
   const [hasAutoScanned, setHasAutoScanned] = useState(false);
+
+  // Dashboard control state
+  const [isDashboardEditMode, setIsDashboardEditMode] = useState(false);
+  const [dashboardCellSize, setDashboardCellSize] = useState(60);
+  const dashboardContainerRef = useRef<HTMLDivElement>(null);
+  const [dashboardContainerWidth, setDashboardContainerWidth] = useState(1200);
+
+  // Panel refs for exposing actions to AppBar
+  const registersPanelRef = useRef<RegistersPanelRef>(null);
+  const parametersPanelRef = useRef<ParametersPanelRef>(null);
+  const dashboardPanelRef = useRef<DashboardPanelRef>(null);
+
+  // Calculate dashboard columns based on container width and cell size
+  const dashboardCols = Math.floor(dashboardContainerWidth / dashboardCellSize) || DEFAULT_GRID_CONFIG.cols;
+
+  // Measure dashboard container width on mount and resize
+  useEffect(() => {
+    const updateWidth = () => {
+      if (dashboardContainerRef.current) {
+        setDashboardContainerWidth(dashboardContainerRef.current.offsetWidth);
+      }
+    };
+
+    updateWidth();
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
+  }, []);
 
   // Auto-scan on startup if enabled
   useEffect(() => {
@@ -142,18 +179,36 @@ export default function MainLayout() {
     setDrawerCollapsed(!drawerCollapsed);
   };
 
+  const handleDashboardAddWidget = () => {
+    dashboardPanelRef.current?.openAddWidgetDialog();
+  };
+
   const renderCurrentView = () => {
     switch (currentView) {
       case 'scanner':
         return <DeviceScannerPanel />;
       case 'status':
         return <DeviceDashboard />;
+      case 'dashboard':
+        return (
+          <DashboardPanel
+            ref={dashboardPanelRef}
+            isEditMode={isDashboardEditMode}
+            cellSize={dashboardCellSize}
+            cols={dashboardCols}
+            onEditModeChange={setIsDashboardEditMode}
+            onCellSizeChange={setDashboardCellSize}
+            onAddWidget={handleDashboardAddWidget}
+            containerRef={dashboardContainerRef}
+            containerWidth={dashboardContainerWidth}
+          />
+        );
       case 'plot':
         return <PlotPanel />;
       case 'registers':
-        return <RegistersPanel />;
+        return <RegistersPanel ref={registersPanelRef} />;
       case 'parameters':
-        return <ParametersPanel />;
+        return <ParametersPanel ref={parametersPanelRef} />;
       case 'logs':
         return <LogsPanel />;
       case 'settings':
@@ -349,10 +404,153 @@ export default function MainLayout() {
           >
             <MenuIcon />
           </IconButton>
-          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-            {views.find(v => v.key === currentView)?.label || 'DeviceMon'}
-          </Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+
+          {/* Scanner Controls - shown when on scanner view */}
+          {currentView === 'scanner' && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mr: 'auto' }}>
+              <Button
+                variant="contained"
+                startIcon={state.isScanning ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
+                onClick={actions.startScan}
+                disabled={state.isScanning}
+                color="primary"
+                size="small"
+              >
+                {state.isScanning ? 'Scanning...' : 'Scan Network'}
+              </Button>
+            </Box>
+          )}
+
+          {/* Dashboard Controls - shown when on dashboard view */}
+          {currentView === 'dashboard' && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mr: 'auto' }}>
+              <Button
+                variant={isDashboardEditMode ? 'contained' : 'outlined'}
+                startIcon={<EditIcon />}
+                onClick={() => setIsDashboardEditMode(!isDashboardEditMode)}
+                color={isDashboardEditMode ? 'primary' : 'inherit'}
+                size="small"
+              >
+                {isDashboardEditMode ? 'Exit Edit' : 'Edit'}
+              </Button>
+              {isDashboardEditMode && (
+                <>
+                  <Button
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={handleDashboardAddWidget}
+                    color="primary"
+                    size="small"
+                  >
+                    Add Widget
+                  </Button>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: 1 }}>
+                    <Typography variant="body2" color="inherit" sx={{ whiteSpace: 'nowrap', fontSize: '0.875rem' }}>
+                      Grid:
+                    </Typography>
+                    <Slider
+                      value={dashboardCellSize}
+                      onChange={(_, value) => setDashboardCellSize(value as number)}
+                      min={20}
+                      max={150}
+                      step={5}
+                      valueLabelDisplay="auto"
+                      valueLabelFormat={(value) => `${value}px`}
+                      sx={{
+                        width: 120,
+                        color: 'rgba(255, 255, 255, 0.9)',
+                        '& .MuiSlider-thumb': {
+                          width: 16,
+                          height: 16,
+                        },
+                        '& .MuiSlider-rail': {
+                          opacity: 0.3,
+                        }
+                      }}
+                    />
+                    <Typography variant="body2" color="inherit" sx={{ whiteSpace: 'nowrap', minWidth: '75px', fontSize: '0.875rem' }}>
+                      {dashboardCellSize}px
+                    </Typography>
+                  </Box>
+                </>
+              )}
+            </Box>
+          )}
+
+          {/* Registers Controls - shown when on registers view */}
+          {currentView === 'registers' && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mr: 'auto' }}>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => registersPanelRef.current?.openReadDialog()}
+                disabled={!state.connection?.connected}
+                color="primary"
+                size="small"
+              >
+                Read Register
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<RefreshIcon />}
+                onClick={() => registersPanelRef.current?.readAllMapped()}
+                disabled={!registersPanelRef.current?.canReadAll()}
+                size="small"
+                color="inherit"
+              >
+                Read All Mapped
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<RefreshIcon />}
+                onClick={() => registersPanelRef.current?.refreshAll()}
+                disabled={!registersPanelRef.current?.canRefreshAll()}
+                size="small"
+                color="inherit"
+              >
+                Refresh All
+              </Button>
+            </Box>
+          )}
+
+          {/* Parameters Controls - shown when on parameters view */}
+          {currentView === 'parameters' && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mr: 'auto' }}>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => parametersPanelRef.current?.openReadDialog()}
+                disabled={!state.connection?.connected}
+                color="primary"
+                size="small"
+              >
+                Read Parameter
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<RefreshIcon />}
+                onClick={() => parametersPanelRef.current?.readAllMapped()}
+                disabled={!parametersPanelRef.current?.canReadAll()}
+                size="small"
+                color="inherit"
+              >
+                Read All Mapped
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<RefreshIcon />}
+                onClick={() => parametersPanelRef.current?.refreshAll()}
+                disabled={!parametersPanelRef.current?.canRefreshAll()}
+                size="small"
+                color="inherit"
+              >
+                Refresh All
+              </Button>
+            </Box>
+          )}
+
+          {/* Connection Status - always on the right */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, ml: (currentView === 'dashboard' || currentView === 'scanner' || currentView === 'registers' || currentView === 'parameters') ? 0 : 'auto' }}>
             {state.connection && (
               <>
                 {state.connection.deviceName && (

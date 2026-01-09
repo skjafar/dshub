@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
 import {
   Box,
   Button,
@@ -135,7 +135,18 @@ function ReadParameterDialog({ open, onClose, onRead }: ReadParameterDialogProps
   );
 }
 
-export default function ParametersPanel() {
+export interface ParametersPanelRef {
+  openReadDialog: () => void;
+  readAllMapped: () => void;
+  refreshAll: () => void;
+  canReadAll: () => boolean;
+  canRefreshAll: () => boolean;
+  isMapLoaded: boolean;
+}
+
+interface ParametersPanelProps {}
+
+const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((props, ref) => {
   const { state, actions } = useDeviceMon();
   const { settings, getActiveProfile } = useSettings();
   const [editDialog, setEditDialog] = useState<{ open: boolean; parameter: any }>({
@@ -264,42 +275,18 @@ export default function ParametersPanel() {
 
   const parameters = getParametersToShow();
 
+  // Expose methods to parent component
+  useImperativeHandle(ref, () => ({
+    openReadDialog: () => setReadDialog(true),
+    readAllMapped: handleReadAllMapped,
+    refreshAll: handleRefreshAll,
+    canReadAll: () => state.connection?.connected && isMapLoaded,
+    canRefreshAll: () => state.connection?.connected && parameters.filter(p => p.value !== null).length > 0,
+    isMapLoaded
+  }));
+
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h5" component="h1">
-          Device Parameters
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant="outlined"
-            startIcon={<AddIcon />}
-            onClick={() => setReadDialog(true)}
-            disabled={!state.connection?.connected}
-          >
-            Read Parameter
-          </Button>
-          {isMapLoaded && (
-            <Button
-              variant="outlined"
-              startIcon={<RefreshIcon />}
-              onClick={handleReadAllMapped}
-              disabled={!state.connection?.connected}
-            >
-              Read All Mapped
-            </Button>
-          )}
-          <Button
-            variant="contained"
-            startIcon={<RefreshIcon />}
-            onClick={handleRefreshAll}
-            disabled={!state.connection?.connected || parameters.filter(p => p.value !== null).length === 0}
-          >
-            Refresh All
-          </Button>
-        </Box>
-      </Box>
-
       {/* Auto-refresh controls */}
       <Card sx={{ mb: 2 }}>
         <CardContent>
@@ -512,4 +499,8 @@ export default function ParametersPanel() {
       />
     </Box>
   );
-}
+});
+
+ParametersPanel.displayName = 'ParametersPanel';
+
+export default ParametersPanel;

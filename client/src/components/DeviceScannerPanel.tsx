@@ -148,20 +148,6 @@ export default function DeviceScannerPanel() {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h5" component="h1">
-          Device Scanner
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={state.isScanning ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
-          onClick={actions.startScan}
-          disabled={state.isScanning}
-        >
-          {state.isScanning ? 'Scanning...' : 'Scan Network'}
-        </Button>
-      </Box>
-
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Typography variant="h6" gutterBottom>

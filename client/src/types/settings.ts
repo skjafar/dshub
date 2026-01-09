@@ -1,3 +1,5 @@
+import { DashboardLayout } from './dashboard';
+
 export type ThemeMode = 'light' | 'dark' | 'auto';
 
 export interface RegisterMapItem {
@@ -68,6 +70,7 @@ export interface UserSettings {
   mapProfiles: MapProfile[]; // Saved map profiles (not including default)
   activeMapProfileId: string; // Currently active profile ID (default or custom)
   logSettings: LogSettings; // Activity log filtering and retention settings
+  dashboardLayouts: Record<string, DashboardLayout>; // Dashboard layouts per profile ID
 }
 
 export const DEFAULT_PROFILE_ID = 'default';
@@ -97,5 +100,6 @@ export const DEFAULT_SETTINGS: UserSettings = {
     enableAutoRefreshLogs: false, // Default off: Low impact but can be noisy
     enablePlottingLogs: false, // Default off: Low impact
     maxLogCount: 1000 // Default: 1000 entries (balanced performance)
-  }
+  },
+  dashboardLayouts: {} // Dashboard layouts per profile (empty by default)
 };

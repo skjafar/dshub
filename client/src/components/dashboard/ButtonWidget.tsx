@@ -1,0 +1,421 @@
+import React, { useState } from 'react';
+import { Box, Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography } from '@mui/material';
+import {
+  PlayArrow,
+  Stop,
+  Refresh,
+  Power,
+  PowerOff,
+  Upload,
+  Download,
+  Send,
+  Save,
+  Check,
+  Close,
+  Warning,
+  Info,
+  Settings,
+  Build,
+  Lock,
+  LockOpen,
+  Visibility,
+  VisibilityOff,
+  Home,
+  Dashboard,
+  Timeline,
+  Assessment,
+  Storage,
+  Memory,
+  BrightnessHigh,
+  BrightnessLow,
+  VolumeUp,
+  VolumeOff,
+  Speed,
+  ThermostatAuto,
+  WbSunny,
+  Nightlight,
+  Bolt,
+  ElectricBolt,
+  // Additional icons
+  Pause,
+  SkipNext,
+  SkipPrevious,
+  FastForward,
+  FastRewind,
+  Repeat,
+  Shuffle,
+  Edit,
+  ContentCopy,
+  ContentCut,
+  ContentPaste,
+  Print,
+  Share,
+  Favorite,
+  Star,
+  Notifications,
+  NotificationsOff,
+  Alarm,
+  AlarmOn,
+  Timer,
+  Schedule,
+  CalendarToday,
+  Event,
+  ArrowUpward,
+  ArrowDownward,
+  ArrowBack,
+  ArrowForward,
+  TrendingUp,
+  TrendingDown,
+  TrendingFlat,
+  ZoomIn,
+  ZoomOut,
+  Fullscreen,
+  FullscreenExit,
+  Remove,
+  Block,
+  Done,
+  DoneAll,
+  Error,
+  HelpOutline,
+  Report,
+  Lightbulb,
+  FlashOn,
+  FlashOff,
+  Wifi,
+  WifiOff,
+  Bluetooth,
+  BluetoothDisabled,
+  Mic,
+  MicOff,
+  Videocam,
+  VideocamOff,
+  Call,
+  CallEnd,
+  PhoneAndroid,
+  Computer,
+  Laptop,
+  Keyboard,
+  Mouse,
+  Router,
+  DeviceHub,
+  Sensors,
+  DeveloperBoard,
+  Air,
+  AcUnit,
+  LocalFireDepartment,
+  WaterDrop,
+  Opacity,
+  Cloud,
+  CloudOff,
+  Thunderstorm,
+  FilterDrama,
+  NightsStay,
+  Grade,
+  Stars,
+  WbIncandescent,
+  FluorescentOutlined,
+  Flag,
+  Bookmark,
+  LocalOffer,
+  Label,
+  ShoppingCart,
+  AttachMoney,
+  BarChart,
+  PieChart,
+  ShowChart,
+  MultilineChart,
+  BubbleChart,
+  ScatterPlot,
+  OpenInNew,
+  Launch,
+  Link,
+  LinkOff,
+  AttachFile,
+  CloudUpload,
+  CloudDownload,
+  Sync,
+  SyncDisabled,
+  CachedOutlined,
+  Loop,
+  Autorenew,
+  Update,
+  SystemUpdate,
+  GetApp,
+  Publish,
+  Undo,
+  Redo,
+  Reply,
+  Forward as ForwardIcon,
+  Search,
+  FilterList,
+  Sort,
+  ViewList,
+  ViewModule,
+  ViewQuilt,
+  GridView,
+  RestartAlt,
+  Add as AddIcon,
+  Delete as DeleteIcon
+} from '@mui/icons-material';
+import { ButtonWidgetConfig } from '../../types/dashboard';
+import { useDeviceMon } from '../../contexts/DeviceMonContext';
+import { useToast } from '../ToastNotification';
+
+// Icon mapping for button widgets
+const ICON_COMPONENTS: Record<string, React.ComponentType> = {
+  PlayArrow,
+  Pause,
+  Stop,
+  SkipNext,
+  SkipPrevious,
+  FastForward,
+  FastRewind,
+  Repeat,
+  Shuffle,
+  AddIcon,
+  Remove,
+  DeleteIcon,
+  Edit,
+  Check,
+  DoneAll,
+  Close,
+  Block,
+  Save,
+  Send,
+  Share,
+  Print,
+  ContentCopy,
+  ContentCut,
+  ContentPaste,
+  Undo,
+  Redo,
+  Power,
+  PowerOff,
+  Refresh,
+  RestartAlt,
+  Sync,
+  SyncDisabled,
+  Loop,
+  Autorenew,
+  Update,
+  SystemUpdate,
+  Upload,
+  Download,
+  CloudUpload,
+  CloudDownload,
+  GetApp,
+  Publish,
+  Warning,
+  Error,
+  Info,
+  HelpOutline,
+  Report,
+  Notifications,
+  NotificationsOff,
+  Alarm,
+  AlarmOn,
+  Settings,
+  Build,
+  Lock,
+  LockOpen,
+  Visibility,
+  VisibilityOff,
+  Home,
+  Dashboard,
+  ArrowUpward,
+  ArrowDownward,
+  ArrowBack,
+  ArrowForward,
+  Reply,
+  ForwardIcon,
+  OpenInNew,
+  Launch,
+  Timeline,
+  Assessment,
+  TrendingUp,
+  TrendingDown,
+  TrendingFlat,
+  BarChart,
+  PieChart,
+  ShowChart,
+  MultilineChart,
+  BubbleChart,
+  ScatterPlot,
+  Storage,
+  Memory,
+  PhoneAndroid,
+  Computer,
+  Laptop,
+  Keyboard,
+  Mouse,
+  Router,
+  DeviceHub,
+  Sensors,
+  DeveloperBoard,
+  Wifi,
+  WifiOff,
+  Bluetooth,
+  BluetoothDisabled,
+  Link,
+  LinkOff,
+  AttachFile,
+  Call,
+  CallEnd,
+  Mic,
+  MicOff,
+  Videocam,
+  VideocamOff,
+  BrightnessHigh,
+  BrightnessLow,
+  Lightbulb,
+  FlashOn,
+  FlashOff,
+  WbIncandescent,
+  FluorescentOutlined,
+  VolumeUp,
+  VolumeOff,
+  WbSunny,
+  Nightlight,
+  NightsStay,
+  Cloud,
+  CloudOff,
+  Thunderstorm,
+  FilterDrama,
+  Air,
+  AcUnit,
+  LocalFireDepartment,
+  WaterDrop,
+  Opacity,
+  ThermostatAuto,
+  Bolt,
+  ElectricBolt,
+  Speed,
+  Favorite,
+  Star,
+  Grade,
+  Stars,
+  Flag,
+  Bookmark,
+  Label,
+  Timer,
+  Schedule,
+  CalendarToday,
+  Event,
+  ZoomIn,
+  ZoomOut,
+  Fullscreen,
+  FullscreenExit,
+  ViewList,
+  ViewModule,
+  ViewQuilt,
+  GridView,
+  Search,
+  FilterList,
+  Sort
+};
+
+interface ButtonWidgetProps {
+  config: ButtonWidgetConfig;
+  isEditMode: boolean;
+}
+
+export default function ButtonWidget({ config, isEditMode }: ButtonWidgetProps) {
+  const { state, actions } = useDeviceMon();
+  const { showSuccess, showError } = useToast();
+  const [confirmDialog, setConfirmDialog] = useState(false);
+
+  // Get the icon component if configured
+  const IconComponent = config.icon ? ICON_COMPONENTS[config.icon] : null;
+
+  // Check if label is empty or just whitespace
+  const hasLabel = config.label && config.label.trim().length > 0;
+
+  const handleClick = () => {
+    if (isEditMode) return; // Don't trigger actions in edit mode
+
+    if (!state.connection?.connected) {
+      showError('Not connected to device');
+      return;
+    }
+
+    if (config.confirmationRequired) {
+      setConfirmDialog(true);
+    } else {
+      executeWrite();
+    }
+  };
+
+  const executeWrite = () => {
+    setConfirmDialog(false);
+
+    try {
+      if (config.target === 'register') {
+        actions.writeRegister(config.address, config.valueToWrite);
+        showSuccess(`Wrote ${config.valueToWrite} to register ${config.address}`);
+      } else {
+        actions.writeParameter(config.address, config.valueToWrite);
+        showSuccess(`Wrote ${config.valueToWrite} to parameter ${config.address}`);
+      }
+    } catch (error) {
+      showError(`Failed to write value: ${error}`);
+    }
+  };
+
+  return (
+    <>
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%',
+          gap: 1
+        }}
+      >
+        <Button
+          variant="contained"
+          size="large"
+          fullWidth
+          onClick={handleClick}
+          disabled={isEditMode || !state.connection?.connected}
+          startIcon={hasLabel && IconComponent ? <IconComponent /> : undefined}
+          sx={{
+            backgroundColor: config.color || 'primary.main',
+            '&:hover': {
+              backgroundColor: config.color || 'primary.dark'
+            },
+            minHeight: '48px',
+            fontSize: '1rem',
+            fontWeight: 'bold'
+          }}
+        >
+          {hasLabel ? config.label : (IconComponent ? <IconComponent /> : config.label)}
+        </Button>
+
+        {!state.connection?.connected && (
+          <Typography variant="caption" color="text.secondary">
+            Not connected
+          </Typography>
+        )}
+      </Box>
+
+      {/* Confirmation Dialog */}
+      <Dialog open={confirmDialog} onClose={() => setConfirmDialog(false)}>
+        <DialogTitle>Confirm Action</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to write <strong>{config.valueToWrite}</strong> to{' '}
+            {config.target} <strong>{config.address}</strong>?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDialog(false)}>Cancel</Button>
+          <Button onClick={executeWrite} variant="contained" color="primary">
+            Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  );
+}

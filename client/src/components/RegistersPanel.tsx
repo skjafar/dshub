@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
 import {
   Box,
   Button,
@@ -138,7 +138,18 @@ function ReadRegisterDialog({ open, onClose, onRead }: ReadRegisterDialogProps) 
   );
 }
 
-export default function RegistersPanel() {
+export interface RegistersPanelRef {
+  openReadDialog: () => void;
+  readAllMapped: () => void;
+  refreshAll: () => void;
+  canReadAll: () => boolean;
+  canRefreshAll: () => boolean;
+  isMapLoaded: boolean;
+}
+
+interface RegistersPanelProps {}
+
+const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props, ref) => {
   const { state, actions } = useDeviceMon();
   const { settings, getActiveProfile } = useSettings();
   const [editDialog, setEditDialog] = useState<{ open: boolean; register: any }>({
@@ -281,42 +292,18 @@ export default function RegistersPanel() {
   const visibleRegisters = getRegistersForCurrentTab();
   const allMappedRegisters = getAllMappedRegisters();
 
+  // Expose methods to parent component
+  useImperativeHandle(ref, () => ({
+    openReadDialog: () => setReadDialog(true),
+    readAllMapped: handleReadAllMapped,
+    refreshAll: handleRefreshAll,
+    canReadAll: () => state.connection?.connected && isMapLoaded,
+    canRefreshAll: () => state.connection?.connected && visibleRegisters.filter(r => r.value !== null).length > 0,
+    isMapLoaded
+  }));
+
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h5" component="h1">
-          Device Registers
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant="outlined"
-            startIcon={<AddIcon />}
-            onClick={() => setReadDialog(true)}
-            disabled={!state.connection?.connected}
-          >
-            Read Register
-          </Button>
-          {isMapLoaded && (
-            <Button
-              variant="outlined"
-              startIcon={<RefreshIcon />}
-              onClick={handleReadAllMapped}
-              disabled={!state.connection?.connected}
-            >
-              Read All Mapped
-            </Button>
-          )}
-          <Button
-            variant="contained"
-            startIcon={<RefreshIcon />}
-            onClick={handleRefreshAll}
-            disabled={!state.connection?.connected || visibleRegisters.filter(r => r.value !== null).length === 0}
-          >
-            Refresh All
-          </Button>
-        </Box>
-      </Box>
-
       {/* Auto-refresh controls */}
       <Card sx={{ mb: 2 }}>
         <CardContent>
@@ -540,4 +527,8 @@ export default function RegistersPanel() {
       />
     </Box>
   );
-}
+});
+
+RegistersPanel.displayName = 'RegistersPanel';
+
+export default RegistersPanel;

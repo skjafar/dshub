@@ -20,9 +20,12 @@ import {
 } from '@mui/material';
 import {
   Clear as ClearIcon,
-  Download as ExportIcon
+  Download as ExportIcon,
+  Pause as PauseIcon,
+  PlayArrow as PlayIcon
 } from '@mui/icons-material';
 import { useDeviceMon } from '../contexts/DeviceMonContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { LogEntry } from '../types/shared';
 
 const getLevelColor = (level: LogEntry['level']) => {
@@ -44,32 +47,141 @@ const getLevelColor = (level: LogEntry['level']) => {
 
 export default function LogsPanel() {
   const { state, actions } = useDeviceMon();
+  const { settings } = useSettings();
   const [levelFilter, setLevelFilter] = useState<LogEntry['level'] | 'all'>('all');
-  const [autoScroll, setAutoScroll] = useState(true);
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+  const [isLoggingPaused, setIsLoggingPaused] = useState(false);
   const listEndRef = useRef<HTMLDivElement>(null);
   const listContainerRef = useRef<HTMLDivElement>(null);
+  const isUserAtBottomRef = useRef(true);
+  const prevLogsRef = useRef<LogEntry[]>(state.logs);
+  const prevScrollTopRef = useRef(0);
+  const pausedLogsRef = useRef<LogEntry[]>([]);
 
-  // Auto-scroll to bottom when new logs arrive
-  useEffect(() => {
-    if (autoScroll && listEndRef.current) {
-      listEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [state.logs, autoScroll]);
-
-  // Check if user has scrolled up and disable auto-scroll
-  const handleScroll = () => {
+  // Check if user is at bottom of scroll
+  const checkIfAtBottom = () => {
     if (listContainerRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = listContainerRef.current;
-      const isAtBottom = scrollTop + clientHeight >= scrollHeight - 5;
-      if (!isAtBottom && autoScroll) {
-        setAutoScroll(false);
-      } else if (isAtBottom && !autoScroll) {
-        setAutoScroll(true);
-      }
+      const threshold = 50; // pixels from bottom
+      return scrollTop + clientHeight >= scrollHeight - threshold;
     }
+    return true;
   };
 
-  const filteredLogs = state.logs.filter(log => 
+  // Get the timestamp of the first visible log
+  const getFirstVisibleLogTimestamp = (): number | null => {
+    if (!listContainerRef.current) return null;
+
+    const container = listContainerRef.current;
+    const listItems = container.querySelectorAll('.log-item');
+
+    for (let item of Array.from(listItems)) {
+      const rect = (item as HTMLElement).getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+
+      if (rect.top >= containerRect.top) {
+        const timestamp = (item as HTMLElement).dataset.timestamp;
+        return timestamp ? parseInt(timestamp) : null;
+      }
+    }
+    return null;
+  };
+
+  // Smart scroll: maintain view position when logs are removed, or scroll to bottom if viewing oldest logs
+  useEffect(() => {
+    const prevLogs = prevLogsRef.current;
+    const currentLogs = state.logs;
+    const maxLogCount = settings.logSettings.maxLogCount;
+
+    // Check if logs were removed from the beginning (buffer full)
+    const logsWereRemoved = currentLogs.length === maxLogCount &&
+                           prevLogs.length === maxLogCount &&
+                           currentLogs.length > 0 &&
+                           prevLogs.length > 0 &&
+                           currentLogs[0].timestamp !== prevLogs[0].timestamp;
+
+    if (logsWereRemoved && !isUserAtBottomRef.current && listContainerRef.current) {
+      // Find which log was at the top of viewport
+      const firstVisibleTimestamp = getFirstVisibleLogTimestamp();
+
+      if (firstVisibleTimestamp) {
+        // Check if this log still exists
+        const logIndex = currentLogs.findIndex(log => log.timestamp === firstVisibleTimestamp);
+
+        if (logIndex !== -1) {
+          // Calculate if the log is in the "danger zone" (oldest 10%)
+          const dangerZoneThreshold = Math.floor(maxLogCount * 0.1);
+
+          if (logIndex < dangerZoneThreshold) {
+            // Log is too old, scroll to bottom
+            setTimeout(() => {
+              if (listEndRef.current) {
+                listEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                isUserAtBottomRef.current = true;
+              }
+            }, 0);
+          } else {
+            // Maintain scroll position - scroll to the same log
+            setTimeout(() => {
+              const logElement = listContainerRef.current?.querySelector(`[data-timestamp="${firstVisibleTimestamp}"]`);
+              if (logElement) {
+                logElement.scrollIntoView({ block: 'start', behavior: 'auto' });
+              }
+            }, 0);
+          }
+        } else {
+          // Log was removed, scroll to bottom
+          setTimeout(() => {
+            if (listEndRef.current) {
+              listEndRef.current.scrollIntoView({ behavior: 'smooth' });
+              isUserAtBottomRef.current = true;
+            }
+          }, 0);
+        }
+      }
+    } else if (currentLogs.length > prevLogs.length && isUserAtBottomRef.current && autoScrollEnabled) {
+      // Normal case: new logs added and user is at bottom
+      setTimeout(() => {
+        if (listEndRef.current) {
+          listEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      }, 0);
+    }
+
+    prevLogsRef.current = currentLogs;
+  }, [state.logs, autoScrollEnabled, settings.logSettings.maxLogCount]);
+
+  // Track scroll position to determine if user is at bottom
+  const handleScroll = () => {
+    if (listContainerRef.current) {
+      prevScrollTopRef.current = listContainerRef.current.scrollTop;
+    }
+    isUserAtBottomRef.current = checkIfAtBottom();
+  };
+
+  // When user manually enables auto-scroll, scroll to bottom immediately
+  useEffect(() => {
+    if (autoScrollEnabled && listEndRef.current) {
+      listEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      isUserAtBottomRef.current = true;
+    }
+  }, [autoScrollEnabled]);
+
+  // Handle pause/resume logging
+  useEffect(() => {
+    if (isLoggingPaused && pausedLogsRef.current.length === 0) {
+      // Just paused - store current logs
+      pausedLogsRef.current = state.logs;
+    } else if (!isLoggingPaused) {
+      // Resumed - clear paused logs
+      pausedLogsRef.current = [];
+    }
+  }, [isLoggingPaused, state.logs]);
+
+  // Use paused logs if paused, otherwise use current logs
+  const displayLogs = isLoggingPaused ? pausedLogsRef.current : state.logs;
+
+  const filteredLogs = displayLogs.filter(log =>
     levelFilter === 'all' || log.level === levelFilter
   );
 
@@ -91,34 +203,20 @@ export default function LogsPanel() {
     actions.clearLogs();
   };
 
-  const levelCounts = state.logs.reduce((acc, log) => {
+  const levelCounts = displayLogs.reduce((acc, log) => {
     acc[log.level] = (acc[log.level] || 0) + 1;
     return acc;
   }, {} as Record<LogEntry['level'], number>);
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h5" component="h1">
-          Activity Log ({state.logs.length} entries)
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <IconButton onClick={exportLogs} title="Export Logs" disabled={state.logs.length === 0}>
-            <ExportIcon />
-          </IconButton>
-          <IconButton onClick={clearLogs} title="Clear Logs" disabled={state.logs.length === 0}>
-            <ClearIcon />
-          </IconButton>
-        </Box>
-      </Box>
-
       {/* Stats and Controls */}
       <Card sx={{ mb: 2 }}>
         <CardContent>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
               <Chip
-                label={`Total: ${state.logs.length}`}
+                label={`Total: ${displayLogs.length}`}
                 size="small"
                 variant="outlined"
               />
@@ -149,17 +247,44 @@ export default function LogsPanel() {
                   <MenuItem value="packet">Packets</MenuItem>
                 </Select>
               </FormControl>
-              
+
               <FormControlLabel
                 control={
                   <Switch
-                    checked={autoScroll}
-                    onChange={(e) => setAutoScroll(e.target.checked)}
+                    checked={autoScrollEnabled}
+                    onChange={(e) => setAutoScrollEnabled(e.target.checked)}
                     size="small"
                   />
                 }
                 label="Auto-scroll"
               />
+
+              <IconButton
+                onClick={() => setIsLoggingPaused(!isLoggingPaused)}
+                title={isLoggingPaused ? "Resume Logging" : "Pause Logging"}
+                size="small"
+                color={isLoggingPaused ? "warning" : "default"}
+              >
+                {isLoggingPaused ? <PlayIcon /> : <PauseIcon />}
+              </IconButton>
+
+              <IconButton
+                onClick={exportLogs}
+                title="Export Logs"
+                disabled={displayLogs.length === 0}
+                size="small"
+              >
+                <ExportIcon />
+              </IconButton>
+
+              <IconButton
+                onClick={clearLogs}
+                title="Clear Logs"
+                disabled={displayLogs.length === 0}
+                size="small"
+              >
+                <ClearIcon />
+              </IconButton>
             </Box>
           </Box>
         </CardContent>
@@ -175,7 +300,7 @@ export default function LogsPanel() {
         {filteredLogs.length === 0 ? (
           <Box sx={{ p: 3, textAlign: 'center' }}>
             <Typography color="text.secondary">
-              {state.logs.length === 0 
+              {displayLogs.length === 0
                 ? 'No log entries yet. Activity will appear here as the application runs.'
                 : `No ${levelFilter} log entries found.`
               }
@@ -204,10 +329,12 @@ export default function LogsPanel() {
                 });
                 
                 return (
-                  <ListItem 
-                    key={`${log.timestamp}-${index}`} 
+                  <ListItem
+                    key={`${log.timestamp}-${index}`}
+                    className="log-item"
+                    data-timestamp={log.timestamp}
                     alignItems="flex-start"
-                    sx={{ 
+                    sx={{
                       color: '#ffffff',
                       '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)' }
                     }}

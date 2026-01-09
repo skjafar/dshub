@@ -551,6 +551,10 @@ export default function PlotPanel() {
 
     const restoredSeries = new Map<string, PlotSeries>();
     state.activePlots.forEach((plotInfo, registerName) => {
+      // Skip dashboard plots (they have 'dashboard:' prefix)
+      if (registerName.startsWith('dashboard:')) {
+        return;
+      }
       restoredSeries.set(registerName, {
         name: registerName,
         color: COLORS[restoredSeries.size % COLORS.length],
@@ -1217,10 +1221,6 @@ export default function PlotPanel() {
 
   return (
     <Box>
-      <Typography variant="h5" component="h1" gutterBottom>
-        Real-time Data Plotter
-      </Typography>
-
       {/* Controls */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
@@ -1283,7 +1283,7 @@ export default function PlotPanel() {
                 Add Series
               </Button>
             </Grid>
-            <Grid size={{ xs: 12, sm: 2 }}>
+            <Grid size={{ xs: 12, sm: 1.5 }}>
               <TextField
                 fullWidth
                 size="small"
@@ -1295,8 +1295,8 @@ export default function PlotPanel() {
                 helperText={validateTimeSpan(timeSpanInput).error}
               />
             </Grid>
-            <Grid size={{ xs: 12 }}>
-              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', justifyContent: 'flex-start' }}>
+            <Grid size={{ xs: 12, sm: 2.5 }}>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', justifyContent: 'flex-start' }}>
                 <FormControlLabel
                   control={
                     <Switch
@@ -1306,6 +1306,7 @@ export default function PlotPanel() {
                     />
                   }
                   label="Autoscale"
+                  sx={{ mr: 0 }}
                 />
                 <FormControlLabel
                   control={
@@ -1316,12 +1317,14 @@ export default function PlotPanel() {
                     />
                   }
                   label="Statistics"
+                  sx={{ mr: 0 }}
                 />
                 <IconButton
                   color="secondary"
                   onClick={handleSaveData}
                   title="Save Data"
                   disabled={plots.every(plot => plot.series.size === 0)}
+                  size="small"
                 >
                   <SaveIcon />
                 </IconButton>
