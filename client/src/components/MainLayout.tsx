@@ -33,7 +33,8 @@ import {
   ChevronRight as ChevronRightIcon,
   Edit as EditIcon,
   Add as AddIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Description as MapEditorIcon
 } from '@mui/icons-material';
 import { useDeviceMon } from '../contexts/DeviceMonContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -48,11 +49,12 @@ import RegistersPanel, { RegistersPanelRef } from './RegistersPanel';
 import ParametersPanel, { ParametersPanelRef } from './ParametersPanel';
 import LogsPanel from './LogsPanel';
 import SettingsPanel from './SettingsPanel';
+import MapEditorPanel from './maps/MapEditorPanel';
 
 const drawerWidth = 240;
 const drawerWidthCollapsed = 64;
 
-type ViewType = 'scanner' | 'status' | 'dashboard' | 'plot' | 'registers' | 'parameters' | 'logs' | 'settings' | 'about';
+type ViewType = 'scanner' | 'status' | 'dashboard' | 'plot' | 'registers' | 'parameters' | 'logs' | 'mapeditor' | 'settings' | 'about';
 
 const views: Array<{ key: ViewType; label: string; icon: React.ReactNode }> = [
   { key: 'scanner', label: 'Device Scanner', icon: <SearchIcon /> },
@@ -62,6 +64,7 @@ const views: Array<{ key: ViewType; label: string; icon: React.ReactNode }> = [
   { key: 'registers', label: 'Registers', icon: <RegistersIcon /> },
   { key: 'parameters', label: 'Parameters', icon: <ParametersIcon /> },
   { key: 'logs', label: 'Activity Logs', icon: <LogsIcon /> },
+  { key: 'mapeditor', label: 'Map Editor', icon: <MapEditorIcon /> },
   { key: 'settings', label: 'Settings', icon: <SettingsIcon /> },
   { key: 'about', label: 'About', icon: <AboutIcon /> },
 ];
@@ -211,6 +214,8 @@ export default function MainLayout() {
         return <ParametersPanel ref={parametersPanelRef} />;
       case 'logs':
         return <LogsPanel />;
+      case 'mapeditor':
+        return <MapEditorPanel />;
       case 'settings':
         return <SettingsPanel />;
       case 'about':
