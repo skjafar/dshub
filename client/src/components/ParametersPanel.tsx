@@ -179,12 +179,10 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
   );
 
   const handleRefreshAll = () => {
-    // Read only parameters that have been previously read (have actual values)
+    // Read all parameters in the current view
     parameters.forEach((parameter) => {
-      if (parameter.value !== null && parameter.value !== undefined) {
-        const mapEntry = getMapEntryForParameter(parameter.address);
-        actions.readParameter(parameter.address, mapEntry?.name || parameter.name);
-      }
+      const mapEntry = getMapEntryForParameter(parameter.address);
+      actions.readParameter(parameter.address, mapEntry?.name || parameter.name);
     });
   };
 
@@ -207,22 +205,6 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
     actions.readParameter(address, name);
   };
 
-  const handleAutoRefreshToggle = (enabled: boolean) => {
-    actions.setAutoRefresh(enabled, autoRefreshInterval);
-    
-    if (enabled) {
-      // Add all visible parameters with values to auto-refresh
-      parameters.forEach(parameter => {
-        if (parameter.value !== null && parameter.value !== undefined) {
-          actions.addAutoRefreshParameter(parameter.address);
-        }
-      });
-    } else {
-      // Clear all parameter addresses from auto-refresh
-      actions.clearAutoRefreshAddresses();
-    }
-  };
-
   const handleAutoRefreshIntervalChange = (interval: number) => {
     setAutoRefreshInterval(interval);
     if (state.autoRefresh.enabled) {
@@ -233,8 +215,37 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
   const toggleParameterAutoRefresh = (address: number, enabled: boolean) => {
     if (enabled) {
       actions.addAutoRefreshParameter(address);
+      // Enable auto-refresh if not already enabled
+      if (!state.autoRefresh.enabled) {
+        actions.setAutoRefresh(true, autoRefreshInterval);
+      }
     } else {
       actions.removeAutoRefreshParameter(address);
+      // Disable auto-refresh if no addresses are active
+      if (state.autoRefresh.activeParameterAddresses.size === 1 && state.autoRefresh.activeAddresses.size === 0) {
+        // This is the last address, disable auto-refresh
+        actions.setAutoRefresh(false);
+      }
+    }
+  };
+
+  const toggleAllParametersAutoRefresh = (enabled: boolean) => {
+    parameters.forEach((parameter) => {
+      if (enabled) {
+        actions.addAutoRefreshParameter(parameter.address);
+      } else {
+        actions.removeAutoRefreshParameter(parameter.address);
+      }
+    });
+
+    // Enable/disable auto-refresh based on state
+    if (enabled) {
+      actions.setAutoRefresh(true, autoRefreshInterval);
+    } else {
+      // Only disable if registers are also empty
+      if (state.autoRefresh.activeAddresses.size === 0) {
+        actions.setAutoRefresh(false);
+      }
     }
   };
 
@@ -281,37 +292,23 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
     readAllMapped: handleReadAllMapped,
     refreshAll: handleRefreshAll,
     canReadAll: () => state.connection?.connected && isMapLoaded,
-    canRefreshAll: () => state.connection?.connected && parameters.filter(p => p.value !== null).length > 0,
+    canRefreshAll: () => state.connection?.connected && isMapLoaded,
     isMapLoaded
   }));
 
   return (
     <Box>
-      {/* Auto-refresh controls */}
+      {/* Auto-refresh interval selector */}
       <Card sx={{ mb: 2 }}>
         <CardContent>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={state.autoRefresh.enabled}
-                    onChange={(e) => handleAutoRefreshToggle(e.target.checked)}
-                    disabled={!state.connection?.connected}
-                  />
-                }
-                label="Auto-refresh"
-              />
-              <TimerIcon color={state.autoRefresh.enabled ? 'primary' : 'disabled'} />
-            </Box>
-            
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <FormControl size="small" sx={{ minWidth: 120 }}>
-                <InputLabel>Interval</InputLabel>
+                <InputLabel>Refresh Interval</InputLabel>
                 <Select
                   value={autoRefreshInterval}
                   onChange={(e) => handleAutoRefreshIntervalChange(e.target.value as number)}
-                  label="Interval"
+                  label="Refresh Interval"
                   disabled={!state.connection?.connected}
                 >
                   <MenuItem value={1000}>1s</MenuItem>
@@ -321,7 +318,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                   <MenuItem value={30000}>30s</MenuItem>
                 </Select>
               </FormControl>
-              
+
               <Typography variant="body2" color="text.secondary">
                 Active: {state.autoRefresh.activeParameterAddresses.size} parameters
               </Typography>
@@ -381,7 +378,18 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                     <TableCell>Value</TableCell>
                     <TableCell>Status</TableCell>
                     <TableCell>Last Updated</TableCell>
-                    <TableCell>Auto-Refresh</TableCell>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        Auto-Refresh
+                        <Checkbox
+                          size="small"
+                          checked={parameters.length > 0 && parameters.every(p => state.autoRefresh.activeParameterAddresses.has(p.address))}
+                          indeterminate={parameters.some(p => state.autoRefresh.activeParameterAddresses.has(p.address)) && !parameters.every(p => state.autoRefresh.activeParameterAddresses.has(p.address))}
+                          onChange={(e) => toggleAllParametersAutoRefresh(e.target.checked)}
+                          disabled={!state.connection?.connected || parameters.length === 0}
+                        />
+                      </Box>
+                    </TableCell>
                     <TableCell>Actions</TableCell>
                   </TableRow>
                 </TableHead>
@@ -446,7 +454,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                               size="small"
                               checked={state.autoRefresh.activeParameterAddresses.has(parameter.address)}
                               onChange={(e) => toggleParameterAutoRefresh(parameter.address, e.target.checked)}
-                              disabled={!state.connection?.connected || parameter.value === null || parameter.value === undefined}
+                              disabled={!state.connection?.connected}
                             />
                           </Tooltip>
                         </TableCell>

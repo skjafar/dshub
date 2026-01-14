@@ -11,6 +11,17 @@ A comprehensive Python emulator for testing DeviceMon web applications without p
   - Register read/write operations
   - Parameter read/write operations
   - Take Control command
+  - SYS_COMMAND protocol for system operations
+
+- **CNC Motor Controller Emulation**
+  - 3-axis servo motors (X, Y, Z) with encoder feedback
+  - High-speed spindle motor control
+  - Critically damped PID motion control
+  - State machine (IDLE, HOMING, READY, RUNNING, PAUSED, ERROR, E_STOP)
+  - Motor enable/disable commands
+  - Jog functionality with configurable step distance
+  - Realistic motion physics with velocity and acceleration limits
+  - Real-time encoder position updates at 100Hz
 
 - **Realistic Behavior**
   - Auto-incrementing 1Hz counter
@@ -18,6 +29,7 @@ A comprehensive Python emulator for testing DeviceMon web applications without p
   - Control interface state management
   - Read-only and read-write register enforcement
   - Proper protocol response formatting
+  - Smooth motor motion simulation
 
 - **Zero Dependencies**
   - Uses only Python standard library
@@ -56,9 +68,25 @@ The emulator will start and listen on:
 
 6. Start reading/writing registers and parameters!
 
+## CNC Motor Controller Profile
+
+The emulator now includes a **CNC Motor Controller** profile emulating a 3-axis milling machine. Load this profile in the web interface to access CNC-specific registers and parameters.
+
+### Controller States
+
+| Value | State | Description |
+|-------|-------|-------------|
+| 0 | IDLE | System powered on, motors disabled |
+| 1 | HOMING | Executing homing sequence |
+| 2 | READY | Homed and ready for operations |
+| 3 | RUNNING | Executing motion commands |
+| 4 | PAUSED | Motion paused (reserved for future use) |
+| 5 | ERROR | Error state, requires reset |
+| 6 | E_STOP | Emergency stop engaged |
+
 ## Emulated Registers
 
-### Read-Only Registers (Addresses 0-3)
+### Standard Registers (Addresses 0-3, Read-Only)
 
 | Address | Name | Type | Description |
 |---------|------|------|-------------|
@@ -69,21 +97,97 @@ The emulator will start and listen on:
 
 **COUNTER_1HZ** increments every second automatically - perfect for testing plotting!
 
-## Emulated Parameters
+### CNC Registers (Addresses 4-18)
+
+**Read-Only CNC Status (4-13)**:
 
 | Address | Name | Type | Description |
 |---------|------|------|-------------|
-| 0 | DEVICE_ID | uint32_t | Device ID (default: 12345) |
-| 1 | USES_DHCP | uint32_t | DHCP enabled flag |
-| 2-5 | IP_ADDR[4] | uint32_t | IP address bytes (127.0.0.1) |
-| 6-9 | GATEWAY_ADDR[4] | uint32_t | Gateway address |
-| 10-13 | DNS_SERVER_ADDR[4] | uint32_t | DNS server address |
-| 14-17 | NET_MASK[4] | uint32_t | Network mask |
-| 18-23 | MAC_ADDR[6] | hex | MAC address (02:00:DE:AD:BE:EF) |
-| 24 | PARAMETERS_SETS_IN_FLASH | uint32_t | Parameter sets (read-only) |
-| 25 | PARAMETERS_INITIALIZATION_MARKER | hex | Init marker (read-only) |
+| 4 | CONTROLLER_STATE | uint32_t | Current controller state (see states above) |
+| 5 | MOTOR_X_ENCODER | int32_t | X-axis encoder position (counts) |
+| 6 | MOTOR_Y_ENCODER | int32_t | Y-axis encoder position (counts) |
+| 7 | MOTOR_Z_ENCODER | int32_t | Z-axis encoder position (counts) |
+| 8 | SPINDLE_RPM | uint32_t | Current spindle speed (RPM) |
+| 9 | SPINDLE_LOAD | uint32_t | Spindle load percentage (0-100) |
+| 10 | MOTOR_X_ENABLED | uint32_t | X-axis motor enable status (0=disabled, 1=enabled) |
+| 11 | MOTOR_Y_ENABLED | uint32_t | Y-axis motor enable status |
+| 12 | MOTOR_Z_ENABLED | uint32_t | Z-axis motor enable status |
+| 13 | SPINDLE_ENABLED | uint32_t | Spindle enable status |
 
-**Note**: Network settings (IP, Gateway, etc.) have no effect in the emulator - it always runs on localhost.
+**Read-Write CNC Setpoints (14-18)**:
+
+| Address | Name | Type | Description |
+|---------|------|------|-------------|
+| 14 | MOTOR_X_SETPOINT | int32_t | X-axis target position (counts) |
+| 15 | MOTOR_Y_SETPOINT | int32_t | Y-axis target position (counts) |
+| 16 | MOTOR_Z_SETPOINT | int32_t | Z-axis target position (counts) |
+| 17 | SPINDLE_SPEED_SETPOINT | uint32_t | Spindle target speed (RPM) |
+| 18 | JOG_DISTANCE | int32_t | Jog step size (counts, default: 100) |
+
+## Emulated Parameters
+
+### CNC Motor Controller Parameters (Addresses 0-24)
+
+All parameters are read-write and affect the motion control behavior:
+
+**Motor Maximum Velocities** (encoder counts/sec):
+| Address | Name | Default |
+|---------|------|---------|
+| 0 | MOTOR_X_MAX_VEL | 10000 |
+| 1 | MOTOR_Y_MAX_VEL | 10000 |
+| 2 | MOTOR_Z_MAX_VEL | 8000 |
+
+**Motor Maximum Accelerations** (encoder counts/sec²):
+| Address | Name | Default |
+|---------|------|---------|
+| 3 | MOTOR_X_MAX_ACCEL | 5000 |
+| 4 | MOTOR_Y_MAX_ACCEL | 5000 |
+| 5 | MOTOR_Z_MAX_ACCEL | 4000 |
+
+**X-Axis PID Gains** (float):
+| Address | Name | Default |
+|---------|------|---------|
+| 6 | MOTOR_X_KP | 2.0 |
+| 7 | MOTOR_X_KI | 0.1 |
+| 8 | MOTOR_X_KD | 0.5 |
+
+**Y-Axis PID Gains** (float):
+| Address | Name | Default |
+|---------|------|---------|
+| 9 | MOTOR_Y_KP | 2.0 |
+| 10 | MOTOR_Y_KI | 0.1 |
+| 11 | MOTOR_Y_KD | 0.5 |
+
+**Z-Axis PID Gains** (float):
+| Address | Name | Default |
+|---------|------|---------|
+| 12 | MOTOR_Z_KP | 2.0 |
+| 13 | MOTOR_Z_KI | 0.1 |
+| 14 | MOTOR_Z_KD | 0.5 |
+
+**Motor Scaling Factors** (encoder counts/mm, float):
+| Address | Name | Default |
+|---------|------|---------|
+| 15 | MOTOR_X_STEPS_PER_MM | 200.0 |
+| 16 | MOTOR_Y_STEPS_PER_MM | 200.0 |
+| 17 | MOTOR_Z_STEPS_PER_MM | 200.0 |
+
+**Spindle & System Parameters**:
+| Address | Name | Type | Default | Description |
+|---------|------|------|---------|-------------|
+| 18 | SPINDLE_MAX_RPM | uint32_t | 24000 | Maximum spindle speed |
+| 19 | SPINDLE_ACCEL_RPM_PER_SEC | uint32_t | 5000 | Spindle acceleration rate |
+| 20 | E_STOP_DECEL | uint32_t | 10000 | Emergency stop deceleration |
+| 21 | HOMING_SPEED | uint32_t | 2000 | Homing speed (counts/sec) |
+
+**Home Positions** (encoder counts, int32_t):
+| Address | Name | Default |
+|---------|------|---------|
+| 22 | HOME_X_POSITION | 0 |
+| 23 | HOME_Y_POSITION | 0 |
+| 24 | HOME_Z_POSITION | 0 |
+
+**Note**: Float parameters are stored as int32 bit patterns. The emulator automatically handles conversion.
 
 ## Protocol Details
 
@@ -122,11 +226,68 @@ The emulator will start and listen on:
 ```
 
 **Commands**:
+- `0` - SYS_COMMAND (system operations)
 - `1` - Read Register
 - `2` - Write Register
 - `3` - Read Parameter
 - `4` - Write Parameter
 - `5` - Take Control
+
+### SYS_COMMAND Protocol
+
+**SYS_COMMAND Request** (6 bytes):
+```
+[Command: 0x00 (1 byte)] [SysCommand (1 byte)] [Value (4 bytes, signed LE)]
+```
+
+The **Address** field contains the system command code, not a register address.
+
+**SYS_COMMAND Response** (6 bytes):
+```
+[Status (1 byte)] [SysCommand (1 byte)] [Result (4 bytes, signed LE)]
+```
+
+- Status: `0` = Success, `-1` (0xFF) = Error
+- Result: Command-specific return value
+
+### CNC System Commands
+
+**Motor Enable/Disable**:
+- `200` - Enable all motors
+- `201` - Disable all motors
+- `202` - Enable X-axis motor
+- `203` - Enable Y-axis motor
+- `204` - Enable Z-axis motor
+- `205` - Disable X-axis motor
+- `206` - Disable Y-axis motor
+- `207` - Disable Z-axis motor
+- `208` - Enable spindle
+- `209` - Disable spindle
+
+**Homing Commands**:
+- `210` - Home all axes
+- `211` - Home X-axis only
+- `212` - Home Y-axis only
+- `213` - Home Z-axis only
+
+**System Control**:
+- `214` - Emergency stop (E_STOP)
+- `215` - Reset emergency stop
+- `216` - Clear error state
+
+**Jog Commands**:
+- `220` - Jog X-axis positive (by JOG_DISTANCE)
+- `221` - Jog X-axis negative
+- `222` - Jog Y-axis positive
+- `223` - Jog Y-axis negative
+- `224` - Jog Z-axis positive
+- `225` - Jog Z-axis negative
+
+**Example**: To enable all motors, send:
+```
+[0x00] [0xC8] [0x00 0x00 0x00 0x00]
+ ^CMD   ^200   ^Value (0)
+```
 
 ## Testing Scenarios
 
@@ -148,11 +309,58 @@ The emulator will start and listen on:
 6. Start plotting
 7. Watch the counter increment in real-time on the chart
 
+### Test CNC Motor Control
+
+**Load CNC Profile**:
+1. Go to Settings
+2. Select "CNC Motor Controller" profile
+3. Observe CNC-specific registers and parameters
+
+**Test Motor Motion**:
+1. Connect and take control
+2. Send SYS_COMMAND 200 (Enable all motors)
+3. Write to MOTOR_X_SETPOINT (register 14) = 1000
+4. Read MOTOR_X_ENCODER (register 5) repeatedly
+5. Watch the encoder count smoothly approach 1000
+6. Observe critically damped motion (no overshoot)
+
+**Test Jog Functionality**:
+1. Write JOG_DISTANCE (register 18) = 500
+2. Send SYS_COMMAND 220 (Jog X positive)
+3. Observe MOTOR_X_SETPOINT increment by 500
+4. Watch encoder follow to new position
+
+**Test Homing Sequence**:
+1. Send SYS_COMMAND 210 (Home all axes)
+2. Read CONTROLLER_STATE (register 4)
+3. Observe state change: IDLE(0) → HOMING(1) → READY(2)
+4. Check encoder positions match HOME_X/Y/Z_POSITION parameters
+
+**Test Spindle Control**:
+1. Send SYS_COMMAND 208 (Enable spindle)
+2. Write SPINDLE_SPEED_SETPOINT (register 17) = 12000
+3. Read SPINDLE_RPM (register 8) repeatedly
+4. Watch RPM ramp up smoothly (respects SPINDLE_ACCEL_RPM_PER_SEC)
+5. Read SPINDLE_LOAD (register 9) - varies 30-70% when running
+
+**Test Emergency Stop**:
+1. Set motors in motion with high setpoints
+2. Send SYS_COMMAND 214 (E_STOP)
+3. Observe CONTROLLER_STATE → E_STOP(6)
+4. Watch motors decelerate rapidly
+5. Send SYS_COMMAND 215 (Reset E_STOP) to recover
+
+**Test PID Tuning**:
+1. Write MOTOR_X_KP (parameter 6) with different values
+2. Set a new MOTOR_X_SETPOINT
+3. Observe different motion characteristics
+4. Higher Kp = faster response, lower Kp = slower
+
 ### Test Read-Only Protection
 
 1. Connect to emulator
 2. Take control
-3. Try to write to register 0, 1, or 3
+3. Try to write to register 0, 1, or 3-13 (read-only)
 4. Observe that the write is rejected
 5. Check error count (register 1) - it increments on errors
 
@@ -163,14 +371,6 @@ The emulator will start and listen on:
 3. Disconnect
 4. Connect via UDP
 5. Take control - observe CONTROL_INTERFACE becomes 2
-
-### Test Parameter Persistence
-
-1. Connect to emulator
-2. Take control
-3. Write to parameter 0 (DEVICE_ID)
-4. Read it back - value is stored
-5. Network parameters (IP, etc.) can be written but don't affect emulator behavior
 
 ## Customization
 
@@ -223,22 +423,27 @@ The emulator prints status every 10 seconds showing:
 
 ```
 devicemon_emulator.py
-├── RegisterMap        # Manages register values and auto-increment
-├── ParameterMap       # Manages parameter values
-└── DeviceMonEmulator  # Main emulator with 3 services:
+├── MotorAxis          # Servo motor with critically damped PID
+├── SpindleController  # High-speed spindle emulation
+├── CNCController      # State machine and motion coordination
+├── RegisterMap        # CNC registers (0-18)
+├── ParameterMap       # CNC parameters (0-24)
+└── DeviceMonEmulator  # Main emulator with 4 services:
     ├── Discovery Service (UDP port 2011)
     ├── TCP Data Service  (TCP port 2009)
-    └── UDP Data Service  (UDP port 2011)
+    ├── UDP Data Service  (UDP port 2011)
+    └── Motion Update     (100Hz motion control loop)
 ```
 
-All services run in separate threads for concurrent operation.
+All services run in separate threads for concurrent operation. The motion control thread updates motor positions, velocities, and PID calculations at 100Hz (10ms intervals) for smooth, realistic motion simulation.
 
 ## Limitations
 
-- Network parameter writes (IP, Gateway, DNS, etc.) are accepted but have no effect
 - Emulator always runs on localhost (127.0.0.1)
-- No flash memory persistence - values reset when emulator restarts
+- No flash memory persistence - parameter values reset when emulator restarts
 - Single client at a time (TCP) / unlimited concurrent (UDP)
+- CNC motors have no physical travel limits (encoders can count infinitely)
+- Spindle load is simulated randomly (30-70%) rather than modeling actual cutting forces
 
 ## Development
 

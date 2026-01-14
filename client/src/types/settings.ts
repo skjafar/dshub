@@ -29,6 +29,13 @@ export interface BoardTypeEntry {
   name: string;
 }
 
+// SYS_COMMAND entry
+export interface SysCommand {
+  code: number;
+  name: string;
+  description?: string;
+}
+
 // Map profile with separate register and parameter map files
 export interface MapProfile {
   id: string;
@@ -37,6 +44,7 @@ export interface MapProfile {
   registersMap: string; // File content as string
   parametersMap: string; // File content as string
   boardTypesMap?: string; // Optional board types map content
+  sysCommands?: SysCommand[]; // Optional list of system commands
   createdAt: number;
   lastUsed?: number;
 }
@@ -74,6 +82,7 @@ export interface UserSettings {
 }
 
 export const DEFAULT_PROFILE_ID = 'default';
+export const CNC_PROFILE_ID = 'cnc_motor_controller';
 
 export const DEFAULT_SETTINGS: UserSettings = {
   theme: 'auto',

@@ -100,7 +100,7 @@ export default function DashboardWidget({ widget, isEditMode, onEdit, onDelete }
       )}
 
       {/* Widget content */}
-      <Box sx={{ flex: 1, p: 2, overflow: 'auto' }}>
+      <Box sx={{ flex: 1, p: widget.type === 'button' ? 0 : 2, overflow: 'auto' }}>
         {renderWidget()}
       </Box>
     </Paper>

@@ -592,21 +592,35 @@ export default function WidgetConfigDialog({
           >
             <MenuItem value="register">Register</MenuItem>
             <MenuItem value="parameter">Parameter</MenuItem>
+            <MenuItem value="sysCommand">SYS_COMMAND</MenuItem>
           </Select>
         </FormControl>
-        {renderAddressSelector(
-          buttonConfig.target || 'register',
-          buttonConfig.address,
-          (address) => setConfig({ ...config, address }),
-          `${buttonConfig.target === 'parameter' ? 'Parameter' : 'Register'} Address`
+        {buttonConfig.target === 'sysCommand' ? (
+          <TextField
+            fullWidth
+            type="number"
+            label="Command Code"
+            value={buttonConfig.address ?? 0}
+            onChange={(e) => setConfig({ ...config, address: parseInt(e.target.value) })}
+            margin="normal"
+            helperText="System command code (e.g., 200 for ENABLE_ALL_MOTORS)"
+          />
+        ) : (
+          renderAddressSelector(
+            buttonConfig.target || 'register',
+            buttonConfig.address,
+            (address) => setConfig({ ...config, address }),
+            `${buttonConfig.target === 'parameter' ? 'Parameter' : 'Register'} Address`
+          )
         )}
         <TextField
           fullWidth
           type="number"
-          label="Value to Write"
+          label={buttonConfig.target === 'sysCommand' ? 'Command Value (Optional)' : 'Value to Write'}
           value={buttonConfig.valueToWrite ?? 0}
           onChange={(e) => setConfig({ ...config, valueToWrite: parseInt(e.target.value) })}
           margin="normal"
+          helperText={buttonConfig.target === 'sysCommand' ? 'Optional value parameter for the command' : undefined}
         />
         <TextField
           fullWidth

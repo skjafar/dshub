@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Typography, CircularProgress } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import { ValueReadWidgetConfig } from '../../types/dashboard';
 import { useDeviceMon } from '../../contexts/DeviceMonContext';
 
@@ -71,7 +71,26 @@ export default function ValueReadWidget({ config, isEditMode }: ValueReadWidgetP
         flexDirection: 'column',
         height: '100%',
         justifyContent: 'center',
-        gap: 1
+        gap: 1,
+        border: '2px solid',
+        borderColor: 'transparent',
+        borderRadius: 1,
+        transition: 'border-color 0.3s ease',
+        ...(isLoading && {
+          animation: 'breathingBorder 0.4s ease-in-out infinite',
+          '@keyframes breathingBorder': {
+            '0%': {
+              borderColor: 'transparent',
+            },
+            '50%': {
+              borderColor: 'rgba(25, 118, 210, 0.2)',
+              boxShadow: '0 0 4px rgba(25, 118, 210, 0.1)',
+            },
+            '100%': {
+              borderColor: 'transparent',
+            },
+          },
+        }),
       }}
     >
       <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
@@ -94,10 +113,6 @@ export default function ValueReadWidget({ config, isEditMode }: ValueReadWidgetP
           <Typography variant="h6" color="text.secondary">
             {config.unit}
           </Typography>
-        )}
-
-        {isLoading && (
-          <CircularProgress size={20} />
         )}
       </Box>
 

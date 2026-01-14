@@ -4,7 +4,7 @@ import { Layout } from 'react-grid-layout';
 export type WidgetType = 'button' | 'valueRead' | 'valueWrite' | 'miniPlot' | 'dropdown';
 
 // Data source types
-export type DataSource = 'register' | 'parameter';
+export type DataSource = 'register' | 'parameter' | 'sysCommand';
 
 // Display format for values
 export type DisplayFormat = 'decimal' | 'hex' | 'binary';
@@ -13,8 +13,8 @@ export type DisplayFormat = 'decimal' | 'hex' | 'binary';
 export interface ButtonWidgetConfig {
   label: string;
   target: DataSource;
-  address: number;
-  valueToWrite: number;
+  address: number; // For register/parameter: address; For sysCommand: command code
+  valueToWrite: number; // For register/parameter: value; For sysCommand: command value
   color?: string;
   icon?: string; // Optional icon name
   confirmationRequired?: boolean;

@@ -81,7 +81,7 @@ export default function MapProfilesPanel() {
       const parametersContent = await parametersFile.text();
       const boardTypesContent = boardTypesFile ? await boardTypesFile.text() : undefined;
 
-      const profileId = createProfile(profileName, registersContent, parametersContent, boardTypesContent);
+      const profileId = createProfile(profileName, registersContent, parametersContent, undefined, boardTypesContent);
       showSuccess(`Profile "${profileName}" created successfully`);
 
       setCreateDialogOpen(false);
@@ -110,7 +110,7 @@ export default function MapProfilesPanel() {
       const parametersContent = await parametersFile.text();
       const boardTypesContent = boardTypesFile ? await boardTypesFile.text() : undefined;
 
-      const success = updateProfile(selectedProfileId, registersContent, parametersContent, boardTypesContent);
+      const success = updateProfile(selectedProfileId, registersContent, parametersContent, undefined, boardTypesContent);
 
       if (success) {
         showSuccess('Profile updated successfully');

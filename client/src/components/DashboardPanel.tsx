@@ -74,6 +74,11 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
   // Get dashboard layout for current profile
   const dashboardLayout = settings.dashboardLayouts[activeProfileId] || createEmptyDashboard();
 
+  // Debug logging
+  console.log('DashboardPanel - activeProfileId:', activeProfileId);
+  console.log('DashboardPanel - dashboardLayout:', dashboardLayout);
+  console.log('DashboardPanel - all dashboardLayouts keys:', Object.keys(settings.dashboardLayouts));
+
   const [activeTabId, setActiveTabId] = useState(dashboardLayout.activeTabId);
   const [tabs, setTabs] = useState<DashboardTab[]>(dashboardLayout.tabs);
   const [configDialog, setConfigDialog] = useState<{
@@ -125,7 +130,8 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
         [activeProfileId]: layout
       }
     });
-  }, [tabs, activeTabId, activeProfileId, settings.dashboardLayouts, updateSettings]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs, activeTabId, activeProfileId]);
 
   const activeTab = tabs.find(tab => tab.id === activeTabId) || tabs[0];
 
@@ -164,10 +170,17 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
       const newTab = {
         ...createNewTab(tabs.length + 1),
         name: `${tab.name} (Copy)`,
-        widgets: tab.widgets.map(widget => ({
-          ...widget,
-          id: generateWidgetId()
-        }))
+        widgets: tab.widgets.map(widget => {
+          const newId = generateWidgetId();
+          return {
+            ...widget,
+            id: newId,
+            layout: {
+              ...widget.layout,
+              i: newId
+            }
+          };
+        })
       };
       setTabs([...tabs, newTab]);
     }
@@ -176,6 +189,8 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
 
   const handleDeleteTab = () => {
     if (!tabMenu.tabId || tabs.length === 1) return;
+    // Prevent deletion of built-in CNC demo tab
+    if (tabMenu.tabId === 'cnc-demo-tab') return;
     const newTabs = tabs.filter(t => t.id !== tabMenu.tabId);
     setTabs(newTabs);
     if (activeTabId === tabMenu.tabId) {
@@ -185,6 +200,8 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
   };
 
   const handleSaveRename = (newName: string) => {
+    // Prevent renaming built-in CNC demo tab
+    if (renameDialog.tabId === 'cnc-demo-tab') return;
     setTabs(tabs.map(tab =>
       tab.id === renameDialog.tabId ? { ...tab, name: newName } : tab
     ));
@@ -204,6 +221,8 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
   }));
 
   const handleEditWidget = (widgetId: string) => {
+    // Prevent editing widgets on built-in CNC demo tab
+    if (activeTabId === 'cnc-demo-tab') return;
     const widget = activeTab.widgets.find(w => w.id === widgetId);
     if (widget) {
       setConfigDialog({
@@ -217,6 +236,8 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
   };
 
   const handleDeleteWidget = (widgetId: string) => {
+    // Prevent deleting widgets from built-in CNC demo tab
+    if (activeTabId === 'cnc-demo-tab') return;
     setTabs(tabs.map(tab =>
       tab.id === activeTabId
         ? { ...tab, widgets: tab.widgets.filter(w => w.id !== widgetId) }
@@ -225,6 +246,9 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
   };
 
   const handleSaveWidget = (type: WidgetType, config: WidgetConfig) => {
+    // Prevent adding/editing widgets on built-in CNC demo tab
+    if (activeTabId === 'cnc-demo-tab') return;
+
     if (configDialog.mode === 'add') {
       // Add new widget
       const widgetId = generateWidgetId();
@@ -270,6 +294,8 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
 
   const handleLayoutChange = (layout: Layout[]) => {
     if (!isEditMode) return; // Only update layout in edit mode
+    // Prevent layout changes on built-in CNC demo tab
+    if (activeTabId === 'cnc-demo-tab') return;
 
     setTabs(tabs.map(tab =>
       tab.id === activeTabId
@@ -394,10 +420,14 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
         open={Boolean(tabMenu.anchorEl)}
         onClose={handleCloseTabMenu}
       >
-        <MenuItem onClick={handleRenameTab}>Rename</MenuItem>
+        <MenuItem onClick={handleRenameTab} disabled={tabMenu.tabId === 'cnc-demo-tab'}>
+          Rename
+        </MenuItem>
         <MenuItem onClick={handleDuplicateTab}>Duplicate</MenuItem>
         {tabs.length > 1 && (
-          <MenuItem onClick={handleDeleteTab}>Delete</MenuItem>
+          <MenuItem onClick={handleDeleteTab} disabled={tabMenu.tabId === 'cnc-demo-tab'}>
+            Delete
+          </MenuItem>
         )}
       </Menu>
 

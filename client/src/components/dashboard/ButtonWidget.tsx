@@ -352,12 +352,15 @@ export default function ButtonWidget({ config, isEditMode }: ButtonWidgetProps) 
       if (config.target === 'register') {
         actions.writeRegister(config.address, config.valueToWrite);
         showSuccess(`Wrote ${config.valueToWrite} to register ${config.address}`);
-      } else {
+      } else if (config.target === 'parameter') {
         actions.writeParameter(config.address, config.valueToWrite);
         showSuccess(`Wrote ${config.valueToWrite} to parameter ${config.address}`);
+      } else if (config.target === 'sysCommand') {
+        actions.sendCommand(config.address, config.valueToWrite);
+        showSuccess(`Sent SYS_COMMAND ${config.address} with value ${config.valueToWrite}`);
       }
     } catch (error) {
-      showError(`Failed to write value: ${error}`);
+      showError(`Failed to execute action: ${error}`);
     }
   };
 
@@ -365,12 +368,9 @@ export default function ButtonWidget({ config, isEditMode }: ButtonWidgetProps) 
     <>
       <Box
         sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
+          position: 'relative',
           height: '100%',
-          gap: 1
+          width: '100%'
         }}
       >
         <Button
@@ -381,22 +381,48 @@ export default function ButtonWidget({ config, isEditMode }: ButtonWidgetProps) 
           disabled={isEditMode || !state.connection?.connected}
           startIcon={hasLabel && IconComponent ? <IconComponent /> : undefined}
           sx={{
+            height: '100%',
+            width: '100%',
             backgroundColor: config.color || 'primary.main',
-            '&:hover': {
-              backgroundColor: config.color || 'primary.dark'
-            },
-            minHeight: '48px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
             fontSize: '1rem',
-            fontWeight: 'bold'
+            fontWeight: 'bold',
+            position: 'relative',
+            overflow: 'hidden',
+            transition: 'all 0.3s ease',
+            '&:hover:not(:disabled)': {
+              backgroundColor: config.color || 'primary.dark',
+              transform: 'scale(1.02)',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)'
+            },
+            '&:active:not(:disabled)': {
+              transform: 'scale(0.98)'
+            }
           }}
         >
           {hasLabel ? config.label : (IconComponent ? <IconComponent /> : config.label)}
         </Button>
 
         {!state.connection?.connected && (
-          <Typography variant="caption" color="text.secondary">
-            Not connected
-          </Typography>
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: '4px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              backgroundColor: 'rgba(0, 0, 0, 0.6)',
+              px: 1,
+              py: 0.5,
+              borderRadius: 1,
+              pointerEvents: 'none'
+            }}
+          >
+            <Typography variant="caption" sx={{ color: 'white', fontSize: '0.65rem' }}>
+              Not connected
+            </Typography>
+          </Box>
         )}
       </Box>
 
@@ -405,8 +431,17 @@ export default function ButtonWidget({ config, isEditMode }: ButtonWidgetProps) 
         <DialogTitle>Confirm Action</DialogTitle>
         <DialogContent>
           <Typography>
-            Are you sure you want to write <strong>{config.valueToWrite}</strong> to{' '}
-            {config.target} <strong>{config.address}</strong>?
+            {config.target === 'sysCommand' ? (
+              <>
+                Are you sure you want to send SYS_COMMAND <strong>{config.address}</strong> with value{' '}
+                <strong>{config.valueToWrite}</strong>?
+              </>
+            ) : (
+              <>
+                Are you sure you want to write <strong>{config.valueToWrite}</strong> to{' '}
+                {config.target} <strong>{config.address}</strong>?
+              </>
+            )}
           </Typography>
         </DialogContent>
         <DialogActions>

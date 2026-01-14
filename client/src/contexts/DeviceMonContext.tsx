@@ -494,12 +494,18 @@ export function DeviceMonProvider({ children }: DeviceMonProviderProps) {
 
         // Refresh registers
         state.autoRefresh.activeAddresses.forEach(address => {
-          socketRef.current?.emit('readRegister', address);
+          // Get the existing register name to preserve it
+          const existingRegister = state.registers.get(address);
+          const name = existingRegister?.name;
+          socketRef.current?.emit('readRegister', { address, name });
         });
 
         // Refresh parameters
         state.autoRefresh.activeParameterAddresses.forEach(address => {
-          socketRef.current?.emit('readParameter', address);
+          // Get the existing parameter name to preserve it
+          const existingParameter = state.parameters.get(address);
+          const name = existingParameter?.name;
+          socketRef.current?.emit('readParameter', { address, name });
         });
 
         // Log periodic refresh (but only if there are addresses to refresh)
@@ -526,7 +532,9 @@ export function DeviceMonProvider({ children }: DeviceMonProviderProps) {
     state.autoRefresh.activeAddresses,
     state.autoRefresh.activeParameterAddresses,
     state.connection?.connected,
-    state.socket
+    state.socket,
+    state.registers,
+    state.parameters
   ]);
 
   const actions = {

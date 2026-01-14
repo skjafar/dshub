@@ -183,12 +183,10 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   );
 
   const handleRefreshAll = () => {
-    // Read only registers that have been previously read (have actual values)
+    // Read all visible registers in the current tab
     visibleRegisters.forEach((register) => {
-      if (register.value !== null && register.value !== undefined) {
-        const mapEntry = getMapEntryForRegister(register.address);
-        actions.readRegister(register.address, mapEntry?.name || register.name);
-      }
+      const mapEntry = getMapEntryForRegister(register.address);
+      actions.readRegister(register.address, mapEntry?.name || register.name);
     });
   };
 
@@ -211,22 +209,6 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
     actions.readRegister(address, name);
   };
 
-  const handleAutoRefreshToggle = (enabled: boolean) => {
-    actions.setAutoRefresh(enabled, autoRefreshInterval);
-    
-    if (enabled) {
-      // Add all visible registers with values to auto-refresh
-      visibleRegisters.forEach(register => {
-        if (register.value !== null && register.value !== undefined) {
-          actions.addAutoRefreshRegister(register.address);
-        }
-      });
-    } else {
-      // Clear all register addresses from auto-refresh
-      actions.clearAutoRefreshAddresses();
-    }
-  };
-
   const handleAutoRefreshIntervalChange = (interval: number) => {
     setAutoRefreshInterval(interval);
     if (state.autoRefresh.enabled) {
@@ -237,8 +219,37 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   const toggleRegisterAutoRefresh = (address: number, enabled: boolean) => {
     if (enabled) {
       actions.addAutoRefreshRegister(address);
+      // Enable auto-refresh if not already enabled
+      if (!state.autoRefresh.enabled) {
+        actions.setAutoRefresh(true, autoRefreshInterval);
+      }
     } else {
       actions.removeAutoRefreshRegister(address);
+      // Disable auto-refresh if no addresses are active
+      if (state.autoRefresh.activeAddresses.size === 1 && state.autoRefresh.activeParameterAddresses.size === 0) {
+        // This is the last address, disable auto-refresh
+        actions.setAutoRefresh(false);
+      }
+    }
+  };
+
+  const toggleAllRegistersAutoRefresh = (enabled: boolean) => {
+    visibleRegisters.forEach((register) => {
+      if (enabled) {
+        actions.addAutoRefreshRegister(register.address);
+      } else {
+        actions.removeAutoRefreshRegister(register.address);
+      }
+    });
+
+    // Enable/disable auto-refresh based on state
+    if (enabled) {
+      actions.setAutoRefresh(true, autoRefreshInterval);
+    } else {
+      // Only disable if parameters are also empty
+      if (state.autoRefresh.activeParameterAddresses.size === 0) {
+        actions.setAutoRefresh(false);
+      }
     }
   };
 
@@ -298,37 +309,23 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
     readAllMapped: handleReadAllMapped,
     refreshAll: handleRefreshAll,
     canReadAll: () => state.connection?.connected && isMapLoaded,
-    canRefreshAll: () => state.connection?.connected && visibleRegisters.filter(r => r.value !== null).length > 0,
+    canRefreshAll: () => state.connection?.connected && isMapLoaded,
     isMapLoaded
   }));
 
   return (
     <Box>
-      {/* Auto-refresh controls */}
+      {/* Auto-refresh interval selector */}
       <Card sx={{ mb: 2 }}>
         <CardContent>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={state.autoRefresh.enabled}
-                    onChange={(e) => handleAutoRefreshToggle(e.target.checked)}
-                    disabled={!state.connection?.connected}
-                  />
-                }
-                label="Auto-refresh"
-              />
-              <TimerIcon color={state.autoRefresh.enabled ? 'primary' : 'disabled'} />
-            </Box>
-            
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <FormControl size="small" sx={{ minWidth: 120 }}>
-                <InputLabel>Interval</InputLabel>
+                <InputLabel>Refresh Interval</InputLabel>
                 <Select
                   value={autoRefreshInterval}
                   onChange={(e) => handleAutoRefreshIntervalChange(e.target.value as number)}
-                  label="Interval"
+                  label="Refresh Interval"
                   disabled={!state.connection?.connected}
                 >
                   <MenuItem value={500}>500ms</MenuItem>
@@ -338,7 +335,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                   <MenuItem value={10000}>10s</MenuItem>
                 </Select>
               </FormControl>
-              
+
               <Typography variant="body2" color="text.secondary">
                 Active: {state.autoRefresh.activeAddresses.size} registers
               </Typography>
@@ -407,7 +404,18 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                     <TableCell>Value</TableCell>
                     <TableCell>Status</TableCell>
                     <TableCell>Last Updated</TableCell>
-                    <TableCell>Auto-Refresh</TableCell>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        Auto-Refresh
+                        <Checkbox
+                          size="small"
+                          checked={visibleRegisters.length > 0 && visibleRegisters.every(r => state.autoRefresh.activeAddresses.has(r.address))}
+                          indeterminate={visibleRegisters.some(r => state.autoRefresh.activeAddresses.has(r.address)) && !visibleRegisters.every(r => state.autoRefresh.activeAddresses.has(r.address))}
+                          onChange={(e) => toggleAllRegistersAutoRefresh(e.target.checked)}
+                          disabled={!state.connection?.connected || visibleRegisters.length === 0}
+                        />
+                      </Box>
+                    </TableCell>
                     <TableCell>Actions</TableCell>
                   </TableRow>
                 </TableHead>
@@ -472,7 +480,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                               size="small"
                               checked={state.autoRefresh.activeAddresses.has(register.address)}
                               onChange={(e) => toggleRegisterAutoRefresh(register.address, e.target.checked)}
-                              disabled={!state.connection?.connected || register.value === null || register.value === undefined}
+                              disabled={!state.connection?.connected}
                             />
                           </Tooltip>
                         </TableCell>

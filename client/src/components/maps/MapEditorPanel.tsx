@@ -33,12 +33,13 @@ import { parseMapFile, MapEntry } from '../../maps/mapParser';
 import { mapManager } from '../../maps/mapManager';
 import { generateMapFile, getNextAddress, consolidateArrayEntries } from '../../utils/mapFileGenerator';
 import { arrayMove } from '@dnd-kit/sortable';
-import { DEFAULT_PROFILE_ID } from '../../types/settings';
+import { DEFAULT_PROFILE_ID, CNC_PROFILE_ID, SysCommand } from '../../types/settings';
 import { DataForm, DataAccessPermit } from '../../maps/mapParser';
 import MapEntriesList from './MapEntriesList';
 import MapExportDialog from './MapExportDialog';
+import SysCommandsTab from './SysCommandsTab';
 
-type MapType = 'registers' | 'parameters';
+type MapType = 'registers' | 'parameters' | 'sysCommands';
 
 const EMPTY_PROFILE_ID = '__empty__';
 
@@ -52,6 +53,7 @@ export default function MapEditorPanel() {
   const [previousProfileId, setPreviousProfileId] = useState(getActiveProfile()?.id || DEFAULT_PROFILE_ID);
   const [registerEntries, setRegisterEntries] = useState<MapEntry[]>([]);
   const [parameterEntries, setParameterEntries] = useState<MapEntry[]>([]);
+  const [sysCommandEntries, setSysCommandEntries] = useState<SysCommand[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // Dialog states
@@ -65,6 +67,8 @@ export default function MapEditorPanel() {
   const [overwriteConfirmOpen, setOverwriteConfirmOpen] = useState(false);
   const [profileToOverwrite, setProfileToOverwrite] = useState<string | null>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [sysCommandAddDialogOpen, setSysCommandAddDialogOpen] = useState(false);
+  const [sysCommandExportDialogOpen, setSysCommandExportDialogOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -78,6 +82,7 @@ export default function MapEditorPanel() {
       // Empty profile - start from scratch
       setRegisterEntries([]);
       setParameterEntries([]);
+      setSysCommandEntries([]);
       setHasUnsavedChanges(false);
       setPreviousProfileId(profileId);
       return;
@@ -101,6 +106,7 @@ export default function MapEditorPanel() {
 
         setRegisterEntries(regParsed.entries);
         setParameterEntries(paramParsed.entries);
+        setSysCommandEntries(profile.sysCommands || []);
         setHasUnsavedChanges(false);
         setPreviousProfileId(profileId);
       } catch (error) {
@@ -404,8 +410,8 @@ export default function MapEditorPanel() {
       return;
     }
 
-    if (selectedProfileId === DEFAULT_PROFILE_ID) {
-      showError('Cannot overwrite the default profile. Use "Save as New Profile" to create a custom profile.');
+    if (selectedProfileId === DEFAULT_PROFILE_ID || selectedProfileId === CNC_PROFILE_ID) {
+      showError('Cannot overwrite built-in profiles. Use "Save as New Profile" to create a custom profile.');
       return;
     }
 
@@ -429,6 +435,7 @@ export default function MapEditorPanel() {
         profileToOverwrite,
         registersContent,
         parametersContent,
+        sysCommandEntries,
         boardTypesContent
       );
 
@@ -494,7 +501,7 @@ export default function MapEditorPanel() {
         boardTypesContent = currentProfile?.boardTypesMap;
       }
 
-      const newProfileId = createProfile(trimmedName, registersContent, parametersContent, boardTypesContent);
+      const newProfileId = createProfile(trimmedName, registersContent, parametersContent, sysCommandEntries, boardTypesContent);
 
       setHasUnsavedChanges(false);
       setSelectedProfileId(newProfileId);
@@ -509,43 +516,12 @@ export default function MapEditorPanel() {
 
   const allProfiles = getAllProfiles();
   const selectedProfile = allProfiles.find(p => p.id === selectedProfileId);
-  const canSaveToCurrentProfile = selectedProfileId !== EMPTY_PROFILE_ID && selectedProfileId !== DEFAULT_PROFILE_ID;
+  const canSaveToCurrentProfile = selectedProfileId !== EMPTY_PROFILE_ID && selectedProfileId !== DEFAULT_PROFILE_ID && selectedProfileId !== CNC_PROFILE_ID;
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', p: 2, gap: 2 }}>
-      {/* Header */}
+      {/* Toolbar */}
       <Paper sx={{ p: 2 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h5" fontWeight="bold">
-            Map Editor
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-            {hasUnsavedChanges && (
-              <Typography variant="caption" color="warning.main" fontWeight="medium">
-                Unsaved changes
-              </Typography>
-            )}
-            <FormControl size="small" sx={{ minWidth: 200 }}>
-              <InputLabel>Profile</InputLabel>
-              <Select
-                value={selectedProfileId}
-                onChange={handleProfileChange}
-                label="Profile"
-              >
-                <MenuItem value={EMPTY_PROFILE_ID}>
-                  <em>Empty / Start from Scratch</em>
-                </MenuItem>
-                <Divider />
-                {allProfiles.map(profile => (
-                  <MenuItem key={profile.id} value={profile.id}>
-                    {profile.name} {profile.isDefault ? '(Default)' : ''}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Box>
-        </Box>
-
         {state.connection?.connected && (
           <Alert severity="warning" sx={{ mb: 2 }}>
             Device is connected. Saving changes will reload the map manager. You may need to reconnect for changes to take effect.
@@ -553,28 +529,73 @@ export default function MapEditorPanel() {
         )}
 
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={handleAddEntry}
-          >
-            Add Entry
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={<UploadFileIcon />}
-            onClick={handleImportFile}
-          >
-            Import .map
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={<FileDownloadIcon />}
-            onClick={() => setExportDialogOpen(true)}
-          >
-            Export
-          </Button>
+          {currentTab === 'sysCommands' ? (
+            <>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => setSysCommandAddDialogOpen(true)}
+              >
+                Add Entry
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<FileDownloadIcon />}
+                onClick={() => setSysCommandExportDialogOpen(true)}
+                disabled={sysCommandEntries.length === 0}
+              >
+                Export
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={handleAddEntry}
+              >
+                Add Entry
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<UploadFileIcon />}
+                onClick={handleImportFile}
+              >
+                Import .map
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<FileDownloadIcon />}
+                onClick={() => setExportDialogOpen(true)}
+              >
+                Export
+              </Button>
+            </>
+          )}
           <Box sx={{ flexGrow: 1 }} />
+          {hasUnsavedChanges && (
+            <Typography variant="caption" color="warning.main" fontWeight="medium" sx={{ display: 'flex', alignItems: 'center' }}>
+              Unsaved changes
+            </Typography>
+          )}
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel>Profile</InputLabel>
+            <Select
+              value={selectedProfileId}
+              onChange={handleProfileChange}
+              label="Profile"
+            >
+              <MenuItem value={EMPTY_PROFILE_ID}>
+                <em>Empty / Start from Scratch</em>
+              </MenuItem>
+              <Divider />
+              {allProfiles.map(profile => (
+                <MenuItem key={profile.id} value={profile.id}>
+                  {profile.name} {profile.isDefault ? '(Default)' : ''}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           <Button
             variant="outlined"
             color="warning"
@@ -609,16 +630,33 @@ export default function MapEditorPanel() {
         <Tabs value={currentTab} onChange={(_, val) => setCurrentTab(val)}>
           <Tab label={`Registers (${registerEntries.length})`} value="registers" />
           <Tab label={`Parameters (${parameterEntries.length})`} value="parameters" />
+          <Tab label={`SYS_COMMANDs (${sysCommandEntries.length})`} value="sysCommands" />
         </Tabs>
         <Divider />
         <Box sx={{ p: 2, flexGrow: 1, overflow: 'auto' }}>
-          <MapEntriesList
-            entries={currentEntries}
-            isRegisterMap={isRegisterMap}
-            onUpdate={handleUpdateEntry}
-            onDelete={handleDeleteEntry}
-            onReorder={handleReorder}
-          />
+          {currentTab === 'sysCommands' ? (
+            <SysCommandsTab
+              commands={sysCommandEntries}
+              onCommandsChange={(commands) => {
+                setSysCommandEntries(commands);
+                setHasUnsavedChanges(true);
+              }}
+              readOnly={false}
+              profileName={selectedProfile?.name || 'Custom'}
+              showAddDialog={sysCommandAddDialogOpen}
+              onAddDialogClose={() => setSysCommandAddDialogOpen(false)}
+              showExportDialog={sysCommandExportDialogOpen}
+              onExportDialogClose={() => setSysCommandExportDialogOpen(false)}
+            />
+          ) : (
+            <MapEntriesList
+              entries={currentEntries}
+              isRegisterMap={isRegisterMap}
+              onUpdate={handleUpdateEntry}
+              onDelete={handleDeleteEntry}
+              onReorder={handleReorder}
+            />
+          )}
         </Box>
       </Paper>
 

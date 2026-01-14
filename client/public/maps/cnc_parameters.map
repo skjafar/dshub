@@ -1,0 +1,52 @@
+/*
+ * CNC Motor Controller Parameters
+ *
+ * Configuration parameters for 3-axis CNC milling machine
+ * These parameters are stored in non-volatile memory and affect
+ * motion control behavior, PID tuning, and machine limits.
+ */
+
+// Motor maximum velocities (encoder counts per second)
+uint32_t    MOTOR_X_MAX_VEL;
+uint32_t    MOTOR_Y_MAX_VEL;
+uint32_t    MOTOR_Z_MAX_VEL;
+
+// Motor maximum accelerations (encoder counts per second²)
+uint32_t    MOTOR_X_MAX_ACCEL;
+uint32_t    MOTOR_Y_MAX_ACCEL;
+uint32_t    MOTOR_Z_MAX_ACCEL;
+
+// X-axis PID gains
+float       MOTOR_X_KP;         // Proportional gain
+float       MOTOR_X_KI;         // Integral gain
+float       MOTOR_X_KD;         // Derivative gain
+
+// Y-axis PID gains
+float       MOTOR_Y_KP;
+float       MOTOR_Y_KI;
+float       MOTOR_Y_KD;
+
+// Z-axis PID gains
+float       MOTOR_Z_KP;
+float       MOTOR_Z_KI;
+float       MOTOR_Z_KD;
+
+// Motor scaling factors (encoder counts per millimeter)
+float       MOTOR_X_STEPS_PER_MM;
+float       MOTOR_Y_STEPS_PER_MM;
+float       MOTOR_Z_STEPS_PER_MM;
+
+// Spindle parameters
+uint32_t    SPINDLE_MAX_RPM;            // Maximum spindle speed
+uint32_t    SPINDLE_ACCEL_RPM_PER_SEC;  // Spindle acceleration rate
+
+// Emergency stop deceleration (encoder counts per second²)
+uint32_t    E_STOP_DECEL;
+
+// Homing speed (encoder counts per second)
+uint32_t    HOMING_SPEED;
+
+// Home positions (encoder counts)
+int         HOME_X_POSITION;
+int         HOME_Y_POSITION;
+int         HOME_Z_POSITION;
