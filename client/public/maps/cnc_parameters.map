@@ -47,6 +47,6 @@ uint32_t    E_STOP_DECEL;
 uint32_t    HOMING_SPEED;
 
 // Home positions (encoder counts)
-int         HOME_X_POSITION;
-int         HOME_Y_POSITION;
-int         HOME_Z_POSITION;
+int32_t     HOME_X_POSITION;
+int32_t     HOME_Y_POSITION;
+int32_t     HOME_Z_POSITION;

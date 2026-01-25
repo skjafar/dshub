@@ -127,28 +127,40 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
 
   const handleArrayToggle = (checked: boolean) => {
     setEditIsArray(checked);
+    const parsedSize = checked ? parseInt(editArraySize, 10) : undefined;
+    console.log(`[MapEditor] Array toggle - editArraySize: "${editArraySize}", parsed: ${parsedSize}`);
     onUpdate({
       name: baseName,
       type: editType,
       isArray: checked,
-      arraySize: checked ? parseInt(editArraySize, 10) : undefined,
+      arraySize: parsedSize,
       accessPermit: editAccessPermit,
       showAsHex: editType === DataForm.HEX
     });
   };
 
   const handleArraySizeBlur = () => {
-    const size = parseInt(editArraySize, 10);
+    // Parse as decimal only - never allow hex input for array size
+    // Remove any leading zeros, hex prefixes, or non-numeric characters
+    const cleanedInput = editArraySize.replace(/^0x/i, '').replace(/^0+/, '') || '0';
+    const size = parseInt(cleanedInput, 10);
+
+    console.log(`[MapEditor] Array size input: "${editArraySize}" -> cleaned: "${cleanedInput}" -> parsed as: ${size}`);
+
     if (!isNaN(size) && size >= 1 && size <= 1000) {
+      console.log(`[MapEditor] Creating array with ${size} elements for ${baseName}`);
+      // Store as number and update the field to show the clean decimal value
+      setEditArraySize(size.toString());
       onUpdate({
         name: baseName,
         type: editType,
         isArray: editIsArray,
-        arraySize: size,
+        arraySize: size, // ALWAYS a number in base 10
         accessPermit: editAccessPermit,
         showAsHex: editType === DataForm.HEX
       });
     } else {
+      console.warn(`[MapEditor] Invalid array size: "${editArraySize}"`);
       setEditArraySize(entry.arraySize?.toString() || '1'); // Revert if invalid
     }
   };
@@ -200,7 +212,7 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
       </TableCell>
 
       {/* Address */}
-      <TableCell>
+      <TableCell sx={{ py: 0.5 }}>
         <Chip
           label={entry.address}
           size="small"
@@ -210,7 +222,7 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
       </TableCell>
 
       {/* Name */}
-      <TableCell>
+      <TableCell sx={{ py: 0.5 }}>
         <TextField
           value={editName}
           onChange={(e) => setEditName(e.target.value.toUpperCase())}
@@ -222,7 +234,7 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
       </TableCell>
 
       {/* Type */}
-      <TableCell>
+      <TableCell sx={{ py: 0.5 }}>
         <Select
           value={editType}
           onChange={(e) => handleTypeChange(e.target.value as DataForm)}
@@ -237,7 +249,7 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
       </TableCell>
 
       {/* Array */}
-      <TableCell sx={{ minWidth: 180 }}>
+      <TableCell sx={{ minWidth: 180, py: 0.5 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Switch
             checked={editIsArray}
@@ -246,21 +258,23 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
           />
           <TextField
             type="number"
+            label="Size"
+            placeholder="e.g. 16"
             value={editArraySize}
             onChange={(e) => setEditArraySize(e.target.value)}
             onBlur={handleArraySizeBlur}
             size="small"
             disabled={!editIsArray}
-            sx={{ width: 70 }}
+            sx={{ width: 90 }}
             slotProps={{
-              htmlInput: { min: 1, max: 1000 }
+              htmlInput: { min: 1, max: 1000, step: 1 }
             }}
           />
         </Box>
       </TableCell>
 
       {/* Access Permission */}
-      <TableCell sx={{ width: 150 }}>
+      <TableCell sx={{ width: 150, py: 0.5 }}>
         {isRegisterMap ? (
           <Select
             value={editAccessPermit}
@@ -277,7 +291,7 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
       </TableCell>
 
       {/* Actions */}
-      <TableCell align="right">
+      <TableCell align="right" sx={{ py: 0.5 }}>
         <Tooltip title="Delete">
           <IconButton
             size="small"
@@ -367,15 +381,15 @@ export default function MapEntriesList({
           <Table stickyHeader size="small">
             <TableHead>
               <TableRow>
-                <TableCell sx={{ fontWeight: 'bold', width: 48 }}></TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Address</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Name</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Type</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Array</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', width: 150 }}>
+                <TableCell sx={{ fontWeight: 'bold', width: 48, py: 0.5 }}></TableCell>
+                <TableCell sx={{ fontWeight: 'bold', py: 0.5 }}>Address</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', py: 0.5 }}>Name</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', py: 0.5 }}>Type</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', py: 0.5 }}>Array</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', width: 150, py: 0.5 }}>
                   {isRegisterMap ? 'Access' : ''}
                 </TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }} align="right">Actions</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', py: 0.5 }} align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { ValueReadWidgetConfig } from '../../types/dashboard';
 import { useDeviceMon } from '../../contexts/DeviceMonContext';
+import { mapManager } from '../../maps/mapManager';
 
 interface ValueReadWidgetProps {
   config: ValueReadWidgetConfig;
@@ -35,11 +36,22 @@ export default function ValueReadWidget({ config, isEditMode }: ValueReadWidgetP
   const readValue = () => {
     if (!state.connection?.connected) return;
 
+    // Get name from map manager - must have a valid name before reading
+    const name = config.source === 'register'
+                   ? mapManager.getRegisterByAddress(config.address)?.name
+                   : mapManager.getParameterByAddress(config.address)?.name;
+
+    // Do not read if map is not loaded or name is not found
+    if (!mapManager.isInitialized() || !name) {
+      console.warn(`Skipping read for ${config.source} ${config.address}: Map not loaded or name not found`);
+      return;
+    }
+
     setIsLoading(true);
     if (config.source === 'register') {
-      actions.readRegister(config.address);
+      actions.readRegister(config.address, name);
     } else {
-      actions.readParameter(config.address);
+      actions.readParameter(config.address, name);
     }
     // Loading state will be cleared when data arrives
     setTimeout(() => setIsLoading(false), 500);

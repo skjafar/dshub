@@ -24,9 +24,9 @@ uint32_t    COUNTER_1HZ;
 uint32_t    CONTROLLER_STATE;
 
 // Motor encoder readings (encoder counts, int32_t)
-int         MOTOR_X_ENCODER;
-int         MOTOR_Y_ENCODER;
-int         MOTOR_Z_ENCODER;
+int32_t     MOTOR_X_ENCODER;
+int32_t     MOTOR_Y_ENCODER;
+int32_t     MOTOR_Z_ENCODER;
 
 // Spindle status
 uint32_t    SPINDLE_RPM;        // Current spindle speed in RPM
@@ -41,12 +41,12 @@ uint32_t    SPINDLE_ENABLED;
 read/write
 
 // Motor position setpoints (encoder counts, int32_t)
-int         MOTOR_X_SETPOINT;
-int         MOTOR_Y_SETPOINT;
-int         MOTOR_Z_SETPOINT;
+int32_t     MOTOR_X_SETPOINT;
+int32_t     MOTOR_Y_SETPOINT;
+int32_t     MOTOR_Z_SETPOINT;
 
 // Spindle speed setpoint
 uint32_t    SPINDLE_SPEED_SETPOINT;     // Target RPM
 
 // Jog distance (encoder counts per jog step)
-int         JOG_DISTANCE;
+int32_t     JOG_DISTANCE;

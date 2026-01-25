@@ -3,6 +3,7 @@ import { Box, Typography } from '@mui/material';
 import { Line } from 'react-chartjs-2';
 import { MiniPlotWidgetConfig } from '../../types/dashboard';
 import { useDeviceMon } from '../../contexts/DeviceMonContext';
+import { mapManager } from '../../maps/mapManager';
 
 interface DataPoint {
   x: number; // timestamp
@@ -18,17 +19,21 @@ export default function MiniPlotWidget({ config, isEditMode }: MiniPlotWidgetPro
   const { state, actions } = useDeviceMon();
   const [dataPoints, setDataPoints] = useState<DataPoint[]>([]);
 
-  // Get the data source name for plotting - use dashboard: prefix to avoid conflicts with PlotPanel
-  const dataSourceKey = `dashboard:${config.source}_${config.address}`;
+  // Get the actual register/parameter name from the map - NEVER use synthetic names
+  const mapEntry = config.source === 'register'
+    ? mapManager.getRegisterByAddress(config.address)
+    : mapManager.getParameterByAddress(config.address);
+
+  const actualName = mapEntry?.name;
 
   // Get current data from state
   const currentData = config.source === 'register'
     ? state.registers.get(config.address)
     : state.parameters.get(config.address);
 
-  // Collect data points
+  // Collect data points - triggers on every new read (timestamp change), even if value stays the same
   useEffect(() => {
-    if (!currentData?.value || isEditMode) return;
+    if (currentData?.value === undefined || isEditMode) return;
 
     const now = Date.now();
     const cutoffTime = now - config.timeWindow * 1000;
@@ -40,22 +45,30 @@ export default function MiniPlotWidget({ config, isEditMode }: MiniPlotWidgetPro
       // Filter out old points
       return newPoints.filter(point => point.x >= cutoffTime);
     });
-  }, [currentData?.value, currentData?.timestamp]);
+  }, [currentData?.timestamp, isEditMode, config.timeWindow]);
 
   // Start plotting when widget mounts
   useEffect(() => {
     if (isEditMode || !state.connection?.connected) return;
 
-    // Start plotting
+    // Only start plotting if we have a valid name from the map
+    if (!mapManager.isInitialized() || !actualName) {
+      console.warn(`Cannot start plotting for ${config.source} ${config.address}: Map not loaded or name not found`);
+      return;
+    }
+
+    // Start plotting using the actual register/parameter name from the map
     if (config.source === 'register') {
-      actions.startPlotting(dataSourceKey, config.pollInterval, config.address);
+      actions.startPlotting(actualName, config.pollInterval, config.address);
     }
 
     return () => {
-      // Stop plotting when unmounted
-      actions.stopPlotting(dataSourceKey);
+      // Stop plotting when unmounted (use actual name)
+      if (actualName) {
+        actions.stopPlotting(actualName);
+      }
     };
-  }, [config.source, config.address, config.pollInterval, isEditMode, state.connection?.connected]);
+  }, [config.source, config.address, config.pollInterval, isEditMode, state.connection?.connected, actualName]);
 
   const chartData = {
     datasets: [

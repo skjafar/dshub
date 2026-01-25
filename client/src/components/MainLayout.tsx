@@ -42,6 +42,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import { InterfaceType, ControlInterfaceState } from '../types/shared';
 import { DEFAULT_GRID_CONFIG } from '../types/dashboard';
+import { mapManager } from '../maps/mapManager';
 import DeviceScannerPanel from './DeviceScannerPanel';
 import DeviceDashboard from './DeviceDashboard';
 import DashboardPanel, { DashboardPanelRef } from './DashboardPanel';
@@ -131,8 +132,8 @@ export default function MainLayout() {
       !state.connection?.connected &&
       autoConnectAttempts < settings.autoConnectRetries &&
       !isAutoConnecting &&
-      !shouldWaitForScan &&
-      !state.isScanning  // Don't connect while scanning
+      !shouldWaitForScan
+      // Removed scanner blocking: scanning and connecting are independent operations
     ) {
       setIsAutoConnecting(true);
       const interfaceType = settings.lastInterfaceType === 'TCP' ? InterfaceType.TCP : InterfaceType.UDP;
@@ -504,7 +505,7 @@ export default function MainLayout() {
                 variant="outlined"
                 startIcon={<RefreshIcon />}
                 onClick={() => registersPanelRef.current?.readAllMapped()}
-                disabled={!registersPanelRef.current?.canReadAll()}
+                disabled={!state.connection?.connected || !mapManager.isInitialized()}
                 size="small"
                 color="inherit"
               >
@@ -514,7 +515,7 @@ export default function MainLayout() {
                 variant="outlined"
                 startIcon={<RefreshIcon />}
                 onClick={() => registersPanelRef.current?.refreshAll()}
-                disabled={!registersPanelRef.current?.canRefreshAll()}
+                disabled={!state.connection?.connected || !mapManager.isInitialized()}
                 size="small"
                 color="inherit"
               >
@@ -540,7 +541,7 @@ export default function MainLayout() {
                 variant="outlined"
                 startIcon={<RefreshIcon />}
                 onClick={() => parametersPanelRef.current?.readAllMapped()}
-                disabled={!parametersPanelRef.current?.canReadAll()}
+                disabled={!state.connection?.connected || !mapManager.isInitialized()}
                 size="small"
                 color="inherit"
               >
@@ -550,7 +551,7 @@ export default function MainLayout() {
                 variant="outlined"
                 startIcon={<RefreshIcon />}
                 onClick={() => parametersPanelRef.current?.refreshAll()}
-                disabled={!parametersPanelRef.current?.canRefreshAll()}
+                disabled={!state.connection?.connected || !mapManager.isInitialized()}
                 size="small"
                 color="inherit"
               >

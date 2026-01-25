@@ -234,9 +234,12 @@ export class DeviceCommunicator {
 
         if (this.currentRequest.command === 1) {
           // Register read response
+          if (!this.currentRequest.name) {
+            this.logger.error(`Register read response missing name for address ${address}. All register reads must include a name.`, 'register');
+          }
           const registerData: RegisterData = {
             address,
-            name: this.currentRequest.name || `REG_${address}`,
+            name: this.currentRequest.name || '',
             value,
             valid: true,
             timestamp: Date.now()
@@ -261,9 +264,12 @@ export class DeviceCommunicator {
           this.logger.success(`Register ${registerData.name} (${address}) = ${value} (${responseTime}ms)`, 'register');
         } else if (this.currentRequest.command === 2) {
           // Register write confirmation
+          if (!this.currentRequest.name) {
+            this.logger.error(`Register write response missing name for address ${address}. All register writes must include a name.`, 'register');
+          }
           const registerData: RegisterData = {
             address,
-            name: this.currentRequest.name || `REG_${address}`,
+            name: this.currentRequest.name || '',
             value,
             valid: true,
             timestamp: Date.now()
@@ -272,9 +278,12 @@ export class DeviceCommunicator {
           this.logger.success(`Register write confirmed: ${registerData.name} (${address}) = ${value} (${responseTime}ms)`, 'register');
         } else if (this.currentRequest.command === 3) {
           // Parameter read response
+          if (!this.currentRequest.name) {
+            this.logger.error(`Parameter read response missing name for address ${address}. All parameter reads must include a name.`, 'parameter');
+          }
           const parameterData: ParameterData = {
             address,
-            name: this.currentRequest.name || `PARAM_${address}`,
+            name: this.currentRequest.name || '',
             value,
             valid: true,
             timestamp: Date.now()
@@ -283,9 +292,12 @@ export class DeviceCommunicator {
           this.logger.success(`Parameter ${parameterData.name} (${address}) = ${value} (${responseTime}ms)`, 'parameter');
         } else if (this.currentRequest.command === 4) {
           // Parameter write confirmation
+          if (!this.currentRequest.name) {
+            this.logger.error(`Parameter write response missing name for address ${address}. All parameter writes must include a name.`, 'parameter');
+          }
           const parameterData: ParameterData = {
             address,
-            name: this.currentRequest.name || `PARAM_${address}`,
+            name: this.currentRequest.name || '',
             value,
             valid: true,
             timestamp: Date.now()
@@ -511,6 +523,11 @@ export class DeviceCommunicator {
       return;
     }
 
+    if (!name) {
+      this.logger.error(`Register read missing name for address ${address}. All register reads must include a name from the map.`, 'register');
+      return;
+    }
+
     const requestId = `reg_read_${address}_${Date.now()}`;
 
     // Create read register packet (6 bytes: cmd + addr + 4 reserved/padding)
@@ -520,12 +537,10 @@ export class DeviceCommunicator {
     packet.writeUInt32LE(0, 2); // Reserved/padding (4 bytes)
 
     // Store the register name to use in the response
-    const registerName = name || `REG_${address}`;
+    const registerName = name;
 
     // Store the name-to-address mapping for plotting
-    if (name) {
-      this.registerNameToAddress.set(name, address);
-    }
+    this.registerNameToAddress.set(name, address);
 
     // Create request with packet data
     const request: DataRequest = {
@@ -567,6 +582,11 @@ export class DeviceCommunicator {
       return;
     }
 
+    if (!name) {
+      this.logger.error(`Parameter read missing name for address ${address}. All parameter reads must include a name from the map.`, 'parameter');
+      return;
+    }
+
     const requestId = `param_read_${address}_${Date.now()}`;
 
     // Create read parameter packet (6 bytes: cmd + addr + 4 reserved/padding)
@@ -579,7 +599,7 @@ export class DeviceCommunicator {
     const request: DataRequest = {
       id: requestId,
       address,
-      name, // Include the parameter name if provided
+      name, // Include the parameter name
       command: 3,
       expectedResponseLength: 6,
       timestamp: Date.now(),

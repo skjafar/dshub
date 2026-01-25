@@ -6,6 +6,7 @@ export class MapManager {
   private parametersMap: ParsedMap | null = null;
   private boardTypesMap: BoardTypeEntry[] = [];
   private isLoaded = false;
+  private currentProfileId: string | null = null;
 
   async initialize(profile?: MapProfile | null): Promise<void> {
     try {
@@ -27,6 +28,8 @@ export class MapManager {
           parameters: this.parametersMap.entries.length,
           boardTypes: this.boardTypesMap.length
         });
+
+        this.currentProfileId = profile.id;
       } else if (profile && profile.id === DEFAULT_PROFILE_ID) {
         // Use default profile (already loaded from /maps folder)
         console.log('Loading default maps from profile');
@@ -44,6 +47,8 @@ export class MapManager {
           parameters: this.parametersMap.entries.length,
           boardTypes: this.boardTypesMap.length
         });
+
+        this.currentProfileId = profile.id;
       } else {
         // Fallback: Load default map files directly
         console.log('No profile provided, loading default maps');
@@ -70,6 +75,8 @@ export class MapManager {
           parameters: this.parametersMap.entries.length,
           boardTypes: this.boardTypesMap.length
         });
+
+        this.currentProfileId = DEFAULT_PROFILE_ID;
       }
 
       this.isLoaded = true;
@@ -129,6 +136,10 @@ export class MapManager {
   
   isInitialized(): boolean {
     return this.isLoaded;
+  }
+
+  getCurrentProfileId(): string | null {
+    return this.currentProfileId;
   }
 
   // Board types methods

@@ -42,7 +42,8 @@ import {
 import { useDeviceMon } from '../contexts/DeviceMonContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { mapManager } from '../maps/mapManager';
-import { MapEntry } from '../maps/mapParser';
+import { MapEntry, DataAccessPermit, DataForm } from '../maps/mapParser';
+import { int32ToFloat, floatToInt32, formatFloat } from '../utils/floatConversion';
 
 interface RegisterEditDialogProps {
   open: boolean;
@@ -161,13 +162,35 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   const [mapEntries, setMapEntries] = useState<MapEntry[]>([]);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(1000);
+  const [editingValues, setEditingValues] = useState<{ [address: number]: string }>({});
 
   useEffect(() => {
     const initializeMaps = async () => {
       try {
         const activeProfile = getActiveProfile();
-        await mapManager.initialize(activeProfile);
-        setMapEntries(mapManager.getAllRegisters());
+
+        // Check if the loaded profile matches the active profile
+        const loadedProfileId = mapManager.getCurrentProfileId();
+        const needsReload = loadedProfileId !== settings.activeMapProfileId;
+
+        if (needsReload) {
+          console.log(`[RegistersPanel] Profile mismatch - MapManager has '${loadedProfileId}', settings has '${settings.activeMapProfileId}'`);
+          // Clear register data when profile changes
+          actions.clearRegisters();
+
+          // Force reload maps with new profile
+          await mapManager.reload(activeProfile);
+          console.log(`[RegistersPanel] MapManager reloaded with ${activeProfile?.name || 'default'} profile`);
+        } else if (!mapManager.isInitialized()) {
+          // First time initialization
+          await mapManager.initialize(activeProfile);
+          console.log(`[RegistersPanel] MapManager initialized for first time`);
+        }
+
+        // Update local state with current map entries
+        const entries = mapManager.getAllRegisters();
+        console.log(`[RegistersPanel] Loaded ${entries.length} register entries from mapManager`);
+        setMapEntries(entries);
         setIsMapLoaded(true);
       } catch (error) {
         console.error('Failed to load register maps:', error);
@@ -175,7 +198,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
     };
 
     initializeMaps();
-  }, [settings.activeMapProfileId, getActiveProfile]);
+  }, [settings.activeMapProfileId, getActiveProfile, actions]);
 
   const canWrite = state.connection?.connected && (
     (state.connection.interface === 'TCP' && state.connection.controlState === 1) ||
@@ -209,6 +232,44 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
     actions.readRegister(address, name);
   };
 
+  const handleInlineValueChange = (address: number, value: string) => {
+    setEditingValues(prev => ({ ...prev, [address]: value }));
+  };
+
+  const handleInlineValueWrite = (address: number, register: any, mapEntry: MapEntry | undefined) => {
+    const valueStr = editingValues[address];
+    if (valueStr !== undefined && valueStr !== '') {
+      let parsedValue: number;
+
+      // Handle float type - convert to int32 representation
+      if (mapEntry?.type === 'float') {
+        const floatValue = parseFloat(valueStr);
+        if (isNaN(floatValue)) return;
+        parsedValue = floatToInt32(floatValue);
+      } else if (mapEntry?.showAsHex) {
+        parsedValue = parseInt(valueStr, 16);
+      } else {
+        parsedValue = parseInt(valueStr, 10);
+      }
+
+      if (!isNaN(parsedValue)) {
+        actions.writeRegister(address, parsedValue);
+        // Read back after write to verify
+        setTimeout(() => {
+          actions.readRegister(address, mapEntry?.name || register.name);
+        }, 100);
+      }
+    }
+  };
+
+  const handleInlineValueKeyPress = (e: React.KeyboardEvent, address: number, register: any, mapEntry: MapEntry | undefined) => {
+    if (e.key === 'Enter') {
+      handleInlineValueWrite(address, register, mapEntry);
+      // Select all text so user can immediately type a new value
+      (e.target as HTMLInputElement).select();
+    }
+  };
+
   const handleAutoRefreshIntervalChange = (interval: number) => {
     setAutoRefreshInterval(interval);
     if (state.autoRefresh.enabled) {
@@ -218,6 +279,16 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
 
   const toggleRegisterAutoRefresh = (address: number, enabled: boolean) => {
     if (enabled) {
+      // Get the proper name from the map or existing state
+      const mapEntry = getMapEntryForRegister(address);
+      const existingRegister = state.registers.get(address);
+      const name = existingRegister?.name || mapEntry?.name;
+
+      // Do an initial read with the proper name to ensure it's stored in state
+      if (name) {
+        actions.readRegister(address, name);
+      }
+
       actions.addAutoRefreshRegister(address);
       // Enable auto-refresh if not already enabled
       if (!state.autoRefresh.enabled) {
@@ -236,6 +307,15 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   const toggleAllRegistersAutoRefresh = (enabled: boolean) => {
     visibleRegisters.forEach((register) => {
       if (enabled) {
+        // Get the proper name from the map or existing state
+        const mapEntry = getMapEntryForRegister(register.address);
+        const name = register.name || mapEntry?.name;
+
+        // Do an initial read with the proper name to ensure it's stored in state
+        if (name) {
+          actions.readRegister(register.address, name);
+        }
+
         actions.addAutoRefreshRegister(register.address);
       } else {
         actions.removeAutoRefreshRegister(register.address);
@@ -261,8 +341,15 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
     if (register.value === null || register.value === undefined) {
       return '---'; // Placeholder for unread values
     }
-    
+
     const mapEntry = getMapEntryForRegister(register.address);
+
+    // Handle float type - convert from int32 representation
+    if (mapEntry?.type === 'float') {
+      const floatValue = int32ToFloat(register.value);
+      return formatFloat(floatValue);
+    }
+
     if (mapEntry?.showAsHex) {
       return `0x${register.value.toString(16).toUpperCase()}`;
     }
@@ -398,13 +485,14 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>Address</TableCell>
-                    <TableCell>Name</TableCell>
-                    <TableCell>Type</TableCell>
-                    <TableCell>Value</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Last Updated</TableCell>
-                    <TableCell>
+                    <TableCell sx={{ py: 0.5 }}>Address</TableCell>
+                    <TableCell sx={{ py: 0.5 }}>Array Index</TableCell>
+                    <TableCell sx={{ py: 0.5 }}>Name</TableCell>
+                    <TableCell sx={{ py: 0.5 }}>Type</TableCell>
+                    <TableCell sx={{ py: 0.5 }}>Value</TableCell>
+                    <TableCell sx={{ py: 0.5 }}>Status</TableCell>
+                    <TableCell sx={{ py: 0.5 }}>Last Updated</TableCell>
+                    <TableCell sx={{ py: 0.5 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         Auto-Refresh
                         <Checkbox
@@ -416,37 +504,40 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                         />
                       </Box>
                     </TableCell>
-                    <TableCell>Actions</TableCell>
+                    <TableCell sx={{ py: 0.5 }}>Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {visibleRegisters.map((register) => {
                     const mapEntry = getMapEntryForRegister(register.address);
+                    // Extract array index from name if it's an array element (e.g., "NAME[5]" -> "5")
+                    const arrayIndexMatch = (register.name || mapEntry?.name || '').match(/\[(\d+)\]$/);
+                    const arrayIndex = arrayIndexMatch ? arrayIndexMatch[1] : null;
+
                     return (
                       <TableRow key={register.address} hover>
-                        <TableCell>
-                          <Box>
+                        <TableCell sx={{ py: 0.5 }}>
+                          <Typography variant="body2" fontFamily="monospace">
+                            0x{register.address.toString(16).toUpperCase().padStart(2, '0')} ({register.address})
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={{ py: 0.5 }}>
+                          {arrayIndex !== null && (
                             <Typography variant="body2" fontFamily="monospace">
-                              0x{register.address.toString(16).toUpperCase().padStart(4, '0')}
+                              [{arrayIndex}]
                             </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {register.address}
-                            </Typography>
-                          </Box>
+                          )}
                         </TableCell>
-                        <TableCell>
-                          <Box>
-                            <Typography variant="body2" fontWeight="medium">
-                              {register.name || mapEntry?.name || `REG_${register.address}`}
-                            </Typography>
-                            {mapEntry && mapEntry.isArray && (
-                              <Typography variant="caption" color="text.secondary">
-                                Array element
-                              </Typography>
-                            )}
-                          </Box>
+                        <TableCell sx={{ py: 0.5 }}>
+                          <Typography
+                            variant="body2"
+                            fontWeight="medium"
+                            color={(!register.name && !mapEntry?.name) ? 'error' : 'inherit'}
+                          >
+                            {register.name || mapEntry?.name || <em>Missing name in map</em>}
+                          </Typography>
                         </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ py: 0.5 }}>
                           <Tooltip title={mapEntry ? `Data type: ${mapEntry.type}` : 'Unknown type'}>
                             <Chip
                               label={mapEntry?.type || 'unknown'}
@@ -456,12 +547,72 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                             />
                           </Tooltip>
                         </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" fontFamily="monospace">
-                            {formatRegisterValue(register)}
-                          </Typography>
+                        <TableCell sx={{ py: 0.5 }}>
+                          {mapEntry?.accessPermit === DataAccessPermit.READ_WRITE && state.connection?.connected ? (
+                            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                              <TextField
+                                variant="outlined"
+                                size="small"
+                                placeholder="Write value..."
+                                value={editingValues[register.address] || ''}
+                                onChange={(e) => handleInlineValueChange(register.address, e.target.value)}
+                                onKeyPress={(e) => handleInlineValueKeyPress(e, register.address, register, mapEntry)}
+                                sx={{
+                                  fontFamily: 'monospace',
+                                  width: 120,
+                                  '& .MuiInputBase-input': {
+                                    fontFamily: 'monospace',
+                                    py: 0.5,
+                                    fontSize: '0.875rem'
+                                  },
+                                  '& .MuiOutlinedInput-root': {
+                                    '& fieldset': {
+                                      borderColor: editingValues[register.address] ? 'warning.main' : undefined,
+                                      borderWidth: editingValues[register.address] ? 2 : 1
+                                    }
+                                  }
+                                }}
+                              />
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, position: 'relative' }}>
+                                <Typography variant="body2" fontFamily="monospace">
+                                  {formatRegisterValue(register)}
+                                </Typography>
+                                <Box sx={{ width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  {editingValues[register.address] && register.value !== null && (() => {
+                                    // Handle float comparison properly
+                                    if (mapEntry?.type === 'float') {
+                                      const writtenFloat = parseFloat(editingValues[register.address]);
+                                      const boardFloat = int32ToFloat(register.value);
+                                      const tolerance = 0.0001; // Small tolerance for floating point comparison
+                                      return !isNaN(writtenFloat) && Math.abs(writtenFloat - boardFloat) > tolerance ? (
+                                        <Tooltip title={`Mismatch: Wrote ${formatFloat(writtenFloat)} but read ${formatFloat(boardFloat)}`}>
+                                          <Box component="span" sx={{ color: 'error.main', display: 'flex', alignItems: 'center' }}>
+                                            ⚠️
+                                          </Box>
+                                        </Tooltip>
+                                      ) : null;
+                                    } else {
+                                      const writtenValue = mapEntry?.showAsHex ? parseInt(editingValues[register.address], 16) : parseInt(editingValues[register.address], 10);
+                                      const boardValue = register.value;
+                                      return !isNaN(writtenValue) && writtenValue !== boardValue ? (
+                                        <Tooltip title={`Mismatch: Wrote ${writtenValue} but read ${boardValue}`}>
+                                          <Box component="span" sx={{ color: 'error.main', display: 'flex', alignItems: 'center' }}>
+                                            ⚠️
+                                          </Box>
+                                        </Tooltip>
+                                      ) : null;
+                                    }
+                                  })()}
+                                </Box>
+                              </Box>
+                            </Box>
+                          ) : (
+                            <Typography variant="body2" fontFamily="monospace">
+                              {formatRegisterValue(register)}
+                            </Typography>
+                          )}
                         </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ py: 0.5 }}>
                           <Chip
                             label={register.value === null ? 'Not Read' : (register.valid ? 'Valid' : 'Invalid')}
                             color={register.value === null ? 'default' : (register.valid ? 'success' : 'error')}
@@ -469,12 +620,12 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                             variant="outlined"
                           />
                         </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ py: 0.5 }}>
                           <Typography variant="caption">
                             {register.timestamp === 0 ? '---' : new Date(register.timestamp).toLocaleString()}
                           </Typography>
                         </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ py: 0.5 }}>
                           <Tooltip title={state.autoRefresh.activeAddresses.has(register.address) ? 'Remove from auto-refresh' : 'Add to auto-refresh'}>
                             <Checkbox
                               size="small"
@@ -484,7 +635,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                             />
                           </Tooltip>
                         </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ py: 0.5 }}>
                           <Box sx={{ display: 'flex', gap: 0.5 }}>
                             <Tooltip title="Refresh register value">
                               <IconButton

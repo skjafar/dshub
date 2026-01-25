@@ -74,6 +74,8 @@ type DeviceMonAction =
   | { type: 'SET_PLOT_TIME_SPAN'; payload: { series: string; timeSpan: number } }
   | { type: 'SET_PLOT_PAUSED'; payload: boolean }
   | { type: 'CLEAR_LOGS' }
+  | { type: 'CLEAR_REGISTERS' }
+  | { type: 'CLEAR_PARAMETERS' }
   | { type: 'SET_AUTO_REFRESH'; payload: { enabled: boolean; interval?: number } }
   | { type: 'ADD_AUTO_REFRESH_REGISTER'; payload: number }
   | { type: 'REMOVE_AUTO_REFRESH_REGISTER'; payload: number }
@@ -224,6 +226,12 @@ function createDeviceMonReducer(logSettings: LogSettings) {
     case 'CLEAR_LOGS':
       return { ...state, logs: [] };
 
+    case 'CLEAR_REGISTERS':
+      return { ...state, registers: new Map() };
+
+    case 'CLEAR_PARAMETERS':
+      return { ...state, parameters: new Map() };
+
     case 'SET_AUTO_REFRESH':
       return {
         ...state,
@@ -313,6 +321,8 @@ interface DeviceMonContextType {
     setPlotTimeSpan: (series: string, timeSpan: number) => void;
     setPlotPaused: (paused: boolean) => void;
     clearLogs: () => void;
+    clearRegisters: () => void;
+    clearParameters: () => void;
     setAutoRefresh: (enabled: boolean, interval?: number) => void;
     addAutoRefreshRegister: (address: number) => void;
     removeAutoRefreshRegister: (address: number) => void;
@@ -658,6 +668,14 @@ export function DeviceMonProvider({ children }: DeviceMonProviderProps) {
     clearLogs: () => {
       dispatch({ type: 'CLEAR_LOGS' });
       dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: 'Activity log cleared by user', timestamp: Date.now() } });
+    },
+
+    clearRegisters: () => {
+      dispatch({ type: 'CLEAR_REGISTERS' });
+    },
+
+    clearParameters: () => {
+      dispatch({ type: 'CLEAR_PARAMETERS' });
     },
 
     setAutoRefresh: (enabled: boolean, interval?: number) => {

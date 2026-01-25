@@ -1,6 +1,6 @@
 export enum DataForm {
-  INT = 'int',
-  UINT = 'uint32_t', 
+  INT = 'int32_t',
+  UINT = 'uint32_t',
   FLOAT = 'float',
   HEX = 'hex'
 }
@@ -34,28 +34,29 @@ export function parseMapFile(content: string, isRegisterMap: boolean = false): P
   
   for (const line of lines) {
     const trimmedLine = line.trim();
-    
+
+    // Check for read/write boundary in registers BEFORE skipping comments
+    // This allows detecting the boundary even if it's in a comment like /***** read/write registers *****/
+    if (isRegisterMap && trimmedLine.toLowerCase().includes('read/write')) {
+      readOnlyMaxIndex = address - 1;
+      accessPermit = DataAccessPermit.READ_WRITE;
+      continue;
+    }
+
     // Skip empty lines and comments
-    if (!trimmedLine || 
-        trimmedLine.startsWith('//') || 
-        trimmedLine.startsWith('#') || 
+    if (!trimmedLine ||
+        trimmedLine.startsWith('//') ||
+        trimmedLine.startsWith('#') ||
         trimmedLine.startsWith('/*') ||
         trimmedLine.startsWith('*')) {
       continue;
     }
-    
+
     // Remove inline comments
     let workingLine = trimmedLine;
     const commentIndex = workingLine.indexOf('//');
     if (commentIndex > 0) {
       workingLine = workingLine.substring(0, commentIndex).trim();
-    }
-    
-    // Check for read/write boundary in registers
-    if (isRegisterMap && workingLine.toLowerCase().includes('read/write')) {
-      readOnlyMaxIndex = address - 1;
-      accessPermit = DataAccessPermit.READ_WRITE;
-      continue;
     }
     
     // Parse data declarations using regex to handle various formats

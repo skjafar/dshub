@@ -33,16 +33,35 @@ import {
   Refresh as RefreshIcon,
   Edit as EditIcon,
   Add as AddIcon,
-  Timer as TimerIcon
+  Timer as TimerIcon,
+  Save as SaveIcon,
+  Upload as UploadIcon,
+  Send as SendIcon
 } from '@mui/icons-material';
 import { useDeviceMon } from '../contexts/DeviceMonContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { mapManager } from '../maps/mapManager';
-import { MapEntry } from '../maps/mapParser';
+import { MapEntry, DataAccessPermit, DataForm } from '../maps/mapParser';
+import { useToast } from './ToastNotification';
+import { int32ToFloat, floatToInt32, formatFloat } from '../utils/floatConversion';
+
+// Constants
+const WRITE_VERIFICATION_DELAY_MS = 100;
+const FLOAT_COMPARISON_TOLERANCE = 0.0001;
+const WRITE_ALL_BATCH_DELAY_MS = 50;
+
+// Interfaces
+interface Parameter {
+  address: number;
+  name: string;
+  value: number | null;
+  valid: boolean;
+  timestamp: number;
+}
 
 interface ParameterEditDialogProps {
   open: boolean;
-  parameter: { address: number; name: string; value: number | null } | null;
+  parameter: Parameter | null;
   onClose: () => void;
   onWrite: (address: number, value: number) => void;
 }
@@ -149,21 +168,61 @@ interface ParametersPanelProps {}
 const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((props, ref) => {
   const { state, actions } = useDeviceMon();
   const { settings, getActiveProfile } = useSettings();
-  const [editDialog, setEditDialog] = useState<{ open: boolean; parameter: any }>({
+  const toast = useToast();
+  const [editDialog, setEditDialog] = useState<{ open: boolean; parameter: Parameter | null }>({
     open: false,
     parameter: null
   });
   const [readDialog, setReadDialog] = useState(false);
-  const [mapEntries, setMapEntries] = useState<MapEntry[]>([]);
-  const [isMapLoaded, setIsMapLoaded] = useState(false);
+
+  // Initialize state immediately if mapManager is already loaded (only on first render)
+  const [mapEntries, setMapEntries] = useState<MapEntry[]>(() =>
+    mapManager.isInitialized() ? mapManager.getAllParameters() : []
+  );
+  const [mapLookup, setMapLookup] = useState<Map<number, MapEntry>>(() => {
+    const lookup = new Map<number, MapEntry>();
+    if (mapManager.isInitialized()) {
+      mapManager.getAllParameters().forEach(entry => lookup.set(entry.address, entry));
+    }
+    return lookup;
+  });
+  const [isMapLoaded, setIsMapLoaded] = useState(() => mapManager.isInitialized());
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(2000);
+  const [editingValues, setEditingValues] = useState<{ [address: number]: string }>({});
 
   useEffect(() => {
     const initializeMaps = async () => {
       try {
         const activeProfile = getActiveProfile();
-        await mapManager.initialize(activeProfile);
-        setMapEntries(mapManager.getAllParameters());
+
+        // Check if the loaded profile matches the active profile
+        const loadedProfileId = mapManager.getCurrentProfileId();
+        const needsReload = loadedProfileId !== settings.activeMapProfileId;
+
+        if (needsReload) {
+          console.log(`[ParametersPanel] Profile mismatch - MapManager has '${loadedProfileId}', settings has '${settings.activeMapProfileId}'`);
+          // Clear parameter data when profile changes
+          actions.clearParameters();
+
+          // Force reload maps with new profile
+          await mapManager.reload(activeProfile);
+          console.log(`[ParametersPanel] MapManager reloaded with ${activeProfile?.name || 'default'} profile`);
+        } else if (!mapManager.isInitialized()) {
+          // First time initialization
+          await mapManager.initialize(activeProfile);
+          console.log(`[ParametersPanel] MapManager initialized for first time`);
+        }
+
+        // Update local state with current map entries
+        const entries = mapManager.getAllParameters();
+        console.log(`[ParametersPanel] Loaded ${entries.length} parameter entries from mapManager`);
+        setMapEntries(entries);
+
+        // Create fast lookup map
+        const lookup = new Map<number, MapEntry>();
+        entries.forEach(entry => lookup.set(entry.address, entry));
+        setMapLookup(lookup);
+
         setIsMapLoaded(true);
       } catch (error) {
         console.error('Failed to load parameter maps:', error);
@@ -171,7 +230,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
     };
 
     initializeMaps();
-  }, [settings.activeMapProfileId, getActiveProfile]);
+  }, [settings.activeMapProfileId, getActiveProfile, actions]);
 
   const canWrite = state.connection?.connected && (
     (state.connection.interface === 'TCP' && state.connection.controlState === 1) ||
@@ -179,9 +238,9 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
   );
 
   const handleRefreshAll = () => {
-    // Read all parameters in the current view
-    parameters.forEach((parameter) => {
-      const mapEntry = getMapEntryForParameter(parameter.address);
+    // Read all parameters that have already been read (refresh visible data)
+    state.parameters.forEach((parameter) => {
+      const mapEntry = mapLookup.get(parameter.address);
       actions.readParameter(parameter.address, mapEntry?.name || parameter.name);
     });
   };
@@ -193,7 +252,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
     });
   };
 
-  const handleEditParameter = (parameter: any) => {
+  const handleEditParameter = (parameter: Parameter) => {
     setEditDialog({ open: true, parameter });
   };
 
@@ -205,6 +264,44 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
     actions.readParameter(address, name);
   };
 
+  const handleInlineValueChange = (address: number, value: string) => {
+    setEditingValues(prev => ({ ...prev, [address]: value }));
+  };
+
+  const handleInlineValueWrite = (address: number, parameter: Parameter | undefined, mapEntry: MapEntry) => {
+    const valueStr = editingValues[address];
+    if (valueStr !== undefined && valueStr !== '') {
+      let parsedValue: number;
+
+      // Handle float type - convert to int32 representation
+      if (mapEntry.type === 'float') {
+        const floatValue = parseFloat(valueStr);
+        if (isNaN(floatValue)) return;
+        parsedValue = floatToInt32(floatValue);
+      } else if (mapEntry.showAsHex) {
+        parsedValue = parseInt(valueStr, 16);
+      } else {
+        parsedValue = parseInt(valueStr, 10);
+      }
+
+      if (!isNaN(parsedValue)) {
+        actions.writeParameter(address, parsedValue);
+        // Read back after write to verify
+        setTimeout(() => {
+          actions.readParameter(address, mapEntry.name);
+        }, WRITE_VERIFICATION_DELAY_MS);
+      }
+    }
+  };
+
+  const handleInlineValueKeyPress = (e: React.KeyboardEvent, address: number, parameter: Parameter | undefined, mapEntry: MapEntry) => {
+    if (e.key === 'Enter') {
+      handleInlineValueWrite(address, parameter, mapEntry);
+      // Select all text so user can immediately type a new value
+      (e.target as HTMLInputElement).select();
+    }
+  };
+
   const handleAutoRefreshIntervalChange = (interval: number) => {
     setAutoRefreshInterval(interval);
     if (state.autoRefresh.enabled) {
@@ -214,6 +311,16 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
 
   const toggleParameterAutoRefresh = (address: number, enabled: boolean) => {
     if (enabled) {
+      // Get the proper name from the map
+      const mapEntry = mapLookup.get(address);
+      const existingParameter = state.parameters.get(address);
+      const name = existingParameter?.name || mapEntry?.name;
+
+      // Do an initial read with the proper name to ensure it's stored in state
+      if (name) {
+        actions.readParameter(address, name);
+      }
+
       actions.addAutoRefreshParameter(address);
       // Enable auto-refresh if not already enabled
       if (!state.autoRefresh.enabled) {
@@ -230,11 +337,17 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
   };
 
   const toggleAllParametersAutoRefresh = (enabled: boolean) => {
-    parameters.forEach((parameter) => {
+    // Operate on all mapped parameters (visible in table)
+    mapEntries.forEach((mapEntry) => {
       if (enabled) {
-        actions.addAutoRefreshParameter(parameter.address);
+        const existingParameter = state.parameters.get(mapEntry.address);
+        const name = existingParameter?.name || mapEntry.name;
+
+        // Do an initial read with the proper name to ensure it's stored in state
+        actions.readParameter(mapEntry.address, name);
+        actions.addAutoRefreshParameter(mapEntry.address);
       } else {
-        actions.removeAutoRefreshParameter(parameter.address);
+        actions.removeAutoRefreshParameter(mapEntry.address);
       }
     });
 
@@ -250,41 +363,257 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
   };
 
   const getMapEntryForParameter = (address: number): MapEntry | undefined => {
-    return mapEntries.find(entry => entry.address === address);
+    return mapLookup.get(address);
   };
 
-  const formatParameterValue = (parameter: any): string => {
-    if (parameter.value === null || parameter.value === undefined) {
-      return '---'; // Placeholder for unread values
+  const handleSaveValues = () => {
+    try {
+      // Create CSV content: Address, Name, Type, Value
+      // Only save parameters that have been read
+      const csvLines = ['Address,Name,Type,Value'];
+
+      state.parameters.forEach((parameter) => {
+        // Skip parameters that haven't been read yet (null values)
+        if (parameter.value === null || parameter.value === undefined) {
+          return;
+        }
+
+        const mapEntry = mapLookup.get(parameter.address);
+        const name = parameter.name || mapEntry?.name || '';
+        const type = mapEntry?.type || 'unknown';
+
+        // Handle float values - convert to actual float for CSV
+        let value: string | number;
+        if (mapEntry?.type === 'float') {
+          value = formatFloat(int32ToFloat(parameter.value));
+        } else {
+          value = parameter.value;
+        }
+
+        csvLines.push(`${parameter.address},${name},${type},${value}`);
+      });
+
+      // Check if we actually have any values to save
+      const parameterCount = csvLines.length - 1; // Subtract header line
+      if (parameterCount === 0) {
+        toast.showWarning('No parameter values to save. Read parameters from the device first.');
+        return;
+      }
+
+      const csvContent = csvLines.join('\n');
+
+      // Build filename: parameters_YYYY-MM-DD_HH-MM-SS_DeviceName.csv
+      const now = new Date();
+      const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+      const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
+      const deviceName = state.connection?.deviceName || 'unknown';
+      const sanitizedDeviceName = deviceName.replace(/[^a-zA-Z0-9_-]/g, '_'); // Remove invalid filename chars
+
+      const filename = `parameters_${dateStr}_${timeStr}_${sanitizedDeviceName}.csv`;
+
+      // Create and download file
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.showSuccess(`Saved ${parameterCount} parameter values to ${filename}`);
+    } catch (error) {
+      console.error('Failed to save parameter values:', error);
+      toast.showError('Failed to save parameter values');
     }
-    
-    const mapEntry = getMapEntryForParameter(parameter.address);
+  };
+
+  const handleLoadValues = () => {
+    // Create file input
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv';
+
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      try {
+        const text = await file.text();
+        const lines = text.split('\n').map(line => line.trim()).filter(line => line);
+
+        console.log(`[CSV Load] File has ${lines.length} lines (including header)`);
+        console.log(`[CSV Load] Map has ${mapLookup.size} entries loaded`);
+        console.log(`[CSV Load] isMapLoaded: ${isMapLoaded}`);
+
+        // Validate header
+        if (lines.length < 2) {
+          toast.showError('CSV file is empty or invalid');
+          return;
+        }
+
+        const header = lines[0];
+        if (header !== 'Address,Name,Type,Value') {
+          toast.showError('Invalid CSV format. Expected header: Address,Name,Type,Value');
+          return;
+        }
+
+        // Parse and validate each line
+        const newEditingValues: { [address: number]: string } = {};
+        let errorLine = -1;
+        let errorMessage = '';
+
+        for (let i = 1; i < lines.length; i++) {
+          const parts = lines[i].split(',');
+          if (parts.length !== 4) {
+            errorLine = i + 1;
+            errorMessage = `Line ${errorLine}: Expected 4 columns, got ${parts.length}`;
+            break;
+          }
+
+          const [addressStr, name, type, valueStr] = parts;
+          const address = parseInt(addressStr, 10);
+
+          if (isNaN(address)) {
+            errorLine = i + 1;
+            errorMessage = `Line ${errorLine}: Invalid address "${addressStr}"`;
+            break;
+          }
+
+          // Validate against map (not state, as parameters may not have been read yet)
+          const mapEntry = getMapEntryForParameter(address);
+
+          if (!mapEntry) {
+            errorLine = i + 1;
+            errorMessage = `Line ${errorLine}: Parameter at address ${address} not found in map`;
+            break;
+          }
+
+          if (name !== mapEntry.name) {
+            errorLine = i + 1;
+            errorMessage = `Line ${errorLine}: Name mismatch for address ${address}. Expected "${mapEntry.name}", got "${name}"`;
+            break;
+          }
+
+          if (type !== mapEntry.type) {
+            errorLine = i + 1;
+            errorMessage = `Line ${errorLine}: Type mismatch for address ${address}. Expected "${mapEntry.type}", got "${type}"`;
+            break;
+          }
+
+          // Store value in editing field (don't write to board yet)
+          // Trim whitespace from valueStr to handle any formatting issues
+          const trimmedValue = valueStr?.trim();
+          if (trimmedValue && trimmedValue !== '') {
+            newEditingValues[address] = trimmedValue;
+            console.log(`[CSV Load] Loaded address ${address} (${name}): "${trimmedValue}"`);
+          } else {
+            console.log(`[CSV Load] Skipped address ${address} (${name}): empty value`);
+          }
+        }
+
+        if (errorLine !== -1) {
+          toast.showError(`Load aborted: ${errorMessage}`);
+          return;
+        }
+
+        const loadedCount = Object.keys(newEditingValues).length;
+
+        if (loadedCount === 0) {
+          toast.showWarning('No values to load. The CSV file may contain only empty values or unreadable entries.');
+          return;
+        }
+
+        // Apply all values to editing fields
+        setEditingValues(newEditingValues);
+        toast.showSuccess(`Loaded ${loadedCount} parameter values. Click "Write All" to send to board.`);
+
+      } catch (error) {
+        console.error('Failed to load parameter values:', error);
+        toast.showError('Failed to load parameter values');
+      }
+    };
+
+    input.click();
+  };
+
+  const handleWriteAll = () => {
+    if (!canWrite) {
+      toast.showError('Cannot write: device not connected or control not taken');
+      return;
+    }
+
+    const addresses = Object.keys(editingValues).map(k => parseInt(k, 10));
+    if (addresses.length === 0) {
+      toast.showWarning('No values to write');
+      return;
+    }
+
+    const addressesToRead: Array<{ address: number; name: string }> = [];
+
+    addresses.forEach((address) => {
+      const valueStr = editingValues[address];
+      if (valueStr !== undefined && valueStr !== '') {
+        const mapEntry = mapLookup.get(address);
+        if (!mapEntry) return;
+
+        let parsedValue: number;
+
+        // Handle float type - convert to int32 representation
+        if (mapEntry.type === 'float') {
+          const floatValue = parseFloat(valueStr);
+          if (isNaN(floatValue)) return;
+          parsedValue = floatToInt32(floatValue);
+        } else if (mapEntry.showAsHex) {
+          parsedValue = parseInt(valueStr, 16);
+        } else {
+          parsedValue = parseInt(valueStr, 10);
+        }
+
+        if (!isNaN(parsedValue)) {
+          actions.writeParameter(address, parsedValue);
+          addressesToRead.push({ address, name: mapEntry.name });
+        }
+      }
+    });
+
+    // Read back all written values after a delay to verify
+    if (addressesToRead.length > 0) {
+      setTimeout(() => {
+        addressesToRead.forEach(({ address, name }, index) => {
+          // Stagger reads slightly to avoid overwhelming the board
+          setTimeout(() => {
+            actions.readParameter(address, name);
+          }, index * WRITE_ALL_BATCH_DELAY_MS);
+        });
+      }, WRITE_VERIFICATION_DELAY_MS);
+    }
+
+    // Clear all editing values after writing
+    setEditingValues({});
+
+    toast.showSuccess(`Writing ${addressesToRead.length} parameter values to board...`);
+  };
+
+  const formatParameterValue = (parameter: Parameter): string => {
+    if (parameter.value === null || parameter.value === undefined) {
+      return '---';
+    }
+
+    const mapEntry = mapLookup.get(parameter.address);
+
+    // Handle float type - convert from int32 representation
+    if (mapEntry?.type === 'float') {
+      const floatValue = int32ToFloat(parameter.value);
+      return formatFloat(floatValue);
+    }
+
     if (mapEntry?.showAsHex) {
       return `0x${parameter.value.toString(16).toUpperCase()}`;
     }
     return parameter.value.toString();
   };
-
-  const getParametersToShow = () => {
-    if (!isMapLoaded || mapEntries.length === 0) {
-      // Fallback to actual parameters if no map data
-      return Array.from(state.parameters.values()).sort((a, b) => a.address - b.address);
-    }
-
-    // Create combined list: map entries with actual values where available
-    return mapEntries.map(mapEntry => {
-      const actualParameter = state.parameters.get(mapEntry.address);
-      return actualParameter || {
-        address: mapEntry.address,
-        name: mapEntry.name,
-        value: null, // Placeholder for unread values
-        valid: false,
-        timestamp: 0
-      };
-    }).sort((a, b) => a.address - b.address);
-  };
-
-  const parameters = getParametersToShow();
 
   // Expose methods to parent component
   useImperativeHandle(ref, () => ({
@@ -298,7 +627,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
 
   return (
     <Box>
-      {/* Auto-refresh interval selector */}
+      {/* Auto-refresh interval selector and Load/Save buttons */}
       <Card sx={{ mb: 2 }}>
         <CardContent>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
@@ -323,6 +652,43 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                 Active: {state.autoRefresh.activeParameterAddresses.size} parameters
               </Typography>
             </Box>
+
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Tooltip title="Save all parameter values to CSV file">
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<SaveIcon />}
+                  onClick={handleSaveValues}
+                  disabled={state.parameters.size === 0}
+                >
+                  Save
+                </Button>
+              </Tooltip>
+              <Tooltip title="Load parameter values from CSV file">
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<UploadIcon />}
+                  onClick={handleLoadValues}
+                  disabled={!isMapLoaded}
+                >
+                  Load
+                </Button>
+              </Tooltip>
+              <Tooltip title="Write all pending values to board">
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<SendIcon />}
+                  onClick={handleWriteAll}
+                  disabled={!canWrite || Object.keys(editingValues).length === 0}
+                  color="primary"
+                >
+                  Write All ({Object.keys(editingValues).length})
+                </Button>
+              </Tooltip>
+            </Box>
           </Box>
         </CardContent>
       </Card>
@@ -344,11 +710,11 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
         </Alert>
       )}
 
-      {parameters.length === 0 ? (
+      {mapEntries.length === 0 ? (
         <Card>
           <CardContent>
             <Typography color="text.secondary" align="center">
-              No parameter data available. Use "Read Parameter" to manually read specific parameters,
+              No parameter map loaded. Use "Read Parameter" to manually read specific parameters,
               or connect to a device that automatically loads parameter values.
             </Typography>
           </CardContent>
@@ -357,12 +723,12 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
         <Card>
           <CardContent>
             <Typography variant="h6" gutterBottom>
-              Parameter Data ({parameters.length} parameters)
-              {isMapLoaded && (
-                <Chip 
-                  label={`${mapEntries.length} mapped`}
-                  size="small" 
-                  color="primary"
+              Parameter Data ({mapEntries.length} parameters)
+              {isMapLoaded && state.parameters.size > 0 && (
+                <Chip
+                  label={`${state.parameters.size} read`}
+                  size="small"
+                  color="success"
                   variant="outlined"
                   sx={{ ml: 1 }}
                 />
@@ -372,100 +738,157 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>Address</TableCell>
-                    <TableCell>Name</TableCell>
-                    <TableCell>Type</TableCell>
-                    <TableCell>Value</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Last Updated</TableCell>
-                    <TableCell>
+                    <TableCell sx={{ py: 0.5 }}>Address</TableCell>
+                    <TableCell sx={{ py: 0.5 }}>Array Index</TableCell>
+                    <TableCell sx={{ py: 0.5 }}>Name</TableCell>
+                    <TableCell sx={{ py: 0.5 }}>Type</TableCell>
+                    <TableCell sx={{ py: 0.5 }}>Value</TableCell>
+                    <TableCell sx={{ py: 0.5 }}>Status</TableCell>
+                    <TableCell sx={{ py: 0.5 }}>Last Updated</TableCell>
+                    <TableCell sx={{ py: 0.5 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         Auto-Refresh
                         <Checkbox
                           size="small"
-                          checked={parameters.length > 0 && parameters.every(p => state.autoRefresh.activeParameterAddresses.has(p.address))}
-                          indeterminate={parameters.some(p => state.autoRefresh.activeParameterAddresses.has(p.address)) && !parameters.every(p => state.autoRefresh.activeParameterAddresses.has(p.address))}
+                          checked={mapEntries.length > 0 && mapEntries.every(e => state.autoRefresh.activeParameterAddresses.has(e.address))}
+                          indeterminate={mapEntries.some(e => state.autoRefresh.activeParameterAddresses.has(e.address)) && !mapEntries.every(e => state.autoRefresh.activeParameterAddresses.has(e.address))}
                           onChange={(e) => toggleAllParametersAutoRefresh(e.target.checked)}
-                          disabled={!state.connection?.connected || parameters.length === 0}
+                          disabled={!state.connection?.connected || mapEntries.length === 0}
                         />
                       </Box>
                     </TableCell>
-                    <TableCell>Actions</TableCell>
+                    <TableCell sx={{ py: 0.5 }}>Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {parameters.map((parameter) => {
-                    const mapEntry = getMapEntryForParameter(parameter.address);
+                  {mapEntries.map((mapEntry) => {
+                    // Look up parameter data if it exists
+                    const parameter = state.parameters.get(mapEntry.address);
+                    // Extract array index from name if it's an array element (e.g., "NAME[5]" -> "5")
+                    const arrayIndexMatch = mapEntry.name.match(/\[(\d+)\]$/);
+                    const arrayIndex = arrayIndexMatch ? arrayIndexMatch[1] : null;
+
                     return (
-                      <TableRow key={parameter.address} hover>
-                        <TableCell>
-                          <Box>
+                      <TableRow key={mapEntry.address} hover>
+                        <TableCell sx={{ py: 0.5 }}>
+                          <Typography variant="body2" fontFamily="monospace">
+                            0x{mapEntry.address.toString(16).toUpperCase().padStart(2, '0')} ({mapEntry.address})
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={{ py: 0.5 }}>
+                          {arrayIndex !== null && (
                             <Typography variant="body2" fontFamily="monospace">
-                              0x{parameter.address.toString(16).toUpperCase().padStart(4, '0')}
+                              [{arrayIndex}]
                             </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {parameter.address}
-                            </Typography>
-                          </Box>
+                          )}
                         </TableCell>
-                        <TableCell>
-                          <Box>
-                            <Typography variant="body2" fontWeight="medium">
-                              {parameter.name || mapEntry?.name || `PARAM_${parameter.address}`}
-                            </Typography>
-                            {mapEntry && mapEntry.isArray && (
-                              <Typography variant="caption" color="text.secondary">
-                                Array element
-                              </Typography>
-                            )}
-                          </Box>
+                        <TableCell sx={{ py: 0.5 }}>
+                          <Typography
+                            variant="body2"
+                            fontWeight="medium"
+                          >
+                            {mapEntry.name}
+                          </Typography>
                         </TableCell>
-                        <TableCell>
-                          <Tooltip title={mapEntry ? `Data type: ${mapEntry.type}` : 'Unknown type'}>
+                        <TableCell sx={{ py: 0.5 }}>
+                          <Tooltip title={`Data type: ${mapEntry.type}`}>
                             <Chip
-                              label={mapEntry?.type || 'unknown'}
+                              label={mapEntry.type}
                               size="small"
                               variant="outlined"
-                              color={mapEntry?.showAsHex ? 'secondary' : 'default'}
+                              color={mapEntry.showAsHex ? 'secondary' : 'default'}
                             />
                           </Tooltip>
                         </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" fontFamily="monospace">
-                            {formatParameterValue(parameter)}
-                          </Typography>
+                        <TableCell sx={{ py: 0.5 }}>
+                          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                            <TextField
+                              variant="outlined"
+                              size="small"
+                              placeholder="Write value..."
+                              value={editingValues[mapEntry.address] || ''}
+                              onChange={(e) => handleInlineValueChange(mapEntry.address, e.target.value)}
+                              onKeyPress={(e) => handleInlineValueKeyPress(e, mapEntry.address, parameter, mapEntry)}
+                              disabled={!state.connection?.connected}
+                              sx={{
+                                fontFamily: 'monospace',
+                                width: 120,
+                                '& .MuiInputBase-input': {
+                                  fontFamily: 'monospace',
+                                  py: 0.5,
+                                  fontSize: '0.875rem'
+                                },
+                                '& .MuiOutlinedInput-root': {
+                                  '& fieldset': {
+                                    borderColor: editingValues[mapEntry.address] ? 'warning.main' : undefined,
+                                    borderWidth: editingValues[mapEntry.address] ? 2 : 1
+                                  }
+                                }
+                              }}
+                            />
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, position: 'relative' }}>
+                              <Typography variant="body2" fontFamily="monospace">
+                                {parameter ? formatParameterValue(parameter) : '---'}
+                              </Typography>
+                              <Box sx={{ width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                                {editingValues[mapEntry.address] && parameter && parameter.value !== null && (() => {
+                                  // Handle float comparison properly
+                                  if (mapEntry.type === 'float') {
+                                    const writtenFloat = parseFloat(editingValues[mapEntry.address]);
+                                    const boardFloat = int32ToFloat(parameter.value);
+                                    return !isNaN(writtenFloat) && Math.abs(writtenFloat - boardFloat) > FLOAT_COMPARISON_TOLERANCE ? (
+                                      <Tooltip title={`Mismatch: Wrote ${formatFloat(writtenFloat)} but read ${formatFloat(boardFloat)}`}>
+                                        <Box component="span" sx={{ color: 'error.main', display: 'flex', alignItems: 'center' }}>
+                                          ⚠️
+                                        </Box>
+                                      </Tooltip>
+                                    ) : null;
+                                  } else {
+                                    const writtenValue = mapEntry.showAsHex ? parseInt(editingValues[mapEntry.address], 16) : parseInt(editingValues[mapEntry.address], 10);
+                                    const boardValue = parameter.value;
+                                    return !isNaN(writtenValue) && writtenValue !== boardValue ? (
+                                      <Tooltip title={`Mismatch: Wrote ${writtenValue} but read ${boardValue}`}>
+                                        <Box component="span" sx={{ color: 'error.main', display: 'flex', alignItems: 'center' }}>
+                                          ⚠️
+                                        </Box>
+                                      </Tooltip>
+                                    ) : null;
+                                  }
+                                })()}
+                              </Box>
+                            </Box>
+                          </Box>
                         </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ py: 0.5 }}>
                           <Chip
-                            label={parameter.value === null ? 'Not Read' : (parameter.valid ? 'Valid' : 'Invalid')}
-                            color={parameter.value === null ? 'default' : (parameter.valid ? 'success' : 'error')}
+                            label={!parameter || parameter.value === null ? 'Not Read' : (parameter.valid ? 'Valid' : 'Invalid')}
+                            color={!parameter || parameter.value === null ? 'default' : (parameter.valid ? 'success' : 'error')}
                             size="small"
                             variant="outlined"
                           />
                         </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ py: 0.5 }}>
                           <Typography variant="caption">
-                            {parameter.timestamp === 0 ? '---' : new Date(parameter.timestamp).toLocaleString()}
+                            {!parameter || parameter.timestamp === 0 ? '---' : new Date(parameter.timestamp).toLocaleString()}
                           </Typography>
                         </TableCell>
-                        <TableCell>
-                          <Tooltip title={state.autoRefresh.activeParameterAddresses.has(parameter.address) ? 'Remove from auto-refresh' : 'Add to auto-refresh'}>
+                        <TableCell sx={{ py: 0.5 }}>
+                          <Tooltip title={state.autoRefresh.activeParameterAddresses.has(mapEntry.address) ? 'Remove from auto-refresh' : 'Add to auto-refresh'}>
                             <Checkbox
                               size="small"
-                              checked={state.autoRefresh.activeParameterAddresses.has(parameter.address)}
-                              onChange={(e) => toggleParameterAutoRefresh(parameter.address, e.target.checked)}
+                              checked={state.autoRefresh.activeParameterAddresses.has(mapEntry.address)}
+                              onChange={(e) => toggleParameterAutoRefresh(mapEntry.address, e.target.checked)}
                               disabled={!state.connection?.connected}
                             />
                           </Tooltip>
                         </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ py: 0.5 }}>
                           <Box sx={{ display: 'flex', gap: 0.5 }}>
                             <Tooltip title="Refresh parameter value">
                               <IconButton
                                 size="small"
                                 onClick={() => {
-                                  const mapEntry = getMapEntryForParameter(parameter.address);
-                                  actions.readParameter(parameter.address, mapEntry?.name || parameter.name);
+                                  actions.readParameter(mapEntry.address, mapEntry.name);
                                 }}
                                 disabled={!state.connection?.connected}
                               >
@@ -475,7 +898,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                             <Tooltip title="Edit parameter value">
                               <IconButton
                                 size="small"
-                                onClick={() => handleEditParameter(parameter)}
+                                onClick={() => handleEditParameter(parameter || { address: mapEntry.address, name: mapEntry.name, value: null, valid: false, timestamp: 0 })}
                                 disabled={!canWrite}
                               >
                                 <EditIcon fontSize="small" />

@@ -244,6 +244,10 @@ class CNCController:
         # Spindle control
         elif cmd == CMD_ENABLE_SPINDLE:
             self.spindle.enabled = True
+            # If no setpoint is set, use a default speed (e.g., 12000 RPM)
+            if self.registers.read(17) == 0:
+                self.registers.write(17, 12000)
+                self.spindle.setpoint = 12000
             return 0
 
         elif cmd == CMD_DISABLE_SPINDLE:

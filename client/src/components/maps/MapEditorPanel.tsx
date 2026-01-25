@@ -172,25 +172,47 @@ export default function MapEditorPanel() {
 
   const handleUpdateEntry = (oldEntry: MapEntry, newData: Partial<MapEntry>) => {
     const entries = currentTab === 'registers' ? [...registerEntries] : [...parameterEntries];
+    const entryType = isRegisterMap ? 'registers' : 'parameters';
     const baseName = oldEntry.name.replace(/\[\d+\]$/, '');
 
-    // Remove old entries
+    // Find the position where we need to insert the new entries
+    const insertIndex = entries.findIndex(e => {
+      const eBaseName = e.name.replace(/\[\d+\]$/, '');
+      return eBaseName === baseName;
+    });
+
+    // Remove old entries (all array elements if it was an array)
     const filtered = entries.filter(e => {
       const eBaseName = e.name.replace(/\[\d+\]$/, '');
       return eBaseName !== baseName;
     });
 
-    // Add new entries
+    // Calculate how many entries the old entry occupied
+    const oldEntryCount = entries.filter(e => {
+      const eBaseName = e.name.replace(/\[\d+\]$/, '');
+      return eBaseName === baseName;
+    }).length;
+
+    // Calculate how many entries the new data will create
+    const newEntryCount = newData.isArray && newData.arraySize ? newData.arraySize : 1;
+
+    // Check if the update would exceed the 256 limit
+    const totalAfterUpdate = filtered.length + newEntryCount;
+    if (totalAfterUpdate > 256) {
+      const excessCount = totalAfterUpdate - 256;
+      showError(`Cannot update entry. This would create ${totalAfterUpdate} ${entryType}, exceeding the maximum of 256 by ${excessCount}.`);
+      return;
+    }
+
+    // Create new entries maintaining the original address
     const newEntries = createEntriesFromData(newData, oldEntry.address, filtered);
-    const combined = [...filtered, ...newEntries];
 
-    // For registers, sort by access permission (read-only first) then by address
-    const sorted = isRegisterMap
-      ? sortRegistersByAccessPermit(combined)
-      : combined.sort((a, b) => a.address - b.address);
+    // Insert new entries at the original position
+    const result = [...filtered];
+    result.splice(insertIndex, 0, ...newEntries);
 
-    // Recalculate addresses
-    const readdressed = sorted.map((e, index) => ({ ...e, address: index }));
+    // Recalculate addresses sequentially
+    const readdressed = result.map((e, index) => ({ ...e, address: index }));
 
     if (currentTab === 'registers') {
       setRegisterEntries(readdressed);
@@ -236,6 +258,14 @@ export default function MapEditorPanel() {
 
   const handleAddEntry = () => {
     const entries = currentTab === 'registers' ? [...registerEntries] : [...parameterEntries];
+    const entryType = isRegisterMap ? 'registers' : 'parameters';
+
+    // Check if we would exceed the 256 limit
+    if (entries.length >= 256) {
+      showError(`Cannot add more ${entryType}. Maximum of 256 ${entryType} allowed.`);
+      return;
+    }
+
     const nextAddress = getNextAddress(entries);
 
     // Generate a unique default name based on entry type
@@ -284,6 +314,8 @@ export default function MapEditorPanel() {
 
     if (data.isArray && data.arraySize) {
       // Create array entries
+      console.log(`[MapEditor] Creating array "${data.name}" with ${data.arraySize} (type: ${typeof data.arraySize}) elements starting at address ${startAddress}`);
+      console.log(`[MapEditor] Full data object:`, JSON.stringify(data));
       for (let i = 0; i < data.arraySize; i++) {
         entries.push({
           address: startAddress + i,
@@ -295,6 +327,7 @@ export default function MapEditorPanel() {
           showAsHex: data.showAsHex || false
         });
       }
+      console.log(`[MapEditor] Created ${entries.length} array entries for "${data.name}"`);
     } else {
       // Create single entry
       entries.push({
@@ -378,6 +411,13 @@ export default function MapEditorPanel() {
       try {
         const content = e.target?.result as string;
         const parsed = parseMapFile(content, isRegisterMap);
+        const entryType = isRegisterMap ? 'registers' : 'parameters';
+
+        // Check if the imported file exceeds the 256 entry limit
+        if (parsed.entries.length > 256) {
+          showError(`Cannot import ${file.name}. File contains ${parsed.entries.length} ${entryType}, exceeding the maximum of 256.`);
+          return;
+        }
 
         // For registers, validate proper ordering (read-only before read-write)
         if (isRegisterMap && !validateRegisterOrder(parsed.entries)) {
@@ -443,7 +483,13 @@ export default function MapEditorPanel() {
         mapManager.reload();
         setHasUnsavedChanges(false);
         showSuccess('Profile saved successfully. Map manager reloaded.');
-        loadProfile(profileToOverwrite); // Reload to reflect changes
+
+        // DON'T reload from storage - just refresh the UI by re-parsing what we just saved
+        // This ensures we display the consolidated/expanded entries correctly
+        const regParsed = parseMapFile(registersContent, true);
+        const paramParsed = parseMapFile(parametersContent, false);
+        setRegisterEntries(regParsed.entries);
+        setParameterEntries(paramParsed.entries);
       } else {
         showError('Failed to save profile');
       }
@@ -503,7 +549,14 @@ export default function MapEditorPanel() {
 
       const newProfileId = createProfile(trimmedName, registersContent, parametersContent, sysCommandEntries, boardTypesContent);
 
+      // Refresh the UI by re-parsing what we just saved
+      const regParsed = parseMapFile(registersContent, true);
+      const paramParsed = parseMapFile(parametersContent, false);
+      setRegisterEntries(regParsed.entries);
+      setParameterEntries(paramParsed.entries);
+
       setHasUnsavedChanges(false);
+      setPreviousProfileId(newProfileId); // Update previous to avoid triggering loadProfile
       setSelectedProfileId(newProfileId);
       showSuccess(`Profile "${trimmedName}" created successfully`);
       setSaveAsDialogOpen(false);
