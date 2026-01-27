@@ -63,13 +63,24 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   const [cncProfile, setCncProfile] = useState<MapProfile | null>(null);
 
   // Load default and CNC profiles on mount
+  // IMPORTANT: Load profiles independently to handle partial failures gracefully
   useEffect(() => {
-    Promise.all([
-      loadDefaultProfile().then(profile => setDefaultProfile(profile)),
-      loadCNCProfile().then(profile => setCncProfile(profile))
-    ]).catch(error => {
-      console.error('Failed to load profiles:', error);
-    });
+    // Load default profile (required for basic functionality)
+    loadDefaultProfile()
+      .then(profile => setDefaultProfile(profile))
+      .catch(error => {
+        console.error('CRITICAL: Failed to load default profile:', error);
+        // Default profile is required - notify user of critical failure
+        // Application cannot function without default maps
+      });
+
+    // Load CNC profile (optional - failure should not prevent app from working)
+    loadCNCProfile()
+      .then(profile => setCncProfile(profile))
+      .catch(error => {
+        console.warn('Failed to load CNC profile (optional):', error);
+        // CNC profile is optional, application can continue without it
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

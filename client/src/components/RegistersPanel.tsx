@@ -41,6 +41,7 @@ import {
 } from '@mui/icons-material';
 import { useDeviceMon } from '../contexts/DeviceMonContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { useToast } from './ToastNotification';
 import { mapManager } from '../maps/mapManager';
 import { MapEntry, DataAccessPermit, DataForm } from '../maps/mapParser';
 import { int32ToFloat, floatToInt32, formatFloat } from '../utils/floatConversion';
@@ -153,6 +154,7 @@ interface RegistersPanelProps {}
 const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props, ref) => {
   const { state, actions } = useDeviceMon();
   const { settings, getActiveProfile } = useSettings();
+  const { showError } = useToast();
   const [editDialog, setEditDialog] = useState<{ open: boolean; register: any }>({
     open: false,
     register: null
@@ -244,7 +246,10 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
       // Handle float type - convert to int32 representation
       if (mapEntry?.type === 'float') {
         const floatValue = parseFloat(valueStr);
-        if (isNaN(floatValue)) return;
+        if (isNaN(floatValue)) {
+          showError('Invalid float value');
+          return;
+        }
         parsedValue = floatToInt32(floatValue);
       } else if (mapEntry?.showAsHex) {
         parsedValue = parseInt(valueStr, 16);
@@ -252,13 +257,44 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
         parsedValue = parseInt(valueStr, 10);
       }
 
-      if (!isNaN(parsedValue)) {
-        actions.writeRegister(address, parsedValue);
-        // Read back after write to verify
-        setTimeout(() => {
-          actions.readRegister(address, mapEntry?.name || register.name);
-        }, 100);
+      if (isNaN(parsedValue)) {
+        showError('Invalid numeric value');
+        return;
       }
+
+      // CRITICAL: Validate range for safety-critical applications
+      // JavaScript numbers can exceed 32-bit integer ranges, causing device malfunction
+      const MIN_INT32 = -2147483648;
+      const MAX_INT32 = 2147483647;
+      const MAX_UINT32 = 4294967295;
+
+      // Validate based on data type
+      if (mapEntry?.type === DataForm.UINT) {
+        if (parsedValue < 0 || parsedValue > MAX_UINT32) {
+          showError(`Value must be between 0 and ${MAX_UINT32.toLocaleString()} (uint32_t)`);
+          return;
+        }
+      } else {
+        // Signed int32_t
+        if (parsedValue < MIN_INT32 || parsedValue > MAX_INT32) {
+          showError(`Value must be between ${MIN_INT32.toLocaleString()} and ${MAX_INT32.toLocaleString()} (int32_t)`);
+          return;
+        }
+      }
+
+      actions.writeRegister(address, parsedValue);
+
+      // Clear editing state to remove orange border indicator
+      setEditingValues(prev => {
+        const updated = { ...prev };
+        delete updated[address];
+        return updated;
+      });
+
+      // Read back after write to verify
+      setTimeout(() => {
+        actions.readRegister(address, mapEntry?.name || register.name);
+      }, 100);
     }
   };
 

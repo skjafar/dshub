@@ -36,6 +36,9 @@ import { useToast } from './ToastNotification';
 import { useDeviceMon } from '../contexts/DeviceMonContext';
 import { DEFAULT_PROFILE_ID } from '../types/settings';
 
+// Maximum file size for map files (10MB) - prevents OOM attacks
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB in bytes
+
 export default function MapProfilesPanel() {
   const {
     settings,
@@ -77,6 +80,20 @@ export default function MapProfilesPanel() {
     }
 
     try {
+      // Validate file sizes to prevent OOM attacks
+      if (registersFile.size > MAX_FILE_SIZE) {
+        showError(`Registers map file is too large (${(registersFile.size / 1024 / 1024).toFixed(2)}MB). Maximum size is 10MB.`);
+        return;
+      }
+      if (parametersFile.size > MAX_FILE_SIZE) {
+        showError(`Parameters map file is too large (${(parametersFile.size / 1024 / 1024).toFixed(2)}MB). Maximum size is 10MB.`);
+        return;
+      }
+      if (boardTypesFile && boardTypesFile.size > MAX_FILE_SIZE) {
+        showError(`Board types map file is too large (${(boardTypesFile.size / 1024 / 1024).toFixed(2)}MB). Maximum size is 10MB.`);
+        return;
+      }
+
       const registersContent = await registersFile.text();
       const parametersContent = await parametersFile.text();
       const boardTypesContent = boardTypesFile ? await boardTypesFile.text() : undefined;
@@ -106,6 +123,20 @@ export default function MapProfilesPanel() {
     }
 
     try {
+      // Validate file sizes to prevent OOM attacks
+      if (registersFile.size > MAX_FILE_SIZE) {
+        showError(`Registers map file is too large (${(registersFile.size / 1024 / 1024).toFixed(2)}MB). Maximum size is 10MB.`);
+        return;
+      }
+      if (parametersFile.size > MAX_FILE_SIZE) {
+        showError(`Parameters map file is too large (${(parametersFile.size / 1024 / 1024).toFixed(2)}MB). Maximum size is 10MB.`);
+        return;
+      }
+      if (boardTypesFile && boardTypesFile.size > MAX_FILE_SIZE) {
+        showError(`Board types map file is too large (${(boardTypesFile.size / 1024 / 1024).toFixed(2)}MB). Maximum size is 10MB.`);
+        return;
+      }
+
       const registersContent = await registersFile.text();
       const parametersContent = await parametersFile.text();
       const boardTypesContent = boardTypesFile ? await boardTypesFile.text() : undefined;

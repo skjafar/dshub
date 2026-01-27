@@ -54,6 +54,9 @@ export class DeviceCommunicator {
   private totalBytesSent = 0;
   private totalBytesReceived = 0;
   private readonly REQUEST_TIMEOUT = 5000; // 5 seconds
+  private readonly MAX_QUEUE_SIZE = 100; // Maximum queued requests - prevents memory exhaustion
+  private readonly REQUEST_RATE_LIMIT = 50; // Maximum requests per second - prevents device overload
+  private requestTimestamps: number[] = []; // Track recent request times for rate limiting
 
   // Callback handlers
   private statusCallback?: (status: DeviceConnection) => void;
@@ -142,8 +145,11 @@ export class DeviceCommunicator {
     });
 
     this.udpSocket.on('message', (msg, rinfo) => {
-      if (rinfo.address === ip) {
+      // Validate both source IP and port to prevent packet injection
+      if (rinfo.address === ip && rinfo.port === port) {
         this.handleIncomingData(msg);
+      } else {
+        this.logger.warning(`Rejected UDP packet from ${rinfo.address}:${rinfo.port}, expected ${ip}:${port}`, 'connection');
       }
     });
 
@@ -211,10 +217,8 @@ export class DeviceCommunicator {
     const responseCategory = getCategoryForCommand(this.currentRequest.command);
     this.logger.success(`Processing complete response for ${this.currentRequest.id}`, responseCategory);
 
-    // Clear the timeout
-    if (this.currentRequest.timeout) {
-      clearTimeout(this.currentRequest.timeout);
-    }
+    // Clear the timeout to prevent memory leak
+    this.clearRequest(this.currentRequest);
 
     // Calculate response time
     const responseTime = Date.now() - this.currentRequest.timestamp;
@@ -222,99 +226,101 @@ export class DeviceCommunicator {
 
     try {
       // Parse response based on expected format (6 bytes: 1 cmd/status + 1 addr + 4 value)
-      if (responseData.length >= 6) {
-        const status = responseData.readUInt8(0); // Command/status byte
-        const address = responseData.readUInt8(1); // Address byte
-        const value = responseData.readInt32LE(2); // Value (4 bytes)
+      // Strict validation: must be exactly 6 bytes, no more, no less
+      if (responseData.length !== 6) {
+        this.logger.error(`Invalid response length: ${responseData.length} bytes, expected exactly 6`, responseCategory);
+        return;
+      }
 
-        // Verify address matches request (skip for Take Control which uses address 0)
-        if (address !== this.currentRequest.address && this.currentRequest.command !== 5) {
-          this.logger.warning(`Address mismatch: expected ${this.currentRequest.address}, got ${address}`, responseCategory);
+      const status = responseData.readUInt8(0); // Command/status byte
+      const address = responseData.readUInt8(1); // Address byte
+      const value = responseData.readInt32LE(2); // Value (4 bytes) - safe because we validated length
+
+      // Verify address matches request (skip for Take Control which uses address 0)
+      if (address !== this.currentRequest.address && this.currentRequest.command !== 5) {
+        this.logger.warning(`Address mismatch: expected ${this.currentRequest.address}, got ${address}`, responseCategory);
+      }
+
+      if (this.currentRequest.command === 1) {
+        // Register read response
+        if (!this.currentRequest.name) {
+          this.logger.error(`Register read response missing name for address ${address}. All register reads must include a name.`, 'register');
+        }
+        const registerData: RegisterData = {
+          address,
+          name: this.currentRequest.name || '',
+          value,
+          valid: true,
+          timestamp: Date.now()
+        };
+
+        // Store the latest register value for plotting
+        this.latestRegisterValues.set(address, value);
+
+        // If this register is being plotted, send the data point
+        const plotCallback = this.plotCallbacks.get(registerData.name);
+        const startTime = this.plotStartTimes.get(registerData.name);
+        if (plotCallback && startTime) {
+          // Use absolute timestamp in seconds (Unix epoch)
+          const timeSeconds = Date.now() / 1000;
+          plotCallback(registerData.name, {
+            x: timeSeconds,
+            y: value
+          });
         }
 
-        if (this.currentRequest.command === 1) {
-          // Register read response
-          if (!this.currentRequest.name) {
-            this.logger.error(`Register read response missing name for address ${address}. All register reads must include a name.`, 'register');
-          }
-          const registerData: RegisterData = {
-            address,
-            name: this.currentRequest.name || '',
-            value,
-            valid: true,
-            timestamp: Date.now()
-          };
-
-          // Store the latest register value for plotting
-          this.latestRegisterValues.set(address, value);
-
-          // If this register is being plotted, send the data point
-          const plotCallback = this.plotCallbacks.get(registerData.name);
-          const startTime = this.plotStartTimes.get(registerData.name);
-          if (plotCallback && startTime) {
-            // Use absolute timestamp in seconds (Unix epoch)
-            const timeSeconds = Date.now() / 1000;
-            plotCallback(registerData.name, {
-              x: timeSeconds,
-              y: value
-            });
-          }
-
-          this.currentRequest.callback?.(registerData);
-          this.logger.success(`Register ${registerData.name} (${address}) = ${value} (${responseTime}ms)`, 'register');
-        } else if (this.currentRequest.command === 2) {
-          // Register write confirmation
-          if (!this.currentRequest.name) {
-            this.logger.error(`Register write response missing name for address ${address}. All register writes must include a name.`, 'register');
-          }
-          const registerData: RegisterData = {
-            address,
-            name: this.currentRequest.name || '',
-            value,
-            valid: true,
-            timestamp: Date.now()
-          };
-          this.currentRequest.callback?.(registerData);
-          this.logger.success(`Register write confirmed: ${registerData.name} (${address}) = ${value} (${responseTime}ms)`, 'register');
-        } else if (this.currentRequest.command === 3) {
-          // Parameter read response
-          if (!this.currentRequest.name) {
-            this.logger.error(`Parameter read response missing name for address ${address}. All parameter reads must include a name.`, 'parameter');
-          }
-          const parameterData: ParameterData = {
-            address,
-            name: this.currentRequest.name || '',
-            value,
-            valid: true,
-            timestamp: Date.now()
-          };
-          this.currentRequest.callback?.(parameterData);
-          this.logger.success(`Parameter ${parameterData.name} (${address}) = ${value} (${responseTime}ms)`, 'parameter');
-        } else if (this.currentRequest.command === 4) {
-          // Parameter write confirmation
-          if (!this.currentRequest.name) {
-            this.logger.error(`Parameter write response missing name for address ${address}. All parameter writes must include a name.`, 'parameter');
-          }
-          const parameterData: ParameterData = {
-            address,
-            name: this.currentRequest.name || '',
-            value,
-            valid: true,
-            timestamp: Date.now()
-          };
-          this.currentRequest.callback?.(parameterData);
-          this.logger.success(`Parameter write confirmed: ${parameterData.name} (${address}) = ${value} (${responseTime}ms)`, 'parameter');
-        } else if (this.currentRequest.command === 5) {
-          // Take Control response
-          this.currentRequest.callback?.();
-          this.logger.success(`Take Control acknowledged (${responseTime}ms)`, 'connection');
-        } else {
-          // Other commands
-          this.currentRequest.callback?.();
-          this.logger.success(`Command ${this.currentRequest.command} acknowledged (${responseTime}ms)`, responseCategory);
+        this.currentRequest.callback?.(registerData);
+        this.logger.success(`Register ${registerData.name} (${address}) = ${value} (${responseTime}ms)`, 'register');
+      } else if (this.currentRequest.command === 2) {
+        // Register write confirmation
+        if (!this.currentRequest.name) {
+          this.logger.error(`Register write response missing name for address ${address}. All register writes must include a name.`, 'register');
         }
+        const registerData: RegisterData = {
+          address,
+          name: this.currentRequest.name || '',
+          value,
+          valid: true,
+          timestamp: Date.now()
+        };
+        this.currentRequest.callback?.(registerData);
+        this.logger.success(`Register write confirmed: ${registerData.name} (${address}) = ${value} (${responseTime}ms)`, 'register');
+      } else if (this.currentRequest.command === 3) {
+        // Parameter read response
+        if (!this.currentRequest.name) {
+          this.logger.error(`Parameter read response missing name for address ${address}. All parameter reads must include a name.`, 'parameter');
+        }
+        const parameterData: ParameterData = {
+          address,
+          name: this.currentRequest.name || '',
+          value,
+          valid: true,
+          timestamp: Date.now()
+        };
+        this.currentRequest.callback?.(parameterData);
+        this.logger.success(`Parameter ${parameterData.name} (${address}) = ${value} (${responseTime}ms)`, 'parameter');
+      } else if (this.currentRequest.command === 4) {
+        // Parameter write confirmation
+        if (!this.currentRequest.name) {
+          this.logger.error(`Parameter write response missing name for address ${address}. All parameter writes must include a name.`, 'parameter');
+        }
+        const parameterData: ParameterData = {
+          address,
+          name: this.currentRequest.name || '',
+          value,
+          valid: true,
+          timestamp: Date.now()
+        };
+        this.currentRequest.callback?.(parameterData);
+        this.logger.success(`Parameter write confirmed: ${parameterData.name} (${address}) = ${value} (${responseTime}ms)`, 'parameter');
+      } else if (this.currentRequest.command === 5) {
+        // Take Control response
+        this.currentRequest.callback?.();
+        this.logger.success(`Take Control acknowledged (${responseTime}ms)`, 'connection');
       } else {
-        this.logger.error(`Invalid response length: ${responseData.length} bytes, expected at least 6`, responseCategory);
+        // Other commands
+        this.currentRequest.callback?.();
+        this.logger.success(`Command ${this.currentRequest.command} acknowledged (${responseTime}ms)`, responseCategory);
       }
     } catch (error) {
       this.logger.error(`Error parsing response: ${error}`, responseCategory);
@@ -325,11 +331,23 @@ export class DeviceCommunicator {
     this.processNextRequest();
   }
 
+  /**
+   * Safely clears a request and its associated timeout to prevent memory leaks.
+   * IMPORTANT: Always use this method instead of setting this.currentRequest = null directly.
+   * @param request The request to clear, or null if already cleared
+   */
+  private clearRequest(request: DataRequest | null): void {
+    if (request?.timeout) {
+      clearTimeout(request.timeout);
+      request.timeout = undefined;
+    }
+  }
+
   private handleRequestTimeout(requestId: string): void {
     if (this.currentRequest && this.currentRequest.id === requestId) {
       const timeoutCategory = this.currentRequest.command === 1 ? 'register' : 'parameter';
       this.logger.error(`Request timeout: ${requestId} (${this.currentRequest.command === 1 ? 'register' : 'parameter'} ${this.currentRequest.address})`, timeoutCategory);
-      
+
       // Log timeout entry
       this.logCallback?.({
         level: 'error',
@@ -338,6 +356,9 @@ export class DeviceCommunicator {
         timestamp: Date.now()
       });
 
+      // Clear timeout to prevent memory leak
+      this.clearRequest(this.currentRequest);
+
       // Clear current request and process next
       this.currentRequest = null;
       this.responseBuffer = null;
@@ -345,11 +366,40 @@ export class DeviceCommunicator {
     }
   }
 
+  /**
+   * Queues a device request with rate limiting and queue size protection.
+   * IMPORTANT: Prevents memory exhaustion and device overload in safety-critical applications.
+   *
+   * @param request The request to queue
+   * @throws Error if queue is full or rate limit exceeded
+   */
   private queueRequest(request: DataRequest): void {
+    const now = Date.now();
+    const queueCategory = request.command === 1 ? 'register' : 'parameter';
+
+    // Rate limiting: Remove timestamps older than 1 second
+    this.requestTimestamps = this.requestTimestamps.filter(ts => now - ts < 1000);
+
+    // Check rate limit (requests per second)
+    if (this.requestTimestamps.length >= this.REQUEST_RATE_LIMIT) {
+      const errorMsg = `Rate limit exceeded: ${this.REQUEST_RATE_LIMIT} requests/second. Rejecting request.`;
+      this.logger.error(errorMsg, queueCategory);
+      throw new Error(errorMsg);
+    }
+
+    // Check queue size limit
+    if (this.requestQueue.length >= this.MAX_QUEUE_SIZE) {
+      const errorMsg = `Request queue full (${this.MAX_QUEUE_SIZE} requests). Device may be overloaded.`;
+      this.logger.error(errorMsg, queueCategory);
+      throw new Error(errorMsg);
+    }
+
+    // Record this request timestamp
+    this.requestTimestamps.push(now);
+
     if (this.currentRequest) {
       // Add to queue if busy
       this.requestQueue.push(request);
-      const queueCategory = request.command === 1 ? 'register' : 'parameter';
       this.logger.info(`Queued ${request.command === 1 ? 'register' : 'parameter'} request ${request.address} (queue size: ${this.requestQueue.length})`, queueCategory);
     } else {
       // Send immediately if not busy
@@ -436,20 +486,19 @@ export class DeviceCommunicator {
       this.udpSocket = null;
     }
 
-    // Clear current request and queue
-    if (this.currentRequest?.timeout) {
-      clearTimeout(this.currentRequest.timeout);
-    }
+    // Clear current request timeout to prevent memory leak
+    this.clearRequest(this.currentRequest);
     this.currentRequest = null;
-    
-    // Clear queued requests and their timeouts
+
+    // Clear all queued requests and their timeouts to prevent memory leaks
     this.requestQueue.forEach(request => {
-      if (request.timeout) {
-        clearTimeout(request.timeout);
-      }
+      this.clearRequest(request);
     });
     this.requestQueue.length = 0;
-    
+
+    // Clear rate limiting timestamps
+    this.requestTimestamps.length = 0;
+
     // Clear response buffer
     this.responseBuffer = null;
 

@@ -58,8 +58,24 @@ export class Logger {
     this.notifyCallbacks('success', category, message);
   }
 
-  public onLogEntry(callback: (entry: LogEntry) => void): void {
+  /**
+   * Register a callback to be notified of log entries.
+   * Returns a cleanup function to remove the callback.
+   * IMPORTANT: Always call the cleanup function to prevent memory leaks.
+   *
+   * @param callback Function to call when log entry is created
+   * @returns Cleanup function that removes the callback
+   */
+  public onLogEntry(callback: (entry: LogEntry) => void): () => void {
     this.logCallbacks.push(callback);
+
+    // Return cleanup function to remove this callback
+    return () => {
+      const index = this.logCallbacks.indexOf(callback);
+      if (index > -1) {
+        this.logCallbacks.splice(index, 1);
+      }
+    };
   }
 
   private notifyCallbacks(level: LogEntry['level'], category: LogCategory, message: string): void {

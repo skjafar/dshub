@@ -276,7 +276,10 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
       // Handle float type - convert to int32 representation
       if (mapEntry.type === 'float') {
         const floatValue = parseFloat(valueStr);
-        if (isNaN(floatValue)) return;
+        if (isNaN(floatValue)) {
+          toast.showError('Invalid float value');
+          return;
+        }
         parsedValue = floatToInt32(floatValue);
       } else if (mapEntry.showAsHex) {
         parsedValue = parseInt(valueStr, 16);
@@ -284,13 +287,44 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
         parsedValue = parseInt(valueStr, 10);
       }
 
-      if (!isNaN(parsedValue)) {
-        actions.writeParameter(address, parsedValue);
-        // Read back after write to verify
-        setTimeout(() => {
-          actions.readParameter(address, mapEntry.name);
-        }, WRITE_VERIFICATION_DELAY_MS);
+      if (isNaN(parsedValue)) {
+        toast.showError('Invalid numeric value');
+        return;
       }
+
+      // CRITICAL: Validate range for safety-critical applications
+      // JavaScript numbers can exceed 32-bit integer ranges, causing device malfunction
+      const MIN_INT32 = -2147483648;
+      const MAX_INT32 = 2147483647;
+      const MAX_UINT32 = 4294967295;
+
+      // Validate based on data type
+      if (mapEntry.type === DataForm.UINT) {
+        if (parsedValue < 0 || parsedValue > MAX_UINT32) {
+          toast.showError(`Value must be between 0 and ${MAX_UINT32.toLocaleString()} (uint32_t)`);
+          return;
+        }
+      } else {
+        // Signed int32_t
+        if (parsedValue < MIN_INT32 || parsedValue > MAX_INT32) {
+          toast.showError(`Value must be between ${MIN_INT32.toLocaleString()} and ${MAX_INT32.toLocaleString()} (int32_t)`);
+          return;
+        }
+      }
+
+      actions.writeParameter(address, parsedValue);
+
+      // Clear editing state to remove orange border indicator
+      setEditingValues(prev => {
+        const updated = { ...prev };
+        delete updated[address];
+        return updated;
+      });
+
+      // Read back after write to verify
+      setTimeout(() => {
+        actions.readParameter(address, mapEntry.name);
+      }, WRITE_VERIFICATION_DELAY_MS);
     }
   };
 

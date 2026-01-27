@@ -129,12 +129,15 @@ io.on('connection', (socket) => {
   });
 
   // Forward log entries to client
-  logger.onLogEntry((entry) => {
+  // Store cleanup function to prevent memory leak
+  const removeLogCallback = logger.onLogEntry((entry) => {
     socket.emit('logEntry', entry);
   });
 
   socket.on('disconnect', () => {
     logger.info(`Client disconnected: ${socket.id}`);
+    // Clean up log callback to prevent memory leak
+    removeLogCallback();
   });
 });
 

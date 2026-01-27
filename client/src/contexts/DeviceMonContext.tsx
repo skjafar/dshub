@@ -358,6 +358,8 @@ export function DeviceMonProvider({ children }: DeviceMonProviderProps) {
   const [state, dispatch] = useReducer(deviceMonReducer, initialState);
   const connectionRef = React.useRef<DeviceConnection | null>(null);
   const socketRef = React.useRef<Socket | null>(null);
+  const registersRef = React.useRef<Map<number, RegisterData>>(new Map());
+  const parametersRef = React.useRef<Map<number, ParameterData>>(new Map());
 
   // Keep connection ref updated
   React.useEffect(() => {
@@ -368,6 +370,16 @@ export function DeviceMonProvider({ children }: DeviceMonProviderProps) {
   React.useEffect(() => {
     socketRef.current = state.socket;
   }, [state.socket]);
+
+  // Keep registers ref updated
+  React.useEffect(() => {
+    registersRef.current = state.registers;
+  }, [state.registers]);
+
+  // Keep parameters ref updated
+  React.useEffect(() => {
+    parametersRef.current = state.parameters;
+  }, [state.parameters]);
 
   useEffect(() => {
     // Connect to Socket.IO server
@@ -492,28 +504,30 @@ export function DeviceMonProvider({ children }: DeviceMonProviderProps) {
   }, [settings.logSettings, state.socket]); // Depend on both settings and socket
 
   // Auto-refresh timer effect
+  // IMPORTANT: Uses refs to avoid recreating interval on every register/parameter update
   useEffect(() => {
     let intervalId: NodeJS.Timeout | null = null;
 
     if (state.autoRefresh.enabled && state.connection?.connected && state.socket) {
       intervalId = setInterval(() => {
         // Safety check: verify socket and connection are still valid
+        // This prevents race condition where disconnect happens mid-interval
         if (!socketRef.current || !connectionRef.current?.connected) {
           return;
         }
 
-        // Refresh registers
+        // Refresh registers - use ref to get current register names
         state.autoRefresh.activeAddresses.forEach(address => {
           // Get the existing register name to preserve it
-          const existingRegister = state.registers.get(address);
+          const existingRegister = registersRef.current.get(address);
           const name = existingRegister?.name;
           socketRef.current?.emit('readRegister', { address, name });
         });
 
-        // Refresh parameters
+        // Refresh parameters - use ref to get current parameter names
         state.autoRefresh.activeParameterAddresses.forEach(address => {
           // Get the existing parameter name to preserve it
-          const existingParameter = state.parameters.get(address);
+          const existingParameter = parametersRef.current.get(address);
           const name = existingParameter?.name;
           socketRef.current?.emit('readParameter', { address, name });
         });
@@ -531,6 +545,7 @@ export function DeviceMonProvider({ children }: DeviceMonProviderProps) {
       }, state.autoRefresh.interval);
     }
 
+    // Cleanup: Clear interval when effect dependencies change or component unmounts
     return () => {
       if (intervalId) {
         clearInterval(intervalId);
@@ -542,9 +557,9 @@ export function DeviceMonProvider({ children }: DeviceMonProviderProps) {
     state.autoRefresh.activeAddresses,
     state.autoRefresh.activeParameterAddresses,
     state.connection?.connected,
-    state.socket,
-    state.registers,
-    state.parameters
+    state.socket
+    // NOTE: Removed state.registers and state.parameters from dependencies
+    // to prevent recreating interval on every update. Using refs instead.
   ]);
 
   const actions = {

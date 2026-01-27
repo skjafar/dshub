@@ -6,6 +6,7 @@ export class MapManager {
   private parametersMap: ParsedMap | null = null;
   private boardTypesMap: BoardTypeEntry[] = [];
   private isLoaded = false;
+  private isLoading = false;
   private currentProfileId: string | null = null;
 
   async initialize(profile?: MapProfile | null): Promise<void> {
@@ -86,10 +87,26 @@ export class MapManager {
     }
   }
 
-  // Force reload maps (useful when profile changes)
+  /**
+   * Force reload maps (useful when profile changes).
+   * Prevents race conditions by rejecting concurrent reload attempts.
+   * IMPORTANT: Only one reload can be in progress at a time.
+   *
+   * @param profile The map profile to load, or null for defaults
+   * @throws Error if reload is already in progress
+   */
   async reload(profile?: MapProfile | null): Promise<void> {
-    this.isLoaded = false;
-    await this.initialize(profile);
+    if (this.isLoading) {
+      throw new Error('Map reload already in progress');
+    }
+
+    this.isLoading = true;
+    try {
+      this.isLoaded = false;
+      await this.initialize(profile);
+    } finally {
+      this.isLoading = false;
+    }
   }
   
   getRegisterByName(name: string): MapEntry | undefined {
