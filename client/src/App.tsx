@@ -1,16 +1,24 @@
 import { ThemeProvider, CssBaseline, useMediaQuery } from '@mui/material';
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { DeviceMonProvider } from './contexts/DeviceMonContext';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { ToastProvider } from './components/ToastNotification';
+import { ToastProvider, useToast } from './components/ToastNotification';
 import MainLayout from './components/MainLayout';
 import AutoScanManager from './components/AutoScanManager';
 import { deviceMonTheme, deviceMonDarkTheme } from './theme';
 
 function ThemedApp() {
-  const { settings } = useSettings();
+  const { settings, storageError } = useSettings();
+  const { showWarning } = useToast();
   const prefersDarkMode = useMediaQuery('(prefers-color-scheme: dark)');
+
+  // Notify user once if localStorage is full and settings can no longer be persisted
+  useEffect(() => {
+    if (storageError) {
+      showWarning('Browser storage is full. Settings cannot be saved. Clear browser data to restore persistence.');
+    }
+  }, [storageError, showWarning]);
 
   const theme = useMemo(() => {
     if (settings.theme === 'dark') {

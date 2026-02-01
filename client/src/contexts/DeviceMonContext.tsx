@@ -106,9 +106,12 @@ const initialState: DeviceMonState = {
   },
 };
 
-// Create a reducer factory that has access to logSettings
-function createDeviceMonReducer(logSettings: LogSettings) {
+// Create a reducer factory.
+// IMPORTANT: Accepts a getter function (not a value) so the reducer identity
+// stays stable across renders while still reading current logSettings at dispatch time.
+function createDeviceMonReducer(getLogSettings: () => LogSettings) {
   return function deviceMonReducer(state: DeviceMonState, action: DeviceMonAction): DeviceMonState {
+    const logSettings = getLogSettings();
     switch (action.type) {
       case 'SET_SOCKET':
         return { ...state, socket: action.payload };
@@ -349,10 +352,18 @@ interface DeviceMonProviderProps {
 export function DeviceMonProvider({ children }: DeviceMonProviderProps) {
   const { settings } = useSettings();
 
-  // Create reducer with current log settings
+  // Ref for logSettings so the reducer and socket handlers always read the
+  // current value without needing to be recreated when settings change.
+  const logSettingsRef = React.useRef(settings.logSettings);
+  React.useEffect(() => {
+    logSettingsRef.current = settings.logSettings;
+  }, [settings.logSettings]);
+
+  // Stable reducer — created once, reads current logSettings via the ref getter.
+  // This prevents the reducer identity from changing on every logSettings update.
   const deviceMonReducer = useMemo(
-    () => createDeviceMonReducer(settings.logSettings),
-    [settings.logSettings]
+    () => createDeviceMonReducer(() => logSettingsRef.current),
+    [] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const [state, dispatch] = useReducer(deviceMonReducer, initialState);
@@ -449,6 +460,10 @@ export function DeviceMonProvider({ children }: DeviceMonProviderProps) {
       console.log('[DeviceMonContext] Socket connected, setting serverConnected=true');
       dispatch({ type: 'SET_SERVER_CONNECTED', payload: true });
       dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'success', category: 'connection', message: 'Connected to DeviceMon server', timestamp: Date.now() } });
+
+      // Re-synchronize log settings with server on (re)connect.
+      // The server has no persistent state — it forgets preferences on disconnect.
+      socket.emit('updateLogSettings', logSettingsRef.current);
     });
 
     socket.on('disconnect', () => {

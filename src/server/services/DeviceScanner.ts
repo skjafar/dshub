@@ -43,6 +43,22 @@ export class DeviceScanner {
       return;
     }
 
+    // Ensure any previous socket is fully closed before creating a new one.
+    // Prevents port conflicts and resource leaks from rapid scan button clicks.
+    if (this.socket) {
+      try {
+        this.socket.close();
+      } catch {
+        // Socket may already be closed — safe to ignore
+      }
+      this.socket = undefined;
+    }
+
+    if (this.scanTimeout) {
+      clearTimeout(this.scanTimeout);
+      this.scanTimeout = undefined;
+    }
+
     this.isScanning = true;
     this.logger.info('Starting device discovery scan', 'connection');
 

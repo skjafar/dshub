@@ -56,6 +56,7 @@ export class DeviceCommunicator {
   private readonly REQUEST_TIMEOUT = 5000; // 5 seconds
   private readonly MAX_QUEUE_SIZE = 100; // Maximum queued requests - prevents memory exhaustion
   private readonly REQUEST_RATE_LIMIT = 50; // Maximum requests per second - prevents device overload
+  private readonly MAX_RESPONSE_SIZE = 1024; // Maximum response buffer size in bytes - prevents OOM from misbehaving device
   private requestTimestamps: number[] = []; // Track recent request times for rate limiting
 
   // Callback handlers
@@ -166,10 +167,17 @@ export class DeviceCommunicator {
       
       // Handle buffering of partial responses
       if (this.responseBuffer) {
+        // Guard against buffer overflow from misbehaving or malicious device
+        if (this.responseBuffer.data.length + data.length > this.MAX_RESPONSE_SIZE) {
+          this.logger.error(`Response buffer overflow: would exceed ${this.MAX_RESPONSE_SIZE} bytes. Discarding.`, 'connection');
+          this.responseBuffer = null;
+          return;
+        }
+
         // Append to existing buffer
         this.responseBuffer.data = Buffer.concat([this.responseBuffer.data, data]);
         this.responseBuffer.receivedLength = this.responseBuffer.data.length;
-        
+
         const bufferCategory = this.currentRequest?.command === 1 ? 'register' : 'parameter';
         this.logger.info(`Buffered response: ${this.responseBuffer.receivedLength}/${this.responseBuffer.expectedLength} bytes`, bufferCategory);
       } else if (this.currentRequest) {
@@ -566,12 +574,14 @@ export class DeviceCommunicator {
     }, 100);
   }
 
-  public readRegister(address: number, name?: string): void {
+  public readRegister(address: number, name: string): void {
     if (!this.connection?.connected) {
       this.logger.error('Cannot read register: not connected', 'register');
       return;
     }
 
+    // Runtime safety net — name is required by the type signature, but guard
+    // defensively in case of a JavaScript-side caller that bypasses TypeScript.
     if (!name) {
       this.logger.error(`Register read missing name for address ${address}. All register reads must include a name from the map.`, 'register');
       return;
@@ -625,12 +635,14 @@ export class DeviceCommunicator {
     this.sendData(packet);
   }
 
-  public readParameter(address: number, name?: string): void {
+  public readParameter(address: number, name: string): void {
     if (!this.connection?.connected) {
       this.logger.error('Cannot read parameter: not connected', 'parameter');
       return;
     }
 
+    // Runtime safety net — name is required by the type signature, but guard
+    // defensively in case of a JavaScript-side caller that bypasses TypeScript.
     if (!name) {
       this.logger.error(`Parameter read missing name for address ${address}. All parameter reads must include a name from the map.`, 'parameter');
       return;

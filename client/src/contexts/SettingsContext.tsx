@@ -6,6 +6,7 @@ const STORAGE_KEY = 'devicemon_settings';
 
 interface SettingsContextType {
   settings: UserSettings;
+  storageError: boolean; // true when localStorage quota is exceeded and settings cannot be saved
   updateSettings: (updates: Partial<UserSettings>) => void;
   resetSettings: () => void;
   exportSettings: () => string;
@@ -45,11 +46,22 @@ function loadSettingsFromStorage(): UserSettings {
   return DEFAULT_SETTINGS;
 }
 
-function saveSettingsToStorage(settings: UserSettings): void {
+/**
+ * Persists settings to localStorage.
+ * Returns false if the write failed (e.g. QuotaExceededError).
+ * Callers should surface the failure to the user when this returns false.
+ */
+function saveSettingsToStorage(settings: UserSettings): boolean {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    return true;
   } catch (error) {
-    console.error('Failed to save settings to localStorage:', error);
+    if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+      console.error('localStorage quota exceeded — settings could not be saved. Clear browser data or reduce stored data.', error);
+    } else {
+      console.error('Failed to save settings to localStorage:', error);
+    }
+    return false;
   }
 }
 
@@ -61,6 +73,8 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   const [settings, setSettings] = useState<UserSettings>(loadSettingsFromStorage);
   const [defaultProfile, setDefaultProfile] = useState<MapProfile | null>(null);
   const [cncProfile, setCncProfile] = useState<MapProfile | null>(null);
+  const [storageError, setStorageError] = useState(false);
+  const storageWarningShownRef = React.useRef(false); // Only warn once per session
 
   // Load default and CNC profiles on mount
   // IMPORTANT: Load profiles independently to handle partial failures gracefully
@@ -121,7 +135,12 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
 
   // Save to localStorage whenever settings change
   useEffect(() => {
-    saveSettingsToStorage(settings);
+    const success = saveSettingsToStorage(settings);
+    if (!success && !storageWarningShownRef.current) {
+      // Only set error state once to avoid re-render loops
+      storageWarningShownRef.current = true;
+      setStorageError(true);
+    }
   }, [settings]);
 
   const updateSettings = useCallback((updates: Partial<UserSettings>) => {
@@ -386,6 +405,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
 
   const value: SettingsContextType = {
     settings,
+    storageError,
     updateSettings,
     resetSettings,
     exportSettings,

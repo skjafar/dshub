@@ -86,8 +86,8 @@ io.on('connection', (socket) => {
 
   // Register operations
   socket.on('readRegister', (data) => {
-    const { address, name } = typeof data === 'object' ? data : { address: data, name: undefined };
-    deviceCommunicator.readRegister(address, name);
+    const { address, name } = typeof data === 'object' ? data : { address: data, name: '' };
+    deviceCommunicator.readRegister(address, name || '');
   });
 
   socket.on('writeRegister', (address, value) => {
@@ -96,8 +96,8 @@ io.on('connection', (socket) => {
 
   // Parameter operations
   socket.on('readParameter', (data) => {
-    const { address, name } = typeof data === 'object' ? data : { address: data, name: undefined };
-    deviceCommunicator.readParameter(address, name);
+    const { address, name } = typeof data === 'object' ? data : { address: data, name: '' };
+    deviceCommunicator.readParameter(address, name || '');
   });
 
   socket.on('writeParameter', (address, value) => {
