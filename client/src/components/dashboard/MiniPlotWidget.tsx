@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { Line } from 'react-chartjs-2';
 import { MiniPlotWidgetConfig } from '../../types/dashboard';
-import { useDeviceMon } from '../../contexts/DeviceMonContext';
+import { useDSHub } from '../../contexts/DSHubContext';
 import { mapManager } from '../../maps/mapManager';
 
 interface DataPoint {
@@ -16,7 +16,7 @@ interface MiniPlotWidgetProps {
 }
 
 export default function MiniPlotWidget({ config, isEditMode }: MiniPlotWidgetProps) {
-  const { state, actions } = useDeviceMon();
+  const { state, actions } = useDSHub();
   const [dataPoints, setDataPoints] = useState<DataPoint[]>([]);
 
   // Get the actual register/parameter name from the map - NEVER use synthetic names
@@ -47,28 +47,35 @@ export default function MiniPlotWidget({ config, isEditMode }: MiniPlotWidgetPro
     });
   }, [currentData?.timestamp, isEditMode, config.timeWindow]);
 
-  // Start plotting when widget mounts
+  // Set up auto-refresh for data collection (independent from PlotPanel)
   useEffect(() => {
     if (isEditMode || !state.connection?.connected) return;
 
-    // Only start plotting if we have a valid name from the map
+    // Only refresh if we have a valid name from the map
     if (!mapManager.isInitialized() || !actualName) {
-      console.warn(`Cannot start plotting for ${config.source} ${config.address}: Map not loaded or name not found`);
+      console.warn(`Cannot start auto-refresh for ${config.source} ${config.address}: Map not loaded or name not found`);
       return;
     }
 
-    // Start plotting using the actual register/parameter name from the map
-    if (config.source === 'register') {
-      actions.startPlotting(actualName, config.pollInterval, config.address);
-    }
-
-    return () => {
-      // Stop plotting when unmounted (use actual name)
-      if (actualName) {
-        actions.stopPlotting(actualName);
+    // Read immediately on mount
+    const readData = () => {
+      if (config.source === 'register') {
+        actions.readRegister(config.address, actualName);
+      } else {
+        actions.readParameter(config.address, actualName);
       }
     };
-  }, [config.source, config.address, config.pollInterval, isEditMode, state.connection?.connected, actualName]);
+
+    // Trigger first read immediately
+    readData();
+
+    // Set up polling using setInterval for subsequent reads
+    const intervalId = setInterval(readData, config.pollInterval);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [config.source, config.address, config.pollInterval, isEditMode, state.connection?.connected, actualName, actions]);
 
   const chartData = {
     datasets: [

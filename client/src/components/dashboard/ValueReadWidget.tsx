@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { ValueReadWidgetConfig } from '../../types/dashboard';
-import { useDeviceMon } from '../../contexts/DeviceMonContext';
+import { useDSHub } from '../../contexts/DSHubContext';
 import { mapManager } from '../../maps/mapManager';
 
 interface ValueReadWidgetProps {
@@ -10,7 +10,7 @@ interface ValueReadWidgetProps {
 }
 
 export default function ValueReadWidget({ config, isEditMode }: ValueReadWidgetProps) {
-  const { state, actions } = useDeviceMon();
+  const { state, actions } = useDSHub();
   const [isLoading, setIsLoading] = useState(false);
 
   // Get the current value from state

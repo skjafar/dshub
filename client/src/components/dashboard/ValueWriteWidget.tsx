@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Box, TextField, Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography } from '@mui/material';
 import { ValueWriteWidgetConfig } from '../../types/dashboard';
-import { useDeviceMon } from '../../contexts/DeviceMonContext';
+import { useDSHub } from '../../contexts/DSHubContext';
 import { useToast } from '../ToastNotification';
 
 interface ValueWriteWidgetProps {
@@ -10,7 +10,7 @@ interface ValueWriteWidgetProps {
 }
 
 export default function ValueWriteWidget({ config, isEditMode }: ValueWriteWidgetProps) {
-  const { state, actions } = useDeviceMon();
+  const { state, actions } = useDSHub();
   const { showSuccess, showError } = useToast();
   const [inputValue, setInputValue] = useState<string>('');
   const [confirmDialog, setConfirmDialog] = useState(false);

@@ -15,12 +15,12 @@ import {
   Send as SendIcon,
   Info as InfoIcon
 } from '@mui/icons-material';
-import { useDeviceMon } from '../contexts/DeviceMonContext';
+import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 
 export default function SysCommandPanel() {
-  const { state, actions } = useDeviceMon();
+  const { state, actions } = useDSHub();
   const { getActiveProfile } = useSettings();
   const { showSuccess, showError } = useToast();
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-DeviceMon Board Emulator
+DSHub Board Emulator
 ========================
-Emulates a DeviceMon board with full protocol support including:
+Emulates a DSHub board with full protocol support including:
 - UDP discovery protocol
 - TCP/UDP data communication
 - Register and parameter read/write
@@ -545,10 +545,10 @@ class ParameterMap:
         return bytes([0x02, 0x00, 0x00, 0x00, 0x00, 0x01])
 
 
-class DeviceMonEmulator:
+class DSHubEmulator:
     """Main emulator class"""
 
-    def __init__(self, board_name: str = "DeviceMon Emulator", board_type: int = 1,
+    def __init__(self, board_name: str = "DSHub Emulator", board_type: int = 1,
                  firmware_version: int = 0x0100):
         self.board_name = board_name
         self.board_type = board_type
@@ -576,7 +576,7 @@ class DeviceMonEmulator:
         # Lock for thread-safe access
         self.lock = threading.Lock()
 
-        print(f"DeviceMon Emulator initialized: {board_name}")
+        print(f"DSHub Emulator initialized: {board_name}")
         print(f"Board Type: {board_type}, Firmware: 0x{firmware_version:04X}")
 
     def start(self):
@@ -910,7 +910,7 @@ class DeviceMonEmulator:
     def print_status(self):
         """Print emulator status"""
         print("\n" + "="*60)
-        print(f"DeviceMon Emulator Status - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"DSHub Emulator Status - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("="*60)
         print(f"Board: {self.board_name}")
         print(f"Type: {self.board_type}, Firmware: 0x{self.firmware_version:04X}")
@@ -927,14 +927,14 @@ class DeviceMonEmulator:
 def main():
     """Main entry point"""
     print("\n" + "="*60)
-    print("DeviceMon Board Emulator")
+    print("DSHub Board Emulator")
     print("="*60)
     print("Pure Python emulator with no external dependencies")
     print("Emulates register/parameter read/write and auto-discovery")
     print("="*60 + "\n")
 
     # Create and start emulator
-    emulator = DeviceMonEmulator(
+    emulator = DSHubEmulator(
         board_name="Python Emulator",
         board_type=1,
         firmware_version=0x0100

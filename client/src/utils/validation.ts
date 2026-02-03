@@ -1,5 +1,5 @@
 /**
- * Validation utilities for DeviceMon
+ * Validation utilities for DSHub
  */
 
 export interface ValidationResult {

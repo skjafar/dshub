@@ -1,0 +1,105 @@
+post_install() {
+    # Create dshub user and group
+    if ! getent group dshub > /dev/null 2>&1; then
+        groupadd -r dshub
+    fi
+
+    if ! getent passwd dshub > /dev/null 2>&1; then
+        useradd -r -g dshub -d /opt/dshub -s /usr/bin/nologin -c "DSHub Service" dshub
+    fi
+
+    # Set ownership
+    chown -R dshub:dshub /opt/dshub
+    chown -R dshub:dshub /var/log/dshub
+    chown -R dshub:dshub /etc/dshub
+
+    # Set permissions
+    chmod 755 /opt/dshub
+    chmod 755 /opt/dshub/emulator
+    chmod 755 /usr/bin/dshub
+    chmod 755 /usr/bin/dshub-emulator
+
+    # Reload systemd
+    systemctl daemon-reload
+
+    echo ""
+    echo "===================================="
+    echo "DSHub installed successfully"
+    echo "===================================="
+    echo ""
+    echo "Quick Start:"
+    echo "  1. Start the service:"
+    echo "     sudo systemctl start dshub"
+    echo ""
+    echo "  2. Enable auto-start on boot:"
+    echo "     sudo systemctl enable dshub"
+    echo ""
+    echo "  3. Open in browser:"
+    echo "     http://localhost:3002"
+    echo ""
+    echo "Optional - Start the emulator:"
+    echo "     sudo systemctl start dshub-emulator"
+    echo ""
+    echo "Configuration:"
+    echo "  /etc/dshub/config.env"
+    echo "  /etc/dshub/maps/"
+    echo ""
+    echo "Logs:"
+    echo "  journalctl -u dshub -f"
+    echo "  journalctl -u dshub-emulator -f"
+    echo ""
+    echo "Documentation:"
+    echo "  /usr/share/doc/dshub/"
+    echo ""
+}
+
+post_upgrade() {
+    # Set ownership after upgrade
+    chown -R dshub:dshub /opt/dshub
+    chown -R dshub:dshub /var/log/dshub
+
+    # Reload systemd
+    systemctl daemon-reload
+
+    # Restart service if it was running
+    if systemctl is-active --quiet dshub; then
+        systemctl restart dshub
+    fi
+
+    if systemctl is-active --quiet dshub-emulator; then
+        systemctl restart dshub-emulator
+    fi
+
+    echo ""
+    echo "DSHub upgraded successfully"
+    echo "Services have been restarted if they were running"
+    echo ""
+}
+
+pre_remove() {
+    # Stop services
+    systemctl stop dshub 2>/dev/null || true
+    systemctl stop dshub-emulator 2>/dev/null || true
+    systemctl disable dshub 2>/dev/null || true
+    systemctl disable dshub-emulator 2>/dev/null || true
+}
+
+post_remove() {
+    # Reload systemd
+    systemctl daemon-reload
+
+    echo ""
+    echo "DSHub removed"
+    echo ""
+    echo "Configuration files preserved in:"
+    echo "  /etc/dshub/"
+    echo ""
+    echo "To completely remove (including config):"
+    echo "  sudo rm -rf /etc/dshub"
+    echo "  sudo rm -rf /var/log/dshub"
+    echo ""
+    echo "To remove dshub user:"
+    echo "  sudo userdel dshub"
+    echo "  sudo groupdel dshub"
+    echo ""
+}

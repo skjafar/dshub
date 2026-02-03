@@ -22,7 +22,7 @@ import {
   MenuItem
 } from '@mui/material';
 import { Refresh as RefreshIcon, Link as ConnectIcon, Add as AddIcon } from '@mui/icons-material';
-import { useDeviceMon } from '../contexts/DeviceMonContext';
+import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import { InterfaceType, DEFAULT_TCP_PORT, DEFAULT_UDP_PORT } from '../types/shared';
@@ -39,7 +39,7 @@ const formatFirmwareVersion = (version: number): string => {
 };
 
 export default function DeviceScannerPanel() {
-  const { state, actions } = useDeviceMon();
+  const { state, actions } = useDSHub();
   const { settings, getActiveProfile, updateSettings } = useSettings();
   const { showSuccess, showWarning } = useToast();
   const [manualIp, setManualIp] = useState('');

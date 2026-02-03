@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# DeviceMon Web - PM2 Update Script
+# DSHub - PM2 Update Script
 # This script updates the running application with zero downtime
 
 set -e  # Exit on any error
 
 echo "======================================"
-echo "DeviceMon Web - Update with PM2"
+echo "DSHub - Update with PM2"
 echo "======================================"
 echo ""
 
@@ -23,8 +23,8 @@ else
 fi
 
 # Check if PM2 is running the app
-if ! $PM2_CMD list | grep -q "devicemon-web"; then
-    echo "ERROR: DeviceMon is not running in PM2."
+if ! $PM2_CMD list | grep -q "dshub"; then
+    echo "ERROR: DSHub is not running in PM2."
     echo "Please run './deploy-pm2.sh' first to deploy the application."
     exit 1
 fi
@@ -81,12 +81,12 @@ echo "======================================"
 echo ""
 $PM2_CMD list
 echo ""
-$PM2_CMD logs devicemon-web --lines 20 --nostream
+$PM2_CMD logs dshub --lines 20 --nostream
 echo ""
 echo "Application has been updated and reloaded successfully."
 if [ "$PM2_CMD" = "pm2" ]; then
-    echo "Run 'pm2 logs devicemon-web' to monitor the application."
+    echo "Run 'pm2 logs dshub' to monitor the application."
 else
-    echo "Run 'npx pm2 logs devicemon-web' to monitor the application."
+    echo "Run 'npx pm2 logs dshub' to monitor the application."
 fi
 echo ""

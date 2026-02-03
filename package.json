@@ -1,7 +1,7 @@
 {
-  "name": "devicemon-web",
+  "name": "dshub",
   "version": "1.0.0",
-  "description": "DeviceMon Web Application - Device monitoring and control interface",
+  "description": "DSHub - Device monitoring and control interface",
   "main": "dist/server/index.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
@@ -36,12 +36,12 @@
     "typescript": "^5.3.3"
   },
   "keywords": [
-    "devicemon",
+    "dshub",
     "monitoring",
     "real-time",
     "typescript",
     "react"
   ],
-  "author": "DeviceMon Team",
+  "author": "DSHub Team",
   "license": "MIT"
 }

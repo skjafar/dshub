@@ -1,5 +1,5 @@
 # ============================================
-# DeviceMon Web - Unified .gitignore
+# DSHub - Unified .gitignore
 # ============================================
 
 # ============================================
@@ -147,7 +147,7 @@ aur/src/
 aur/*.pkg.tar.zst
 aur/*.pkg.tar.xz
 aur/*.tar.gz
-aur/devicemon-web/
+aur/dshub/
 
 # ============================================
 # Development & Documentation (Keep in Git)

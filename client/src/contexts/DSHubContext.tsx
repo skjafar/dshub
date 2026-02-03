@@ -33,7 +33,7 @@ function shouldLogCategory(category: LogCategory, logSettings: LogSettings): boo
   }
 }
 
-interface DeviceMonState {
+interface DSHubState {
   socket: Socket | null;
   serverConnected: boolean;
   serverError: string | null;
@@ -56,7 +56,7 @@ interface DeviceMonState {
   };
 }
 
-type DeviceMonAction =
+type DSHubAction =
   | { type: 'SET_SOCKET'; payload: Socket }
   | { type: 'SET_SERVER_CONNECTED'; payload: boolean }
   | { type: 'ADD_DISCOVERED_DEVICE'; payload: DiscoveredDevice }
@@ -83,7 +83,7 @@ type DeviceMonAction =
   | { type: 'REMOVE_AUTO_REFRESH_PARAMETER'; payload: number }
   | { type: 'CLEAR_AUTO_REFRESH_ADDRESSES' };
 
-const initialState: DeviceMonState = {
+const initialState: DSHubState = {
   socket: null,
   serverConnected: false,
   serverError: null,
@@ -109,8 +109,8 @@ const initialState: DeviceMonState = {
 // Create a reducer factory.
 // IMPORTANT: Accepts a getter function (not a value) so the reducer identity
 // stays stable across renders while still reading current logSettings at dispatch time.
-function createDeviceMonReducer(getLogSettings: () => LogSettings) {
-  return function deviceMonReducer(state: DeviceMonState, action: DeviceMonAction): DeviceMonState {
+function createDSHubReducer(getLogSettings: () => LogSettings) {
+  return function dsHubReducer(state: DSHubState, action: DSHubAction): DSHubState {
     const logSettings = getLogSettings();
     switch (action.type) {
       case 'SET_SOCKET':
@@ -305,8 +305,8 @@ function createDeviceMonReducer(getLogSettings: () => LogSettings) {
   };
 }
 
-interface DeviceMonContextType {
-  state: DeviceMonState;
+interface DSHubContextType {
+  state: DSHubState;
   actions: {
     startScan: () => void;
     connectDevice: (ip: string, interfaceType: InterfaceType, deviceName?: string) => void;
@@ -335,21 +335,21 @@ interface DeviceMonContextType {
   };
 }
 
-const DeviceMonContext = createContext<DeviceMonContextType | undefined>(undefined);
+const DSHubContext = createContext<DSHubContextType | undefined>(undefined);
 
-export function useDeviceMon() {
-  const context = useContext(DeviceMonContext);
+export function useDSHub() {
+  const context = useContext(DSHubContext);
   if (!context) {
-    throw new Error('useDeviceMon must be used within a DeviceMonProvider');
+    throw new Error('useDSHub must be used within a DSHubProvider');
   }
   return context;
 }
 
-interface DeviceMonProviderProps {
+interface DSHubProviderProps {
   children: ReactNode;
 }
 
-export function DeviceMonProvider({ children }: DeviceMonProviderProps) {
+export function DSHubProvider({ children }: DSHubProviderProps) {
   const { settings } = useSettings();
 
   // Ref for logSettings so the reducer and socket handlers always read the
@@ -361,12 +361,12 @@ export function DeviceMonProvider({ children }: DeviceMonProviderProps) {
 
   // Stable reducer — created once, reads current logSettings via the ref getter.
   // This prevents the reducer identity from changing on every logSettings update.
-  const deviceMonReducer = useMemo(
-    () => createDeviceMonReducer(() => logSettingsRef.current),
+  const dsHubReducer = useMemo(
+    () => createDSHubReducer(() => logSettingsRef.current),
     [] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  const [state, dispatch] = useReducer(deviceMonReducer, initialState);
+  const [state, dispatch] = useReducer(dsHubReducer, initialState);
   const connectionRef = React.useRef<DeviceConnection | null>(null);
   const socketRef = React.useRef<Socket | null>(null);
   const registersRef = React.useRef<Map<number, RegisterData>>(new Map());
@@ -402,7 +402,7 @@ export function DeviceMonProvider({ children }: DeviceMonProviderProps) {
     socket.emit('updateLogSettings', settings.logSettings);
 
     dispatch({ type: 'SET_SOCKET', payload: socket });
-    dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: 'DeviceMon web interface started', timestamp: Date.now() } });
+    dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: 'DSHub started', timestamp: Date.now() } });
     dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: `Connecting to server at ${serverUrl}...`, timestamp: Date.now() } });
 
     // Set up event listeners
@@ -457,9 +457,9 @@ export function DeviceMonProvider({ children }: DeviceMonProviderProps) {
     });
 
     socket.on('connect', () => {
-      console.log('[DeviceMonContext] Socket connected, setting serverConnected=true');
+      console.log('[DSHubContext] Socket connected, setting serverConnected=true');
       dispatch({ type: 'SET_SERVER_CONNECTED', payload: true });
-      dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'success', category: 'connection', message: 'Connected to DeviceMon server', timestamp: Date.now() } });
+      dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'success', category: 'connection', message: 'Connected to DSHub server', timestamp: Date.now() } });
 
       // Re-synchronize log settings with server on (re)connect.
       // The server has no persistent state — it forgets preferences on disconnect.
@@ -468,7 +468,7 @@ export function DeviceMonProvider({ children }: DeviceMonProviderProps) {
 
     socket.on('disconnect', () => {
       dispatch({ type: 'SET_SERVER_CONNECTED', payload: false });
-      dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'warning', category: 'connection', message: 'Disconnected from DeviceMon server', timestamp: Date.now() } });
+      dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'warning', category: 'connection', message: 'Disconnected from DSHub server', timestamp: Date.now() } });
     });
 
     socket.on('connect_error', (error) => {
@@ -740,8 +740,8 @@ export function DeviceMonProvider({ children }: DeviceMonProviderProps) {
   };
 
   return (
-    <DeviceMonContext.Provider value={{ state, actions }}>
+    <DSHubContext.Provider value={{ state, actions }}>
       {children}
-    </DeviceMonContext.Provider>
+    </DSHubContext.Provider>
   );
 }

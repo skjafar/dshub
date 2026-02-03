@@ -24,7 +24,7 @@ import {
   Pause as PauseIcon,
   PlayArrow as PlayIcon
 } from '@mui/icons-material';
-import { useDeviceMon } from '../contexts/DeviceMonContext';
+import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { LogEntry } from '../types/shared';
 
@@ -46,7 +46,7 @@ const getLevelColor = (level: LogEntry['level']) => {
 };
 
 export default function LogsPanel() {
-  const { state, actions } = useDeviceMon();
+  const { state, actions } = useDSHub();
   const { settings } = useSettings();
   const [levelFilter, setLevelFilter] = useState<LogEntry['level'] | 'all'>('all');
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
@@ -194,7 +194,7 @@ export default function LogsPanel() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `devicemon-logs-${new Date().toISOString().split('T')[0]}.txt`;
+    a.download = `dshub-logs-${new Date().toISOString().split('T')[0]}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };

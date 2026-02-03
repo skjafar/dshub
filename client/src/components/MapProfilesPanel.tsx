@@ -33,7 +33,7 @@ import {
 } from '@mui/icons-material';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
-import { useDeviceMon } from '../contexts/DeviceMonContext';
+import { useDSHub } from '../contexts/DSHubContext';
 import { DEFAULT_PROFILE_ID } from '../types/settings';
 
 // Maximum file size for map files (10MB) - prevents OOM attacks
@@ -50,7 +50,7 @@ export default function MapProfilesPanel() {
     downloadProfileMaps
   } = useSettings();
   const { showSuccess, showError, showWarning } = useToast();
-  const { state } = useDeviceMon();
+  const { state } = useDSHub();
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);

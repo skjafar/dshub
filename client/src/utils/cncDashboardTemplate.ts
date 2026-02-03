@@ -3,7 +3,7 @@ import { Layout } from 'react-grid-layout';
 
 /**
  * Create a pre-configured CNC Motor Controller dashboard
- * This dashboard demonstrates all DeviceMon capabilities with the emulator
+ * This dashboard demonstrates all DSHub capabilities with the emulator
  */
 export function createCNCDashboard(): DashboardLayout {
   const widgets: DashboardWidget[] = [];

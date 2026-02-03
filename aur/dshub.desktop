@@ -1,10 +1,10 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=DeviceMon Web
+Name=DSHub
 GenericName=Device Monitor
 Comment=Monitor and control embedded devices via TCP/UDP
-Icon=devicemon-web
+Icon=dshub
 Exec=xdg-open http://localhost:3002
 Terminal=false
 Categories=Development;Electronics;Engineering;Monitor;

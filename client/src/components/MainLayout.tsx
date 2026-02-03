@@ -37,7 +37,7 @@ import {
   Description as MapEditorIcon,
   Send as SysCommandIcon
 } from '@mui/icons-material';
-import { useDeviceMon } from '../contexts/DeviceMonContext';
+import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import { InterfaceType, ControlInterfaceState } from '../types/shared';
@@ -75,7 +75,7 @@ const views: Array<{ key: ViewType; label: string; icon: React.ReactNode }> = [
 
 export default function MainLayout() {
   const theme = useTheme();
-  const { state, actions } = useDeviceMon();
+  const { state, actions } = useDSHub();
   const { settings } = useSettings();
   const { showWarning, showInfo } = useToast();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -228,7 +228,7 @@ export default function MainLayout() {
         return (
           <Box sx={{ p: 3 }}>
             <Typography variant="h4" gutterBottom>
-              DeviceMon Web
+              DSHub
             </Typography>
             <Typography variant="body1" paragraph>
               Version 1.0.0 - Web-based device monitoring and control interface
@@ -248,7 +248,7 @@ export default function MainLayout() {
       <Toolbar sx={{ display: 'flex', justifyContent: drawerCollapsed ? 'center' : 'space-between' }}>
         {!drawerCollapsed && (
           <Typography variant="h6" noWrap component="div">
-            DeviceMon
+            DSHub
           </Typography>
         )}
         <Tooltip title={drawerCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} placement="right">

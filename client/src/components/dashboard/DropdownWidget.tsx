@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Box, FormControl, InputLabel, Select, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography } from '@mui/material';
 import { DropdownWidgetConfig } from '../../types/dashboard';
-import { useDeviceMon } from '../../contexts/DeviceMonContext';
+import { useDSHub } from '../../contexts/DSHubContext';
 import { useToast } from '../ToastNotification';
 
 interface DropdownWidgetProps {
@@ -10,7 +10,7 @@ interface DropdownWidgetProps {
 }
 
 export default function DropdownWidget({ config, isEditMode }: DropdownWidgetProps) {
-  const { state, actions } = useDeviceMon();
+  const { state, actions } = useDSHub();
   const { showSuccess, showError } = useToast();
   const [selectedValue, setSelectedValue] = useState<number | ''>('');
   const [confirmDialog, setConfirmDialog] = useState(false);

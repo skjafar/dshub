@@ -1,10 +1,10 @@
 # Maintainer: Sofian Jafar <skjafar@gmail.com>
-pkgname=devicemon-web
+pkgname=dshub
 pkgver=0.1.0
 pkgrel=1
 pkgdesc="Modern web application for monitoring and controlling embedded devices via TCP/UDP"
 arch=('x86_64' 'aarch64')
-url="https://github.com/skjafar/devicemon-web"
+url="https://github.com/skjafar/dshub"
 license=('MIT')
 depends=('nodejs>=18.0.0' 'npm')
 optdepends=(
@@ -13,14 +13,14 @@ optdepends=(
 )
 makedepends=('git' 'npm')
 backup=(
-    'etc/devicemon-web/config.env'
-    'etc/devicemon-web/maps/registers.map'
-    'etc/devicemon-web/maps/parameters.map'
-    'etc/devicemon-web/maps/boardtypes.map'
+    'etc/dshub/config.env'
+    'etc/dshub/maps/registers.map'
+    'etc/dshub/maps/parameters.map'
+    'etc/dshub/maps/boardtypes.map'
 )
 source=("git+${url}.git#tag=v${pkgver}")
 sha256sums=('SKIP')
-install=devicemon-web.install
+install=dshub.install
 
 build() {
     cd "${srcdir}/${pkgname}"
@@ -38,7 +38,7 @@ build() {
 package() {
     cd "${srcdir}/${pkgname}"
 
-    # Install to /opt/devicemon-web
+    # Install to /opt/dshub
     install -dm755 "${pkgdir}/opt/${pkgname}"
 
     # Copy application files
@@ -50,18 +50,18 @@ package() {
 
     # Copy emulator
     install -dm755 "${pkgdir}/opt/${pkgname}/emulator"
-    install -Dm755 emulator/devicemon_emulator.py "${pkgdir}/opt/${pkgname}/emulator/"
+    install -Dm755 emulator/dshub_emulator.py "${pkgdir}/opt/${pkgname}/emulator/"
     install -Dm755 emulator/run_emulator.sh "${pkgdir}/opt/${pkgname}/emulator/"
     install -Dm644 emulator/README.md "${pkgdir}/opt/${pkgname}/emulator/"
 
     # Install systemd service
-    install -Dm644 "${srcdir}/${pkgname}/aur/devicemon-web.service" \
+    install -Dm644 "${srcdir}/${pkgname}/aur/dshub.service" \
         "${pkgdir}/usr/lib/systemd/system/${pkgname}.service"
-    install -Dm644 "${srcdir}/${pkgname}/aur/devicemon-web-emulator.service" \
+    install -Dm644 "${srcdir}/${pkgname}/aur/dshub-emulator.service" \
         "${pkgdir}/usr/lib/systemd/system/${pkgname}-emulator.service"
 
     # Install desktop entry
-    install -Dm644 "${srcdir}/${pkgname}/aur/devicemon-web.desktop" \
+    install -Dm644 "${srcdir}/${pkgname}/aur/dshub.desktop" \
         "${pkgdir}/usr/share/applications/${pkgname}.desktop"
 
     # Install icon
@@ -97,9 +97,9 @@ package() {
     install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 
     # Install binary wrapper
-    install -Dm755 "${srcdir}/${pkgname}/aur/devicemon-web-server" \
+    install -Dm755 "${srcdir}/${pkgname}/aur/dshub-server" \
         "${pkgdir}/usr/bin/${pkgname}"
-    install -Dm755 "${srcdir}/${pkgname}/aur/devicemon-web-emulator-bin" \
+    install -Dm755 "${srcdir}/${pkgname}/aur/dshub-emulator-bin" \
         "${pkgdir}/usr/bin/${pkgname}-emulator"
 
     # Create logs directory

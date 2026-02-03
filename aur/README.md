@@ -1,10 +1,10 @@
-# DeviceMon Web - AUR Package
+# DSHub - AUR Package
 
-This directory contains files for building and distributing DeviceMon Web as an Arch Linux AUR package.
+This directory contains files for building and distributing DSHub as an Arch Linux AUR package.
 
 ## Package Information
 
-- **Package Name**: `devicemon-web`
+- **Package Name**: `dshub`
 - **Description**: Modern web application for monitoring and controlling embedded devices
 - **License**: MIT
 - **Architecture**: x86_64, aarch64
@@ -17,14 +17,14 @@ This directory contains files for building and distributing DeviceMon Web as an 
 
 ```bash
 # Using yay
-yay -S devicemon-web
+yay -S dshub
 
 # Using paru
-paru -S devicemon-web
+paru -S dshub
 
 # Manual installation
-git clone https://aur.archlinux.org/devicemon-web.git
-cd devicemon-web
+git clone https://aur.archlinux.org/dshub.git
+cd dshub
 makepkg -si
 ```
 
@@ -32,30 +32,30 @@ makepkg -si
 
 ```bash
 # Start the service
-sudo systemctl start devicemon-web
+sudo systemctl start dshub
 
 # Enable auto-start on boot
-sudo systemctl enable devicemon-web
+sudo systemctl enable dshub
 
 # Open in browser
 xdg-open http://localhost:3002
 
 # Or use the helper command
-devicemon-web start
-devicemon-web open
+dshub start
+dshub open
 ```
 
 ### Using the Emulator
 
 ```bash
 # Start emulator
-sudo systemctl start devicemon-web-emulator
+sudo systemctl start dshub-emulator
 
 # Or run directly
-devicemon-web-emulator run
+dshub-emulator run
 
 # Or use the helper command
-devicemon-web-emulator start
+dshub-emulator start
 ```
 
 ## Package Structure
@@ -63,13 +63,13 @@ devicemon-web-emulator start
 After installation, files are located at:
 
 ```
-/opt/devicemon-web/          # Application files
+/opt/dshub/          # Application files
 ├── dist/                    # Server build
 ├── client/build/            # Client build
 ├── emulator/                # Board emulator
 └── node_modules/            # Dependencies
 
-/etc/devicemon-web/          # Configuration
+/etc/dshub/          # Configuration
 ├── config.env               # Environment variables
 └── maps/                    # Register/parameter maps
     ├── registers.map
@@ -77,55 +77,55 @@ After installation, files are located at:
     └── boardtypes.map
 
 /usr/bin/                    # Commands
-├── devicemon-web            # Service wrapper
-└── devicemon-web-emulator   # Emulator wrapper
+├── dshub            # Service wrapper
+└── dshub-emulator   # Emulator wrapper
 
 /usr/lib/systemd/system/     # Systemd services
-├── devicemon-web.service
-└── devicemon-web-emulator.service
+├── dshub.service
+└── dshub-emulator.service
 
 /usr/share/applications/     # Desktop entry
-└── devicemon-web.desktop
+└── dshub.desktop
 
-/usr/share/doc/devicemon-web/  # Documentation
+/usr/share/doc/dshub/  # Documentation
 ├── README.md
 ├── QUICK_START.md
 └── DEPLOYMENT-PM2.md
 
-/var/log/devicemon-web/      # Log files
+/var/log/dshub/      # Log files
 ```
 
 ## Helper Commands
 
-### devicemon-web
+### dshub
 
 ```bash
-devicemon-web start      # Start the service
-devicemon-web stop       # Stop the service
-devicemon-web restart    # Restart the service
-devicemon-web status     # Show service status
-devicemon-web logs       # Show live logs
-devicemon-web enable     # Enable auto-start on boot
-devicemon-web disable    # Disable auto-start
-devicemon-web open       # Open in browser
+dshub start      # Start the service
+dshub stop       # Stop the service
+dshub restart    # Restart the service
+dshub status     # Show service status
+dshub logs       # Show live logs
+dshub enable     # Enable auto-start on boot
+dshub disable    # Disable auto-start
+dshub open       # Open in browser
 ```
 
-### devicemon-web-emulator
+### dshub-emulator
 
 ```bash
-devicemon-web-emulator start    # Start emulator service
-devicemon-web-emulator stop     # Stop emulator service
-devicemon-web-emulator restart  # Restart emulator service
-devicemon-web-emulator status   # Show service status
-devicemon-web-emulator logs     # Show live logs
-devicemon-web-emulator enable   # Enable auto-start on boot
-devicemon-web-emulator disable  # Disable auto-start
-devicemon-web-emulator run      # Run emulator directly (foreground)
+dshub-emulator start    # Start emulator service
+dshub-emulator stop     # Stop emulator service
+dshub-emulator restart  # Restart emulator service
+dshub-emulator status   # Show service status
+dshub-emulator logs     # Show live logs
+dshub-emulator enable   # Enable auto-start on boot
+dshub-emulator disable  # Disable auto-start
+dshub-emulator run      # Run emulator directly (foreground)
 ```
 
 ## Configuration
 
-Edit `/etc/devicemon-web/config.env`:
+Edit `/etc/dshub/config.env`:
 
 ```bash
 # Change server port
@@ -141,7 +141,7 @@ LOG_LEVEL=info
 After changing configuration:
 
 ```bash
-sudo systemctl restart devicemon-web
+sudo systemctl restart dshub
 ```
 
 ## Customizing Maps
@@ -150,33 +150,33 @@ Register and parameter maps can be customized:
 
 ```bash
 # Edit maps
-sudo nano /etc/devicemon-web/maps/registers.map
-sudo nano /etc/devicemon-web/maps/parameters.map
-sudo nano /etc/devicemon-web/maps/boardtypes.map
+sudo nano /etc/dshub/maps/registers.map
+sudo nano /etc/dshub/maps/parameters.map
+sudo nano /etc/dshub/maps/boardtypes.map
 
 # Restart to apply changes
-sudo systemctl restart devicemon-web
+sudo systemctl restart dshub
 ```
 
 ## Logs and Debugging
 
 ```bash
 # Service logs
-journalctl -u devicemon-web -f
+journalctl -u dshub -f
 
 # Emulator logs
-journalctl -u devicemon-web-emulator -f
+journalctl -u dshub-emulator -f
 
 # Recent errors
-journalctl -u devicemon-web -p err -n 50
+journalctl -u dshub -p err -n 50
 
 # All logs since boot
-journalctl -u devicemon-web -b
+journalctl -u dshub -b
 ```
 
 ## Security
 
-The service runs as a dedicated `devicemon` user with limited privileges:
+The service runs as a dedicated `dshub` user with limited privileges:
 
 - No login shell
 - Restricted filesystem access
@@ -211,18 +211,18 @@ sudo firewall-cmd --reload
 
 ```bash
 # Remove package
-yay -R devicemon-web
+yay -R dshub
 
 # Or with paru
-paru -R devicemon-web
+paru -R dshub
 
 # Remove configuration (optional)
-sudo rm -rf /etc/devicemon-web
-sudo rm -rf /var/log/devicemon-web
+sudo rm -rf /etc/dshub
+sudo rm -rf /var/log/dshub
 
-# Remove devicemon user (optional)
-sudo userdel devicemon
-sudo groupdel devicemon
+# Remove dshub user (optional)
+sudo userdel dshub
+sudo groupdel dshub
 ```
 
 ## Building the Package (For Maintainers)
@@ -278,7 +278,7 @@ sudo pacman -S base-devel git nodejs npm
    # Upload to: https://aur.archlinux.org/account/
 
    # Clone AUR repository
-   git clone ssh://aur@aur.archlinux.org/devicemon-web.git aur-repo
+   git clone ssh://aur@aur.archlinux.org/dshub.git aur-repo
    ```
 
 2. **Update Package**:
@@ -287,12 +287,12 @@ sudo pacman -S base-devel git nodejs npm
 
    # Copy files from your project
    cp ../PKGBUILD .
-   cp ../devicemon-web.install .
-   cp ../devicemon-web.service .
-   cp ../devicemon-web-emulator.service .
-   cp ../devicemon-web.desktop .
-   cp ../devicemon-web-server .
-   cp ../devicemon-web-emulator-bin .
+   cp ../dshub.install .
+   cp ../dshub.service .
+   cp ../dshub-emulator.service .
+   cp ../dshub.desktop .
+   cp ../dshub-server .
+   cp ../dshub-emulator-bin .
    cp ../config.env .
 
    # Generate .SRCINFO
@@ -321,14 +321,14 @@ When releasing a new version:
 
 ```bash
 # Check service status
-systemctl status devicemon-web
+systemctl status dshub
 
 # Check logs
-journalctl -u devicemon-web -n 50
+journalctl -u dshub -n 50
 
 # Check permissions
-ls -la /opt/devicemon-web
-ls -la /etc/devicemon-web
+ls -la /opt/dshub
+ls -la /etc/dshub
 ```
 
 ### Port already in use
@@ -338,18 +338,18 @@ ls -la /etc/devicemon-web
 sudo lsof -i :3002
 
 # Change port in config
-sudo nano /etc/devicemon-web/config.env
+sudo nano /etc/dshub/config.env
 # Set: PORT=3003
 
 # Restart service
-sudo systemctl restart devicemon-web
+sudo systemctl restart dshub
 ```
 
 ### Cannot connect to devices
 
 ```bash
 # Check if emulator is running
-systemctl status devicemon-web-emulator
+systemctl status dshub-emulator
 
 # Check firewall
 sudo ufw status
@@ -372,7 +372,7 @@ To contribute to the AUR package:
 
 - **Issues**: Report on GitHub repository
 - **AUR Comments**: Use AUR package page
-- **Documentation**: `/usr/share/doc/devicemon-web/`
+- **Documentation**: `/usr/share/doc/dshub/`
 
 ## License
 

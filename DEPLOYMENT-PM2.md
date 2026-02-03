@@ -1,6 +1,6 @@
-# DeviceMon Web - PM2 Deployment Guide
+# DSHub - PM2 Deployment Guide
 
-This guide covers deploying DeviceMon Web using PM2, a production-grade process manager for Node.js applications.
+This guide covers deploying DSHub using PM2, a production-grade process manager for Node.js applications.
 
 ## Table of Contents
 
@@ -80,7 +80,7 @@ npm --version
 For a quick deployment, simply run:
 
 ```bash
-cd /path/to/devicemon-web
+cd /path/to/dshub
 ./deploy-pm2.sh
 ```
 
@@ -89,7 +89,7 @@ cd /path/to/devicemon-web
 For a quick deployment, run in Command Prompt or PowerShell:
 
 ```cmd
-cd C:\path\to\devicemon-web
+cd C:\path\to\dshub
 deploy-pm2.bat
 ```
 
@@ -115,7 +115,7 @@ The application will be accessible at:
 ### Step 1: Navigate to Project Directory
 
 ```bash
-cd /path/to/devicemon-web
+cd /path/to/dshub
 ```
 
 ### Step 2: Install PM2 (Optional - Auto-installed by script)
@@ -211,7 +211,7 @@ pm2 list
 ### Start the Application
 
 ```bash
-pm2 start devicemon-web
+pm2 start dshub
 # or
 pm2 start ecosystem.config.js
 ```
@@ -219,31 +219,31 @@ pm2 start ecosystem.config.js
 ### Stop the Application
 
 ```bash
-pm2 stop devicemon-web
+pm2 stop dshub
 ```
 
 ### Restart the Application
 
 ```bash
-pm2 restart devicemon-web
+pm2 restart dshub
 ```
 
 ### Reload with Zero Downtime
 
 ```bash
-pm2 reload devicemon-web
+pm2 reload dshub
 ```
 
 ### Delete from PM2
 
 ```bash
-pm2 delete devicemon-web
+pm2 delete dshub
 ```
 
 ### View Detailed Information
 
 ```bash
-pm2 show devicemon-web
+pm2 show dshub
 ```
 
 ---
@@ -268,16 +268,16 @@ Press `Ctrl+C` to exit.
 
 ```bash
 # Tail logs in real-time
-pm2 logs devicemon-web
+pm2 logs dshub
 
 # View last 100 lines
-pm2 logs devicemon-web --lines 100
+pm2 logs dshub --lines 100
 
 # View only error logs
-pm2 logs devicemon-web --err
+pm2 logs dshub --err
 
 # View only standard output
-pm2 logs devicemon-web --out
+pm2 logs dshub --out
 
 # Clear all logs
 pm2 flush
@@ -301,7 +301,7 @@ Application-specific logs (from Winston logger):
 
 ```bash
 # View process metrics
-pm2 describe devicemon-web
+pm2 describe dshub
 
 # View process memory usage
 pm2 monit
@@ -345,7 +345,7 @@ cd client && npm run build && cd ..
 npm run build
 
 # 4. Reload with zero downtime
-pm2 reload devicemon-web
+pm2 reload dshub
 ```
 
 **Windows:**
@@ -366,7 +366,7 @@ cd ..
 npm run build
 
 REM 4. Reload with zero downtime
-pm2 reload devicemon-web
+pm2 reload dshub
 ```
 
 ---
@@ -383,7 +383,7 @@ If you previously installed PM2 globally with sudo and have permission issues:
 
 ```bash
 # Fix file ownership (replace 'youruser' with your username)
-sudo chown -R youruser:youruser /path/to/devicemon-web
+sudo chown -R youruser:youruser /path/to/dshub
 
 # Remove global PM2 installation (optional)
 sudo npm uninstall -g pm2
@@ -395,17 +395,17 @@ sudo npm uninstall -g pm2
 When using locally installed PM2, prefix all PM2 commands with `npx`:
 ```bash
 npx pm2 list
-npx pm2 logs devicemon-web
-npx pm2 restart devicemon-web
+npx pm2 logs dshub
+npx pm2 restart dshub
 ```
 
 ### Application Not Starting
 
 **Check PM2 logs:**
 ```bash
-pm2 logs devicemon-web --lines 50
+pm2 logs dshub --lines 50
 # or if PM2 is installed locally:
-npx pm2 logs devicemon-web --lines 50
+npx pm2 logs dshub --lines 50
 ```
 
 **Check if port is already in use:**
@@ -439,7 +439,7 @@ sudo netstat -ulnp | grep 2011
 
 **Check error logs:**
 ```bash
-pm2 logs devicemon-web --err --lines 100
+pm2 logs dshub --err --lines 100
 ```
 
 **Check memory usage:**
@@ -534,9 +534,9 @@ To manually configure Windows Firewall:
 
 ```cmd
 REM Allow Node.js through firewall (run as Administrator)
-netsh advfirewall firewall add rule name="DeviceMon Server" dir=in action=allow protocol=TCP localport=3002
-netsh advfirewall firewall add rule name="DeviceMon Client" dir=in action=allow protocol=TCP localport=3001
-netsh advfirewall firewall add rule name="DeviceMon Discovery" dir=in action=allow protocol=UDP localport=2011
+netsh advfirewall firewall add rule name="DSHub Server" dir=in action=allow protocol=TCP localport=3002
+netsh advfirewall firewall add rule name="DSHub Client" dir=in action=allow protocol=TCP localport=3001
+netsh advfirewall firewall add rule name="DSHub Discovery" dir=in action=allow protocol=UDP localport=2011
 ```
 
 ### Checking Port Usage on Windows
@@ -585,8 +585,8 @@ This provides better integration with Windows service management.
 ### Remove Application from PM2
 
 ```bash
-pm2 stop devicemon-web
-pm2 delete devicemon-web
+pm2 stop dshub
+pm2 delete dshub
 pm2 save
 ```
 
@@ -605,9 +605,9 @@ npm uninstall -g pm2
 ### Remove Application Files
 
 ```bash
-cd /path/to/devicemon-web
+cd /path/to/dshub
 cd ..
-rm -rf devicemon-web
+rm -rf dshub
 ```
 
 ---
@@ -679,13 +679,13 @@ Edit `ecosystem.config.js`:
 
 - **PM2 Documentation**: https://pm2.keymetrics.io/docs/usage/quick-start/
 - **PM2 GitHub**: https://github.com/Unitech/pm2
-- **DeviceMon Repository**: [Your repo URL]
+- **DSHub Repository**: [Your repo URL]
 
 ---
 
 ## Summary
 
-PM2 provides an excellent balance of ease-of-use and production-ready features for deploying DeviceMon Web:
+PM2 provides an excellent balance of ease-of-use and production-ready features for deploying DSHub:
 
 **Advantages:**
 - Simple deployment with `./deploy-pm2.sh`
@@ -701,25 +701,25 @@ PM2 provides an excellent balance of ease-of-use and production-ready features f
 ```bash
 ./deploy-pm2.sh        # Initial deployment
 ./update-pm2.sh        # Update application
-pm2 logs devicemon-web # View logs
+pm2 logs dshub # View logs
 pm2 monit              # Monitor resources
-pm2 restart devicemon-web # Restart application
+pm2 restart dshub # Restart application
 ```
 
 **Windows:**
 ```cmd
 deploy-pm2.bat         # Initial deployment
 update-pm2.bat         # Update application
-pm2 logs devicemon-web # View logs
+pm2 logs dshub # View logs
 pm2 monit              # Monitor resources
-pm2 restart devicemon-web # Restart application
+pm2 restart dshub # Restart application
 ```
 
 **Cross-Platform Compatibility:**
-- DeviceMon works on Linux, Windows, and macOS
+- DSHub works on Linux, Windows, and macOS
 - PM2 provides consistent management across all platforms
 - UDP broadcast device discovery works natively on all platforms
 - Windows users should configure Windows Firewall for network access
 - Use platform-specific deployment scripts (.sh for Linux/macOS, .bat for Windows)
 
-Enjoy using DeviceMon Web with PM2!
+Enjoy using DSHub with PM2!

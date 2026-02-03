@@ -22,7 +22,7 @@ import {
   Clear as ClearIcon,
   Download as ExportIcon
 } from '@mui/icons-material';
-import { useDeviceMon } from '../contexts/DeviceMonContext';
+import { useDSHub } from '../contexts/DSHubContext';
 import { LogEntry } from '../types/shared';
 
 const getLevelColor = (level: LogEntry['level']) => {
@@ -43,7 +43,7 @@ const getLevelColor = (level: LogEntry['level']) => {
 };
 
 export default function LogsPanel() {
-  const { state, actions } = useDeviceMon();
+  const { state, actions } = useDSHub();
   const [levelFilter, setLevelFilter] = useState<LogEntry['level'] | 'all'>('all');
   const [autoScroll, setAutoScroll] = useState(true);
   const listEndRef = useRef<HTMLDivElement>(null);
@@ -82,7 +82,7 @@ export default function LogsPanel() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `devicemon-logs-${new Date().toISOString().split('T')[0]}.txt`;
+    a.download = `dshub-logs-${new Date().toISOString().split('T')[0]}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };

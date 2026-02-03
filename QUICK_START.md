@@ -1,8 +1,8 @@
-# DeviceMon Web Client - Quick Start Guide
+# DSHub Client - Quick Start Guide
 
 ## What's New? 🎉
 
-Your DeviceMon web client has been professionally upgraded with:
+Your DSHub web client has been professionally upgraded with:
 
 ✅ **Modern, Polished UI** - Professional Material-UI theme
 ✅ **Better Error Handling** - Error boundaries prevent crashes
@@ -14,19 +14,19 @@ Your DeviceMon web client has been professionally upgraded with:
 
 ## Running the Improved Application
 
+**Note:** All commands assume you are in the project root directory.
+
 ### Development Mode
 ```bash
-cd /home/sofian/UserWorkspace/devicemonApps/devicemon-web
 npm start
 ```
 
 ### Production Build
 ```bash
-cd /home/sofian/UserWorkspace/devicemonApps/devicemon-web
 npm run build
 npm run serve:build  # If you have serve installed
 # or
-cd build && python -m http.server 3000
+cd client/build && python -m http.server 3000
 ```
 
 ## Key Improvements You'll Notice
@@ -104,7 +104,7 @@ If not set, it will default to `${window.location.protocol}//${window.location.h
 ## File Structure
 
 ```
-devicemon-web/client/src/
+client/src/
 ├── components/
 │   ├── ErrorBoundary.tsx          ⭐ NEW - Error handling
 │   ├── ToastNotification.tsx      ⭐ NEW - User feedback
@@ -116,7 +116,7 @@ devicemon-web/client/src/
 │   ├── PlotterPanel.tsx
 │   └── ActivityLog.tsx
 ├── contexts/
-│   └── DeviceMonContext.tsx       ✏️ MODIFIED - Connection state
+│   └── DSHubContext.tsx       ✏️ MODIFIED - Connection state
 ├── utils/
 │   └── validation.ts              ⭐ NEW - Input validation
 ├── theme.ts                       ⭐ NEW - Professional theme
@@ -169,6 +169,6 @@ For issues or questions:
 3. Check toast notifications for operation feedback
 4. Refer to IMPROVEMENTS_SUMMARY.md for details
 
-## Enjoy Your Upgraded DeviceMon! 🚀
+## Enjoy Your Upgraded DSHub! 🚀
 
 The application is now more professional, reliable, and user-friendly. Happy monitoring!

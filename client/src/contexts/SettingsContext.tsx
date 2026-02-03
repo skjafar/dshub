@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { UserSettings, DEFAULT_SETTINGS, MapProfile, DEFAULT_PROFILE_ID, CNC_PROFILE_ID, SysCommand } from '../types/settings';
 import { createCNCDashboard } from '../utils/cncDashboardTemplate';
 
-const STORAGE_KEY = 'devicemon_settings';
+const STORAGE_KEY = 'dshub_settings';
 
 interface SettingsContextType {
   settings: UserSettings;

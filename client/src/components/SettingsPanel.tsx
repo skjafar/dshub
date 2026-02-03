@@ -30,13 +30,13 @@ import {
 } from '@mui/icons-material';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
-import { useDeviceMon } from '../contexts/DeviceMonContext';
+import { useDSHub } from '../contexts/DSHubContext';
 import MapProfilesPanel from './MapProfilesPanel';
 
 export default function SettingsPanel() {
   const { settings, updateSettings, resetSettings, exportSettings, importSettings } = useSettings();
   const { showSuccess, showError, showWarning } = useToast();
-  const { actions } = useDeviceMon();
+  const { actions } = useDSHub();
   const [importError, setImportError] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -60,7 +60,7 @@ export default function SettingsPanel() {
     setMaxLogCountInput(settings.logSettings.maxLogCount.toString());
   }, [settings]);
 
-  // Sync maxDataPoints setting with DeviceMonContext on mount and when setting changes
+  // Sync maxDataPoints setting with DSHubContext on mount and when setting changes
   useEffect(() => {
     actions.setMaxDataPoints(settings.plotDefaults.maxDataPoints);
   }, [settings.plotDefaults.maxDataPoints, actions]);
@@ -201,7 +201,7 @@ export default function SettingsPanel() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `devicemon-settings-${Date.now()}.json`;
+      a.download = `dshub-settings-${Date.now()}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

@@ -39,7 +39,7 @@ import {
   Lock as LockIcon,
   LockOpen as LockOpenIcon
 } from '@mui/icons-material';
-import { useDeviceMon } from '../contexts/DeviceMonContext';
+import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import { mapManager } from '../maps/mapManager';
@@ -152,7 +152,7 @@ export interface RegistersPanelRef {
 interface RegistersPanelProps {}
 
 const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props, ref) => {
-  const { state, actions } = useDeviceMon();
+  const { state, actions } = useDSHub();
   const { settings, getActiveProfile } = useSettings();
   const { showError } = useToast();
   const [editDialog, setEditDialog] = useState<{ open: boolean; register: any }>({

@@ -1,11 +1,11 @@
 @echo off
-REM DeviceMon Web - PM2 Update Script for Windows
+REM DSHub - PM2 Update Script for Windows
 REM This script updates the running application with zero downtime
 
 setlocal enabledelayedexpansion
 
 echo ======================================
-echo DeviceMon Web - Update with PM2
+echo DSHub - Update with PM2
 echo ======================================
 echo.
 
@@ -24,9 +24,9 @@ if %ERRORLEVEL% equ 0 (
 )
 
 REM Check if PM2 is running the app
-%PM2_CMD% list | findstr "devicemon-web" >nul 2>nul
+%PM2_CMD% list | findstr "dshub" >nul 2>nul
 if %ERRORLEVEL% neq 0 (
-    echo ERROR: DeviceMon is not running in PM2.
+    echo ERROR: DSHub is not running in PM2.
     echo Please run 'deploy-pm2.bat' first to deploy the application.
     pause
     exit /b 1
@@ -105,13 +105,13 @@ echo ======================================
 echo.
 %PM2_CMD% list
 echo.
-%PM2_CMD% logs devicemon-web --lines 20 --nostream
+%PM2_CMD% logs dshub --lines 20 --nostream
 echo.
 echo Application has been updated and reloaded successfully.
 if "%PM2_CMD%"=="call pm2" (
-    echo Run 'call pm2 logs devicemon-web' to monitor the application.
+    echo Run 'call pm2 logs dshub' to monitor the application.
 ) else (
-    echo Run 'call npx pm2 logs devicemon-web' to monitor the application.
+    echo Run 'call npx pm2 logs dshub' to monitor the application.
 )
 echo.
 pause

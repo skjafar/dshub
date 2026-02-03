@@ -55,7 +55,7 @@ export class DeviceCommunicator {
   private totalBytesReceived = 0;
   private readonly REQUEST_TIMEOUT = 5000; // 5 seconds
   private readonly MAX_QUEUE_SIZE = 100; // Maximum queued requests - prevents memory exhaustion
-  private readonly REQUEST_RATE_LIMIT = 50; // Maximum requests per second - prevents device overload
+  private REQUEST_RATE_LIMIT = 2000; // Maximum requests per second - prevents device overload (configurable)
   private readonly MAX_RESPONSE_SIZE = 1024; // Maximum response buffer size in bytes - prevents OOM from misbehaving device
   private requestTimestamps: number[] = []; // Track recent request times for rate limiting
 
@@ -73,7 +73,8 @@ export class DeviceCommunicator {
     enablePacketLogs: false,
     enableAutoRefreshLogs: false,
     enablePlottingLogs: false,
-    maxLogCount: 1000
+    maxLogCount: 1000,
+    requestRateLimit: 2000
   };
 
   public connect(
@@ -217,8 +218,10 @@ export class DeviceCommunicator {
 
     // Determine log category based on command
     const getCategoryForCommand = (cmd: number): LogCategory => {
+      if (cmd === 0) return 'connection'; // System commands
       if (cmd === 1 || cmd === 2) return 'register';
       if (cmd === 3 || cmd === 4) return 'parameter';
+      if (cmd === 5) return 'connection'; // Take control
       return 'connection';
     };
 
@@ -325,6 +328,11 @@ export class DeviceCommunicator {
         // Take Control response
         this.currentRequest.callback?.();
         this.logger.success(`Take Control acknowledged (${responseTime}ms)`, 'connection');
+      } else if (this.currentRequest.command === 0) {
+        // System command response
+        const commandCode = this.currentRequest.address; // We stored the command code in address field
+        this.logger.success(`System command ${commandCode} response: status=${status}, value=${value} (${responseTime}ms)`, 'connection');
+        this.currentRequest.callback?.();
       } else {
         // Other commands
         this.currentRequest.callback?.();
@@ -471,6 +479,11 @@ export class DeviceCommunicator {
   public updateLogSettings(settings: LogSettings): void {
     this.logger.info('Updating log settings', 'connection');
     this.logSettings = settings;
+    // Update rate limit if provided
+    if (settings.requestRateLimit && settings.requestRateLimit > 0) {
+      this.REQUEST_RATE_LIMIT = settings.requestRateLimit;
+      this.logger.info(`Request rate limit updated to ${this.REQUEST_RATE_LIMIT} requests/second`, 'connection');
+    }
   }
 
   private shouldEmitLog(logEntry: LogEntry): boolean {
@@ -738,16 +751,32 @@ export class DeviceCommunicator {
       return;
     }
 
-    this.logger.info(`Sending command ${command} with value ${value}`, 'connection');
-    
-    // Create command packet
+    this.logger.info(`Sending system command ${command} with value ${value}`, 'connection');
+
+    const requestId = `syscmd_${command}_${Date.now()}`;
+
+    // Create system command packet (10 bytes for sending, 6 bytes response expected)
     const packet = Buffer.alloc(10);
-    packet.writeUInt8(0, 0); // System command
-    packet.writeUInt8(command, 1);
-    packet.writeInt32LE(value, 2);
-    packet.writeUInt32LE(0, 6); // Reserved/checksum
-    
-    this.sendData(packet);
+    packet.writeUInt8(0, 0); // System command byte
+    packet.writeUInt8(command, 1); // Command code
+    packet.writeInt32LE(value, 2); // Value (4 bytes)
+    packet.writeUInt32LE(0, 6); // Reserved/checksum (4 bytes)
+
+    // Create request with packet data
+    const request: DataRequest = {
+      id: requestId,
+      address: command, // Use command code as address for tracking
+      command: 0, // System command type
+      expectedResponseLength: 6, // System commands return 6-byte responses
+      timestamp: Date.now(),
+      packet,
+      name: `SYS_CMD_${command}`,
+      callback: () => {
+        this.logger.success(`System command ${command} acknowledged`, 'connection');
+      }
+    };
+
+    this.queueRequest(request);
   }
 
   private sendData(packet: Buffer): void {
@@ -854,9 +883,30 @@ export class DeviceCommunicator {
     let hexLine = '';
     let labelLine = '';
 
-    // Format based on command type
-    if (buffer.length >= 6 && (command >= 1 && command <= 4)) {
-      // Commands 1-4: [Command][Address][Value/Data]
+    // Format based on command type and packet length
+    if (command === 0 && buffer.length === 10) {
+      // System command request: [0][Cmd][Value(4)][Checksum(4)]
+      const cmdByte = buffer[0].toString(16).padStart(2, '0').toUpperCase();
+      const subCmd = buffer[1].toString(16).padStart(2, '0').toUpperCase();
+      const valueBytes = [
+        buffer[5].toString(16).padStart(2, '0').toUpperCase(),
+        buffer[4].toString(16).padStart(2, '0').toUpperCase(),
+        buffer[3].toString(16).padStart(2, '0').toUpperCase(),
+        buffer[2].toString(16).padStart(2, '0').toUpperCase()
+      ];
+      const checksumBytes = [
+        buffer[9].toString(16).padStart(2, '0').toUpperCase(),
+        buffer[8].toString(16).padStart(2, '0').toUpperCase(),
+        buffer[7].toString(16).padStart(2, '0').toUpperCase(),
+        buffer[6].toString(16).padStart(2, '0').toUpperCase()
+      ];
+
+      hexLine = `   ${cmdByte}     ${subCmd}    ${valueBytes.join(' ')}   ${checksumBytes.join(' ')}`;
+      labelLine = '┌SysCmd┐┌Code┐┌──Value──┐┌Checksum┐';
+
+      return `${labelLine}\n${hexLine}`;
+    } else if (buffer.length >= 6 && (command >= 1 && command <= 5)) {
+      // Commands 1-5: [Command][Address][Value/Data]
       const commandHex = buffer[0].toString(16).padStart(2, '0').toUpperCase();
       const addressHex = buffer[1].toString(16).padStart(2, '0').toUpperCase();
       const valueBytes = [
@@ -868,6 +918,21 @@ export class DeviceCommunicator {
 
       hexLine = `   ${commandHex}       ${addressHex}    ${valueBytes.join(' ')}`;
       labelLine = '┌Command┐┌Address┐┌──Value──┐';
+
+      return `${labelLine}\n${hexLine}`;
+    } else if (command === 0 && buffer.length === 6) {
+      // System command response: [0][Status][Value(4)]
+      const commandHex = buffer[0].toString(16).padStart(2, '0').toUpperCase();
+      const statusHex = buffer[1].toString(16).padStart(2, '0').toUpperCase();
+      const valueBytes = [
+        buffer[5].toString(16).padStart(2, '0').toUpperCase(),
+        buffer[4].toString(16).padStart(2, '0').toUpperCase(),
+        buffer[3].toString(16).padStart(2, '0').toUpperCase(),
+        buffer[2].toString(16).padStart(2, '0').toUpperCase()
+      ];
+
+      hexLine = `   ${commandHex}      ${statusHex}    ${valueBytes.join(' ')}`;
+      labelLine = '┌SysCmd┐┌Status┐┌──Value──┐';
 
       return `${labelLine}\n${hexLine}`;
     } else {
@@ -920,16 +985,23 @@ export class DeviceCommunicator {
   }
 
   private analyzePacket(packet: Buffer, direction: 'SENT' | 'RECEIVED', name?: string): string {
-    // All device packets are exactly 6 bytes: [command(1)] [address(1)] [value(4)]
+    // Most device packets are 6 bytes: [command(1)] [address(1)] [value(4)]
+    // System command REQUESTS are 10 bytes: [0(1)] [cmd(1)] [value(4)] [checksum(4)]
+    // System command RESPONSES are 6 bytes like other commands
     if (packet.length === 0) {
       return 'Empty packet';
     }
 
-    if (packet.length !== 6) {
-      return `Malformed packet: Expected exactly 6 bytes, got ${packet.length} bytes`;
+    const command = packet.readUInt8(0);
+
+    // System command requests are 10 bytes (sent), responses are 6 bytes (received)
+    const isSystemCommandRequest = (command === 0 && packet.length === 10 && direction === 'SENT');
+    const isSystemCommandResponse = (command === 0 && packet.length === 6 && direction === 'RECEIVED');
+
+    if (!isSystemCommandRequest && packet.length !== 6) {
+      return `Malformed packet: Expected 6 bytes (or 10 for system command request), got ${packet.length} bytes`;
     }
 
-    const command = packet.readUInt8(0);
     let analysis = '';
 
     // Command metadata for data-driven approach
@@ -961,11 +1033,24 @@ export class DeviceCommunicator {
 
     // Handle system command (special case)
     if (command === 0) {
-      analysis += `Command Byte:      0   (0x00) - System Command\n`;
-      const subCommand = packet.readUInt8(1);
-      const value = packet.readInt32LE(2);
-      analysis += `Sub-Command:       ${subCommand.toString().padEnd(3)} (0x${subCommand.toString(16).padStart(2, '0').toUpperCase()})\n`;
-      analysis += `Value:             ${value} (0x${value.toString(16).padStart(8, '0').toUpperCase()})`;
+      const operation = direction === 'SENT' ? 'Request' : 'Response';
+      analysis += `Command Byte:      0   (0x00) - System Command ${operation}\n`;
+
+      if (direction === 'SENT' && packet.length === 10) {
+        // System command request (10 bytes)
+        const subCommand = packet.readUInt8(1);
+        const value = packet.readInt32LE(2);
+        const checksum = packet.readUInt32LE(6);
+        analysis += `Command Code:      ${subCommand.toString().padEnd(3)} (0x${subCommand.toString(16).padStart(2, '0').toUpperCase()})\n`;
+        analysis += `Value:             ${value} (0x${value.toString(16).padStart(8, '0').toUpperCase()})\n`;
+        analysis += `Checksum:          0x${checksum.toString(16).padStart(8, '0').toUpperCase()}`;
+      } else if (direction === 'RECEIVED' && packet.length === 6) {
+        // System command response (6 bytes)
+        const status = packet.readUInt8(1);
+        const value = packet.readInt32LE(2);
+        analysis += `Status:            ${status.toString().padEnd(3)} (0x${status.toString(16).padStart(2, '0').toUpperCase()})\n`;
+        analysis += `Response Value:    ${value} (0x${value.toString(16).padStart(8, '0').toUpperCase()})`;
+      }
       return analysis;
     }
 

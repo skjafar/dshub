@@ -187,7 +187,7 @@ import {
   MiniPlotWidgetConfig,
   DropdownWidgetConfig
 } from '../../types/dashboard';
-import { useDeviceMon } from '../../contexts/DeviceMonContext';
+import { useDSHub } from '../../contexts/DSHubContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import { parseMapFile, MapEntry } from '../../maps/mapParser';
 
@@ -382,7 +382,7 @@ export default function WidgetConfigDialog({
   initialConfig,
   mode
 }: WidgetConfigDialogProps) {
-  const { state } = useDeviceMon();
+  const { state } = useDSHub();
   const { getActiveProfile } = useSettings();
   const [widgetType, setWidgetType] = useState<WidgetType>(initialType || 'button');
   const [config, setConfig] = useState<Partial<WidgetConfig>>({});

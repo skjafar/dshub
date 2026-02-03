@@ -3,8 +3,8 @@ import { createTheme } from '@mui/material/styles';
 // Transition duration for theme switching (can be customized via settings)
 const THEME_TRANSITION = '0.3s ease-in-out';
 
-// Professional, modern theme for DeviceMon
-export const deviceMonTheme = createTheme({
+// Professional, modern theme for DSHub
+export const dsHubTheme = createTheme({
   palette: {
     mode: 'light',
     primary: {
@@ -181,8 +181,8 @@ export const deviceMonTheme = createTheme({
 });
 
 // Dark theme variant with enhanced contrast
-export const deviceMonDarkTheme = createTheme({
-  ...deviceMonTheme,
+export const dsHubDarkTheme = createTheme({
+  ...dsHubTheme,
   palette: {
     mode: 'dark',
     primary: {
@@ -240,7 +240,7 @@ export const deviceMonDarkTheme = createTheme({
     },
   },
   components: {
-    ...deviceMonTheme.components,
+    ...dsHubTheme.components,
     MuiTableCell: {
       styleOverrides: {
         head: {

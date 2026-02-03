@@ -1,9 +1,9 @@
-pkgbase = devicemon-web
-	pkgdesc = Modern web application for monitoring and controlling embedded devices via TCP/UDP
+pkgbase = dshub
+	pkgdesc = DSHub - Modern web application for monitoring and controlling embedded devices via TCP/UDP
 	pkgver = 0.1.0
 	pkgrel = 1
-	url = https://github.com/skjafar/devicemon-web
-	install = devicemon-web.install
+	url = https://github.com/skjafar/dshub
+	install = dshub.install
 	arch = x86_64
 	arch = aarch64
 	license = MIT
@@ -13,11 +13,11 @@ pkgbase = devicemon-web
 	depends = npm
 	optdepends = python: for board emulator
 	optdepends = pm2: for process management (recommended)
-	backup = etc/devicemon-web/config.env
-	backup = etc/devicemon-web/maps/registers.map
-	backup = etc/devicemon-web/maps/parameters.map
-	backup = etc/devicemon-web/maps/boardtypes.map
-	source = git+https://github.com/skjafar/devicemon-web.git#tag=v0.1.0
+	backup = etc/dshub/config.env
+	backup = etc/dshub/maps/registers.map
+	backup = etc/dshub/maps/parameters.map
+	backup = etc/dshub/maps/boardtypes.map
+	source = git+https://github.com/skjafar/dshub.git#tag=v0.1.0
 	sha256sums = SKIP
 
-pkgname = devicemon-web
+pkgname = dshub

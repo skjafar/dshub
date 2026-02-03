@@ -27,7 +27,7 @@ import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import { useSettings } from '../../contexts/SettingsContext';
-import { useDeviceMon } from '../../contexts/DeviceMonContext';
+import { useDSHub } from '../../contexts/DSHubContext';
 import { useToast } from '../ToastNotification';
 import { parseMapFile, MapEntry } from '../../maps/mapParser';
 import { mapManager } from '../../maps/mapManager';
@@ -45,7 +45,7 @@ const EMPTY_PROFILE_ID = '__empty__';
 
 export default function MapEditorPanel() {
   const { getActiveProfile, updateProfile, getAllProfiles, createProfile } = useSettings();
-  const { state } = useDeviceMon();
+  const { state } = useDSHub();
   const { showSuccess, showError } = useToast();
 
   const [currentTab, setCurrentTab] = useState<MapType>('registers');

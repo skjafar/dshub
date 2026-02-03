@@ -1,12 +1,12 @@
 import { ThemeProvider, CssBaseline, useMediaQuery } from '@mui/material';
 import { useMemo, useEffect } from 'react';
-import { DeviceMonProvider } from './contexts/DeviceMonContext';
+import { DSHubProvider } from './contexts/DSHubContext';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastProvider, useToast } from './components/ToastNotification';
 import MainLayout from './components/MainLayout';
 import AutoScanManager from './components/AutoScanManager';
-import { deviceMonTheme, deviceMonDarkTheme } from './theme';
+import { dsHubTheme, dsHubDarkTheme } from './theme';
 
 function ThemedApp() {
   const { settings, storageError } = useSettings();
@@ -22,24 +22,22 @@ function ThemedApp() {
 
   const theme = useMemo(() => {
     if (settings.theme === 'dark') {
-      return deviceMonDarkTheme;
+      return dsHubDarkTheme;
     } else if (settings.theme === 'light') {
-      return deviceMonTheme;
+      return dsHubTheme;
     } else {
       // Auto mode - follow system preference
-      return prefersDarkMode ? deviceMonDarkTheme : deviceMonTheme;
+      return prefersDarkMode ? dsHubDarkTheme : dsHubTheme;
     }
   }, [settings.theme, prefersDarkMode]);
 
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <ToastProvider>
-        <DeviceMonProvider>
-          <AutoScanManager />
-          <MainLayout />
-        </DeviceMonProvider>
-      </ToastProvider>
+      <DSHubProvider>
+        <AutoScanManager />
+        <MainLayout />
+      </DSHubProvider>
     </ThemeProvider>
   );
 }
@@ -48,7 +46,9 @@ function App() {
   return (
     <ErrorBoundary>
       <SettingsProvider>
-        <ThemedApp />
+        <ToastProvider>
+          <ThemedApp />
+        </ToastProvider>
       </SettingsProvider>
     </ErrorBoundary>
   );

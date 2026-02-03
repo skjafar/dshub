@@ -1,6 +1,6 @@
-# AUR Maintainer Guide - DeviceMon Web
+# AUR Maintainer Guide - DSHub
 
-Quick reference for maintaining the DeviceMon Web AUR package.
+Quick reference for maintaining the DSHub AUR package.
 
 ## Initial AUR Setup (One Time)
 
@@ -18,7 +18,7 @@ cat ~/.ssh/id_ed25519.pub
 ssh -T aur@aur.archlinux.org
 
 # 5. Clone your package repository (first time)
-git clone ssh://aur@aur.archlinux.org/devicemon-web.git aur-publish
+git clone ssh://aur@aur.archlinux.org/dshub.git aur-publish
 ```
 
 ## Publishing New Version
@@ -48,7 +48,7 @@ makepkg -f
 makepkg -i
 
 # Test the installed package
-devicemon-web start
+dshub start
 xdg-open http://localhost:3002
 ```
 
@@ -89,7 +89,7 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
-echo "Publishing DeviceMon Web v${VERSION} to AUR"
+echo "Publishing DSHub v${VERSION} to AUR"
 
 cd aur/
 
@@ -149,14 +149,14 @@ Before publishing, verify:
 
 - [ ] Build succeeds: `makepkg -f`
 - [ ] Installation works: `makepkg -i`
-- [ ] Service starts: `sudo systemctl start devicemon-web`
-- [ ] Service status: `systemctl status devicemon-web`
+- [ ] Service starts: `sudo systemctl start dshub`
+- [ ] Service status: `systemctl status dshub`
 - [ ] Web interface loads: http://localhost:3002
-- [ ] Emulator works: `devicemon-web-emulator run`
-- [ ] Configuration editable: `/etc/devicemon-web/config.env`
-- [ ] Maps customizable: `/etc/devicemon-web/maps/`
-- [ ] Helper commands work: `devicemon-web start`
-- [ ] Uninstall clean: `pacman -R devicemon-web`
+- [ ] Emulator works: `dshub-emulator run`
+- [ ] Configuration editable: `/etc/dshub/config.env`
+- [ ] Maps customizable: `/etc/dshub/maps/`
+- [ ] Helper commands work: `dshub start`
+- [ ] Uninstall clean: `pacman -R dshub`
 
 ## Common Issues
 
@@ -179,11 +179,11 @@ makepkg -f
 
 ```bash
 # Check logs
-journalctl -u devicemon-web -n 50
+journalctl -u dshub -n 50
 
 # Check permissions
-ls -la /opt/devicemon-web
-ls -la /etc/devicemon-web
+ls -la /opt/dshub
+ls -la /etc/dshub
 ```
 
 ## Responding to AUR Comments
@@ -199,15 +199,15 @@ makepkg -f 2>&1 | tee build.log
 **Q: Service won't start**
 ```
 Check the service status:
-sudo systemctl status devicemon-web
-journalctl -u devicemon-web -n 50
+sudo systemctl status dshub
+journalctl -u dshub -n 50
 ```
 
 **Q: How to change port?**
 ```
-Edit /etc/devicemon-web/config.env
+Edit /etc/dshub/config.env
 Set PORT=3003
-sudo systemctl restart devicemon-web
+sudo systemctl restart dshub
 ```
 
 **Q: Out of date**
@@ -222,7 +222,7 @@ Only if absolutely necessary:
 
 ```bash
 # Request deletion at:
-# https://aur.archlinux.org/pkgbase/devicemon-web/request/
+# https://aur.archlinux.org/pkgbase/dshub/request/
 
 # Reason: abandoned, renamed, moved to official repos, etc.
 ```
@@ -237,5 +237,5 @@ Only if absolutely necessary:
 ## Contact
 
 For package-specific issues:
-- AUR Comments: https://aur.archlinux.org/packages/devicemon-web
-- GitHub Issues: https://github.com/yourusername/devicemon-web/issues
+- AUR Comments: https://aur.archlinux.org/packages/dshub
+- GitHub Issues: https://github.com/yourusername/dshub/issues

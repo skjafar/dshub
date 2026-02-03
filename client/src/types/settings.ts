@@ -57,6 +57,7 @@ export interface LogSettings {
   enableAutoRefreshLogs: boolean; // Auto-refresh operation logs
   enablePlottingLogs: boolean; // Plot start/stop logs
   maxLogCount: number; // Maximum number of log entries to retain (100-10000)
+  requestRateLimit: number; // Maximum requests per second (default: 2000)
 }
 
 export interface UserSettings {
@@ -108,7 +109,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     enablePacketLogs: false, // Default off: Very high impact (verbose hex dumps)
     enableAutoRefreshLogs: false, // Default off: Low impact but can be noisy
     enablePlottingLogs: false, // Default off: Low impact
-    maxLogCount: 1000 // Default: 1000 entries (balanced performance)
+    maxLogCount: 1000, // Default: 1000 entries (balanced performance)
+    requestRateLimit: 2000 // Default: 2000 requests/second (prevents device overload)
   },
   dashboardLayouts: {} // Dashboard layouts per profile (empty by default)
 };

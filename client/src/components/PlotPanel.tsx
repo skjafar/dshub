@@ -43,7 +43,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import 'chartjs-adapter-date-fns';
-import { useDeviceMon } from '../contexts/DeviceMonContext';
+import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import { mapManager } from '../maps/mapManager';
@@ -142,7 +142,7 @@ const createEmptyPlot = (id: string, plotNumber: number): PlotPanel => ({
 });
 
 export default function PlotPanel() {
-  const { state, actions } = useDeviceMon();
+  const { state, actions } = useDSHub();
   const { settings, getActiveProfile } = useSettings();
   const { showSuccess, showError } = useToast();
   const theme = useTheme();
@@ -530,7 +530,7 @@ export default function PlotPanel() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `devicemon-plot-data-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `dshub-plot-data-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };

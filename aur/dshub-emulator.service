@@ -1,19 +1,19 @@
 [Unit]
-Description=DeviceMon Board Emulator
-Documentation=https://github.com/yourusername/devicemon-web
+Description=DSHub Board Emulator
+Documentation=https://github.com/yourusername/dshub
 After=network.target
 
 [Service]
 Type=simple
-User=devicemon
-Group=devicemon
-WorkingDirectory=/opt/devicemon-web/emulator
-ExecStart=/usr/bin/python3 /opt/devicemon-web/emulator/devicemon_emulator.py
+User=dshub
+Group=dshub
+WorkingDirectory=/opt/dshub/emulator
+ExecStart=/usr/bin/python3 /opt/dshub/emulator/dshub_emulator.py
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=devicemon-emulator
+SyslogIdentifier=dshub-emulator
 
 # Security hardening
 NoNewPrivileges=true

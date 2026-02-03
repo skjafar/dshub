@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useSettings } from '../contexts/SettingsContext';
-import { useDeviceMon } from '../contexts/DeviceMonContext';
+import { useDSHub } from '../contexts/DSHubContext';
 
 /**
  * AutoScanManager - Handles automatic device scanning on startup
@@ -8,7 +8,7 @@ import { useDeviceMon } from '../contexts/DeviceMonContext';
  */
 export default function AutoScanManager() {
   const { settings } = useSettings();
-  const { state, actions } = useDeviceMon();
+  const { state, actions } = useDSHub();
   const autoScanTriggered = useRef(false);
 
   useEffect(() => {

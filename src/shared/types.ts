@@ -89,6 +89,7 @@ export interface LogSettings {
   enableAutoRefreshLogs: boolean;
   enablePlottingLogs: boolean;
   maxLogCount: number;
+  requestRateLimit: number; // Maximum requests per second (default: 2000)
 }
 
 // Socket.IO event types

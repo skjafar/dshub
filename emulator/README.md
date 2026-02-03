@@ -1,6 +1,6 @@
-# DeviceMon Board Emulator
+# DSHub Board Emulator
 
-A comprehensive Python emulator for testing DeviceMon web applications without physical hardware.
+A comprehensive Python emulator for testing DSHub web applications without physical hardware.
 
 ## Features
 
@@ -42,7 +42,7 @@ A comprehensive Python emulator for testing DeviceMon web applications without p
 
 ```bash
 cd emulator
-python3 devicemon_emulator.py
+python3 dshub_emulator.py
 ```
 
 The emulator will start and listen on:
@@ -50,9 +50,9 @@ The emulator will start and listen on:
 - **TCP Data**: Port 2009
 - **UDP Data**: Port 2011
 
-### 2. Connect from DeviceMon Web
+### 2. Connect from DSHub
 
-1. Start your DeviceMon web application:
+1. Start your DSHub web application:
    ```bash
    cd ..
    ./start.sh
@@ -377,7 +377,7 @@ The **Address** field contains the system command code, not a register address.
 You can customize the emulator when starting it:
 
 ```python
-emulator = DeviceMonEmulator(
+emulator = DSHubEmulator(
     board_name="My Custom Board",  # Changes discovery name
     board_type=2,                  # Changes board type ID
     firmware_version=0x0200        # Changes firmware version
@@ -389,7 +389,7 @@ emulator = DeviceMonEmulator(
 Run the emulator directly:
 
 ```bash
-python3 devicemon_emulator.py
+python3 dshub_emulator.py
 ```
 
 Stop with `Ctrl+C`.
@@ -404,7 +404,7 @@ The emulator prints status every 10 seconds showing:
 ### Emulator not discovered
 
 1. Check firewall settings - allow UDP port 2011
-2. Ensure no other DeviceMon emulator or board is running
+2. Ensure no other DSHub emulator or board is running
 3. Check the emulator console for "[Discovery] Request" messages
 
 ### Cannot connect
@@ -422,13 +422,13 @@ The emulator prints status every 10 seconds showing:
 ## Architecture
 
 ```
-devicemon_emulator.py
+dshub_emulator.py
 ├── MotorAxis          # Servo motor with critically damped PID
 ├── SpindleController  # High-speed spindle emulation
 ├── CNCController      # State machine and motion coordination
 ├── RegisterMap        # CNC registers (0-18)
 ├── ParameterMap       # CNC parameters (0-24)
-└── DeviceMonEmulator  # Main emulator with 4 services:
+└── DSHubEmulator  # Main emulator with 4 services:
     ├── Discovery Service (UDP port 2011)
     ├── TCP Data Service  (TCP port 2009)
     ├── UDP Data Service  (UDP port 2011)
@@ -458,4 +458,4 @@ No external dependencies required!
 
 ## License
 
-Part of the DeviceMon Web project.
+Part of the DSHub project.

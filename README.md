@@ -1,4 +1,4 @@
-# DeviceMon Web
+# DSHub
 
 A modern, professional web application for monitoring and controlling embedded devices via TCP/UDP protocols. Built with React, TypeScript, and Node.js.
 
@@ -31,14 +31,14 @@ A modern, professional web application for monitoring and controlling embedded d
 
 ```bash
 # Using yay
-yay -S devicemon-web
+yay -S dshub
 
 # Using paru
-paru -S devicemon-web
+paru -S dshub
 
 # Start the service
-sudo systemctl start devicemon-web
-sudo systemctl enable devicemon-web
+sudo systemctl start dshub
+sudo systemctl enable dshub
 
 # Open in browser
 xdg-open http://localhost:3002
@@ -51,7 +51,7 @@ See [aur/README.md](aur/README.md) for complete Arch Linux installation guide.
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd devicemon-web
+cd dshub
 
 # Install dependencies
 npm install
@@ -114,7 +114,7 @@ See [DEPLOYMENT-PM2.md](DEPLOYMENT-PM2.md) for detailed deployment instructions.
 ## Project Structure
 
 ```
-devicemon-web/
+dshub/
 ├── client/              # React frontend (Vite + TypeScript)
 │   ├── src/
 │   │   ├── components/  # UI components
@@ -130,7 +130,7 @@ devicemon-web/
 │   │   └── utils/       # Logger and utilities
 │   └── shared/          # Shared types between client/server
 ├── emulator/            # Python board emulator
-│   ├── devicemon_emulator.py
+│   ├── dshub_emulator.py
 │   └── README.md
 ├── dist/                # Compiled server
 └── ecosystem.config.js  # PM2 configuration
@@ -142,7 +142,7 @@ devicemon-web/
 
 | Component | Description |
 |-----------|-------------|
-| **DeviceMonContext** | Global state management for device connection and data |
+| **DSHubContext** | Global state management for device connection and data |
 | **SettingsContext** | User preferences, themes, and map profiles |
 | **DiscoveryPanel** | UDP device scanning with auto-discovery |
 | **RegisterPanel** | Read/write individual registers |
@@ -328,7 +328,7 @@ npm run build
 **Emulator not discovered:**
 ```bash
 # Check if emulator is running
-ps aux | grep devicemon_emulator
+ps aux | grep dshub_emulator
 
 # Check if ports are available
 netstat -tuln | grep -E '2009|2011'

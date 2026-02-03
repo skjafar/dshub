@@ -38,7 +38,7 @@ import {
   Upload as UploadIcon,
   Send as SendIcon
 } from '@mui/icons-material';
-import { useDeviceMon } from '../contexts/DeviceMonContext';
+import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { mapManager } from '../maps/mapManager';
 import { MapEntry, DataAccessPermit, DataForm } from '../maps/mapParser';
@@ -166,7 +166,7 @@ export interface ParametersPanelRef {
 interface ParametersPanelProps {}
 
 const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((props, ref) => {
-  const { state, actions } = useDeviceMon();
+  const { state, actions } = useDSHub();
   const { settings, getActiveProfile } = useSettings();
   const toast = useToast();
   const [editDialog, setEditDialog] = useState<{ open: boolean; parameter: Parameter | null }>({

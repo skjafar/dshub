@@ -17,7 +17,7 @@ import {
   Build as ControlTakeIcon,
   PowerSettingsNew as DisconnectIcon
 } from '@mui/icons-material';
-import { useDeviceMon } from '../contexts/DeviceMonContext';
+import { useDSHub } from '../contexts/DSHubContext';
 import { ControlInterfaceState, InterfaceType } from '../types/shared';
 
 const getControlStateLabel = (state: ControlInterfaceState, currentInterface: InterfaceType) => {
@@ -44,7 +44,7 @@ const getControlStateLabel = (state: ControlInterfaceState, currentInterface: In
 };
 
 export default function DeviceDashboard() {
-  const { state, actions } = useDeviceMon();
+  const { state, actions } = useDSHub();
 
   if (!state.connection) {
     return (

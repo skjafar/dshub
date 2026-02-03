@@ -1,43 +1,43 @@
 #!/bin/bash
-# DeviceMon Web Server Wrapper
+# DSHub Server Wrapper
 
 ACTION="${1:-help}"
 
 case "$ACTION" in
     start)
-        sudo systemctl start devicemon-web
-        echo "DeviceMon Web started"
+        sudo systemctl start dshub
+        echo "DSHub started"
         echo "Access at: http://localhost:3002"
         ;;
     stop)
-        sudo systemctl stop devicemon-web
-        echo "DeviceMon Web stopped"
+        sudo systemctl stop dshub
+        echo "DSHub stopped"
         ;;
     restart)
-        sudo systemctl restart devicemon-web
-        echo "DeviceMon Web restarted"
+        sudo systemctl restart dshub
+        echo "DSHub restarted"
         ;;
     status)
-        systemctl status devicemon-web
+        systemctl status dshub
         ;;
     logs)
-        journalctl -u devicemon-web -f
+        journalctl -u dshub -f
         ;;
     enable)
-        sudo systemctl enable devicemon-web
-        echo "DeviceMon Web enabled (auto-start on boot)"
+        sudo systemctl enable dshub
+        echo "DSHub enabled (auto-start on boot)"
         ;;
     disable)
-        sudo systemctl disable devicemon-web
-        echo "DeviceMon Web disabled (no auto-start)"
+        sudo systemctl disable dshub
+        echo "DSHub disabled (no auto-start)"
         ;;
     open)
         xdg-open http://localhost:3002
         ;;
     *)
-        echo "DeviceMon Web - Device Monitoring Application"
+        echo "DSHub - Device Monitoring Application"
         echo ""
-        echo "Usage: devicemon-web <command>"
+        echo "Usage: dshub <command>"
         echo ""
         echo "Commands:"
         echo "  start    - Start the service"
@@ -49,8 +49,8 @@ case "$ACTION" in
         echo "  disable  - Disable auto-start"
         echo "  open     - Open in browser"
         echo ""
-        echo "Configuration: /etc/devicemon-web/config.env"
-        echo "Documentation: /usr/share/doc/devicemon-web/"
+        echo "Configuration: /etc/dshub/config.env"
+        echo "Documentation: /usr/share/doc/dshub/"
         echo ""
         ;;
 esac

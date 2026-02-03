@@ -158,7 +158,7 @@ import {
   Delete as DeleteIcon
 } from '@mui/icons-material';
 import { ButtonWidgetConfig } from '../../types/dashboard';
-import { useDeviceMon } from '../../contexts/DeviceMonContext';
+import { useDSHub } from '../../contexts/DSHubContext';
 import { useToast } from '../ToastNotification';
 
 // Icon mapping for button widgets
@@ -320,7 +320,7 @@ interface ButtonWidgetProps {
 }
 
 export default function ButtonWidget({ config, isEditMode }: ButtonWidgetProps) {
-  const { state, actions } = useDeviceMon();
+  const { state, actions } = useDSHub();
   const { showSuccess, showError } = useToast();
   const [confirmDialog, setConfirmDialog] = useState(false);
 

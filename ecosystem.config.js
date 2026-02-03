@@ -1,8 +1,8 @@
-// PM2 Ecosystem Configuration for DeviceMon Web
+// PM2 Ecosystem Configuration for DSHub
 // This configuration works on Linux, macOS, and Windows
 module.exports = {
   apps: [{
-    name: 'devicemon-web',
+    name: 'dshub',
     script: './dist/server/index.js',
 
     // Process management

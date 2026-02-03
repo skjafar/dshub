@@ -83,7 +83,7 @@ export default function MapExportDialog({
         {selectedTab === 0 && (
           <Box>
             <Alert severity="info" sx={{ mb: 2 }}>
-              This is the .map file format used by DeviceMon. Upload this file to create or update map profiles.
+              This is the .map file format used by DSHub. Upload this file to create or update map profiles.
             </Alert>
             <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
               <Button

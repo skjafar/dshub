@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# DeviceMon Web - PM2 Deployment Script
-# This script builds and deploys the DeviceMon application using PM2
+# DSHub - PM2 Deployment Script
+# This script builds and deploys the DSHub application using PM2
 
 set -e  # Exit on any error
 
 echo "======================================"
-echo "DeviceMon Web - PM2 Deployment"
+echo "DSHub - PM2 Deployment"
 echo "======================================"
 echo ""
 
@@ -77,13 +77,13 @@ npm run build
 echo ""
 
 # Check if app is already running in PM2
-if $PM2_CMD list | grep -q "devicemon-web"; then
-    echo "DeviceMon is already running in PM2."
+if $PM2_CMD list | grep -q "dshub"; then
+    echo "DSHub is already running in PM2."
     echo "Reloading application with zero downtime..."
     $PM2_CMD reload ecosystem.config.js
     echo ""
 else
-    echo "Starting DeviceMon with PM2..."
+    echo "Starting DSHub with PM2..."
     $PM2_CMD start ecosystem.config.js
     echo ""
 fi
@@ -103,27 +103,27 @@ echo ""
 echo "Useful PM2 commands:"
 if [ "$PM2_CMD" = "pm2" ]; then
     echo "  pm2 list              - Show all running processes"
-    echo "  pm2 logs devicemon-web - View application logs"
+    echo "  pm2 logs dshub - View application logs"
     echo "  pm2 monit             - Monitor CPU/Memory usage"
-    echo "  pm2 restart devicemon-web - Restart application"
-    echo "  pm2 stop devicemon-web    - Stop application"
-    echo "  pm2 start devicemon-web   - Start application"
+    echo "  pm2 restart dshub - Restart application"
+    echo "  pm2 stop dshub    - Stop application"
+    echo "  pm2 start dshub   - Start application"
     echo ""
     echo "To configure auto-start on system boot (optional):"
     echo "  pm2 startup           - Generate startup script"
     echo "  pm2 save              - Save process list"
 else
     echo "  npx pm2 list              - Show all running processes"
-    echo "  npx pm2 logs devicemon-web - View application logs"
+    echo "  npx pm2 logs dshub - View application logs"
     echo "  npx pm2 monit             - Monitor CPU/Memory usage"
-    echo "  npx pm2 restart devicemon-web - Restart application"
-    echo "  npx pm2 stop devicemon-web    - Stop application"
-    echo "  npx pm2 start devicemon-web   - Start application"
+    echo "  npx pm2 restart dshub - Restart application"
+    echo "  npx pm2 stop dshub    - Stop application"
+    echo "  npx pm2 start dshub   - Start application"
     echo ""
     echo "To install PM2 globally (optional):"
     echo "  sudo npm install -g pm2"
 fi
 echo ""
-echo "Access DeviceMon at: http://localhost:3001"
+echo "Access DSHub at: http://localhost:3001"
 echo "(Server runs on port 3002, client served on port 3001)"
 echo ""

@@ -1,11 +1,11 @@
 @echo off
-REM DeviceMon Web - PM2 Deployment Script for Windows
-REM This script builds and deploys the DeviceMon application using PM2
+REM DSHub - PM2 Deployment Script for Windows
+REM This script builds and deploys the DSHub application using PM2
 
 setlocal enabledelayedexpansion
 
 echo ======================================
-echo DeviceMon Web - PM2 Deployment
+echo DSHub - PM2 Deployment
 echo ======================================
 echo.
 
@@ -106,13 +106,13 @@ if %ERRORLEVEL% neq 0 (
 echo.
 
 REM Check if app is already running in PM2
-%PM2_CMD% list | findstr "devicemon-web" >nul 2>nul
+%PM2_CMD% list | findstr "dshub" >nul 2>nul
 if %ERRORLEVEL% equ 0 (
-    echo DeviceMon is already running in PM2.
+    echo DSHub is already running in PM2.
     echo Reloading application with zero downtime...
     %PM2_CMD% reload ecosystem.config.js
 ) else (
-    echo Starting DeviceMon with PM2...
+    echo Starting DSHub with PM2...
     %PM2_CMD% start ecosystem.config.js
 )
 echo.
@@ -132,11 +132,11 @@ echo.
 echo Useful PM2 commands:
 if "%PM2_CMD%"=="call pm2" (
     echo   call pm2 list              - Show all running processes
-    echo   call pm2 logs devicemon-web - View application logs
+    echo   call pm2 logs dshub - View application logs
     echo   call pm2 monit             - Monitor CPU/Memory usage
-    echo   call pm2 restart devicemon-web - Restart application
-    echo   call pm2 stop devicemon-web    - Stop application
-    echo   call pm2 start devicemon-web   - Start application
+    echo   call pm2 restart dshub - Restart application
+    echo   call pm2 stop dshub    - Stop application
+    echo   call pm2 start dshub   - Start application
     echo.
     echo To configure auto-start on system boot ^(optional^):
     echo   npm install -g pm2-windows-startup
@@ -144,17 +144,17 @@ if "%PM2_CMD%"=="call pm2" (
     echo   call pm2 save
 ) else (
     echo   call npx pm2 list              - Show all running processes
-    echo   call npx pm2 logs devicemon-web - View application logs
+    echo   call npx pm2 logs dshub - View application logs
     echo   call npx pm2 monit             - Monitor CPU/Memory usage
-    echo   call npx pm2 restart devicemon-web - Restart application
-    echo   call npx pm2 stop devicemon-web    - Stop application
-    echo   call npx pm2 start devicemon-web   - Start application
+    echo   call npx pm2 restart dshub - Restart application
+    echo   call npx pm2 stop dshub    - Stop application
+    echo   call npx pm2 start dshub   - Start application
     echo.
     echo To install PM2 globally ^(optional^):
     echo   npm install -g pm2
 )
 echo.
-echo Access DeviceMon at: http://localhost:3001
+echo Access DSHub at: http://localhost:3001
 echo ^(Server runs on port 3002, client served on port 3001^)
 echo.
 echo WINDOWS FIREWALL: You may need to allow Node.js through Windows Firewall
