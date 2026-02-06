@@ -1,7 +1,19 @@
 import { Layout } from 'react-grid-layout';
 
 // Widget types
-export type WidgetType = 'button' | 'valueRead' | 'valueWrite' | 'miniPlot' | 'dropdown';
+export type WidgetType =
+  | 'button'
+  | 'valueRead'
+  | 'valueWrite'
+  | 'miniPlot'
+  | 'dropdown'
+  | 'stateLED'
+  | 'gauge'
+  | 'progressBar'
+  | 'encoderDisplay'
+  | 'ledIndicator'
+  | 'directionalControl'
+  | 'systemInfo';
 
 // Data source types
 export type DataSource = 'register' | 'parameter' | 'sysCommand';
@@ -18,6 +30,7 @@ export interface ButtonWidgetConfig {
   color?: string;
   icon?: string; // Optional icon name
   confirmationRequired?: boolean;
+  fontSize?: number; // Font size in rem (e.g., 0.7 for compact, 1.3 for emphasis)
 }
 
 // Value read widget configuration
@@ -29,6 +42,7 @@ export interface ValueReadWidgetConfig {
   refreshInterval: number; // in milliseconds
   showTimestamp?: boolean;
   unit?: string;
+  valueFontSize?: number; // Main value display size in rem
 }
 
 // Value write widget configuration
@@ -66,13 +80,141 @@ export interface DropdownWidgetConfig {
   confirmationRequired?: boolean;
 }
 
+// State LED widget configuration - shows register value as colored LED with state labels
+export interface StateLEDWidgetConfig {
+  label: string;
+  source: DataSource;
+  address: number;
+  refreshInterval: number; // in milliseconds
+  states: Array<{
+    value: number;
+    label: string;
+    color: string; // hex color
+  }>;
+  showLabel?: boolean; // Show state label next to LED
+  pulseAnimation?: boolean; // Pulse effect for specific states
+  pulseStates?: number[]; // Which state values should pulse
+  fontSize?: number; // State label text size in rem
+}
+
+// Gauge widget configuration - circular gauge for numeric values
+export interface GaugeWidgetConfig {
+  label: string;
+  source: DataSource;
+  address: number;
+  refreshInterval: number; // in milliseconds
+  min: number;
+  max: number;
+  unit?: string;
+  decimals?: number;
+  colorRanges?: Array<{
+    from: number;
+    to: number;
+    color: string;
+  }>;
+  showValue?: boolean;
+  valueFontSize?: number; // Value display size inside the gauge in rem
+}
+
+// Progress bar widget configuration - horizontal/vertical progress indicator
+export interface ProgressBarWidgetConfig {
+  label: string;
+  source: DataSource;
+  address: number;
+  refreshInterval: number; // in milliseconds
+  min: number;
+  max: number;
+  unit?: string;
+  orientation?: 'horizontal' | 'vertical';
+  colorRanges?: Array<{
+    from: number;
+    to: number;
+    color: string;
+  }>;
+  showPercentage?: boolean;
+  showValue?: boolean;
+  valueFontSize?: number; // Value/percentage text size in rem
+}
+
+// Encoder display widget configuration - numeric value with unit conversion
+export interface EncoderDisplayWidgetConfig {
+  label: string;
+  source: DataSource;
+  address: number;
+  refreshInterval: number; // in milliseconds
+  conversionFactor?: number; // Multiplier to convert raw value (e.g., steps_per_mm)
+  conversionSource?: 'parameter' | 'constant'; // Read from parameter or use constant
+  conversionAddress?: number; // Parameter address for conversion factor
+  primaryUnit?: string; // Unit for converted value (e.g., "mm")
+  secondaryUnit?: string; // Unit for raw value (e.g., "steps")
+  showRawValue?: boolean; // Show both converted and raw values
+  decimals?: number;
+  color?: string;
+  valueFontSize?: number; // Primary converted value size in rem
+}
+
+// LED indicator widget configuration - simple on/off LED
+export interface LEDIndicatorWidgetConfig {
+  label: string;
+  source: DataSource;
+  address: number;
+  refreshInterval: number; // in milliseconds
+  onValue?: number; // Value considered "on" (default: 1)
+  offValue?: number; // Value considered "off" (default: 0)
+  onColor?: string; // Color when on
+  offColor?: string; // Color when off
+  onLabel?: string; // Label when on
+  offLabel?: string; // Label when off
+  pulseWhenOn?: boolean; // Pulse animation when on
+  fontSize?: number; // Status label text size in rem
+}
+
+// Directional control widget configuration - multi-directional control pad
+export interface DirectionalControlWidgetConfig {
+  label: string;
+  directions: Array<{
+    direction: 'up' | 'down' | 'left' | 'right' | 'upLeft' | 'upRight' | 'downLeft' | 'downRight';
+    command: number; // SysCommand code
+    label?: string;
+    icon?: string;
+  }>;
+  layout?: '4way' | '8way'; // 4-way (up/down/left/right) or 8-way (includes diagonals)
+  buttonSize?: number; // Size of buttons in pixels
+  color?: string;
+  confirmationRequired?: boolean;
+}
+
+// System info widget configuration - displays multiple registers in compact format
+export interface SystemInfoWidgetConfig {
+  label: string;
+  items: Array<{
+    label: string;
+    source: DataSource;
+    address: number;
+    format?: 'decimal' | 'hex' | 'binary' | 'time'; // 'time' formats as HH:MM:SS
+    unit?: string;
+    color?: string;
+  }>;
+  refreshInterval: number; // in milliseconds
+  layout?: 'vertical' | 'horizontal' | 'grid';
+  valueFontSize?: number; // Item value text size in rem
+  compact?: boolean; // Reduce internal padding for dense layouts
+}
+
 // Union type for all widget configurations
 export type WidgetConfig =
   | ButtonWidgetConfig
   | ValueReadWidgetConfig
   | ValueWriteWidgetConfig
   | MiniPlotWidgetConfig
-  | DropdownWidgetConfig;
+  | DropdownWidgetConfig
+  | StateLEDWidgetConfig
+  | GaugeWidgetConfig
+  | ProgressBarWidgetConfig
+  | EncoderDisplayWidgetConfig
+  | LEDIndicatorWidgetConfig
+  | DirectionalControlWidgetConfig
+  | SystemInfoWidgetConfig;
 
 // Widget instance
 export interface DashboardWidget {
@@ -115,7 +257,14 @@ export const DEFAULT_WIDGET_SIZES: Record<WidgetType, { w: number; h: number; mi
   valueRead: { w: 3, h: 2, minW: 2, minH: 1 },
   valueWrite: { w: 3, h: 2, minW: 2, minH: 1 },
   miniPlot: { w: 4, h: 3, minW: 3, minH: 2 },
-  dropdown: { w: 3, h: 2, minW: 2, minH: 1 }
+  dropdown: { w: 3, h: 2, minW: 2, minH: 1 },
+  stateLED: { w: 2, h: 1, minW: 2, minH: 1 },
+  gauge: { w: 3, h: 3, minW: 2, minH: 2 },
+  progressBar: { w: 4, h: 1, minW: 2, minH: 1 },
+  encoderDisplay: { w: 3, h: 2, minW: 2, minH: 1 },
+  ledIndicator: { w: 2, h: 1, minW: 1, minH: 1 },
+  directionalControl: { w: 3, h: 3, minW: 2, minH: 2 },
+  systemInfo: { w: 4, h: 3, minW: 3, minH: 2 }
 };
 
 // Helper function to create empty dashboard

@@ -387,7 +387,7 @@ export default function ButtonWidget({ config, isEditMode }: ButtonWidgetProps) 
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '1rem',
+            fontSize: config.fontSize ? `${config.fontSize}rem` : '1rem',
             fontWeight: 'bold',
             position: 'relative',
             overflow: 'hidden',

@@ -80,10 +80,21 @@ export default function MainLayout() {
   const { showWarning, showInfo } = useToast();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [drawerCollapsed, setDrawerCollapsed] = useState(false);
-  const [currentView, setCurrentView] = useState<ViewType>('scanner');
+  const [currentView, setCurrentView] = useState<ViewType>(() => {
+    const saved = localStorage.getItem('dshub-last-view');
+    if (saved && views.some(v => v.key === saved)) {
+      return saved as ViewType;
+    }
+    return 'scanner';
+  });
   const [autoConnectAttempts, setAutoConnectAttempts] = useState(0);
   const [isAutoConnecting, setIsAutoConnecting] = useState(false);
   const [hasAutoScanned, setHasAutoScanned] = useState(false);
+
+  // Persist last viewed panel
+  useEffect(() => {
+    localStorage.setItem('dshub-last-view', currentView);
+  }, [currentView]);
 
   // Dashboard control state
   const [isDashboardEditMode, setIsDashboardEditMode] = useState(false);

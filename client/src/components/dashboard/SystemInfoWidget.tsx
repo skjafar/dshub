@@ -1,0 +1,183 @@
+import React from 'react';
+import { Box, Typography } from '@mui/material';
+import { SystemInfoWidgetConfig } from '../../types/dashboard';
+import { useDSHub } from '../../contexts/DSHubContext';
+import { useAutoRefreshMulti } from '../../hooks/useAutoRefresh';
+import { getWidgetError } from './WidgetErrorState';
+
+interface SystemInfoWidgetProps {
+  config: SystemInfoWidgetConfig;
+  isEditMode: boolean;
+}
+
+/**
+ * System Info Widget
+ *
+ * Generic multi-value display widget that shows multiple registers/parameters
+ * in a compact, organized format. Supports different layouts and formats.
+ *
+ * Example use cases:
+ * - System status panel (uptime, packet count, errors, temperature)
+ * - Device information (firmware version, serial number, board type)
+ * - Performance metrics (CPU usage, memory, network stats)
+ * - Sensor array (multiple sensor readings in one widget)
+ */
+export default function SystemInfoWidget({ config, isEditMode }: SystemInfoWidgetProps) {
+  const { state } = useDSHub();
+
+  // Set up auto-refresh for all items
+  useAutoRefreshMulti({
+    items: config.items,
+    refreshInterval: config.refreshInterval,
+    isEditMode,
+  });
+
+  /**
+   * Format value based on format type
+   */
+  const formatValue = (value: number | undefined, format?: string): string => {
+    if (value === undefined) return '---';
+
+    switch (format) {
+      case 'hex':
+        return `0x${value.toString(16).toUpperCase().padStart(4, '0')}`;
+      case 'binary':
+        return `0b${value.toString(2).padStart(8, '0')}`;
+      case 'time':
+        // Format as HH:MM:SS (assuming value is in seconds)
+        const hours = Math.floor(value / 3600);
+        const minutes = Math.floor((value % 3600) / 60);
+        const seconds = value % 60;
+        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+      case 'decimal':
+      default:
+        return value.toLocaleString();
+    }
+  };
+
+  // Render a single info item
+  const renderInfoItem = (item: typeof config.items[0]) => {
+    const currentData = item.source === 'register'
+      ? state.registers.get(item.address)
+      : state.parameters.get(item.address);
+
+    const value = currentData?.value !== undefined ? (currentData.value as number) : undefined;
+    const formattedValue = formatValue(value, item.format);
+    const itemColor = item.color || '#00F2FF';
+
+    return (
+      <Box
+        key={`${item.source}-${item.address}`}
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 0.5,
+          minWidth: 0, // Allow flex items to shrink
+        }}
+      >
+        <Typography
+          variant="caption"
+          sx={{
+            color: 'text.secondary',
+            fontSize: '0.7rem',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+          }}
+        >
+          {item.label}
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5 }}>
+          <Typography
+            sx={{
+              fontFamily: '"Roboto Mono", "Courier New", monospace',
+              color: itemColor,
+              fontSize: config.valueFontSize ? `${config.valueFontSize}rem` : '0.9rem',
+              fontWeight: 600,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {formattedValue}
+          </Typography>
+          {item.unit && (
+            <Typography
+              variant="caption"
+              sx={{
+                color: 'text.secondary',
+                fontSize: '0.7rem',
+              }}
+            >
+              {item.unit}
+            </Typography>
+          )}
+        </Box>
+      </Box>
+    );
+  };
+
+  const layout = config.layout || 'vertical';
+
+  // Check first item for map availability
+  if (config.items.length > 0) {
+    const firstItem = config.items[0];
+    const errorState = getWidgetError(firstItem.source, firstItem.address);
+    if (errorState) return errorState;
+  }
+
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        gap: config.compact ? 0.5 : 1,
+        p: config.compact ? 1 : 2,
+        backgroundColor: 'rgba(0, 0, 0, 0.1)',
+        borderRadius: 1,
+      }}
+    >
+      {/* Widget Label */}
+      <Typography
+        variant="subtitle2"
+        color="text.secondary"
+        sx={{
+          fontWeight: 'bold',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          pb: 0.5,
+        }}
+      >
+        {config.label}
+      </Typography>
+
+      {/* Info Items */}
+      <Box
+        sx={{
+          display: layout === 'grid' ? 'grid' : 'flex',
+          flexDirection: layout === 'vertical' ? 'column' : 'row',
+          gridTemplateColumns: layout === 'grid' ? 'repeat(auto-fit, minmax(120px, 1fr))' : undefined,
+          gap: layout === 'grid' ? 2 : 1.5,
+          flexWrap: layout === 'horizontal' ? 'wrap' : undefined,
+          overflow: 'auto',
+        }}
+      >
+        {config.items.map(renderInfoItem)}
+      </Box>
+
+      {/* Connection Status */}
+      {!state.connection?.connected && (
+        <Typography
+          variant="caption"
+          color="error"
+          sx={{
+            textAlign: 'center',
+            mt: 'auto',
+            pt: 1,
+            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+          }}
+        >
+          Not connected
+        </Typography>
+      )}
+    </Box>
+  );
+}

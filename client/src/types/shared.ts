@@ -62,13 +62,6 @@ export interface PlotDataPoint {
   y: number; // value
 }
 
-export interface PlotSeries {
-  name: string;
-  data: PlotDataPoint[];
-  color: string;
-  visible: boolean;
-}
-
 export type LogCategory = 'connection' | 'register' | 'parameter' | 'packet' | 'autoRefresh' | 'plotting';
 
 export interface LogEntry {

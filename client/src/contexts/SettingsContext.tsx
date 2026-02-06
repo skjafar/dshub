@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { UserSettings, DEFAULT_SETTINGS, MapProfile, DEFAULT_PROFILE_ID, CNC_PROFILE_ID, SysCommand } from '../types/settings';
-import { createCNCDashboard } from '../utils/cncDashboardTemplate';
+import { createModernCNCDashboard, CNC_SYS_COMMANDS } from '../utils/cncDashboardTemplate';
 
 const STORAGE_KEY = 'dshub_settings';
 
@@ -77,60 +77,36 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   const storageWarningShownRef = React.useRef(false); // Only warn once per session
 
   // Load default and CNC profiles on mount
-  // IMPORTANT: Load profiles independently to handle partial failures gracefully
   useEffect(() => {
     // Load default profile (required for basic functionality)
     loadDefaultProfile()
       .then(profile => setDefaultProfile(profile))
       .catch(error => {
         console.error('CRITICAL: Failed to load default profile:', error);
-        // Default profile is required - notify user of critical failure
-        // Application cannot function without default maps
       });
 
-    // Load CNC profile (optional - failure should not prevent app from working)
+    // Load CNC profile (optional demo)
     loadCNCProfile()
       .then(profile => setCncProfile(profile))
       .catch(error => {
-        console.warn('Failed to load CNC profile (optional):', error);
-        // CNC profile is optional, application can continue without it
+        console.log('CNC profile not available:', error);
       });
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Initialize CNC dashboard when CNC profile is loaded
+  // Auto-create CNC dashboard when CNC profile is loaded and no dashboard exists yet
   useEffect(() => {
-    if (cncProfile) {
-      const sessionKey = `cnc_dashboard_loaded_${CNC_PROFILE_ID}`;
-      const loadedInSession = sessionStorage.getItem(sessionKey);
+    if (!cncProfile) return;
+    if (settings.dashboardLayouts[CNC_PROFILE_ID]) return;
 
-      setSettings(prev => {
-        const existingDashboard = prev.dashboardLayouts[CNC_PROFILE_ID];
-
-        // Always reload the template on first load in this session
-        // OR if dashboard doesn't exist/is empty
-        const needsCreation = !loadedInSession ||
-          !existingDashboard ||
-          !existingDashboard.tabs ||
-          existingDashboard.tabs.length === 0 ||
-          existingDashboard.tabs.every(tab => !tab.widgets || tab.widgets.length === 0);
-
-        if (needsCreation) {
-          console.log('Creating CNC dashboard for profile:', CNC_PROFILE_ID);
-          // Mark as loaded in this session
-          sessionStorage.setItem(sessionKey, 'true');
-
-          return {
-            ...prev,
-            dashboardLayouts: {
-              ...prev.dashboardLayouts,
-              [CNC_PROFILE_ID]: createCNCDashboard()
-            }
-          };
-        }
-        return prev;
-      });
-    }
+    updateSettings({
+      dashboardLayouts: {
+        ...settings.dashboardLayouts,
+        [CNC_PROFILE_ID]: createModernCNCDashboard()
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cncProfile]);
 
   // Save to localStorage whenever settings change
@@ -207,57 +183,29 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     }
   }, []);
 
-  // Load CNC profile from public maps folder
+  // Load CNC demo profile from public maps folder
   const loadCNCProfile = useCallback(async (): Promise<MapProfile> => {
-    try {
-      const [registersResponse, parametersResponse] = await Promise.all([
-        fetch('/maps/cnc_registers.map'),
-        fetch('/maps/cnc_parameters.map')
-      ]);
+    const [registersResponse, parametersResponse] = await Promise.all([
+      fetch('/maps/cnc_registers.map'),
+      fetch('/maps/cnc_parameters.map')
+    ]);
 
-      const registersMap = await registersResponse.text();
-      const parametersMap = await parametersResponse.text();
-
-      // CNC Motor Controller system commands
-      const sysCommands: SysCommand[] = [
-        { code: 200, name: 'ENABLE_ALL_MOTORS', description: 'Enable all motors' },
-        { code: 201, name: 'DISABLE_ALL_MOTORS', description: 'Disable all motors' },
-        { code: 202, name: 'ENABLE_MOTOR_X', description: 'Enable X-axis motor' },
-        { code: 203, name: 'ENABLE_MOTOR_Y', description: 'Enable Y-axis motor' },
-        { code: 204, name: 'ENABLE_MOTOR_Z', description: 'Enable Z-axis motor' },
-        { code: 205, name: 'DISABLE_MOTOR_X', description: 'Disable X-axis motor' },
-        { code: 206, name: 'DISABLE_MOTOR_Y', description: 'Disable Y-axis motor' },
-        { code: 207, name: 'DISABLE_MOTOR_Z', description: 'Disable Z-axis motor' },
-        { code: 208, name: 'ENABLE_SPINDLE', description: 'Enable spindle' },
-        { code: 209, name: 'DISABLE_SPINDLE', description: 'Disable spindle' },
-        { code: 210, name: 'HOME_ALL', description: 'Home all axes' },
-        { code: 211, name: 'HOME_X', description: 'Home X-axis only' },
-        { code: 212, name: 'HOME_Y', description: 'Home Y-axis only' },
-        { code: 213, name: 'HOME_Z', description: 'Home Z-axis only' },
-        { code: 214, name: 'E_STOP', description: 'Emergency stop' },
-        { code: 215, name: 'RESET_E_STOP', description: 'Reset emergency stop' },
-        { code: 216, name: 'CLEAR_ERRORS', description: 'Clear error state' },
-        { code: 220, name: 'JOG_X_POSITIVE', description: 'Jog X-axis positive' },
-        { code: 221, name: 'JOG_X_NEGATIVE', description: 'Jog X-axis negative' },
-        { code: 222, name: 'JOG_Y_POSITIVE', description: 'Jog Y-axis positive' },
-        { code: 223, name: 'JOG_Y_NEGATIVE', description: 'Jog Y-axis negative' },
-        { code: 224, name: 'JOG_Z_POSITIVE', description: 'Jog Z-axis positive' },
-        { code: 225, name: 'JOG_Z_NEGATIVE', description: 'Jog Z-axis negative' }
-      ];
-
-      return {
-        id: CNC_PROFILE_ID,
-        name: 'CNC Motor Controller',
-        isDefault: false,
-        registersMap,
-        parametersMap,
-        sysCommands,
-        createdAt: 0,
-      };
-    } catch (error) {
-      console.error('Failed to load CNC profile maps:', error);
-      throw error;
+    if (!registersResponse.ok || !parametersResponse.ok) {
+      throw new Error('CNC map files not found');
     }
+
+    const registersMap = await registersResponse.text();
+    const parametersMap = await parametersResponse.text();
+
+    return {
+      id: CNC_PROFILE_ID,
+      name: 'CNC Motor Controller',
+      isDefault: true,
+      registersMap,
+      parametersMap,
+      sysCommands: CNC_SYS_COMMANDS,
+      createdAt: 0,
+    };
   }, []);
 
   // Get all profiles including default and CNC
@@ -308,12 +256,8 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
 
   // Update an existing profile (cannot update default or CNC)
   const updateProfile = useCallback((profileId: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string): boolean => {
-    if (profileId === DEFAULT_PROFILE_ID) {
-      console.error('Cannot update default profile');
-      return false;
-    }
-    if (profileId === CNC_PROFILE_ID) {
-      console.error('Cannot update CNC profile');
+    if (profileId === DEFAULT_PROFILE_ID || profileId === CNC_PROFILE_ID) {
+      console.error('Cannot update built-in profile');
       return false;
     }
 
@@ -341,12 +285,8 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
 
   // Delete a profile (cannot delete default or CNC)
   const deleteProfile = useCallback((profileId: string): boolean => {
-    if (profileId === DEFAULT_PROFILE_ID) {
-      console.error('Cannot delete default profile');
-      return false;
-    }
-    if (profileId === CNC_PROFILE_ID) {
-      console.error('Cannot delete CNC profile');
+    if (profileId === DEFAULT_PROFILE_ID || profileId === CNC_PROFILE_ID) {
+      console.error('Cannot delete built-in profile');
       return false;
     }
 
@@ -373,7 +313,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     }
 
     setSettings(prev => {
-      // Update last used timestamp if not default or CNC
+      // Update last used timestamp if not built-in
       let updatedProfiles = prev.mapProfiles;
       if (profileId !== DEFAULT_PROFILE_ID && profileId !== CNC_PROFILE_ID) {
         updatedProfiles = prev.mapProfiles.map(p =>

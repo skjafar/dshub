@@ -3,7 +3,8 @@ import { Box, Typography } from '@mui/material';
 import { Line } from 'react-chartjs-2';
 import { MiniPlotWidgetConfig } from '../../types/dashboard';
 import { useDSHub } from '../../contexts/DSHubContext';
-import { mapManager } from '../../maps/mapManager';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
+import { getWidgetError } from './WidgetErrorState';
 
 interface DataPoint {
   x: number; // timestamp
@@ -16,15 +17,16 @@ interface MiniPlotWidgetProps {
 }
 
 export default function MiniPlotWidget({ config, isEditMode }: MiniPlotWidgetProps) {
-  const { state, actions } = useDSHub();
+  const { state } = useDSHub();
   const [dataPoints, setDataPoints] = useState<DataPoint[]>([]);
 
-  // Get the actual register/parameter name from the map - NEVER use synthetic names
-  const mapEntry = config.source === 'register'
-    ? mapManager.getRegisterByAddress(config.address)
-    : mapManager.getParameterByAddress(config.address);
-
-  const actualName = mapEntry?.name;
+  // Set up auto-refresh for data collection
+  useAutoRefresh({
+    source: config.source,
+    address: config.address,
+    refreshInterval: config.pollInterval,
+    isEditMode,
+  });
 
   // Get current data from state
   const currentData = config.source === 'register'
@@ -46,36 +48,6 @@ export default function MiniPlotWidget({ config, isEditMode }: MiniPlotWidgetPro
       return newPoints.filter(point => point.x >= cutoffTime);
     });
   }, [currentData?.timestamp, isEditMode, config.timeWindow]);
-
-  // Set up auto-refresh for data collection (independent from PlotPanel)
-  useEffect(() => {
-    if (isEditMode || !state.connection?.connected) return;
-
-    // Only refresh if we have a valid name from the map
-    if (!mapManager.isInitialized() || !actualName) {
-      console.warn(`Cannot start auto-refresh for ${config.source} ${config.address}: Map not loaded or name not found`);
-      return;
-    }
-
-    // Read immediately on mount
-    const readData = () => {
-      if (config.source === 'register') {
-        actions.readRegister(config.address, actualName);
-      } else {
-        actions.readParameter(config.address, actualName);
-      }
-    };
-
-    // Trigger first read immediately
-    readData();
-
-    // Set up polling using setInterval for subsequent reads
-    const intervalId = setInterval(readData, config.pollInterval);
-
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, [config.source, config.address, config.pollInterval, isEditMode, state.connection?.connected, actualName, actions]);
 
   const chartData = {
     datasets: [
@@ -140,6 +112,9 @@ export default function MiniPlotWidget({ config, isEditMode }: MiniPlotWidgetPro
       }
     }
   };
+
+  const errorState = getWidgetError(config.source, config.address);
+  if (errorState) return errorState;
 
   return (
     <Box

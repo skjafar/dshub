@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { ValueReadWidgetConfig } from '../../types/dashboard';
 import { useDSHub } from '../../contexts/DSHubContext';
-import { mapManager } from '../../maps/mapManager';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
+import { getWidgetError } from './WidgetErrorState';
 
 interface ValueReadWidgetProps {
   config: ValueReadWidgetConfig;
@@ -10,52 +11,32 @@ interface ValueReadWidgetProps {
 }
 
 export default function ValueReadWidget({ config, isEditMode }: ValueReadWidgetProps) {
-  const { state, actions } = useDSHub();
+  const { state } = useDSHub();
   const [isLoading, setIsLoading] = useState(false);
+  const prevTimestampRef = useRef<number | undefined>(undefined);
 
   // Get the current value from state
   const data = config.source === 'register'
     ? state.registers.get(config.address)
     : state.parameters.get(config.address);
 
-  // Auto-refresh effect
+  // Set up auto-refresh via shared hook
+  useAutoRefresh({
+    source: config.source,
+    address: config.address,
+    refreshInterval: config.refreshInterval,
+    isEditMode,
+  });
+
+  // Track loading state based on data timestamp changes
   useEffect(() => {
-    if (isEditMode || !state.connection?.connected) return;
-
-    // Initial read
-    readValue();
-
-    // Setup interval for auto-refresh
-    const interval = setInterval(() => {
-      readValue();
-    }, config.refreshInterval);
-
-    return () => clearInterval(interval);
-  }, [config.address, config.source, config.refreshInterval, isEditMode, state.connection?.connected]);
-
-  const readValue = () => {
-    if (!state.connection?.connected) return;
-
-    // Get name from map manager - must have a valid name before reading
-    const name = config.source === 'register'
-                   ? mapManager.getRegisterByAddress(config.address)?.name
-                   : mapManager.getParameterByAddress(config.address)?.name;
-
-    // Do not read if map is not loaded or name is not found
-    if (!mapManager.isInitialized() || !name) {
-      console.warn(`Skipping read for ${config.source} ${config.address}: Map not loaded or name not found`);
-      return;
+    if (data?.timestamp && data.timestamp !== prevTimestampRef.current) {
+      prevTimestampRef.current = data.timestamp;
+      setIsLoading(true);
+      const timer = setTimeout(() => setIsLoading(false), 500);
+      return () => clearTimeout(timer);
     }
-
-    setIsLoading(true);
-    if (config.source === 'register') {
-      actions.readRegister(config.address, name);
-    } else {
-      actions.readParameter(config.address, name);
-    }
-    // Loading state will be cleared when data arrives
-    setTimeout(() => setIsLoading(false), 500);
-  };
+  }, [data?.timestamp]);
 
   const formatValue = (value: number | null): string => {
     if (value === null) return 'N/A';
@@ -75,6 +56,9 @@ export default function ValueReadWidget({ config, isEditMode }: ValueReadWidgetP
     if (!data?.timestamp) return '';
     return new Date(data.timestamp).toLocaleTimeString();
   };
+
+  const errorState = getWidgetError(config.source, config.address);
+  if (errorState) return errorState;
 
   return (
     <Box
@@ -115,6 +99,7 @@ export default function ValueReadWidget({ config, isEditMode }: ValueReadWidgetP
           sx={{
             fontWeight: 'bold',
             fontFamily: 'monospace',
+            fontSize: config.valueFontSize ? `${config.valueFontSize}rem` : undefined,
             color: data?.valid === false ? 'error.main' : 'text.primary'
           }}
         >

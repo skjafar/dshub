@@ -1,0 +1,164 @@
+import React, { useEffect, useState } from 'react';
+import { Box, Typography } from '@mui/material';
+import { EncoderDisplayWidgetConfig } from '../../types/dashboard';
+import { useDSHub } from '../../contexts/DSHubContext';
+import { mapManager } from '../../maps/mapManager';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
+import { getWidgetError } from './WidgetErrorState';
+
+interface EncoderDisplayWidgetProps {
+  config: EncoderDisplayWidgetConfig;
+  isEditMode: boolean;
+}
+
+/**
+ * Encoder Display Widget
+ *
+ * Generic widget for displaying numeric values with optional unit conversion.
+ * Can read conversion factor from a parameter or use a constant value.
+ *
+ * Example use cases:
+ * - Motor encoder position (steps → mm using steps_per_mm parameter)
+ * - Angle encoder (counts → degrees using counts_per_degree parameter)
+ * - Distance sensor (raw ADC → cm using calibration factor)
+ * - Temperature sensor (ADC → °C using conversion formula)
+ */
+export default function EncoderDisplayWidget({ config, isEditMode }: EncoderDisplayWidgetProps) {
+  const { state, actions } = useDSHub();
+  const [conversionFactor, setConversionFactor] = useState<number | null>(null);
+
+  // Set up auto-refresh for data source
+  useAutoRefresh({
+    source: config.source,
+    address: config.address,
+    refreshInterval: config.refreshInterval,
+    isEditMode,
+  });
+
+  // Get current data from state
+  const currentData = config.source === 'register'
+    ? state.registers.get(config.address)
+    : state.parameters.get(config.address);
+
+  const rawValue = currentData?.value !== undefined ? (currentData.value as number) : 0;
+
+  // Load conversion factor if using parameter source
+  useEffect(() => {
+    if (config.conversionSource === 'parameter' && config.conversionAddress !== undefined) {
+      const convMapEntry = mapManager.getParameterByAddress(config.conversionAddress);
+      if (convMapEntry && state.connection?.connected) {
+        actions.readParameter(config.conversionAddress, convMapEntry.name);
+      }
+    } else if (config.conversionSource === 'constant' && config.conversionFactor) {
+      setConversionFactor(config.conversionFactor);
+    }
+  }, [config.conversionSource, config.conversionAddress, config.conversionFactor, state.connection?.connected, actions]);
+
+  // Update conversion factor when parameter is received
+  useEffect(() => {
+    if (config.conversionSource === 'parameter' && config.conversionAddress !== undefined) {
+      const convData = state.parameters.get(config.conversionAddress);
+      if (convData?.value !== undefined) {
+        setConversionFactor(convData.value as number);
+      }
+    }
+  }, [state.parameters, config.conversionSource, config.conversionAddress]);
+
+  // Calculate converted value
+  const convertedValue = conversionFactor && conversionFactor > 0
+    ? rawValue / conversionFactor
+    : null;
+
+  // Format value with decimals
+  const formatValue = (value: number): string => {
+    const decimals = config.decimals ?? 3;
+    return value.toFixed(decimals).padStart(9, ' ');
+  };
+
+  const formatRawValue = (value: number): string => {
+    return value.toString().padStart(8, ' ');
+  };
+
+  const displayColor = config.color || '#00F2FF';
+
+  const errorState = getWidgetError(config.source, config.address);
+  if (errorState) return errorState;
+
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 1,
+        p: 2,
+        backgroundColor: 'rgba(0, 0, 0, 0.1)',
+        borderRadius: 1,
+      }}
+    >
+      {/* Widget Label */}
+      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+        {config.label}
+      </Typography>
+
+      {/* Converted Value Display (Primary) */}
+      {convertedValue !== null && (
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: 1,
+          }}
+        >
+          <Typography
+            sx={{
+              fontFamily: '"Roboto Mono", "Courier New", monospace',
+              fontSize: config.valueFontSize ? `${config.valueFontSize}rem` : '1.5rem',
+              fontWeight: 600,
+              color: displayColor,
+              lineHeight: 1,
+              letterSpacing: '0.05em',
+              textShadow: state.connection?.connected ? `0 0 10px ${displayColor}` : 'none',
+            }}
+          >
+            {formatValue(convertedValue)}
+          </Typography>
+          {config.primaryUnit && (
+            <Typography
+              sx={{
+                color: 'text.secondary',
+                fontSize: '0.875rem',
+                fontWeight: 500,
+              }}
+            >
+              {config.primaryUnit}
+            </Typography>
+          )}
+        </Box>
+      )}
+
+      {/* Raw Value Display (Secondary) */}
+      {(config.showRawValue !== false || convertedValue === null) && (
+        <Typography
+          sx={{
+            fontFamily: '"Roboto Mono", "Courier New", monospace',
+            fontSize: '0.75rem',
+            color: 'text.secondary',
+            letterSpacing: '0.05em',
+          }}
+        >
+          [{formatRawValue(rawValue)} {config.secondaryUnit || 'raw'}]
+        </Typography>
+      )}
+
+      {/* Connection Status */}
+      {!state.connection?.connected && (
+        <Typography variant="caption" color="error">
+          Not connected
+        </Typography>
+      )}
+    </Box>
+  );
+}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import {
   Box,
   Button,
@@ -15,7 +15,8 @@ import {
   DialogActions,
   Menu,
   MenuItem,
-  Slider
+  Slider,
+  Divider
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -23,7 +24,6 @@ import {
   MoreVert as MoreVertIcon
 } from '@mui/icons-material';
 import GridLayout from 'react-grid-layout';
-import 'react-grid-layout/css/styles.css';
 import 'react-grid-layout/css/styles.css';
 import { useSettings } from '../contexts/SettingsContext';
 import {
@@ -73,11 +73,6 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
 
   // Get dashboard layout for current profile
   const dashboardLayout = settings.dashboardLayouts[activeProfileId] || createEmptyDashboard();
-
-  // Debug logging
-  console.log('DashboardPanel - activeProfileId:', activeProfileId);
-  console.log('DashboardPanel - dashboardLayout:', dashboardLayout);
-  console.log('DashboardPanel - all dashboardLayouts keys:', Object.keys(settings.dashboardLayouts));
 
   const [activeTabId, setActiveTabId] = useState(dashboardLayout.activeTabId);
   const [tabs, setTabs] = useState<DashboardTab[]>(dashboardLayout.tabs);
@@ -189,7 +184,6 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
 
   const handleDeleteTab = () => {
     if (!tabMenu.tabId || tabs.length === 1) return;
-    // Prevent deletion of built-in CNC demo tab
     if (tabMenu.tabId === 'cnc-demo-tab') return;
     const newTabs = tabs.filter(t => t.id !== tabMenu.tabId);
     setTabs(newTabs);
@@ -199,8 +193,75 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
     handleCloseTabMenu();
   };
 
+  const handleExportTab = () => {
+    if (!tabMenu.tabId) return;
+    const tab = tabs.find(t => t.id === tabMenu.tabId);
+    if (!tab) return;
+
+    const exportData = {
+      version: 1,
+      tab: {
+        name: tab.name,
+        widgets: tab.widgets
+      }
+    };
+
+    const json = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `dashboard-${tab.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    handleCloseTabMenu();
+  };
+
+  const handleImportTab = () => {
+    handleCloseTabMenu();
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+
+        // Validate shape
+        if (!data.version || !data.tab || !data.tab.name || !Array.isArray(data.tab.widgets)) {
+          alert('Invalid dashboard file format.');
+          return;
+        }
+
+        // Create new tab with unique IDs
+        const newTab: DashboardTab = {
+          ...createNewTab(tabs.length + 1),
+          name: data.tab.name,
+          widgets: data.tab.widgets.map((widget: any) => {
+            const newId = generateWidgetId();
+            return {
+              ...widget,
+              id: newId,
+              layout: { ...widget.layout, i: newId }
+            };
+          })
+        };
+
+        setTabs(prev => [...prev, newTab]);
+        setActiveTabId(newTab.id);
+      } catch {
+        alert('Failed to parse dashboard file. Ensure it is a valid JSON export.');
+      }
+    };
+    input.click();
+  };
+
   const handleSaveRename = (newName: string) => {
-    // Prevent renaming built-in CNC demo tab
     if (renameDialog.tabId === 'cnc-demo-tab') return;
     setTabs(tabs.map(tab =>
       tab.id === renameDialog.tabId ? { ...tab, name: newName } : tab
@@ -221,7 +282,6 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
   }));
 
   const handleEditWidget = (widgetId: string) => {
-    // Prevent editing widgets on built-in CNC demo tab
     if (activeTabId === 'cnc-demo-tab') return;
     const widget = activeTab.widgets.find(w => w.id === widgetId);
     if (widget) {
@@ -236,7 +296,6 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
   };
 
   const handleDeleteWidget = (widgetId: string) => {
-    // Prevent deleting widgets from built-in CNC demo tab
     if (activeTabId === 'cnc-demo-tab') return;
     setTabs(tabs.map(tab =>
       tab.id === activeTabId
@@ -246,9 +305,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
   };
 
   const handleSaveWidget = (type: WidgetType, config: WidgetConfig) => {
-    // Prevent adding/editing widgets on built-in CNC demo tab
     if (activeTabId === 'cnc-demo-tab') return;
-
     if (configDialog.mode === 'add') {
       // Add new widget
       const widgetId = generateWidgetId();
@@ -292,23 +349,27 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
     setConfigDialog({ open: false, mode: 'add' });
   };
 
-  const handleLayoutChange = (layout: Layout[]) => {
-    if (!isEditMode) return; // Only update layout in edit mode
-    // Prevent layout changes on built-in CNC demo tab
+  // Debounce layout changes to prevent excessive state/localStorage writes during drag
+  const layoutChangeTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const handleLayoutChange = useCallback((layout: Layout[]) => {
+    if (!isEditMode) return;
     if (activeTabId === 'cnc-demo-tab') return;
 
-    setTabs(tabs.map(tab =>
-      tab.id === activeTabId
-        ? {
-            ...tab,
-            widgets: tab.widgets.map(widget => {
-              const newLayout = layout.find(l => l.i === widget.id);
-              return newLayout ? { ...widget, layout: newLayout } : widget;
-            })
-          }
-        : tab
-    ));
-  };
+    if (layoutChangeTimerRef.current) clearTimeout(layoutChangeTimerRef.current);
+    layoutChangeTimerRef.current = setTimeout(() => {
+      setTabs(prev => prev.map(tab =>
+        tab.id === activeTabId
+          ? {
+              ...tab,
+              widgets: tab.widgets.map(widget => {
+                const newLayout = layout.find(l => l.i === widget.id);
+                return newLayout ? { ...widget, layout: newLayout } : widget;
+              })
+            }
+          : tab
+      ));
+    }, 300);
+  }, [isEditMode, activeTabId]);
 
   return (
     <Box>
@@ -420,14 +481,16 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
         open={Boolean(tabMenu.anchorEl)}
         onClose={handleCloseTabMenu}
       >
-        <MenuItem onClick={handleRenameTab} disabled={tabMenu.tabId === 'cnc-demo-tab'}>
-          Rename
-        </MenuItem>
+        <MenuItem onClick={handleRenameTab} disabled={tabMenu.tabId === 'cnc-demo-tab'}>Rename</MenuItem>
         <MenuItem onClick={handleDuplicateTab}>Duplicate</MenuItem>
+        <Divider />
+        <MenuItem onClick={handleExportTab}>Export Tab</MenuItem>
+        <MenuItem onClick={handleImportTab}>Import Tab</MenuItem>
         {tabs.length > 1 && (
-          <MenuItem onClick={handleDeleteTab} disabled={tabMenu.tabId === 'cnc-demo-tab'}>
-            Delete
-          </MenuItem>
+          <>
+            <Divider />
+            <MenuItem onClick={handleDeleteTab} disabled={tabMenu.tabId === 'cnc-demo-tab'}>Delete</MenuItem>
+          </>
         )}
       </Menu>
 
@@ -440,7 +503,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
             fullWidth
             label="Tab Name"
             defaultValue={renameDialog.currentName}
-            onKeyPress={(e) => {
+            onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 handleSaveRename((e.target as HTMLInputElement).value);
               }

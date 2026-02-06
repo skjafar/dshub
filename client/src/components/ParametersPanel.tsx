@@ -27,7 +27,8 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Checkbox
+  Checkbox,
+  InputAdornment
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
@@ -36,7 +37,9 @@ import {
   Timer as TimerIcon,
   Save as SaveIcon,
   Upload as UploadIcon,
-  Send as SendIcon
+  Send as SendIcon,
+  Search as SearchIcon,
+  Clear as ClearIcon
 } from '@mui/icons-material';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -44,6 +47,7 @@ import { mapManager } from '../maps/mapManager';
 import { MapEntry, DataAccessPermit, DataForm } from '../maps/mapParser';
 import { useToast } from './ToastNotification';
 import { int32ToFloat, floatToInt32, formatFloat } from '../utils/floatConversion';
+import { useDebouncedCallback } from '../hooks/useDebounce';
 
 // Constants
 const WRITE_VERIFICATION_DELAY_MS = 100;
@@ -189,6 +193,11 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
   const [isMapLoaded, setIsMapLoaded] = useState(() => mapManager.isInitialized());
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(2000);
   const [editingValues, setEditingValues] = useState<{ [address: number]: string }>({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterQuery, setFilterQuery] = useState('');
+  const debouncedSetFilter = useDebouncedCallback((query: string) => {
+    setFilterQuery(query);
+  }, 300);
 
   useEffect(() => {
     const initializeMaps = async () => {
@@ -399,6 +408,16 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
   const getMapEntryForParameter = (address: number): MapEntry | undefined => {
     return mapLookup.get(address);
   };
+
+  const filteredMapEntries = filterQuery
+    ? mapEntries.filter(entry => {
+        const query = filterQuery.toLowerCase();
+        const name = entry.name.toLowerCase();
+        const addressDec = entry.address.toString();
+        const addressHex = '0x' + entry.address.toString(16).toLowerCase();
+        return name.includes(query) || addressDec.includes(query) || addressHex.includes(query);
+      })
+    : mapEntries;
 
   const handleSaveValues = () => {
     try {
@@ -756,18 +775,46 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
       ) : (
         <Card>
           <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Parameter Data ({mapEntries.length} parameters)
-              {isMapLoaded && state.parameters.size > 0 && (
-                <Chip
-                  label={`${state.parameters.size} read`}
-                  size="small"
-                  color="success"
-                  variant="outlined"
-                  sx={{ ml: 1 }}
-                />
-              )}
-            </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+              <Typography variant="h6">
+                Parameter Data ({filteredMapEntries.length}{filterQuery ? ` / ${mapEntries.length}` : ''} parameters)
+                {isMapLoaded && state.parameters.size > 0 && (
+                  <Chip
+                    label={`${state.parameters.size} read`}
+                    size="small"
+                    color="success"
+                    variant="outlined"
+                    sx={{ ml: 1 }}
+                  />
+                )}
+              </Typography>
+              <TextField
+                size="small"
+                placeholder="Search by name or address..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  debouncedSetFilter(e.target.value);
+                }}
+                sx={{ width: 260 }}
+                slotProps={{
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon fontSize="small" />
+                      </InputAdornment>
+                    ),
+                    endAdornment: searchQuery ? (
+                      <InputAdornment position="end">
+                        <IconButton size="small" onClick={() => { setSearchQuery(''); setFilterQuery(''); }}>
+                          <ClearIcon fontSize="small" />
+                        </IconButton>
+                      </InputAdornment>
+                    ) : null
+                  }
+                }}
+              />
+            </Box>
             <TableContainer component={Paper}>
               <Table size="small">
                 <TableHead>
@@ -795,7 +842,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {mapEntries.map((mapEntry) => {
+                  {filteredMapEntries.map((mapEntry) => {
                     // Look up parameter data if it exists
                     const parameter = state.parameters.get(mapEntry.address);
                     // Extract array index from name if it's an array element (e.g., "NAME[5]" -> "5")
@@ -842,7 +889,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                               placeholder="Write value..."
                               value={editingValues[mapEntry.address] || ''}
                               onChange={(e) => handleInlineValueChange(mapEntry.address, e.target.value)}
-                              onKeyPress={(e) => handleInlineValueKeyPress(e, mapEntry.address, parameter, mapEntry)}
+                              onKeyDown={(e) => handleInlineValueKeyPress(e, mapEntry.address, parameter, mapEntry)}
                               disabled={!state.connection?.connected}
                               sx={{
                                 fontFamily: 'monospace',

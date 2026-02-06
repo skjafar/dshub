@@ -7,6 +7,13 @@ import ValueReadWidget from './ValueReadWidget';
 import ValueWriteWidget from './ValueWriteWidget';
 import MiniPlotWidget from './MiniPlotWidget';
 import DropdownWidget from './DropdownWidget';
+import StateLEDWidget from './StateLEDWidget';
+import GaugeWidget from './GaugeWidget';
+import ProgressBarWidget from './ProgressBarWidget';
+import EncoderDisplayWidget from './EncoderDisplayWidget';
+import LEDIndicatorWidget from './LEDIndicatorWidget';
+import DirectionalControlWidget from './DirectionalControlWidget';
+import SystemInfoWidget from './SystemInfoWidget';
 
 interface DashboardWidgetProps {
   widget: DashboardWidgetType;
@@ -28,6 +35,20 @@ export default function DashboardWidget({ widget, isEditMode, onEdit, onDelete }
         return <MiniPlotWidget config={widget.config as any} isEditMode={isEditMode} />;
       case 'dropdown':
         return <DropdownWidget config={widget.config as any} isEditMode={isEditMode} />;
+      case 'stateLED':
+        return <StateLEDWidget config={widget.config as any} isEditMode={isEditMode} />;
+      case 'gauge':
+        return <GaugeWidget config={widget.config as any} isEditMode={isEditMode} />;
+      case 'progressBar':
+        return <ProgressBarWidget config={widget.config as any} isEditMode={isEditMode} />;
+      case 'encoderDisplay':
+        return <EncoderDisplayWidget config={widget.config as any} isEditMode={isEditMode} />;
+      case 'ledIndicator':
+        return <LEDIndicatorWidget config={widget.config as any} isEditMode={isEditMode} />;
+      case 'directionalControl':
+        return <DirectionalControlWidget config={widget.config as any} isEditMode={isEditMode} />;
+      case 'systemInfo':
+        return <SystemInfoWidget config={widget.config as any} isEditMode={isEditMode} />;
       default:
         return <Box>Unknown widget type</Box>;
     }

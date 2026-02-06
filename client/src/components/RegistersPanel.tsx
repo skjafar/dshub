@@ -29,7 +29,8 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Checkbox
+  Checkbox,
+  InputAdornment
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
@@ -37,7 +38,9 @@ import {
   Add as AddIcon,
   Timer as TimerIcon,
   Lock as LockIcon,
-  LockOpen as LockOpenIcon
+  LockOpen as LockOpenIcon,
+  Search as SearchIcon,
+  Clear as ClearIcon
 } from '@mui/icons-material';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -45,6 +48,7 @@ import { useToast } from './ToastNotification';
 import { mapManager } from '../maps/mapManager';
 import { MapEntry, DataAccessPermit, DataForm } from '../maps/mapParser';
 import { int32ToFloat, floatToInt32, formatFloat } from '../utils/floatConversion';
+import { useDebouncedCallback } from '../hooks/useDebounce';
 
 interface RegisterEditDialogProps {
   open: boolean;
@@ -165,6 +169,11 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(1000);
   const [editingValues, setEditingValues] = useState<{ [address: number]: string }>({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterQuery, setFilterQuery] = useState('');
+  const debouncedSetFilter = useDebouncedCallback((query: string) => {
+    setFilterQuery(query);
+  }, 300);
 
   useEffect(() => {
     const initializeMaps = async () => {
@@ -426,6 +435,17 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   const visibleRegisters = getRegistersForCurrentTab();
   const allMappedRegisters = getAllMappedRegisters();
 
+  const filteredRegisters = filterQuery
+    ? visibleRegisters.filter(register => {
+        const query = filterQuery.toLowerCase();
+        const mapEntry = getMapEntryForRegister(register.address);
+        const name = (register.name || mapEntry?.name || '').toLowerCase();
+        const addressDec = register.address.toString();
+        const addressHex = '0x' + register.address.toString(16).toLowerCase();
+        return name.includes(query) || addressDec.includes(query) || addressHex.includes(query);
+      })
+    : visibleRegisters;
+
   // Expose methods to parent component
   useImperativeHandle(ref, () => ({
     openReadDialog: () => setReadDialog(true),
@@ -480,14 +500,20 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
       )}
 
       {isMapLoaded && (
-        <Box sx={{ mb: 2 }}>
-          <Tabs value={currentTab} onChange={(_, value) => setCurrentTab(value)}>
-            <Tab 
-              icon={<LockIcon />} 
+        <Box sx={{ mb: 1 }}>
+          <Tabs
+            value={currentTab}
+            onChange={(_, value) => setCurrentTab(value)}
+            sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0.5, textTransform: 'none' } }}
+          >
+            <Tab
+              icon={<LockIcon sx={{ fontSize: 16 }} />}
+              iconPosition="start"
               label={`Read Only (${mapManager.getReadOnlyRegisters().length})`}
             />
-            <Tab 
-              icon={<LockOpenIcon />} 
+            <Tab
+              icon={<LockOpenIcon sx={{ fontSize: 16 }} />}
+              iconPosition="start"
               label={`Read/Write (${mapManager.getReadWriteRegisters().length})`}
             />
           </Tabs>
@@ -506,17 +532,45 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
       ) : (
         <Card>
           <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Register Data ({visibleRegisters.length} registers)
-              {isMapLoaded && (
-                <Chip 
-                  label={currentTab === 0 ? 'Read Only' : 'Read/Write'} 
-                  size="small" 
-                  color={currentTab === 0 ? 'default' : 'primary'}
-                  sx={{ ml: 1 }}
-                />
-              )}
-            </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+              <Typography variant="h6">
+                Register Data ({filteredRegisters.length}{filterQuery ? ` / ${visibleRegisters.length}` : ''} registers)
+                {isMapLoaded && (
+                  <Chip
+                    label={currentTab === 0 ? 'Read Only' : 'Read/Write'}
+                    size="small"
+                    color={currentTab === 0 ? 'default' : 'primary'}
+                    sx={{ ml: 1 }}
+                  />
+                )}
+              </Typography>
+              <TextField
+                size="small"
+                placeholder="Search by name or address..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  debouncedSetFilter(e.target.value);
+                }}
+                sx={{ width: 260 }}
+                slotProps={{
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon fontSize="small" />
+                      </InputAdornment>
+                    ),
+                    endAdornment: searchQuery ? (
+                      <InputAdornment position="end">
+                        <IconButton size="small" onClick={() => { setSearchQuery(''); setFilterQuery(''); }}>
+                          <ClearIcon fontSize="small" />
+                        </IconButton>
+                      </InputAdornment>
+                    ) : null
+                  }
+                }}
+              />
+            </Box>
             <TableContainer component={Paper}>
               <Table size="small">
                 <TableHead>
@@ -544,7 +598,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {visibleRegisters.map((register) => {
+                  {filteredRegisters.map((register) => {
                     const mapEntry = getMapEntryForRegister(register.address);
                     // Extract array index from name if it's an array element (e.g., "NAME[5]" -> "5")
                     const arrayIndexMatch = (register.name || mapEntry?.name || '').match(/\[(\d+)\]$/);
@@ -592,7 +646,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                                 placeholder="Write value..."
                                 value={editingValues[register.address] || ''}
                                 onChange={(e) => handleInlineValueChange(register.address, e.target.value)}
-                                onKeyPress={(e) => handleInlineValueKeyPress(e, register.address, register, mapEntry)}
+                                onKeyDown={(e) => handleInlineValueKeyPress(e, register.address, register, mapEntry)}
                                 sx={{
                                   fontFamily: 'monospace',
                                   width: 120,
