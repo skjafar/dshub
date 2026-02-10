@@ -61,21 +61,21 @@ ChartJS.register(
 );
 
 const COLORS = [
-  '#4A9EFF',  // Bright Blue
-  '#FF6B9D',  // Pink
-  '#FFA726',  // Orange
-  '#66BB6A',  // Green
-  '#d17ae0',  // Purple
-  '#FF5252',  // Red
-  '#26C6DA',  // Cyan
-  '#FFCA28',  // Amber
-  '#EC407A',  // Magenta
-  '#5C6BC0',  // Indigo
-  '#26A69A',  // Teal
+  '#00D4FF',  // Cyan (primary)
+  '#FF3D71',  // Signal Red
+  '#00E676',  // Signal Green
+  '#FFAB00',  // Amber
+  '#A78BFA',  // Purple
   '#FF7043',  // Deep Orange
-  '#9CCC65',  // Light Green
-  '#7E57C2',  // Deep Purple
-  '#FFA726'   // Yellow Orange
+  '#26C6DA',  // Teal
+  '#EC407A',  // Magenta
+  '#5CE1FF',  // Light Cyan
+  '#FFC233',  // Gold
+  '#33EB91',  // Light Green
+  '#C4B5FD',  // Lavender
+  '#FF6B8A',  // Pink
+  '#7C3AED',  // Deep Purple
+  '#CC8900',  // Dark Amber
 ];
 
 const DEFAULT_PLOT_HEIGHT = 300;
@@ -583,26 +583,28 @@ export default function PlotPanel() {
   const getTimeConfig = (spanSeconds: number) => {
     if (spanSeconds <= 120) {
       // Up to 2 minutes: 10 second intervals
-      return { unit: 'second' as const, minUnit: 'second' as const, stepSize: 10, format: 'HH:mm:ss' };
+      return { unit: 'second' as const, minUnit: 'second' as const, stepSize: 10, stepMs: 10_000, format: 'HH:mm:ss' };
     } else if (spanSeconds <= 600) {
       // Up to 10 minutes: 1 minute intervals
-      return { unit: 'minute' as const, minUnit: 'minute' as const, stepSize: 1, format: 'HH:mm' };
+      return { unit: 'minute' as const, minUnit: 'minute' as const, stepSize: 1, stepMs: 60_000, format: 'HH:mm' };
     } else if (spanSeconds <= 3600) {
       // Up to 1 hour: 5 minute intervals
-      return { unit: 'minute' as const, minUnit: 'minute' as const, stepSize: 5, format: 'HH:mm' };
+      return { unit: 'minute' as const, minUnit: 'minute' as const, stepSize: 5, stepMs: 300_000, format: 'HH:mm' };
     } else if (spanSeconds <= 21600) {
       // Up to 6 hours: 30 minute intervals
-      return { unit: 'minute' as const, minUnit: 'minute' as const, stepSize: 30, format: 'HH:mm' };
+      return { unit: 'minute' as const, minUnit: 'minute' as const, stepSize: 30, stepMs: 1_800_000, format: 'HH:mm' };
     } else if (spanSeconds <= 86400) {
       // Up to 1 day: 2 hour intervals
-      return { unit: 'hour' as const, minUnit: 'hour' as const, stepSize: 2, format: 'HH:mm' };
+      return { unit: 'hour' as const, minUnit: 'hour' as const, stepSize: 2, stepMs: 7_200_000, format: 'HH:mm' };
     } else {
       // More than 1 day: 6 hour intervals
-      return { unit: 'hour' as const, minUnit: 'hour' as const, stepSize: 6, format: 'MMM dd HH:mm' };
+      return { unit: 'hour' as const, minUnit: 'hour' as const, stepSize: 6, stepMs: 21_600_000, format: 'MMM dd HH:mm' };
     }
   };
 
   const timeConfig = getTimeConfig(timeSpan);
+  const isLiveView = sharedXZoom.xMax === null;
+  const overscanRatio = isLiveView ? timeConfig.stepMs / (timeSpan * 1000) : 0;
 
   // Filter data for time window
   const getFilteredData = (data: any[], windowStartMs: number) => {
@@ -703,7 +705,7 @@ export default function PlotPanel() {
         x: {
           type: 'time' as const,
           min: sharedXZoom.xMin ?? timeWindowStart,
-          max: sharedXZoom.xMax ?? now,
+          max: sharedXZoom.xMax ?? (now + timeConfig.stepMs),
           time: {
             unit: timeConfig.unit,
             stepSize: timeConfig.stepSize,
@@ -725,13 +727,24 @@ export default function PlotPanel() {
           },
           ticks: {
             maxRotation: 0,
-            source: 'auto' as const,
             color: textColor,
             font: {
               size: 12
             }
           },
-          bounds: 'ticks' as const,
+          afterBuildTicks: (scale: any) => {
+            // Force ticks at fixed absolute time positions (multiples of stepMs from epoch).
+            // This ensures ticks slide smoothly as the time window moves, never jumping.
+            const stepMs = timeConfig.stepMs;
+            const min = scale.min;
+            const max = scale.max;
+            const firstTick = Math.ceil(min / stepMs) * stepMs;
+            const ticks = [];
+            for (let t = firstTick; t <= max; t += stepMs) {
+              ticks.push({ value: t });
+            }
+            scale.ticks = ticks;
+          },
           grid: {
             display: true,
             drawTicks: true,
@@ -1383,6 +1396,7 @@ export default function PlotPanel() {
                   p: 2,
                   height: plot.height,
                   position: 'relative',
+                  overflow: 'hidden',
                   cursor: plot.mouseState.isPanning ? 'grabbing' : (plot.mouseState.isDrawing ? 'crosshair' : 'default'),
                   flex: showStatistics ? '1 1 70%' : '1 1 100%'
                 }}
@@ -1395,18 +1409,20 @@ export default function PlotPanel() {
               >
                 {plot.series.size > 0 ? (
                   <>
-                    <Line
-                      ref={chartRefs.current.get(plot.id)}
-                      data={getChartDataForPlot(plot)}
-                      options={getChartOptionsForPlot(plot)}
-                    />
+                    <Box sx={{ width: `${(1 + overscanRatio) * 100}%`, height: '100%' }}>
+                      <Line
+                        ref={chartRefs.current.get(plot.id)}
+                        data={getChartDataForPlot(plot)}
+                        options={getChartOptionsForPlot(plot)}
+                      />
+                    </Box>
                     {/* Zoom rectangle visual feedback */}
                     {plot.mouseState.isDrawing && chartRefs.current.get(plot.id)?.current && (
                       <Box
                         sx={{
                           position: 'absolute',
-                          border: '2px dashed #4A9EFF',
-                          backgroundColor: 'rgba(74, 158, 255, 0.1)',
+                          border: '2px dashed #00D4FF',
+                          backgroundColor: 'rgba(0, 212, 255, 0.1)',
                           pointerEvents: 'none',
                           left: Math.min(plot.mouseState.startPixelX, plot.mouseState.currentPixelX),
                           top: Math.min(plot.mouseState.startPixelY, plot.mouseState.currentPixelY),

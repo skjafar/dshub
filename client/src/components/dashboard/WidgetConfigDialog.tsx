@@ -129,7 +129,7 @@ export default function WidgetConfigDialog({
           source: 'register',
           address: 0,
           timeWindow: 60,
-          pollInterval: 250,
+          pollInterval: 50,
           showLegend: false
         } as MiniPlotWidgetConfig);
         break;

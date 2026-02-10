@@ -291,11 +291,12 @@ export default function LogsPanel() {
       </Card>
 
       {/* Logs List */}
-      <Paper sx={{ 
-        height: 600, 
+      <Paper sx={{
+        height: 600,
         overflow: 'hidden',
-        backgroundColor: '#1e1e1e',
-        color: '#ffffff'
+        backgroundColor: '#0A0A0F',
+        color: '#E8E8EC',
+        border: '1px solid rgba(255,255,255,0.06)',
       }}>
         {filteredLogs.length === 0 ? (
           <Box sx={{ p: 3, textAlign: 'center' }}>
@@ -319,7 +320,7 @@ export default function LogsPanel() {
             }}
             onScroll={handleScroll}
           >
-            <List dense sx={{ fontFamily: 'Consolas, Monaco, "Lucida Console", monospace' }}>
+            <List dense sx={{ fontFamily: '"JetBrains Mono", "Fira Code", monospace' }}>
               {filteredLogs.map((log, index) => {
                 const timeStr = new Date(log.timestamp).toLocaleTimeString('en-US', { 
                   hour12: false, 
@@ -346,7 +347,7 @@ export default function LogsPanel() {
                             variant="body2" 
                             component="span"
                             sx={{ 
-                              color: '#888888',
+                              color: '#4A4A5A',
                               fontWeight: 'normal',
                               minWidth: '70px'
                             }}
@@ -357,11 +358,11 @@ export default function LogsPanel() {
                             variant="body2" 
                             component="span"
                             sx={{ 
-                              color: getLevelColor(log.level) === 'info' ? '#87CEEB' :
-                                     getLevelColor(log.level) === 'success' ? '#90EE90' :
-                                     getLevelColor(log.level) === 'warning' ? '#FFD700' :
-                                     getLevelColor(log.level) === 'error' ? '#FF6B6B' :
-                                     getLevelColor(log.level) === 'secondary' ? '#BB86FC' : '#FFFFFF',
+                              color: getLevelColor(log.level) === 'info' ? '#5CE1FF' :
+                                     getLevelColor(log.level) === 'success' ? '#00E676' :
+                                     getLevelColor(log.level) === 'warning' ? '#FFAB00' :
+                                     getLevelColor(log.level) === 'error' ? '#FF3D71' :
+                                     getLevelColor(log.level) === 'secondary' ? '#A78BFA' : '#E8E8EC',
                               fontWeight: 'bold',
                               minWidth: '80px'
                             }}
@@ -371,17 +372,17 @@ export default function LogsPanel() {
                           <Typography
                             variant="body2"
                             component="span"
-                            sx={{ color: '#ffffff', flex: 1 }}
+                            sx={{ color: '#E8E8EC', flex: 1 }}
                           >
                             {log.message}
                             {log.level === 'packet' && log.packetData && (
                               <Box sx={{ mt: 1 }}>
-                                <Typography variant="caption" sx={{ display: 'block', color: '#BB86FC', mb: 0.5 }}>
+                                <Typography variant="caption" sx={{ display: 'block', color: '#A78BFA', mb: 0.5 }}>
                                   {log.packetData.direction} | {log.packetData.interface} | {log.packetData.destination} | {log.packetData.size} bytes
                                   {log.packetData.responseTime && ` | Response Time: ${log.packetData.responseTime}ms`}
                                 </Typography>
                                 {log.packetData.hexData && (
-                                  <Box sx={{ bgcolor: '#1a1a1a', p: 1, borderRadius: 1, mb: 0.5 }}>
+                                  <Box sx={{ bgcolor: '#0C0C0E', p: 1, borderRadius: 1, mb: 0.5 }}>
                                     <Typography variant="caption" sx={{ display: 'block', color: '#4CAF50', fontWeight: 'bold', mb: 0.5 }}>
                                       HEX DUMP:
                                     </Typography>
@@ -401,7 +402,7 @@ export default function LogsPanel() {
                                   </Box>
                                 )}
                                 {log.packetData.analysis && (
-                                  <Box sx={{ bgcolor: '#1a1a1a', p: 1, borderRadius: 1 }}>
+                                  <Box sx={{ bgcolor: '#0C0C0E', p: 1, borderRadius: 1 }}>
                                     <Typography variant="caption" sx={{ display: 'block', color: '#FF9800', fontWeight: 'bold', mb: 0.5 }}>
                                       PACKET ANALYSIS:
                                     </Typography>

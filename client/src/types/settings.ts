@@ -94,7 +94,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   autoConnectRetries: 3,
   autoConnectRetryDelay: 2000,
   plotDefaults: {
-    pollInterval: 250,
+    pollInterval: 50,
     timeSpan: 60,
     maxTimeSpan: 3600, // 1 hour max
     maxDataPoints: 20000 // 20k points per series (balance between functionality and memory)

@@ -73,41 +73,32 @@ export default function ValueReadWidget({ config, isEditMode }: ValueReadWidgetP
         borderRadius: 1,
         transition: 'border-color 0.3s ease',
         ...(isLoading && {
-          animation: 'breathingBorder 0.4s ease-in-out infinite',
-          '@keyframes breathingBorder': {
-            '0%': {
-              borderColor: 'transparent',
-            },
-            '50%': {
-              borderColor: 'rgba(25, 118, 210, 0.2)',
-              boxShadow: '0 0 4px rgba(25, 118, 210, 0.1)',
-            },
-            '100%': {
-              borderColor: 'transparent',
-            },
-          },
+          borderColor: 'rgba(0, 212, 255, 0.3)',
         }),
       }}
     >
-      <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+      <Typography
+        variant="overline"
+        sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}
+      >
         {config.label}
       </Typography>
 
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75 }}>
         <Typography
-          variant="h4"
           sx={{
-            fontWeight: 'bold',
-            fontFamily: 'monospace',
-            fontSize: config.valueFontSize ? `${config.valueFontSize}rem` : undefined,
-            color: data?.valid === false ? 'error.main' : 'text.primary'
+            fontFamily: '"JetBrains Mono", monospace',
+            fontWeight: 700,
+            fontSize: config.valueFontSize ? `${config.valueFontSize}rem` : '1.75rem',
+            lineHeight: 1,
+            color: data?.valid === false ? 'error.main' : 'text.primary',
           }}
         >
           {formatValue(data?.value ?? null)}
         </Typography>
 
         {config.unit && (
-          <Typography variant="h6" color="text.secondary">
+          <Typography sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.75rem', color: 'text.secondary', fontWeight: 500 }}>
             {config.unit}
           </Typography>
         )}

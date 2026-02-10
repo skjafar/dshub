@@ -59,14 +59,13 @@ export default function DashboardWidget({ widget, isEditMode, onEdit, onDelete }
       sx={{
         height: '100%',
         position: 'relative',
-        border: isEditMode ? '2px dashed' : 'none',
-        borderColor: isEditMode ? 'primary.main' : 'transparent',
-        transition: 'border-color 0.2s',
+        border: isEditMode ? '1.5px dashed' : '1px solid',
+        borderColor: isEditMode ? 'primary.main' : 'divider',
         overflow: 'hidden',
         display: 'flex',
-        flexDirection: 'column'
+        flexDirection: 'column',
       }}
-      elevation={isEditMode ? 4 : 2}
+      elevation={0}
     >
       {/* Edit mode controls */}
       {isEditMode && (
@@ -78,50 +77,41 @@ export default function DashboardWidget({ widget, isEditMode, onEdit, onDelete }
             right: 4,
             zIndex: 1000,
             display: 'flex',
-            gap: 0.5,
-            backgroundColor: 'background.paper',
-            borderRadius: 1,
+            gap: 0.25,
+            backgroundColor: 'rgba(20, 20, 26, 0.85)',
+            backdropFilter: 'blur(8px)',
+            borderRadius: '4px',
             padding: '2px',
-            pointerEvents: 'auto'
+            border: '1px solid',
+            borderColor: 'divider',
+            pointerEvents: 'auto',
           }}
           onMouseDown={(e) => e.stopPropagation()}
           onTouchStart={(e) => e.stopPropagation()}
         >
           <IconButton
             size="small"
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit(widget.id);
-            }}
+            onClick={(e) => { e.stopPropagation(); onEdit(widget.id); }}
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
-            sx={{
-              padding: '4px',
-              '&:hover': { backgroundColor: 'primary.light', color: 'primary.contrastText' }
-            }}
+            sx={{ padding: '3px', '&:hover': { color: 'primary.main' } }}
           >
-            <EditIcon fontSize="small" />
+            <EditIcon sx={{ fontSize: '0.875rem' }} />
           </IconButton>
           <IconButton
             size="small"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(widget.id);
-            }}
+            onClick={(e) => { e.stopPropagation(); onDelete(widget.id); }}
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
-            sx={{
-              padding: '4px',
-              '&:hover': { backgroundColor: 'error.main', color: 'error.contrastText' }
-            }}
+            sx={{ padding: '3px', '&:hover': { color: 'error.main' } }}
           >
-            <DeleteIcon fontSize="small" />
+            <DeleteIcon sx={{ fontSize: '0.875rem' }} />
           </IconButton>
         </Box>
       )}
 
       {/* Widget content */}
-      <Box sx={{ flex: 1, p: widget.type === 'button' ? 0 : 2, overflow: 'auto' }}>
+      <Box sx={{ flex: 1, p: widget.type === 'button' ? 0 : 1.5, overflow: 'auto' }}>
         {renderWidget()}
       </Box>
     </Paper>

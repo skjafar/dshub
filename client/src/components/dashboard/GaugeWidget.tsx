@@ -79,7 +79,7 @@ export default function GaugeWidget({ config, isEditMode }: GaugeWidgetProps) {
       }}
     >
       {/* Widget Label */}
-      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
         {config.label}
       </Typography>
 
@@ -88,43 +88,33 @@ export default function GaugeWidget({ config, isEditMode }: GaugeWidgetProps) {
         sx={{
           position: 'relative',
           width: '100%',
-          maxWidth: 140,
+          maxWidth: 130,
           aspectRatio: '1',
           borderRadius: '50%',
-          border: `4px solid ${valueColor}`,
+          border: `2px solid ${valueColor}`,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: 'rgba(0, 0, 0, 0.1)',
-          boxShadow: state.connection?.connected ? `0 0 20px ${valueColor}` : 'none',
-          transition: 'all 0.3s ease',
+          backgroundColor: 'rgba(0, 0, 0, 0.15)',
+          boxShadow: state.connection?.connected ? `0 0 12px ${valueColor}40` : 'none',
         }}
       >
-        {/* Value Display */}
         {(config.showValue !== false) && (
           <>
             <Typography
               sx={{
-                fontFamily: '"Roboto Mono", "Courier New", monospace',
-                fontSize: config.valueFontSize ? `${config.valueFontSize}rem` : '2rem',
+                fontFamily: '"JetBrains Mono", monospace',
+                fontSize: config.valueFontSize ? `${config.valueFontSize}rem` : '1.75rem',
                 fontWeight: 700,
                 color: valueColor,
                 lineHeight: 1,
-                textShadow: state.connection?.connected ? `0 0 10px ${valueColor}` : 'none',
               }}
             >
               {formatValue(currentValue)}
             </Typography>
             {config.unit && (
-              <Typography
-                sx={{
-                  fontSize: '0.75rem',
-                  color: 'text.secondary',
-                  fontWeight: 500,
-                  mt: 0.5,
-                }}
-              >
+              <Typography sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.625rem', color: 'text.secondary', fontWeight: 500, mt: 0.5 }}>
                 {config.unit}
               </Typography>
             )}
@@ -133,18 +123,11 @@ export default function GaugeWidget({ config, isEditMode }: GaugeWidgetProps) {
       </Box>
 
       {/* Min/Max Labels */}
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          width: '100%',
-          maxWidth: 140,
-        }}
-      >
-        <Typography variant="caption" color="text.secondary">
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', maxWidth: 130 }}>
+        <Typography sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.5625rem', color: 'text.secondary' }}>
           {config.min}
         </Typography>
-        <Typography variant="caption" color="text.secondary">
+        <Typography sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.5625rem', color: 'text.secondary' }}>
           {config.max}
         </Typography>
       </Box>

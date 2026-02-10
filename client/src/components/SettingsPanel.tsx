@@ -12,16 +12,13 @@ import {
   TextField,
   Switch,
   Button,
-  Alert,
   Stack,
   InputAdornment,
   Checkbox,
   FormGroup,
-  Chip,
   Tooltip
 } from '@mui/material';
 import {
-  Brightness4 as ThemeIcon,
   Upload as UploadIcon,
   Download as DownloadIcon,
   RestartAlt as ResetIcon,
@@ -250,21 +247,19 @@ export default function SettingsPanel() {
 
   return (
     <Box>
-      <Stack spacing={3}>
+      <Stack spacing={2}>
         {/* Theme Settings */}
         <Card>
-          <CardContent>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-              <ThemeIcon sx={{ mr: 1 }} />
-              <Typography variant="h6">Theme</Typography>
-            </Box>
+          <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+            <Typography variant="overline" sx={{ color: 'text.secondary', mb: 1.5, display: 'block', letterSpacing: '0.08em' }}>
+              Theme
+            </Typography>
 
             <FormControl component="fieldset">
-              <FormLabel component="legend">Color Mode</FormLabel>
               <RadioGroup value={settings.theme} onChange={handleThemeChange} row>
-                <FormControlLabel value="light" control={<Radio />} label="Light" />
-                <FormControlLabel value="dark" control={<Radio />} label="Dark" />
-                <FormControlLabel value="auto" control={<Radio />} label="Auto (System)" />
+                <FormControlLabel value="light" control={<Radio size="small" />} label={<Typography variant="body2">Light</Typography>} />
+                <FormControlLabel value="dark" control={<Radio size="small" />} label={<Typography variant="body2">Dark</Typography>} />
+                <FormControlLabel value="auto" control={<Radio size="small" />} label={<Typography variant="body2">Auto (System)</Typography>} />
               </RadioGroup>
             </FormControl>
           </CardContent>
@@ -272,8 +267,10 @@ export default function SettingsPanel() {
 
         {/* Connection Settings */}
         <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>Connection</Typography>
+          <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+            <Typography variant="overline" sx={{ color: 'text.secondary', mb: 1.5, display: 'block', letterSpacing: '0.08em' }}>
+              Connection
+            </Typography>
 
             <Stack spacing={2}>
               <TextField
@@ -281,15 +278,17 @@ export default function SettingsPanel() {
                 value={settings.lastDeviceIP}
                 onChange={handleLastIPChange}
                 fullWidth
+                size="small"
                 placeholder="192.168.1.100"
                 helperText="IP address of the last connected device"
+                sx={{ '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
               />
 
               <FormControl component="fieldset">
-                <FormLabel component="legend">Preferred Interface</FormLabel>
+                <FormLabel component="legend" sx={{ fontSize: '0.75rem' }}>Preferred Interface</FormLabel>
                 <RadioGroup value={settings.lastInterfaceType} onChange={handleInterfaceChange} row>
-                  <FormControlLabel value="TCP" control={<Radio />} label="TCP" />
-                  <FormControlLabel value="UDP" control={<Radio />} label="UDP" />
+                  <FormControlLabel value="TCP" control={<Radio size="small" />} label={<Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace' }}>TCP</Typography>} />
+                  <FormControlLabel value="UDP" control={<Radio size="small" />} label={<Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace' }}>UDP</Typography>} />
                 </RadioGroup>
               </FormControl>
 
@@ -298,9 +297,10 @@ export default function SettingsPanel() {
                   <Switch
                     checked={settings.autoScan}
                     onChange={handleAutoScanChange}
+                    size="small"
                   />
                 }
-                label="Auto-scan for devices on startup"
+                label={<Typography variant="body2">Auto-scan for devices on startup</Typography>}
               />
 
               <FormControlLabel
@@ -308,13 +308,14 @@ export default function SettingsPanel() {
                   <Switch
                     checked={settings.autoConnect}
                     onChange={handleAutoConnectChange}
+                    size="small"
                   />
                 }
-                label="Auto-connect to last device on startup"
+                label={<Typography variant="body2">Auto-connect to last device on startup</Typography>}
               />
 
               {settings.autoConnect && (
-                <>
+                <Box sx={{ display: 'flex', gap: 2 }}>
                   <TextField
                     label="Retry Attempts"
                     type="number"
@@ -323,9 +324,10 @@ export default function SettingsPanel() {
                     error={!validateNumber(autoConnectRetriesInput, 0, 10).valid}
                     helperText={
                       validateNumber(autoConnectRetriesInput, 0, 10).error ||
-                      "Number of times to retry connection (0-10)"
+                      "0-10 attempts"
                     }
-                    fullWidth
+                    size="small"
+                    sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
                   />
 
                   <TextField
@@ -339,11 +341,12 @@ export default function SettingsPanel() {
                     }}
                     helperText={
                       validateNumber(autoConnectRetryDelayInput, 500, 10000).error ||
-                      "Delay between retry attempts (500-10000 ms)"
+                      "500-10000 ms"
                     }
-                    fullWidth
+                    size="small"
+                    sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
                   />
-                </>
+                </Box>
               )}
             </Stack>
           </CardContent>
@@ -354,96 +357,90 @@ export default function SettingsPanel() {
 
         {/* Plot Defaults */}
         <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>Plot Defaults</Typography>
+          <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+            <Typography variant="overline" sx={{ color: 'text.secondary', mb: 1.5, display: 'block', letterSpacing: '0.08em' }}>
+              Plot Defaults
+            </Typography>
 
             <Stack spacing={2}>
-              <TextField
-                label="Default Poll Interval"
-                type="number"
-                value={pollIntervalInput}
-                onChange={handlePollIntervalChange}
-                error={!validateNumber(pollIntervalInput, 50, 10000).valid}
-                InputProps={{
-                  endAdornment: <InputAdornment position="end">ms</InputAdornment>,
-                }}
-                helperText={
-                  validateNumber(pollIntervalInput, 50, 10000).error ||
-                  "How often to poll for new data (50-10000 ms)"
-                }
-                fullWidth
-              />
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <TextField
+                  label="Poll Interval"
+                  type="number"
+                  value={pollIntervalInput}
+                  onChange={handlePollIntervalChange}
+                  error={!validateNumber(pollIntervalInput, 50, 10000).valid}
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">ms</InputAdornment>,
+                  }}
+                  helperText={validateNumber(pollIntervalInput, 50, 10000).error || "50-10000 ms"}
+                  size="small"
+                  sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
+                />
 
-              <TextField
-                label="Default Time Span"
-                type="number"
-                value={timeSpanInput}
-                onChange={handleTimeSpanChange}
-                error={!validateNumber(timeSpanInput, 5, settings.plotDefaults.maxTimeSpan).valid}
-                InputProps={{
-                  endAdornment: <InputAdornment position="end">seconds</InputAdornment>,
-                }}
-                helperText={
-                  validateNumber(timeSpanInput, 5, settings.plotDefaults.maxTimeSpan).error ||
-                  `How much historical data to show (5-${settings.plotDefaults.maxTimeSpan} seconds)`
-                }
-                fullWidth
-              />
+                <TextField
+                  label="Time Span"
+                  type="number"
+                  value={timeSpanInput}
+                  onChange={handleTimeSpanChange}
+                  error={!validateNumber(timeSpanInput, 5, settings.plotDefaults.maxTimeSpan).valid}
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">s</InputAdornment>,
+                  }}
+                  helperText={validateNumber(timeSpanInput, 5, settings.plotDefaults.maxTimeSpan).error || `5-${settings.plotDefaults.maxTimeSpan}s`}
+                  size="small"
+                  sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
+                />
+              </Box>
 
-              <TextField
-                label="Maximum Time Span"
-                type="number"
-                value={maxTimeSpanInput}
-                onChange={handleMaxTimeSpanChange}
-                error={!validateNumber(maxTimeSpanInput, 60, 86400).valid}
-                InputProps={{
-                  endAdornment: <InputAdornment position="end">seconds</InputAdornment>,
-                }}
-                helperText={
-                  validateNumber(maxTimeSpanInput, 60, 86400).error ||
-                  "Maximum allowed time span (60-86400 seconds / 1min-24hr)"
-                }
-                fullWidth
-              />
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <TextField
+                  label="Max Time Span"
+                  type="number"
+                  value={maxTimeSpanInput}
+                  onChange={handleMaxTimeSpanChange}
+                  error={!validateNumber(maxTimeSpanInput, 60, 86400).valid}
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">s</InputAdornment>,
+                  }}
+                  helperText={validateNumber(maxTimeSpanInput, 60, 86400).error || "60-86400s"}
+                  size="small"
+                  sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
+                />
 
-              <TextField
-                label="Maximum Data Points"
-                type="number"
-                value={maxDataPointsInput}
-                onChange={handleMaxDataPointsChange}
-                error={!validateNumber(maxDataPointsInput, 1000, 100000).valid}
-                InputProps={{
-                  endAdornment: <InputAdornment position="end">points</InputAdornment>,
-                }}
-                helperText={
-                  validateNumber(maxDataPointsInput, 1000, 100000).error ||
-                  `Data retention limit per series (1k-100k points, ~${Math.round(settings.plotDefaults.maxDataPoints * 16 / 1024)} KB memory)`
-                }
-                fullWidth
-              />
+                <TextField
+                  label="Max Data Points"
+                  type="number"
+                  value={maxDataPointsInput}
+                  onChange={handleMaxDataPointsChange}
+                  error={!validateNumber(maxDataPointsInput, 1000, 100000).valid}
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">pts</InputAdornment>,
+                  }}
+                  helperText={validateNumber(maxDataPointsInput, 1000, 100000).error || `~${Math.round(settings.plotDefaults.maxDataPoints * 16 / 1024)} KB/series`}
+                  size="small"
+                  sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
+                />
+              </Box>
 
-              <Alert severity="info" sx={{ mt: 1 }}>
-                <Typography variant="caption">
-                  Higher values allow viewing longer historical data but use more memory.
-                  Each series uses approximately {Math.round(settings.plotDefaults.maxDataPoints * 16 / 1024)} KB with current setting.
-                  Values above 50,000 may impact performance on slower devices.
-                </Typography>
-              </Alert>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                Higher values allow viewing longer historical data but use more memory. Values above 50k may impact performance.
+              </Typography>
             </Stack>
           </CardContent>
         </Card>
 
         {/* Activity Log Configuration */}
         <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>Activity Log Configuration</Typography>
+          <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+            <Typography variant="overline" sx={{ color: 'text.secondary', mb: 1.5, display: 'block', letterSpacing: '0.08em' }}>
+              Activity Log Configuration
+            </Typography>
 
             <Stack spacing={2}>
-              <Alert severity="info">
-                <Typography variant="body2">
-                  Control which types of log entries are recorded. Disabling verbose log categories reduces processing and memory usage.
-                </Typography>
-              </Alert>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                Control which log categories are recorded. Disabling verbose categories reduces processing and memory usage.
+              </Typography>
 
               <FormGroup>
                 <FormControlLabel
@@ -451,14 +448,15 @@ export default function SettingsPanel() {
                     <Checkbox
                       checked={settings.logSettings.enableConnectionLogs}
                       onChange={(e) => handleLogSettingChange('enableConnectionLogs', e.target.checked)}
+                      size="small"
                     />
                   }
                   label={
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body2">Connection & State</Typography>
                       <Tooltip title="System events, device connection status, and scanning activity">
-                        <span>Connection & State Logs</span>
+                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#00E676', flexShrink: 0 }} />
                       </Tooltip>
-                      <Chip label="Recommended" color="success" size="small" />
                     </Box>
                   }
                 />
@@ -468,14 +466,15 @@ export default function SettingsPanel() {
                     <Checkbox
                       checked={settings.logSettings.enableRegisterLogs}
                       onChange={(e) => handleLogSettingChange('enableRegisterLogs', e.target.checked)}
+                      size="small"
                     />
                   }
                   label={
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body2">Register Data</Typography>
                       <Tooltip title="Read and write responses for register operations">
-                        <span>Register Data Logs</span>
+                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#FFAB00', flexShrink: 0 }} />
                       </Tooltip>
-                      <Chip label="Medium Impact" color="warning" size="small" />
                     </Box>
                   }
                 />
@@ -485,14 +484,15 @@ export default function SettingsPanel() {
                     <Checkbox
                       checked={settings.logSettings.enableParameterLogs}
                       onChange={(e) => handleLogSettingChange('enableParameterLogs', e.target.checked)}
+                      size="small"
                     />
                   }
                   label={
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body2">Parameter Data</Typography>
                       <Tooltip title="Read and write responses for parameter operations">
-                        <span>Parameter Data Logs</span>
+                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#FFAB00', flexShrink: 0 }} />
                       </Tooltip>
-                      <Chip label="Medium Impact" color="warning" size="small" />
                     </Box>
                   }
                 />
@@ -502,14 +502,15 @@ export default function SettingsPanel() {
                     <Checkbox
                       checked={settings.logSettings.enablePacketLogs}
                       onChange={(e) => handleLogSettingChange('enablePacketLogs', e.target.checked)}
+                      size="small"
                     />
                   }
                   label={
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body2">Packet Analysis</Typography>
                       <Tooltip title="Detailed packet analysis with hex dumps (very verbose)">
-                        <span>Packet Analysis Logs</span>
+                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#FF3D71', flexShrink: 0 }} />
                       </Tooltip>
-                      <Chip label="High Impact" color="error" size="small" />
                     </Box>
                   }
                 />
@@ -519,14 +520,15 @@ export default function SettingsPanel() {
                     <Checkbox
                       checked={settings.logSettings.enableAutoRefreshLogs}
                       onChange={(e) => handleLogSettingChange('enableAutoRefreshLogs', e.target.checked)}
+                      size="small"
                     />
                   }
                   label={
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body2">Auto-Refresh</Typography>
                       <Tooltip title="Periodic auto-refresh operation messages">
-                        <span>Auto-Refresh Logs</span>
+                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#7A7A8A', flexShrink: 0 }} />
                       </Tooltip>
-                      <Chip label="Low Impact" color="default" size="small" />
                     </Box>
                   }
                 />
@@ -536,78 +538,93 @@ export default function SettingsPanel() {
                     <Checkbox
                       checked={settings.logSettings.enablePlottingLogs}
                       onChange={(e) => handleLogSettingChange('enablePlottingLogs', e.target.checked)}
+                      size="small"
                     />
                   }
                   label={
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body2">Plotting</Typography>
                       <Tooltip title="Plot start and stop events">
-                        <span>Plotting Logs</span>
+                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#7A7A8A', flexShrink: 0 }} />
                       </Tooltip>
-                      <Chip label="Low Impact" color="default" size="small" />
                     </Box>
                   }
                 />
               </FormGroup>
 
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, flexWrap: 'wrap' }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.5 }}>Impact:</Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#7A7A8A' }} />
+                  <Typography variant="caption" sx={{ color: 'text.secondary', mr: 1.5 }}>Low</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#FFAB00' }} />
+                  <Typography variant="caption" sx={{ color: 'text.secondary', mr: 1.5 }}>Medium</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#FF3D71' }} />
+                  <Typography variant="caption" sx={{ color: 'text.secondary', mr: 1.5 }}>High</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#00E676' }} />
+                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>Recommended</Typography>
+                </Box>
+              </Box>
+
               <TextField
-                label="Maximum Log Entries"
+                label="Max Log Entries"
                 type="number"
                 value={maxLogCountInput}
                 onChange={handleMaxLogCountChange}
                 error={!validateNumber(maxLogCountInput, 100, 10000).valid}
                 InputProps={{
                   endAdornment: <InputAdornment position="end">
-                    {parseInt(maxLogCountInput) > 1000 && <ErrorIcon color="error" sx={{ mr: 1 }} />}
-                    {parseInt(maxLogCountInput) > 500 && parseInt(maxLogCountInput) <= 1000 && <WarningIcon color="warning" sx={{ mr: 1 }} />}
+                    {parseInt(maxLogCountInput) > 1000 && <ErrorIcon color="error" sx={{ fontSize: '1rem', mr: 0.5 }} />}
+                    {parseInt(maxLogCountInput) > 500 && parseInt(maxLogCountInput) <= 1000 && <WarningIcon color="warning" sx={{ fontSize: '1rem', mr: 0.5 }} />}
                     entries
                   </InputAdornment>,
                 }}
                 helperText={
                   validateNumber(maxLogCountInput, 100, 10000).error ||
-                  "Maximum number of log entries to retain (100-10000)"
+                  `100-10000 entries (~${Math.round(parseInt(maxLogCountInput || '1000') * 0.5)} KB)`
                 }
+                size="small"
+                sx={{ '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
                 fullWidth
               />
 
               {parseInt(maxLogCountInput) > 1000 && validateNumber(maxLogCountInput, 100, 10000).valid && (
-                <Alert severity="error" icon={<ErrorIcon />}>
-                  <Typography variant="body2">
-                    <strong>Warning:</strong> Log counts above 1000 may significantly impact performance and memory usage, especially with verbose logging enabled.
-                  </Typography>
-                </Alert>
+                <Typography variant="caption" sx={{ color: 'error.main' }}>
+                  Log counts above 1000 may significantly impact performance with verbose logging enabled.
+                </Typography>
               )}
 
               {parseInt(maxLogCountInput) > 500 && parseInt(maxLogCountInput) <= 1000 && validateNumber(maxLogCountInput, 100, 10000).valid && (
-                <Alert severity="warning" icon={<WarningIcon />}>
-                  <Typography variant="body2">
-                    Log counts between 500-1000 may impact performance. Monitor system responsiveness.
-                  </Typography>
-                </Alert>
-              )}
-
-              <Alert severity="info">
-                <Typography variant="caption">
-                  Estimated memory usage: ~{Math.round(parseInt(maxLogCountInput || '1000') * 0.5)} KB with current max log count.
-                  Packet analysis logs can use significantly more memory when enabled.
+                <Typography variant="caption" sx={{ color: 'warning.main' }}>
+                  Moderate log count — monitor performance.
                 </Typography>
-              </Alert>
+              )}
             </Stack>
           </CardContent>
         </Card>
 
         {/* Import/Export Settings */}
         <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>Backup & Restore</Typography>
+          <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+            <Typography variant="overline" sx={{ color: 'text.secondary', mb: 1.5, display: 'block', letterSpacing: '0.08em' }}>
+              Backup & Restore
+            </Typography>
 
-            <Stack spacing={2}>
-              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <Stack spacing={1.5}>
+              <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
                 <Button
                   variant="outlined"
                   startIcon={<DownloadIcon />}
                   onClick={handleExportSettings}
+                  size="small"
                 >
-                  Export Settings
+                  Export
                 </Button>
 
                 <input
@@ -621,8 +638,9 @@ export default function SettingsPanel() {
                   variant="outlined"
                   startIcon={<UploadIcon />}
                   onClick={() => fileInputRef.current?.click()}
+                  size="small"
                 >
-                  Import Settings
+                  Import
                 </Button>
 
                 <Button
@@ -630,21 +648,19 @@ export default function SettingsPanel() {
                   color="error"
                   startIcon={<ResetIcon />}
                   onClick={handleResetSettings}
+                  size="small"
                 >
-                  Reset to Defaults
+                  Reset
                 </Button>
               </Box>
 
               {importError && (
-                <Alert severity="error">{importError}</Alert>
+                <Typography variant="caption" sx={{ color: 'error.main' }}>{importError}</Typography>
               )}
 
-              <Alert severity="info">
-                <Typography variant="body2">
-                  Export your settings to back them up, or import previously saved settings.
-                  This includes theme, connection preferences, and custom maps.
-                </Typography>
-              </Alert>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                Export settings to back them up, or import previously saved settings. Includes theme, connection preferences, and custom maps.
+              </Typography>
             </Stack>
           </CardContent>
         </Card>

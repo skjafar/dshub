@@ -10,7 +10,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Alert,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -572,22 +571,23 @@ export default function MapEditorPanel() {
   const canSaveToCurrentProfile = selectedProfileId !== EMPTY_PROFILE_ID && selectedProfileId !== DEFAULT_PROFILE_ID && selectedProfileId !== CNC_PROFILE_ID;
 
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', p: 2, gap: 2 }}>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', p: 2, gap: 1.5 }}>
       {/* Toolbar */}
-      <Paper sx={{ p: 2 }}>
+      <Paper sx={{ p: 1.5 }}>
         {state.connection?.connected && (
-          <Alert severity="warning" sx={{ mb: 2 }}>
+          <Typography variant="caption" sx={{ color: 'warning.main', display: 'block', mb: 1 }}>
             Device is connected. Saving changes will reload the map manager. You may need to reconnect for changes to take effect.
-          </Alert>
+          </Typography>
         )}
 
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
           {currentTab === 'sysCommands' ? (
             <>
               <Button
                 variant="contained"
                 startIcon={<AddIcon />}
                 onClick={() => setSysCommandAddDialogOpen(true)}
+                size="small"
               >
                 Add Entry
               </Button>
@@ -596,6 +596,7 @@ export default function MapEditorPanel() {
                 startIcon={<FileDownloadIcon />}
                 onClick={() => setSysCommandExportDialogOpen(true)}
                 disabled={sysCommandEntries.length === 0}
+                size="small"
               >
                 Export
               </Button>
@@ -606,6 +607,7 @@ export default function MapEditorPanel() {
                 variant="contained"
                 startIcon={<AddIcon />}
                 onClick={handleAddEntry}
+                size="small"
               >
                 Add Entry
               </Button>
@@ -613,6 +615,7 @@ export default function MapEditorPanel() {
                 variant="outlined"
                 startIcon={<UploadFileIcon />}
                 onClick={handleImportFile}
+                size="small"
               >
                 Import .map
               </Button>
@@ -620,6 +623,7 @@ export default function MapEditorPanel() {
                 variant="outlined"
                 startIcon={<FileDownloadIcon />}
                 onClick={() => setExportDialogOpen(true)}
+                size="small"
               >
                 Export
               </Button>
@@ -627,16 +631,20 @@ export default function MapEditorPanel() {
           )}
           <Box sx={{ flexGrow: 1 }} />
           {hasUnsavedChanges && (
-            <Typography variant="caption" color="warning.main" fontWeight="medium" sx={{ display: 'flex', alignItems: 'center' }}>
-              Unsaved changes
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#FFAB00' }} />
+              <Typography variant="caption" color="warning.main" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.7rem' }}>
+                Unsaved
+              </Typography>
+            </Box>
           )}
-          <FormControl size="small" sx={{ minWidth: 200 }}>
+          <FormControl size="small" sx={{ minWidth: 180 }}>
             <InputLabel>Profile</InputLabel>
             <Select
               value={selectedProfileId}
               onChange={handleProfileChange}
               label="Profile"
+              sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }}
             >
               <MenuItem value={EMPTY_PROFILE_ID}>
                 <em>Empty / Start from Scratch</em>
@@ -655,8 +663,9 @@ export default function MapEditorPanel() {
             startIcon={<RestartAltIcon />}
             onClick={handleResetChanges}
             disabled={!hasUnsavedChanges}
+            size="small"
           >
-            Reset Changes
+            Reset
           </Button>
           <Button
             variant="contained"
@@ -664,16 +673,18 @@ export default function MapEditorPanel() {
             startIcon={<SaveIcon />}
             onClick={handleSaveToCurrentProfile}
             disabled={!hasUnsavedChanges || !canSaveToCurrentProfile}
+            size="small"
           >
-            Save to Current Profile
+            Save
           </Button>
           <Button
             variant="contained"
             color="primary"
             startIcon={<SaveAsIcon />}
             onClick={handleSaveAsNewProfile}
+            size="small"
           >
-            Save as New Profile
+            Save As
           </Button>
         </Box>
       </Paper>
@@ -681,12 +692,12 @@ export default function MapEditorPanel() {
       {/* Tabs */}
       <Paper sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
         <Tabs value={currentTab} onChange={(_, val) => setCurrentTab(val)}>
-          <Tab label={`Registers (${registerEntries.length})`} value="registers" />
-          <Tab label={`Parameters (${parameterEntries.length})`} value="parameters" />
-          <Tab label={`SYS_COMMANDs (${sysCommandEntries.length})`} value="sysCommands" />
+          <Tab label={`Registers (${registerEntries.length})`} value="registers" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }} />
+          <Tab label={`Parameters (${parameterEntries.length})`} value="parameters" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }} />
+          <Tab label={`SYS_COMMANDs (${sysCommandEntries.length})`} value="sysCommands" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }} />
         </Tabs>
         <Divider />
-        <Box sx={{ p: 2, flexGrow: 1, overflow: 'auto' }}>
+        <Box sx={{ p: 1.5, flexGrow: 1, overflow: 'auto' }}>
           {currentTab === 'sysCommands' ? (
             <SysCommandsTab
               commands={sysCommandEntries}

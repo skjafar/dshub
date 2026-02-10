@@ -68,48 +68,35 @@ export default function StateLEDWidget({ config, isEditMode }: StateLEDWidgetPro
       }}
     >
       {/* Widget Label */}
-      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
         {config.label}
       </Typography>
 
       {/* LED and State Label Container */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1.5,
-        }}
-      >
-        {/* LED Indicator */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Box
           sx={{
-            width: 20,
-            height: 20,
+            width: 12,
+            height: 12,
             borderRadius: '50%',
             backgroundColor: activeState.color,
-            boxShadow: `0 0 15px ${activeState.color}`,
-            border: `2px solid ${activeState.color}`,
+            boxShadow: `0 0 8px ${activeState.color}80`,
             animation: shouldPulse ? 'pulse 1.5s ease-in-out infinite' : 'none',
             '@keyframes pulse': {
-              '0%, 100%': {
-                opacity: 1,
-              },
-              '50%': {
-                opacity: 0.5,
-              },
+              '0%, 100%': { opacity: 1 },
+              '50%': { opacity: 0.4 },
             },
           }}
         />
-
-        {/* State Label (if enabled) */}
         {config.showLabel !== false && (
           <Typography
             sx={{
+              fontFamily: '"JetBrains Mono", monospace',
               color: activeState.color,
-              fontSize: config.fontSize ? `${config.fontSize}rem` : '1rem',
-              fontWeight: 700,
-              letterSpacing: '0.05em',
-              textShadow: `0 0 5px ${activeState.color}`,
+              fontSize: config.fontSize ? `${config.fontSize}rem` : '0.875rem',
+              fontWeight: 600,
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
             }}
           >
             {activeState.label}

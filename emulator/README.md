@@ -305,7 +305,7 @@ The **Address** field contains the system command code, not a register address.
 2. Take control
 3. Go to Plotter panel
 4. Add register 3 (COUNTER_1HZ)
-5. Set poll interval to 250ms
+5. Set poll interval to 50ms
 6. Start plotting
 7. Watch the counter increment in real-time on the chart
 

@@ -504,15 +504,14 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
           <Tabs
             value={currentTab}
             onChange={(_, value) => setCurrentTab(value)}
-            sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0.5, textTransform: 'none' } }}
           >
             <Tab
-              icon={<LockIcon sx={{ fontSize: 16 }} />}
+              icon={<LockIcon sx={{ fontSize: 14 }} />}
               iconPosition="start"
               label={`Read Only (${mapManager.getReadOnlyRegisters().length})`}
             />
             <Tab
-              icon={<LockOpenIcon sx={{ fontSize: 16 }} />}
+              icon={<LockOpenIcon sx={{ fontSize: 14 }} />}
               iconPosition="start"
               label={`Read/Write (${mapManager.getReadWriteRegisters().length})`}
             />
@@ -648,17 +647,17 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                                 onChange={(e) => handleInlineValueChange(register.address, e.target.value)}
                                 onKeyDown={(e) => handleInlineValueKeyPress(e, register.address, register, mapEntry)}
                                 sx={{
-                                  fontFamily: 'monospace',
+                                  fontFamily: '"JetBrains Mono", monospace',
                                   width: 120,
                                   '& .MuiInputBase-input': {
-                                    fontFamily: 'monospace',
+                                    fontFamily: '"JetBrains Mono", monospace',
                                     py: 0.5,
                                     fontSize: '0.875rem'
                                   },
                                   '& .MuiOutlinedInput-root': {
                                     '& fieldset': {
-                                      borderColor: editingValues[register.address] ? 'warning.main' : undefined,
-                                      borderWidth: editingValues[register.address] ? 2 : 1
+                                      borderColor: editingValues[register.address] ? 'primary.main' : undefined,
+                                      borderWidth: editingValues[register.address] ? 1.5 : 1
                                     }
                                   }
                                 }}

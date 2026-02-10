@@ -10,7 +10,6 @@ import {
   Paper,
   IconButton,
   Tooltip,
-  Chip,
   Typography,
   TextField,
   Select,
@@ -213,12 +212,9 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
 
       {/* Address */}
       <TableCell sx={{ py: 0.5 }}>
-        <Chip
-          label={entry.address}
-          size="small"
-          color="default"
-          sx={{ minWidth: 50 }}
-        />
+        <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem', color: 'text.secondary' }}>
+          {entry.address}
+        </Typography>
       </TableCell>
 
       {/* Name */}
@@ -229,7 +225,7 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
           onBlur={handleNameBlur}
           size="small"
           fullWidth
-          sx={{ fontFamily: 'monospace' }}
+          sx={{ '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
         />
       </TableCell>
 
@@ -240,6 +236,7 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
           onChange={(e) => handleTypeChange(e.target.value as DataForm)}
           size="small"
           fullWidth
+          sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }}
         >
           <MenuItem value={DataForm.UINT}>uint32_t</MenuItem>
           <MenuItem value={DataForm.INT}>int32_t</MenuItem>

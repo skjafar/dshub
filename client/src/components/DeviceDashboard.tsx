@@ -6,9 +6,7 @@ import {
   CardContent,
   Grid,
   Typography,
-  Chip,
-  Alert,
-  Divider
+  Chip
 } from '@mui/material';
 import {
   Security as ControlIcon,
@@ -49,9 +47,9 @@ export default function DeviceDashboard() {
   if (!state.connection) {
     return (
       <Box>
-        <Alert severity="info" sx={{ mb: 3 }}>
+        <Typography variant="body2" sx={{ color: 'text.secondary', textAlign: 'center', py: 4 }}>
           No device connected. Please use the Device Scanner to discover and connect to a device.
-        </Alert>
+        </Typography>
       </Box>
     );
   }
@@ -66,51 +64,44 @@ export default function DeviceDashboard() {
   const stateRegister = Array.from(state.registers.values()).find(r => r.name.includes('STATE'));
   const warningsRegister = Array.from(state.registers.values()).find(r => r.name.includes('WARNING'));
 
+  const monoFont = '"JetBrains Mono", monospace';
+
   return (
     <Box>
-      <Grid container spacing={3}>
+      <Grid container spacing={2}>
         {/* Connection Status */}
         <Grid size={{ xs: 12, md: 6 }}>
           <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                {state.connection.connected ? (
-                  <ConnectedIcon color="success" sx={{ mr: 1 }} />
-                ) : (
-                  <DisconnectedIcon color="error" sx={{ mr: 1 }} />
-                )}
-                <Typography variant="h6">
-                  Connection Status
+            <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
+              <Typography variant="overline" sx={{ color: 'text.secondary', mb: 1.5, display: 'block' }}>
+                Connection
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+                <Box
+                  sx={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: '50%',
+                    backgroundColor: state.connection.connected ? 'success.main' : 'error.main',
+                    boxShadow: state.connection.connected ? '0 0 8px' : 'none',
+                    boxShadowColor: state.connection.connected ? 'success.main' : undefined,
+                  }}
+                />
+                <Typography sx={{ fontFamily: monoFont, fontSize: '1rem', fontWeight: 600 }}>
+                  {state.connection.connected ? 'Connected' : 'Disconnected'}
                 </Typography>
               </Box>
-              
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Device Address: {state.connection.ip}:{state.connection.port}
-              </Typography>
-              
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Interface: {state.connection.interface}
-              </Typography>
-              
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1 }}>
-                <Chip
-                  label={state.connection.connected ? 'Connected' : 'Disconnected'}
-                  color={state.connection.connected ? 'success' : 'error'}
-                  size="small"
-                />
-
-                {state.connection.connected && (
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    color="error"
-                    startIcon={<DisconnectIcon />}
-                    onClick={actions.disconnectDevice}
-                  >
-                    Disconnect
-                  </Button>
-                )}
+              <Box sx={{ display: 'flex', gap: 2, mb: 1.5 }}>
+                <Typography variant="caption" sx={{ fontFamily: monoFont, color: 'text.secondary' }}>
+                  {state.connection.ip}:{state.connection.port}
+                </Typography>
+                <Chip label={state.connection.interface} size="small" variant="outlined" sx={{ fontFamily: monoFont, fontSize: '0.6rem' }} />
               </Box>
+              {state.connection.connected && (
+                <Button variant="outlined" size="small" color="error" startIcon={<DisconnectIcon />} onClick={actions.disconnectDevice}>
+                  Disconnect
+                </Button>
+              )}
             </CardContent>
           </Card>
         </Grid>
@@ -118,111 +109,96 @@ export default function DeviceDashboard() {
         {/* Control Status */}
         <Grid size={{ xs: 12, md: 6 }}>
           <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <ControlIcon color={canControl ? 'success' : 'warning'} sx={{ mr: 1 }} />
-                <Typography variant="h6">
-                  Control Interface
+            <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
+              <Typography variant="overline" sx={{ color: 'text.secondary', mb: 1.5, display: 'block' }}>
+                Control Interface
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+                <Box
+                  sx={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: '50%',
+                    backgroundColor: canControl ? 'success.main' : 'warning.main',
+                    boxShadow: canControl ? '0 0 8px' : 'none',
+                    boxShadowColor: canControl ? 'success.main' : undefined,
+                  }}
+                />
+                <Typography sx={{ fontFamily: monoFont, fontSize: '1rem', fontWeight: 600 }}>
+                  {controlState.label}
                 </Typography>
               </Box>
-              
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Current Control State
-              </Typography>
-              
-              <Chip
-                label={controlState.label}
-                color={controlState.color}
-                size="small"
-                sx={{ mt: 1, mb: 2 }}
-              />
-              
               {!canControl && (
-                <Box>
-                  <Button
-                    variant="contained"
-                    size="small"
-                    startIcon={<ControlTakeIcon />}
-                    onClick={actions.takeControl}
-                    disabled={!state.connection.connected}
-                  >
-                    Take Control
-                  </Button>
-                </Box>
+                <Button variant="contained" size="small" startIcon={<ControlTakeIcon />} onClick={actions.takeControl} disabled={!state.connection.connected}>
+                  Take Control
+                </Button>
               )}
-              
               {canControl && (
-                <Alert severity="success" sx={{ mt: 1 }}>
+                <Typography variant="caption" color="success.main" sx={{ fontFamily: monoFont }}>
                   Write operations enabled
-                </Alert>
+                </Typography>
               )}
             </CardContent>
           </Card>
         </Grid>
 
-        {/* Key Registers */}
-        {stateRegister && (
-          <Grid size={{ xs: 12, md: 4 }}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Device State
-                </Typography>
-                <Typography variant="h4" color="primary">
-                  {stateRegister.value}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Address: 0x{stateRegister.address.toString(16).toUpperCase()}
-                </Typography>
-                <Typography variant="caption" display="block" color="text.secondary">
-                  Updated: {new Date(stateRegister.timestamp).toLocaleTimeString()}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        )}
-
-        {warningsRegister && (
-          <Grid size={{ xs: 12, md: 4 }}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Warnings
-                </Typography>
-                <Typography variant="h4" color={warningsRegister.value > 0 ? 'error' : 'success'}>
-                  {warningsRegister.value}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Address: 0x{warningsRegister.address.toString(16).toUpperCase()}
-                </Typography>
-                <Typography variant="caption" display="block" color="text.secondary">
-                  Updated: {new Date(warningsRegister.timestamp).toLocaleTimeString()}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        )}
-
-        {/* Statistics */}
-        <Grid size={{ xs: 12, md: 4 }}>
+        {/* Stat Bar */}
+        <Grid size={12}>
           <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Statistics
-              </Typography>
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="body2" color="text.secondary">
-                  Registers: {state.registers.size}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Parameters: {state.parameters.size}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Log Entries: {state.logs.length}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Plot Series: {state.plotData.size}
-                </Typography>
+            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {stateRegister && (
+                  <Box>
+                    <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1 }}>
+                      Device State
+                    </Typography>
+                    <Typography sx={{ fontFamily: monoFont, fontSize: '1.5rem', fontWeight: 700, color: 'primary.main', lineHeight: 1.3 }}>
+                      {stateRegister.value}
+                    </Typography>
+                  </Box>
+                )}
+                {warningsRegister && (
+                  <Box>
+                    <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1 }}>
+                      Warnings
+                    </Typography>
+                    <Typography sx={{ fontFamily: monoFont, fontSize: '1.5rem', fontWeight: 700, color: warningsRegister.value > 0 ? 'error.main' : 'success.main', lineHeight: 1.3 }}>
+                      {warningsRegister.value}
+                    </Typography>
+                  </Box>
+                )}
+                <Box>
+                  <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1 }}>
+                    Registers
+                  </Typography>
+                  <Typography sx={{ fontFamily: monoFont, fontSize: '1.5rem', fontWeight: 700, lineHeight: 1.3 }}>
+                    {state.registers.size}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1 }}>
+                    Parameters
+                  </Typography>
+                  <Typography sx={{ fontFamily: monoFont, fontSize: '1.5rem', fontWeight: 700, lineHeight: 1.3 }}>
+                    {state.parameters.size}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1 }}>
+                    Log Entries
+                  </Typography>
+                  <Typography sx={{ fontFamily: monoFont, fontSize: '1.5rem', fontWeight: 700, lineHeight: 1.3 }}>
+                    {state.logs.length}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1 }}>
+                    Plot Series
+                  </Typography>
+                  <Typography sx={{ fontFamily: monoFont, fontSize: '1.5rem', fontWeight: 700, lineHeight: 1.3 }}>
+                    {state.plotData.size}
+                  </Typography>
+                </Box>
               </Box>
             </CardContent>
           </Card>
@@ -231,35 +207,45 @@ export default function DeviceDashboard() {
         {/* Recent Registers */}
         <Grid size={12}>
           <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
+            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Typography variant="overline" sx={{ color: 'text.secondary', mb: 1, display: 'block' }}>
                 Recent Register Updates
               </Typography>
               {state.registers.size === 0 ? (
-                <Typography color="text.secondary">
-                  No register data available. Registers will appear here as they are updated.
+                <Typography variant="caption" color="text.secondary">
+                  No register data available
                 </Typography>
               ) : (
-                <Box sx={{ maxHeight: 300, overflow: 'auto' }}>
-                  {Array.from(state.registers.values())
-                    .sort((a, b) => b.timestamp - a.timestamp)
-                    .slice(0, 10)
-                    .map((register) => (
-                      <Box key={register.address} sx={{ mb: 1, pb: 1 }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Typography variant="body2" fontWeight="medium">
-                            {register.name} (0x{register.address.toString(16).toUpperCase()})
-                          </Typography>
-                          <Typography variant="body2" fontFamily="monospace">
-                            {register.value}
-                          </Typography>
-                        </Box>
-                        <Typography variant="caption" color="text.secondary">
-                          {new Date(register.timestamp).toLocaleString()}
-                        </Typography>
-                        <Divider sx={{ mt: 1 }} />
-                      </Box>
-                    ))}
+                <Box sx={{ maxHeight: 280, overflow: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <tbody>
+                      {Array.from(state.registers.values())
+                        .sort((a, b) => b.timestamp - a.timestamp)
+                        .slice(0, 10)
+                        .map((register) => (
+                          <tr key={register.address} style={{ borderBottom: '1px solid var(--mui-palette-divider, rgba(255,255,255,0.04))' }}>
+                            <td style={{ padding: '4px 8px 4px 0' }}>
+                              <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.8125rem' }}>
+                                {register.name}
+                              </Typography>
+                              <Typography variant="caption" sx={{ fontFamily: monoFont, fontSize: '0.6rem', color: 'text.secondary' }}>
+                                0x{register.address.toString(16).toUpperCase()}
+                              </Typography>
+                            </td>
+                            <td style={{ padding: '4px 8px', textAlign: 'right' }}>
+                              <Typography sx={{ fontFamily: monoFont, fontSize: '0.875rem', fontWeight: 600 }}>
+                                {register.value}
+                              </Typography>
+                            </td>
+                            <td style={{ padding: '4px 0 4px 8px', textAlign: 'right' }}>
+                              <Typography variant="caption" sx={{ fontFamily: monoFont, fontSize: '0.6rem', color: 'text.secondary' }}>
+                                {new Date(register.timestamp).toLocaleTimeString()}
+                              </Typography>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
                 </Box>
               )}
             </CardContent>

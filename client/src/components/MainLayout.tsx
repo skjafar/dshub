@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   AppBar,
   Box,
+  Chip,
   Drawer,
   IconButton,
   List,
@@ -254,66 +255,110 @@ export default function MainLayout() {
     }
   };
 
+  // Group nav items with separators
+  const navGroups: ViewType[][] = [
+    ['scanner', 'status'],
+    ['dashboard', 'plot'],
+    ['syscommand', 'registers', 'parameters'],
+    ['logs', 'mapeditor'],
+    ['settings', 'about'],
+  ];
+
   const drawer = (
     <div>
-      <Toolbar sx={{ display: 'flex', justifyContent: drawerCollapsed ? 'center' : 'space-between' }}>
+      <Toolbar sx={{ display: 'flex', justifyContent: drawerCollapsed ? 'center' : 'space-between', minHeight: '48px !important' }}>
         {!drawerCollapsed && (
-          <Typography variant="h6" noWrap component="div">
+          <Typography
+            noWrap
+            component="div"
+            sx={{
+              fontFamily: '"JetBrains Mono", monospace',
+              fontSize: '0.875rem',
+              fontWeight: 700,
+              letterSpacing: '0.12em',
+              color: 'primary.main',
+              textTransform: 'uppercase',
+            }}
+          >
             DSHub
           </Typography>
         )}
         <Tooltip title={drawerCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} placement="right">
-          <IconButton onClick={handleDrawerCollapse} size="small">
-            {drawerCollapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
+          <IconButton onClick={handleDrawerCollapse} size="small" sx={{ color: 'text.secondary' }}>
+            {drawerCollapsed ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
           </IconButton>
         </Tooltip>
       </Toolbar>
-      <List>
-        {views.map((view) => {
-          const isLogs = view.key === 'logs';
-          const logCount = isLogs ? state.logs.length : 0;
+      <List sx={{ pt: 0 }}>
+        {navGroups.map((group, groupIndex) => (
+          <React.Fragment key={groupIndex}>
+            {groupIndex > 0 && (
+              <Box sx={{ mx: drawerCollapsed ? 1 : 2, my: 0.5, borderTop: '1px solid', borderColor: 'divider' }} />
+            )}
+            {group.map((viewKey) => {
+              const view = views.find(v => v.key === viewKey)!;
+              const isLogs = view.key === 'logs';
+              const logCount = isLogs ? state.logs.length : 0;
 
-          const listItemButton = (
-            <ListItemButton
-              selected={currentView === view.key}
-              onClick={() => setCurrentView(view.key)}
-              sx={{
-                minHeight: 48,
-                justifyContent: drawerCollapsed ? 'center' : 'initial',
-                px: 2.5,
-              }}
-            >
-              <ListItemIcon
-                sx={{
-                  minWidth: 0,
-                  mr: drawerCollapsed ? 'auto' : 3,
-                  justifyContent: 'center',
-                }}
-              >
-                {isLogs && logCount > 0 ? (
-                  <Badge badgeContent={logCount} color="secondary" max={99}>
-                    {view.icon}
-                  </Badge>
-                ) : (
-                  view.icon
-                )}
-              </ListItemIcon>
-              {!drawerCollapsed && <ListItemText primary={view.label} />}
-            </ListItemButton>
-          );
+              const listItemButton = (
+                <ListItemButton
+                  selected={currentView === view.key}
+                  onClick={() => setCurrentView(view.key)}
+                  sx={{
+                    minHeight: 40,
+                    justifyContent: drawerCollapsed ? 'center' : 'initial',
+                    px: 2,
+                    py: 0.5,
+                    borderLeft: '3px solid transparent',
+                    '&.Mui-selected': {
+                      borderLeftColor: 'primary.main',
+                    },
+                  }}
+                >
+                  <ListItemIcon
+                    sx={{
+                      minWidth: 0,
+                      mr: drawerCollapsed ? 'auto' : 2,
+                      justifyContent: 'center',
+                      color: currentView === view.key ? 'primary.main' : 'text.secondary',
+                      '& .MuiSvgIcon-root': { fontSize: '1.2rem' },
+                    }}
+                  >
+                    {isLogs && logCount > 0 ? (
+                      <Badge badgeContent={logCount} color="secondary" max={99} sx={{ '& .MuiBadge-badge': { fontSize: '0.55rem', minWidth: 16, height: 16 } }}>
+                        {view.icon}
+                      </Badge>
+                    ) : (
+                      view.icon
+                    )}
+                  </ListItemIcon>
+                  {!drawerCollapsed && (
+                    <ListItemText
+                      primary={view.label}
+                      primaryTypographyProps={{
+                        fontSize: '0.8125rem',
+                        fontWeight: currentView === view.key ? 600 : 400,
+                        color: currentView === view.key ? 'text.primary' : 'text.secondary',
+                      }}
+                    />
+                  )}
+                </ListItemButton>
+              );
 
-          return (
-            <ListItem key={view.key} disablePadding sx={{ display: 'block' }}>
-              {drawerCollapsed ? (
-                <Tooltip title={view.label} placement="right">
-                  {listItemButton}
-                </Tooltip>
-              ) : (
-                listItemButton
-              )}
-            </ListItem>
-          );
-        })}
+              return (
+                <ListItem key={view.key} disablePadding sx={{ display: 'block' }}>
+                  {drawerCollapsed ? (
+                    <Tooltip title={view.label} placement="right">
+                      {listItemButton}
+                    </Tooltip>
+                  ) : (
+                    listItemButton
+                  )}
+                </ListItem>
+              );
+            })}
+          </React.Fragment>
+        ))}
       </List>
     </div>
   );
@@ -407,6 +452,7 @@ export default function MainLayout() {
     <Box sx={{ display: 'flex' }}>
       <AppBar
         position="fixed"
+        elevation={0}
         sx={{
           width: { sm: `calc(100% - ${currentDrawerWidth}px)` },
           ml: { sm: `${currentDrawerWidth}px` },
@@ -414,6 +460,10 @@ export default function MainLayout() {
             easing: theme.transitions.easing.sharp,
             duration: theme.transitions.duration.leavingScreen,
           }),
+          backgroundColor: theme.palette.background.paper,
+          color: theme.palette.text.primary,
+          borderBottom: `1px solid ${theme.palette.divider}`,
+          backdropFilter: 'blur(8px)',
         }}
       >
         <Toolbar>
@@ -572,60 +622,114 @@ export default function MainLayout() {
           )}
 
           {/* Connection Status - always on the right */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, ml: (currentView === 'dashboard' || currentView === 'scanner' || currentView === 'registers' || currentView === 'parameters') ? 0 : 'auto' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: (currentView === 'dashboard' || currentView === 'scanner' || currentView === 'registers' || currentView === 'parameters') ? 0 : 'auto' }}>
             {state.connection && (
               <>
                 {state.connection.deviceName && (
-                  <Typography variant="body2" color="inherit" sx={{ fontWeight: 500 }}>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      fontFamily: '"JetBrains Mono", monospace',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      color: 'text.primary',
+                    }}
+                  >
                     {state.connection.deviceName}
                   </Typography>
                 )}
-                <Typography variant="body2" color="inherit">
-                  {state.connection.ip}:{state.connection.port} ({state.connection.interface})
-                </Typography>
-                <Box
-                  sx={{
-                    width: 12,
-                    height: 12,
-                    borderRadius: '50%',
-                    backgroundColor: connectionColor,
-                  }}
-                />
                 <Typography
                   variant="body2"
-                  color="inherit"
                   sx={{
-                    cursor: 'pointer',
-                    '&:hover': { textDecoration: 'underline' }
+                    fontFamily: '"JetBrains Mono", monospace',
+                    fontSize: '0.6875rem',
+                    color: 'text.secondary',
                   }}
+                >
+                  {state.connection.ip}:{state.connection.port}
+                </Typography>
+                <Chip
+                  label={state.connection.interface}
+                  size="small"
+                  variant="outlined"
+                  sx={{
+                    fontFamily: '"JetBrains Mono", monospace',
+                    fontSize: '0.5625rem',
+                    height: 18,
+                    '& .MuiChip-label': { px: 0.75 },
+                  }}
+                />
+                <Box
                   onClick={handleConnectionClick}
                   title={state.connection?.connected ? 'Click to disconnect' : 'Use Device Scanner to connect'}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.75,
+                    cursor: 'pointer',
+                    px: 1,
+                    py: 0.25,
+                    borderRadius: 1,
+                    '&:hover': { backgroundColor: 'action.hover' },
+                  }}
                 >
-                  {connectionStatus}
-                </Typography>
+                  <Box
+                    sx={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      backgroundColor: connectionColor,
+                      boxShadow: state.connection?.connected ? `0 0 6px ${connectionColor}` : 'none',
+                    }}
+                  />
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontFamily: '"JetBrains Mono", monospace',
+                      fontSize: '0.6875rem',
+                      fontWeight: 500,
+                      color: connectionColor,
+                    }}
+                  >
+                    {connectionStatus}
+                  </Typography>
+                </Box>
                 {controlStateInfo && (
-                  <>
+                  <Box
+                    onClick={handleControlClick}
+                    title="Click to take control"
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.75,
+                      cursor: 'pointer',
+                      px: 1,
+                      py: 0.25,
+                      borderRadius: 1,
+                      '&:hover': { backgroundColor: 'action.hover' },
+                    }}
+                  >
                     <Box
                       sx={{
-                        width: 12,
-                        height: 12,
+                        width: 8,
+                        height: 8,
                         borderRadius: '50%',
                         backgroundColor: controlStateInfo.color,
+                        boxShadow: `0 0 6px ${controlStateInfo.color}`,
                       }}
                     />
                     <Typography
-                      variant="body2"
-                      color="inherit"
+                      variant="caption"
                       sx={{
-                        cursor: 'pointer',
-                        '&:hover': { textDecoration: 'underline' }
+                        fontFamily: '"JetBrains Mono", monospace',
+                        fontSize: '0.6875rem',
+                        fontWeight: 500,
+                        color: controlStateInfo.color,
                       }}
-                      onClick={handleControlClick}
-                      title="Click to take control"
                     >
                       {controlStateInfo.label}
                     </Typography>
-                  </>
+                  </Box>
                 )}
               </>
             )}
@@ -661,6 +765,8 @@ export default function MainLayout() {
                 duration: theme.transitions.duration.enteringScreen,
               }),
               overflowX: 'hidden',
+              backgroundColor: theme.palette.mode === 'dark' ? '#0A0A0F' : theme.palette.background.paper,
+              borderRight: `1px solid ${theme.palette.divider}`,
             },
           }}
           open

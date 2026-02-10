@@ -14,12 +14,12 @@ import {
   Typography,
   Chip,
   IconButton,
-  Paper,
   TextField,
   FormControl,
   InputLabel,
   Select,
-  MenuItem
+  MenuItem,
+  Tooltip
 } from '@mui/material';
 import { Refresh as RefreshIcon, Link as ConnectIcon, Add as AddIcon } from '@mui/icons-material';
 import { useDSHub } from '../contexts/DSHubContext';
@@ -148,17 +148,44 @@ export default function DeviceScannerPanel() {
 
   return (
     <Box>
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Manual Connection
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Connect directly to a device using its IP address if you know it.
-          </Typography>
-          
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-            <Box sx={{ minWidth: '200px', flex: '1 1 200px' }}>
+      {/* Scanning progress bar */}
+      {state.isScanning && (
+        <Box
+          sx={{
+            height: 2,
+            mb: 2,
+            borderRadius: 1,
+            overflow: 'hidden',
+            backgroundColor: 'action.hover',
+          }}
+        >
+          <Box
+            sx={{
+              height: '100%',
+              width: '30%',
+              backgroundColor: 'primary.main',
+              borderRadius: 1,
+              animation: 'scanLine 1.5s ease-in-out infinite',
+              '@keyframes scanLine': {
+                '0%': { transform: 'translateX(-100%)' },
+                '100%': { transform: 'translateX(400%)' },
+              },
+            }}
+          />
+        </Box>
+      )}
+
+      {/* Manual Connection */}
+      <Card sx={{ mb: 2 }}>
+        <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+          <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <Typography
+              variant="overline"
+              sx={{ alignSelf: 'center', color: 'text.secondary', mr: 0.5 }}
+            >
+              Manual
+            </Typography>
+            <Box sx={{ minWidth: '180px', flex: '1 1 180px' }}>
               <TextField
                 fullWidth
                 label="IP Address"
@@ -168,22 +195,24 @@ export default function DeviceScannerPanel() {
                 error={!!ipError}
                 helperText={ipError}
                 size="small"
+                sx={{ '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
               />
             </Box>
-            <Box sx={{ minWidth: '120px', flex: '0 1 120px' }}>
+            <Box sx={{ minWidth: '100px', flex: '0 1 100px' }}>
               <FormControl fullWidth size="small">
                 <InputLabel>Interface</InputLabel>
                 <Select
                   value={manualInterface}
                   onChange={handleInterfaceChange}
                   label="Interface"
+                  sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }}
                 >
                   <MenuItem value={InterfaceType.TCP}>TCP</MenuItem>
                   <MenuItem value={InterfaceType.UDP}>UDP</MenuItem>
                 </Select>
               </FormControl>
             </Box>
-            <Box sx={{ minWidth: '100px', flex: '0 1 100px' }}>
+            <Box sx={{ minWidth: '90px', flex: '0 1 90px' }}>
               <TextField
                 fullWidth
                 label="Port"
@@ -192,43 +221,41 @@ export default function DeviceScannerPanel() {
                 onChange={(e) => setManualPort(Number(e.target.value))}
                 size="small"
                 disabled
-                helperText={`Default: ${manualInterface === InterfaceType.TCP ? DEFAULT_TCP_PORT : DEFAULT_UDP_PORT}`}
+                sx={{ '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
               />
             </Box>
-            <Box sx={{ minWidth: '100px', flex: '0 1 100px' }}>
-              <Button
-                fullWidth
-                variant="outlined"
-                startIcon={<AddIcon />}
-                onClick={handleManualConnect}
-                disabled={!manualIp.trim() || !!ipError}
-                size="small"
-                sx={{ height: '40px' }}
-              >
-                Connect
-              </Button>
-            </Box>
+            <Button
+              variant="outlined"
+              startIcon={<AddIcon />}
+              onClick={handleManualConnect}
+              disabled={!manualIp.trim() || !!ipError}
+              size="small"
+              sx={{ height: '40px', minWidth: '100px' }}
+            >
+              Connect
+            </Button>
           </Box>
         </CardContent>
       </Card>
 
       {state.discoveredDevices.length === 0 && !state.isScanning && (
-        <Card>
-          <CardContent>
-            <Typography color="text.secondary" align="center">
-              No devices discovered. Click "Scan Network" to search for devices on your network.
-            </Typography>
-          </CardContent>
-        </Card>
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', py: 8, color: 'text.secondary' }}>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            No devices discovered
+          </Typography>
+          <Typography variant="caption">
+            Click "Scan Network" to search for devices on your network
+          </Typography>
+        </Box>
       )}
 
       {state.discoveredDevices.length > 0 && (
         <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
+          <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+            <Typography variant="overline" sx={{ color: 'text.secondary', mb: 1, display: 'block' }}>
               Discovered Devices ({state.discoveredDevices.length})
             </Typography>
-            <TableContainer component={Paper}>
+            <TableContainer>
               <Table size="small">
                 <TableHead>
                   <TableRow>
@@ -236,31 +263,29 @@ export default function DeviceScannerPanel() {
                     <TableCell>IP Address</TableCell>
                     <TableCell>MAC Address</TableCell>
                     <TableCell>Board Type</TableCell>
-                    <TableCell>Firmware</TableCell>
+                    <TableCell>FW</TableCell>
                     <TableCell>Ports</TableCell>
-                    <TableCell>Actions</TableCell>
+                    <TableCell sx={{ width: 48 }}></TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {state.discoveredDevices.map((device) => (
-                    <TableRow key={device.device_id} hover>
+                    <TableRow key={device.device_id} hover sx={{ cursor: 'pointer' }} onClick={() => handleConnect(device.ip_address, device.tcp_port, device.udp_port, device.board_name)}>
                       <TableCell>
-                        <Box>
-                          <Typography variant="body2" fontWeight="medium">
-                            {device.board_name}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            ID: {device.device_id}
-                          </Typography>
-                        </Box>
+                        <Typography variant="body2" fontWeight={600} sx={{ fontSize: '0.8125rem' }}>
+                          {device.board_name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.6rem' }}>
+                          {device.device_id}
+                        </Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2" fontFamily="monospace">
+                        <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }}>
                           {device.ip_address}
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2" fontFamily="monospace">
+                        <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.75rem', color: 'text.secondary' }}>
                           {formatMacAddress(device.mac_address)}
                         </Typography>
                       </TableCell>
@@ -269,32 +294,29 @@ export default function DeviceScannerPanel() {
                           label={getBoardTypeName(device.board_type)}
                           size="small"
                           variant="outlined"
+                          sx={{ fontFamily: '"JetBrains Mono", monospace' }}
                         />
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2">
+                        <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }}>
                           {formatFirmwareVersion(device.firmware_version)}
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Box>
-                          <Typography variant="caption" display="block">
-                            TCP: {device.tcp_port}
-                          </Typography>
-                          <Typography variant="caption" display="block">
-                            UDP: {device.udp_port}
-                          </Typography>
-                        </Box>
+                        <Typography variant="caption" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.6875rem', color: 'text.secondary' }}>
+                          {device.tcp_port}/{device.udp_port}
+                        </Typography>
                       </TableCell>
                       <TableCell>
-                        <IconButton
-                          size="small"
-                          color="primary"
-                          onClick={() => handleConnect(device.ip_address, device.tcp_port, device.udp_port, device.board_name)}
-                          title="Connect to device"
-                        >
-                          <ConnectIcon />
-                        </IconButton>
+                        <Tooltip title="Connect">
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            onClick={(e) => { e.stopPropagation(); handleConnect(device.ip_address, device.tcp_port, device.udp_port, device.board_name); }}
+                          >
+                            <ConnectIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -306,16 +328,12 @@ export default function DeviceScannerPanel() {
       )}
 
       {state.isScanning && (
-        <Card sx={{ mt: 2 }}>
-          <CardContent>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <CircularProgress size={24} />
-              <Typography>
-                Scanning network for devices... This may take a few seconds.
-              </Typography>
-            </Box>
-          </CardContent>
-        </Card>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 2, color: 'text.secondary' }}>
+          <CircularProgress size={14} sx={{ color: 'primary.main' }} />
+          <Typography variant="caption">
+            Scanning network...
+          </Typography>
+        </Box>
       )}
     </Box>
   );
