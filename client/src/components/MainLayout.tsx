@@ -336,7 +336,7 @@ export default function MainLayout() {
                     <ListItemText
                       primary={view.label}
                       primaryTypographyProps={{
-                        fontSize: '0.8125rem',
+                        fontSize: '1rem',
                         fontWeight: currentView === view.key ? 600 : 400,
                         color: currentView === view.key ? 'text.primary' : 'text.secondary',
                       }}

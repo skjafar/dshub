@@ -74,10 +74,10 @@ export default function ValueWriteWidget({ config, isEditMode }: ValueWriteWidge
           flexDirection: 'column',
           height: '100%',
           justifyContent: 'center',
-          gap: 2
+          gap: 1.5
         }}
       >
-        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+        <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
           {config.label}
         </Typography>
 
@@ -94,6 +94,7 @@ export default function ValueWriteWidget({ config, isEditMode }: ValueWriteWidge
             max: config.max,
             step: config.step || 1
           }}
+          sx={{ '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
           helperText={
             config.min !== undefined && config.max !== undefined
               ? `Range: ${config.min} - ${config.max}`
@@ -104,6 +105,7 @@ export default function ValueWriteWidget({ config, isEditMode }: ValueWriteWidge
         <Button
           type="submit"
           variant="contained"
+          size="small"
           disabled={isEditMode || !state.connection?.connected || !inputValue}
           fullWidth
         >

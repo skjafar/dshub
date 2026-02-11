@@ -55,10 +55,10 @@ export default function DropdownWidget({ config, isEditMode }: DropdownWidgetPro
           flexDirection: 'column',
           height: '100%',
           justifyContent: 'center',
-          gap: 2
+          gap: 1.5
         }}
       >
-        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+        <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
           {config.label}
         </Typography>
 
@@ -69,6 +69,7 @@ export default function DropdownWidget({ config, isEditMode }: DropdownWidgetPro
             value={selectedValue}
             onChange={(e) => handleChange(e.target.value as number)}
             label="Select Value"
+            sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }}
           >
             {config.options.map((option) => (
               <MenuItem key={option.value} value={option.value}>

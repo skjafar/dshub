@@ -63,6 +63,13 @@ export default function GaugeWidget({ config, isEditMode }: GaugeWidgetProps) {
     isEditMode,
   });
 
+  // SVG arc gauge calculations
+  const radius = 54;
+  const circumference = 2 * Math.PI * radius;
+  const arcLength = circumference * 0.75; // 270-degree sweep
+  const percentage = Math.max(0, Math.min(1, (currentValue - config.min) / (config.max - config.min)));
+  const valueOffset = arcLength * (1 - percentage);
+
   const errorState = getWidgetError(config.source, config.address);
   if (errorState) return errorState;
 
@@ -74,7 +81,7 @@ export default function GaugeWidget({ config, isEditMode }: GaugeWidgetProps) {
         height: '100%',
         justifyContent: 'center',
         alignItems: 'center',
-        gap: 1,
+        gap: 0.5,
         p: 2,
       }}
     >
@@ -83,25 +90,60 @@ export default function GaugeWidget({ config, isEditMode }: GaugeWidgetProps) {
         {config.label}
       </Typography>
 
-      {/* Circular Gauge */}
+      {/* SVG Arc Gauge */}
       <Box
         sx={{
           position: 'relative',
           width: '100%',
           maxWidth: 130,
           aspectRatio: '1',
-          borderRadius: '50%',
-          border: `2px solid ${valueColor}`,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: 'rgba(0, 0, 0, 0.15)',
-          boxShadow: state.connection?.connected ? `0 0 12px ${valueColor}40` : 'none',
         }}
       >
+        <svg
+          viewBox="0 0 120 120"
+          style={{ width: '100%', height: '100%', transform: 'rotate(-135deg)' }}
+        >
+          {/* Background track */}
+          <circle
+            cx="60"
+            cy="60"
+            r={radius}
+            fill="none"
+            stroke="rgba(255, 255, 255, 0.08)"
+            strokeWidth="5"
+            strokeDasharray={`${arcLength} ${circumference}`}
+            strokeLinecap="round"
+          />
+          {/* Value arc */}
+          <circle
+            cx="60"
+            cy="60"
+            r={radius}
+            fill="none"
+            stroke={valueColor}
+            strokeWidth="5"
+            strokeDasharray={`${arcLength} ${circumference}`}
+            strokeDashoffset={valueOffset}
+            strokeLinecap="round"
+            style={{
+              transition: 'stroke-dashoffset 0.3s ease, stroke 0.3s ease',
+              filter: state.connection?.connected ? `drop-shadow(0 0 4px ${valueColor}80)` : 'none',
+            }}
+          />
+        </svg>
+
+        {/* Centered value overlay */}
         {(config.showValue !== false) && (
-          <>
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
             <Typography
               sx={{
                 fontFamily: '"JetBrains Mono", monospace',
@@ -118,7 +160,7 @@ export default function GaugeWidget({ config, isEditMode }: GaugeWidgetProps) {
                 {config.unit}
               </Typography>
             )}
-          </>
+          </Box>
         )}
       </Box>
 

@@ -54,7 +54,7 @@ export default function MiniPlotWidget({ config, isEditMode }: MiniPlotWidgetPro
       {
         label: config.label,
         data: dataPoints,
-        borderColor: config.color || '#4A9EFF',
+        borderColor: config.color || '#00D4FF',
         backgroundColor: 'transparent',
         borderWidth: 2,
         pointRadius: 0,
@@ -125,7 +125,7 @@ export default function MiniPlotWidget({ config, isEditMode }: MiniPlotWidgetPro
         gap: 1
       }}
     >
-      <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
         {config.label}
       </Typography>
 

@@ -370,11 +370,12 @@ export default function ButtonWidget({ config, isEditMode }: ButtonWidgetProps) 
         sx={{
           position: 'relative',
           height: '100%',
-          width: '100%'
+          width: '100%',
+          overflow: 'hidden'
         }}
       >
         <Button
-          variant="contained"
+          variant="outlined"
           size="large"
           fullWidth
           onClick={handleClick}
@@ -383,22 +384,28 @@ export default function ButtonWidget({ config, isEditMode }: ButtonWidgetProps) 
           sx={{
             height: '100%',
             width: '100%',
-            backgroundColor: config.color || 'primary.main',
+            backgroundColor: 'rgba(255, 255, 255, 0.04)',
+            border: `1.5px solid ${config.color || '#00D4FF'}`,
+            color: config.color || '#00D4FF',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontSize: config.fontSize ? `${config.fontSize}rem` : '1rem',
             fontWeight: 'bold',
             position: 'relative',
-            overflow: 'hidden',
-            transition: 'all 0.3s ease',
+            transition: 'all 0.15s ease',
             '&:hover:not(:disabled)': {
-              backgroundColor: config.color || 'primary.dark',
-              transform: 'scale(1.02)',
-              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)'
+              backgroundColor: config.color || '#00D4FF',
+              border: `1.5px solid ${config.color || '#00D4FF'}`,
+              color: '#000',
+              boxShadow: `0 0 10px ${config.color || '#00D4FF'}`,
             },
             '&:active:not(:disabled)': {
               transform: 'scale(0.98)'
+            },
+            '&:disabled': {
+              opacity: 0.3,
+              border: `1.5px solid ${config.color || '#00D4FF'}40`,
             }
           }}
         >

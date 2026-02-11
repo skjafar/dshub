@@ -89,7 +89,7 @@ export default function SystemInfoWidget({ config, isEditMode }: SystemInfoWidge
         <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5 }}>
           <Typography
             sx={{
-              fontFamily: '"Roboto Mono", "Courier New", monospace',
+              fontFamily: '"JetBrains Mono", monospace',
               color: itemColor,
               fontSize: config.valueFontSize ? `${config.valueFontSize}rem` : '0.9rem',
               fontWeight: 600,
@@ -138,11 +138,12 @@ export default function SystemInfoWidget({ config, isEditMode }: SystemInfoWidge
     >
       {/* Widget Label */}
       <Typography
-        variant="subtitle2"
-        color="text.secondary"
+        variant="overline"
         sx={{
-          fontWeight: 'bold',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          color: 'text.secondary',
+          fontSize: '0.6rem',
+          letterSpacing: '0.08em',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
           pb: 0.5,
         }}
       >

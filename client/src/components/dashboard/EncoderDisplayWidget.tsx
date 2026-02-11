@@ -99,7 +99,7 @@ export default function EncoderDisplayWidget({ config, isEditMode }: EncoderDisp
       }}
     >
       {/* Widget Label */}
-      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
         {config.label}
       </Typography>
 
@@ -114,7 +114,7 @@ export default function EncoderDisplayWidget({ config, isEditMode }: EncoderDisp
         >
           <Typography
             sx={{
-              fontFamily: '"Roboto Mono", "Courier New", monospace',
+              fontFamily: '"JetBrains Mono", monospace',
               fontSize: config.valueFontSize ? `${config.valueFontSize}rem` : '1.5rem',
               fontWeight: 600,
               color: displayColor,
@@ -143,7 +143,7 @@ export default function EncoderDisplayWidget({ config, isEditMode }: EncoderDisp
       {(config.showRawValue !== false || convertedValue === null) && (
         <Typography
           sx={{
-            fontFamily: '"Roboto Mono", "Courier New", monospace',
+            fontFamily: '"JetBrains Mono", monospace',
             fontSize: '0.75rem',
             color: 'text.secondary',
             letterSpacing: '0.05em',

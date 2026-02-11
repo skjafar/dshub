@@ -76,8 +76,8 @@ export default function DirectionalControlWidget({ config, isEditMode }: Directi
   const getButtonSx = (direction: string) => ({
     width: buttonSize,
     height: buttonSize,
-    backgroundColor: activeDirection === direction ? color : 'rgba(0, 0, 0, 0.1)',
-    border: `2px solid ${color}`,
+    backgroundColor: activeDirection === direction ? color : 'rgba(255, 255, 255, 0.04)',
+    border: activeDirection === direction ? `1.5px solid ${color}` : `1.5px solid ${color}40`,
     color: activeDirection === direction ? '#000' : color,
     borderRadius: 1,
     transition: 'all 0.15s ease',
@@ -85,6 +85,7 @@ export default function DirectionalControlWidget({ config, isEditMode }: Directi
     '&:hover': {
       backgroundColor: color,
       color: '#000',
+      border: `1.5px solid ${color}`,
       boxShadow: `0 0 10px ${color}`,
     },
     '&:active': {
@@ -123,7 +124,7 @@ export default function DirectionalControlWidget({ config, isEditMode }: Directi
       }}
     >
       {/* Widget Label */}
-      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
         {config.label}
       </Typography>
 

@@ -75,7 +75,7 @@ export default function LEDIndicatorWidget({ config, isEditMode }: LEDIndicatorW
       }}
     >
       {/* Widget Label */}
-      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, fontSize: '0.7rem' }}>
+      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
         {config.label}
       </Typography>
 
@@ -90,12 +90,11 @@ export default function LEDIndicatorWidget({ config, isEditMode }: LEDIndicatorW
         {/* LED Indicator */}
         <Box
           sx={{
-            width: 16,
-            height: 16,
+            width: 12,
+            height: 12,
             borderRadius: '50%',
             backgroundColor: ledColor,
-            boxShadow: state.connection?.connected && isOn ? `0 0 12px ${ledColor}` : 'none',
-            border: `2px solid ${ledColor}`,
+            boxShadow: state.connection?.connected && isOn ? `0 0 8px ${ledColor}80` : 'none',
             animation: shouldPulse ? 'pulse 1.5s ease-in-out infinite' : 'none',
             '@keyframes pulse': {
               '0%, 100%': {
@@ -112,9 +111,11 @@ export default function LEDIndicatorWidget({ config, isEditMode }: LEDIndicatorW
         <Typography
           sx={{
             color: ledColor,
+            fontFamily: '"JetBrains Mono", monospace',
             fontSize: config.fontSize ? `${config.fontSize}rem` : '0.75rem',
             fontWeight: 600,
-            letterSpacing: '0.05em',
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
           }}
         >
           {statusLabel}
