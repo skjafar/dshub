@@ -158,6 +158,7 @@ import {
   Delete as DeleteIcon
 } from '@mui/icons-material';
 import { ButtonWidgetConfig } from '../../types/dashboard';
+import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useToast } from '../ToastNotification';
 
@@ -317,9 +318,10 @@ const ICON_COMPONENTS: Record<string, React.ComponentType> = {
 interface ButtonWidgetProps {
   config: ButtonWidgetConfig;
   isEditMode: boolean;
+  widgetSize?: WidgetSizeInfo;
 }
 
-export default function ButtonWidget({ config, isEditMode }: ButtonWidgetProps) {
+export default function ButtonWidget({ config, isEditMode, widgetSize }: ButtonWidgetProps) {
   const { state, actions } = useDSHub();
   const { showSuccess, showError } = useToast();
   const [confirmDialog, setConfirmDialog] = useState(false);
@@ -371,7 +373,8 @@ export default function ButtonWidget({ config, isEditMode }: ButtonWidgetProps) 
           position: 'relative',
           height: '100%',
           width: '100%',
-          overflow: 'hidden'
+          p: '2px',
+          boxSizing: 'border-box',
         }}
       >
         <Button
@@ -384,13 +387,14 @@ export default function ButtonWidget({ config, isEditMode }: ButtonWidgetProps) 
           sx={{
             height: '100%',
             width: '100%',
+            minWidth: 0,
             backgroundColor: 'rgba(255, 255, 255, 0.04)',
             border: `1.5px solid ${config.color || '#00D4FF'}`,
             color: config.color || '#00D4FF',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: config.fontSize ? `${config.fontSize}rem` : '1rem',
+            fontSize: widgetSize ? scaledRem(config.fontSize ?? 1, widgetSize.scale) : (config.fontSize ? `${config.fontSize}rem` : '1rem'),
             fontWeight: 'bold',
             position: 'relative',
             transition: 'all 0.15s ease',
@@ -426,7 +430,7 @@ export default function ButtonWidget({ config, isEditMode }: ButtonWidgetProps) 
               pointerEvents: 'none'
             }}
           >
-            <Typography variant="caption" sx={{ color: 'white', fontSize: '0.65rem' }}>
+            <Typography variant="caption" sx={{ color: 'white', fontSize: widgetSize ? scaledRem(0.65, widgetSize.scale) : '0.65rem' }}>
               Not connected
             </Typography>
           </Box>

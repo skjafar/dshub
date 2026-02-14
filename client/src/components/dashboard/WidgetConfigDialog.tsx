@@ -47,6 +47,21 @@ interface WidgetConfigDialogProps {
   mode: 'add' | 'edit';
 }
 
+const WIDGET_TYPE_LABELS: Record<WidgetType, string> = {
+  button: 'Button',
+  valueRead: 'Value Read',
+  valueWrite: 'Value Write',
+  miniPlot: 'Mini Plot',
+  dropdown: 'Dropdown',
+  stateLED: 'State LED',
+  gauge: 'Gauge',
+  progressBar: 'Progress Bar',
+  encoderDisplay: 'Encoder Display',
+  ledIndicator: 'LED Indicator',
+  directionalControl: 'Directional Control',
+  systemInfo: 'System Info',
+};
+
 export default function WidgetConfigDialog({
   open,
   onClose,
@@ -330,7 +345,7 @@ export default function WidgetConfigDialog({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>{mode === 'add' ? 'Add Widget' : 'Edit Widget'}</DialogTitle>
+      <DialogTitle>{mode === 'add' ? 'Add Widget' : `Edit ${WIDGET_TYPE_LABELS[widgetType]}`}</DialogTitle>
       <DialogContent>
         {mode === 'add' && (
           <FormControl fullWidth margin="normal">

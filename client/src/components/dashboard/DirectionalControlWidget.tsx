@@ -11,11 +11,13 @@ import {
   NorthWest,
 } from '@mui/icons-material';
 import { DirectionalControlWidgetConfig } from '../../types/dashboard';
+import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 
 interface DirectionalControlWidgetProps {
   config: DirectionalControlWidgetConfig;
   isEditMode: boolean;
+  widgetSize?: WidgetSizeInfo;
 }
 
 /**
@@ -30,13 +32,14 @@ interface DirectionalControlWidgetProps {
  * - Camera pan/tilt
  * - Game controller emulation
  */
-export default function DirectionalControlWidget({ config, isEditMode }: DirectionalControlWidgetProps) {
+export default function DirectionalControlWidget({ config, isEditMode, widgetSize }: DirectionalControlWidgetProps) {
   const { state, actions } = useDSHub();
   const [activeDirection, setActiveDirection] = useState<string | null>(null);
 
   const isConnected = state.connection?.connected ?? false;
   const layout = config.layout || '4way';
-  const buttonSize = config.buttonSize || 48;
+  const baseButtonSize = config.buttonSize || 48;
+  const buttonSize = widgetSize ? scaledPx(baseButtonSize, widgetSize.scale) : baseButtonSize;
   const color = config.color || '#00F2FF';
 
   /**
@@ -73,9 +76,12 @@ export default function DirectionalControlWidget({ config, isEditMode }: Directi
   /**
    * Common button styling
    */
+  const iconSize = Math.round(buttonSize * 0.5);
+
   const getButtonSx = (direction: string) => ({
     width: buttonSize,
     height: buttonSize,
+    '& .MuiSvgIcon-root': { fontSize: iconSize },
     backgroundColor: activeDirection === direction ? color : 'rgba(255, 255, 255, 0.04)',
     border: activeDirection === direction ? `1.5px solid ${color}` : `1.5px solid ${color}40`,
     color: activeDirection === direction ? '#000' : color,
@@ -124,7 +130,7 @@ export default function DirectionalControlWidget({ config, isEditMode }: Directi
       }}
     >
       {/* Widget Label */}
-      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
+      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em' }}>
         {config.label}
       </Typography>
 

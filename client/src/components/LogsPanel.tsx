@@ -391,7 +391,7 @@ export default function LogsPanel() {
                                       component="pre"
                                       sx={{
                                         color: '#E0E0E0',
-                                        fontFamily: 'monospace',
+                                        fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
                                         margin: 0,
                                         whiteSpace: 'pre-wrap',
                                         wordBreak: 'break-all'
@@ -410,7 +410,7 @@ export default function LogsPanel() {
                                       variant="caption"
                                       sx={{
                                         color: '#E0E0E0',
-                                        fontFamily: 'monospace',
+                                        fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
                                         display: 'block',
                                         whiteSpace: 'pre-wrap'
                                       }}

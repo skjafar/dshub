@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { EncoderDisplayWidgetConfig } from '../../types/dashboard';
+import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { mapManager } from '../../maps/mapManager';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
@@ -9,6 +10,7 @@ import { getWidgetError } from './WidgetErrorState';
 interface EncoderDisplayWidgetProps {
   config: EncoderDisplayWidgetConfig;
   isEditMode: boolean;
+  widgetSize?: WidgetSizeInfo;
 }
 
 /**
@@ -23,7 +25,7 @@ interface EncoderDisplayWidgetProps {
  * - Distance sensor (raw ADC → cm using calibration factor)
  * - Temperature sensor (ADC → °C using conversion formula)
  */
-export default function EncoderDisplayWidget({ config, isEditMode }: EncoderDisplayWidgetProps) {
+export default function EncoderDisplayWidget({ config, isEditMode, widgetSize }: EncoderDisplayWidgetProps) {
   const { state, actions } = useDSHub();
   const [conversionFactor, setConversionFactor] = useState<number | null>(null);
 
@@ -99,7 +101,7 @@ export default function EncoderDisplayWidget({ config, isEditMode }: EncoderDisp
       }}
     >
       {/* Widget Label */}
-      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
+      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em' }}>
         {config.label}
       </Typography>
 
@@ -115,7 +117,7 @@ export default function EncoderDisplayWidget({ config, isEditMode }: EncoderDisp
           <Typography
             sx={{
               fontFamily: '"JetBrains Mono", monospace',
-              fontSize: config.valueFontSize ? `${config.valueFontSize}rem` : '1.5rem',
+              fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 1.5, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '1.5rem'),
               fontWeight: 600,
               color: displayColor,
               lineHeight: 1,
@@ -129,7 +131,7 @@ export default function EncoderDisplayWidget({ config, isEditMode }: EncoderDisp
             <Typography
               sx={{
                 color: 'text.secondary',
-                fontSize: '0.875rem',
+                fontSize: widgetSize ? scaledRem(0.875, widgetSize.scale) : '0.875rem',
                 fontWeight: 500,
               }}
             >
@@ -144,7 +146,7 @@ export default function EncoderDisplayWidget({ config, isEditMode }: EncoderDisp
         <Typography
           sx={{
             fontFamily: '"JetBrains Mono", monospace',
-            fontSize: '0.75rem',
+            fontSize: widgetSize ? scaledRem(0.75, widgetSize.scale) : '0.75rem',
             color: 'text.secondary',
             letterSpacing: '0.05em',
           }}

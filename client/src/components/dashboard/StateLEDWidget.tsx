@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { StateLEDWidgetConfig } from '../../types/dashboard';
+import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
@@ -8,6 +9,7 @@ import { getWidgetError } from './WidgetErrorState';
 interface StateLEDWidgetProps {
   config: StateLEDWidgetConfig;
   isEditMode: boolean;
+  widgetSize?: WidgetSizeInfo;
 }
 
 /**
@@ -22,7 +24,7 @@ interface StateLEDWidgetProps {
  * - Motor state (STOPPED, STARTING, RUNNING, BRAKING, ERROR)
  * - Alarm state (NONE, WARNING, CRITICAL)
  */
-export default function StateLEDWidget({ config, isEditMode }: StateLEDWidgetProps) {
+export default function StateLEDWidget({ config, isEditMode, widgetSize }: StateLEDWidgetProps) {
   const { state } = useDSHub();
 
   // Set up auto-refresh
@@ -68,7 +70,7 @@ export default function StateLEDWidget({ config, isEditMode }: StateLEDWidgetPro
       }}
     >
       {/* Widget Label */}
-      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
+      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em' }}>
         {config.label}
       </Typography>
 
@@ -76,11 +78,11 @@ export default function StateLEDWidget({ config, isEditMode }: StateLEDWidgetPro
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Box
           sx={{
-            width: 12,
-            height: 12,
+            width: widgetSize ? scaledPx(12, widgetSize.scale) : 12,
+            height: widgetSize ? scaledPx(12, widgetSize.scale) : 12,
             borderRadius: '50%',
             backgroundColor: activeState.color,
-            boxShadow: `0 0 8px ${activeState.color}80`,
+            boxShadow: `0 0 ${widgetSize ? scaledPx(8, widgetSize.scale) : 8}px ${activeState.color}80`,
             animation: shouldPulse ? 'pulse 1.5s ease-in-out infinite' : 'none',
             '@keyframes pulse': {
               '0%, 100%': { opacity: 1 },
@@ -93,7 +95,7 @@ export default function StateLEDWidget({ config, isEditMode }: StateLEDWidgetPro
             sx={{
               fontFamily: '"JetBrains Mono", monospace',
               color: activeState.color,
-              fontSize: config.fontSize ? `${config.fontSize}rem` : '0.875rem',
+              fontSize: widgetSize ? scaledRem(config.fontSize ?? 0.875, widgetSize.scale) : (config.fontSize ? `${config.fontSize}rem` : '0.875rem'),
               fontWeight: 600,
               letterSpacing: '0.06em',
               textTransform: 'uppercase',

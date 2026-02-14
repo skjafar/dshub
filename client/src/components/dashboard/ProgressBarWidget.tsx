@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Typography, LinearProgress } from '@mui/material';
 import { ProgressBarWidgetConfig } from '../../types/dashboard';
+import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
@@ -8,6 +9,7 @@ import { getWidgetError } from './WidgetErrorState';
 interface ProgressBarWidgetProps {
   config: ProgressBarWidgetConfig;
   isEditMode: boolean;
+  widgetSize?: WidgetSizeInfo;
 }
 
 /**
@@ -22,7 +24,7 @@ interface ProgressBarWidgetProps {
  * - Tank fill level (0-100 liters)
  * - Completion progress (0-100%)
  */
-export default function ProgressBarWidget({ config, isEditMode }: ProgressBarWidgetProps) {
+export default function ProgressBarWidget({ config, isEditMode, widgetSize }: ProgressBarWidgetProps) {
   const { state } = useDSHub();
 
   // Set up auto-refresh
@@ -85,7 +87,7 @@ export default function ProgressBarWidget({ config, isEditMode }: ProgressBarWid
           alignItems: 'center',
         }}
       >
-        <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
+        <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em' }}>
           {config.label}
         </Typography>
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'baseline' }}>
@@ -94,7 +96,7 @@ export default function ProgressBarWidget({ config, isEditMode }: ProgressBarWid
               sx={{
                 fontFamily: '"JetBrains Mono", monospace',
                 color: barColor,
-                fontSize: config.valueFontSize ? `${config.valueFontSize}rem` : '0.875rem',
+                fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 0.875, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '0.875rem'),
                 fontWeight: 600,
               }}
             >
@@ -119,7 +121,7 @@ export default function ProgressBarWidget({ config, isEditMode }: ProgressBarWid
         variant="determinate"
         value={clampedPercentage}
         sx={{
-          height: 12,
+          height: widgetSize ? scaledPx(12, widgetSize.scale) : 12,
           borderRadius: 2,
           backgroundColor: 'rgba(255, 255, 255, 0.1)',
           '& .MuiLinearProgress-bar': {

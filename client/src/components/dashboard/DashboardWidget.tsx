@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Box, IconButton, Paper } from '@mui/material';
 import { Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import { DashboardWidget as DashboardWidgetType } from '../../types/dashboard';
+import { useWidgetSize } from '../../hooks/useWidgetSize';
+import { getWidgetScale, WidgetSizeInfo } from '../../utils/widgetScaling';
 import ButtonWidget from './ButtonWidget';
 import ValueReadWidget from './ValueReadWidget';
 import ValueWriteWidget from './ValueWriteWidget';
@@ -23,32 +25,36 @@ interface DashboardWidgetProps {
 }
 
 export default function DashboardWidget({ widget, isEditMode, onEdit, onDelete }: DashboardWidgetProps) {
-  const renderWidget = () => {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const { width, height } = useWidgetSize(contentRef);
+  const widgetSize = getWidgetScale(widget.type, width, height);
+
+  const renderWidget = (ws: WidgetSizeInfo) => {
     switch (widget.type) {
       case 'button':
-        return <ButtonWidget config={widget.config as any} isEditMode={isEditMode} />;
+        return <ButtonWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
       case 'valueRead':
-        return <ValueReadWidget config={widget.config as any} isEditMode={isEditMode} />;
+        return <ValueReadWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
       case 'valueWrite':
-        return <ValueWriteWidget config={widget.config as any} isEditMode={isEditMode} />;
+        return <ValueWriteWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
       case 'miniPlot':
-        return <MiniPlotWidget config={widget.config as any} isEditMode={isEditMode} />;
+        return <MiniPlotWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
       case 'dropdown':
-        return <DropdownWidget config={widget.config as any} isEditMode={isEditMode} />;
+        return <DropdownWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
       case 'stateLED':
-        return <StateLEDWidget config={widget.config as any} isEditMode={isEditMode} />;
+        return <StateLEDWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
       case 'gauge':
-        return <GaugeWidget config={widget.config as any} isEditMode={isEditMode} />;
+        return <GaugeWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
       case 'progressBar':
-        return <ProgressBarWidget config={widget.config as any} isEditMode={isEditMode} />;
+        return <ProgressBarWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
       case 'encoderDisplay':
-        return <EncoderDisplayWidget config={widget.config as any} isEditMode={isEditMode} />;
+        return <EncoderDisplayWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
       case 'ledIndicator':
-        return <LEDIndicatorWidget config={widget.config as any} isEditMode={isEditMode} />;
+        return <LEDIndicatorWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
       case 'directionalControl':
-        return <DirectionalControlWidget config={widget.config as any} isEditMode={isEditMode} />;
+        return <DirectionalControlWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
       case 'systemInfo':
-        return <SystemInfoWidget config={widget.config as any} isEditMode={isEditMode} />;
+        return <SystemInfoWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
       default:
         return <Box>Unknown widget type</Box>;
     }
@@ -111,8 +117,8 @@ export default function DashboardWidget({ widget, isEditMode, onEdit, onDelete }
       )}
 
       {/* Widget content */}
-      <Box sx={{ flex: 1, p: widget.type === 'button' ? 0 : 1.5, overflow: 'auto' }}>
-        {renderWidget()}
+      <Box ref={contentRef} sx={{ flex: 1, p: widget.type === 'button' ? 0 : 1.5, overflow: 'auto' }}>
+        {renderWidget(widgetSize)}
       </Box>
     </Paper>
   );

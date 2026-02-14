@@ -125,7 +125,7 @@ function CommandRow({ command, index, commands, onUpdate, onDelete, readOnly }: 
           slotProps={{
             htmlInput: { min: 0, max: 255 }
           }}
-          sx={{ fontFamily: 'monospace' }}
+          sx={{ fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace' }}
         />
       </TableCell>
       <TableCell>

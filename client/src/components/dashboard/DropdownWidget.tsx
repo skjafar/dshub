@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
 import { Box, FormControl, InputLabel, Select, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography } from '@mui/material';
 import { DropdownWidgetConfig } from '../../types/dashboard';
+import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useToast } from '../ToastNotification';
 
 interface DropdownWidgetProps {
   config: DropdownWidgetConfig;
   isEditMode: boolean;
+  widgetSize?: WidgetSizeInfo;
 }
 
-export default function DropdownWidget({ config, isEditMode }: DropdownWidgetProps) {
+export default function DropdownWidget({ config, isEditMode, widgetSize }: DropdownWidgetProps) {
   const { state, actions } = useDSHub();
   const { showSuccess, showError } = useToast();
   const [selectedValue, setSelectedValue] = useState<number | ''>('');
@@ -58,7 +60,7 @@ export default function DropdownWidget({ config, isEditMode }: DropdownWidgetPro
           gap: 1.5
         }}
       >
-        <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
+        <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em' }}>
           {config.label}
         </Typography>
 
@@ -69,7 +71,7 @@ export default function DropdownWidget({ config, isEditMode }: DropdownWidgetPro
             value={selectedValue}
             onChange={(e) => handleChange(e.target.value as number)}
             label="Select Value"
-            sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }}
+            sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: widgetSize ? scaledRem(0.8125, widgetSize.scale) : '0.8125rem' }}
           >
             {config.options.map((option) => (
               <MenuItem key={option.value} value={option.value}>

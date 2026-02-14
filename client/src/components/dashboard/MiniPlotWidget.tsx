@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { Line } from 'react-chartjs-2';
 import { MiniPlotWidgetConfig } from '../../types/dashboard';
+import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
@@ -14,9 +15,10 @@ interface DataPoint {
 interface MiniPlotWidgetProps {
   config: MiniPlotWidgetConfig;
   isEditMode: boolean;
+  widgetSize?: WidgetSizeInfo;
 }
 
-export default function MiniPlotWidget({ config, isEditMode }: MiniPlotWidgetProps) {
+export default function MiniPlotWidget({ config, isEditMode, widgetSize }: MiniPlotWidgetProps) {
   const { state } = useDSHub();
   const [dataPoints, setDataPoints] = useState<DataPoint[]>([]);
 
@@ -84,7 +86,7 @@ export default function MiniPlotWidget({ config, isEditMode }: MiniPlotWidgetPro
         ticks: {
           maxTicksLimit: 4,
           font: {
-            size: 10
+            size: widgetSize ? scaledPx(10, widgetSize.scale) : 10
           }
         },
         grid: {
@@ -98,7 +100,7 @@ export default function MiniPlotWidget({ config, isEditMode }: MiniPlotWidgetPro
         position: 'top' as const,
         labels: {
           font: {
-            size: 10
+            size: widgetSize ? scaledPx(10, widgetSize.scale) : 10
           }
         }
       },
@@ -125,7 +127,7 @@ export default function MiniPlotWidget({ config, isEditMode }: MiniPlotWidgetPro
         gap: 1
       }}
     >
-      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
+      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em' }}>
         {config.label}
       </Typography>
 

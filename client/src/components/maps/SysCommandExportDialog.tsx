@@ -104,7 +104,7 @@ export default function SysCommandExportDialog({
               value={mapFileContent}
               InputProps={{
                 readOnly: true,
-                sx: { fontFamily: 'monospace', fontSize: '0.875rem' }
+                sx: { fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace', fontSize: '0.875rem' }
               }}
               rows={15}
             />
@@ -140,7 +140,7 @@ export default function SysCommandExportDialog({
               value={headerFileContent}
               InputProps={{
                 readOnly: true,
-                sx: { fontFamily: 'monospace', fontSize: '0.875rem' }
+                sx: { fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace', fontSize: '0.875rem' }
               }}
               rows={15}
             />

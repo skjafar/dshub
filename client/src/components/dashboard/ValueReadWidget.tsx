@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { ValueReadWidgetConfig } from '../../types/dashboard';
+import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
@@ -8,9 +9,10 @@ import { getWidgetError } from './WidgetErrorState';
 interface ValueReadWidgetProps {
   config: ValueReadWidgetConfig;
   isEditMode: boolean;
+  widgetSize?: WidgetSizeInfo;
 }
 
-export default function ValueReadWidget({ config, isEditMode }: ValueReadWidgetProps) {
+export default function ValueReadWidget({ config, isEditMode, widgetSize }: ValueReadWidgetProps) {
   const { state } = useDSHub();
   const [isLoading, setIsLoading] = useState(false);
   const prevTimestampRef = useRef<number | undefined>(undefined);
@@ -79,7 +81,7 @@ export default function ValueReadWidget({ config, isEditMode }: ValueReadWidgetP
     >
       <Typography
         variant="overline"
-        sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}
+        sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em' }}
       >
         {config.label}
       </Typography>
@@ -89,7 +91,7 @@ export default function ValueReadWidget({ config, isEditMode }: ValueReadWidgetP
           sx={{
             fontFamily: '"JetBrains Mono", monospace',
             fontWeight: 700,
-            fontSize: config.valueFontSize ? `${config.valueFontSize}rem` : '1.75rem',
+            fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 1.75, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '1.75rem'),
             lineHeight: 1,
             color: data?.valid === false ? 'error.main' : 'text.primary',
           }}
@@ -98,7 +100,7 @@ export default function ValueReadWidget({ config, isEditMode }: ValueReadWidgetP
         </Typography>
 
         {config.unit && (
-          <Typography sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.75rem', color: 'text.secondary', fontWeight: 500 }}>
+          <Typography sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: widgetSize ? scaledRem(0.75, widgetSize.scale) : '0.75rem', color: 'text.secondary', fontWeight: 500 }}>
             {config.unit}
           </Typography>
         )}

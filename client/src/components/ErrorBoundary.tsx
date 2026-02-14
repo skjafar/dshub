@@ -82,7 +82,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
                 <Alert severity="error">
                   <AlertTitle>Error Details</AlertTitle>
-                  <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
+                  <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap', fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace' }}>
                     {this.state.error?.toString()}
                   </Typography>
                 </Alert>
@@ -95,7 +95,7 @@ export class ErrorBoundary extends Component<Props, State> {
                       component="pre"
                       sx={{
                         whiteSpace: 'pre-wrap',
-                        fontFamily: 'monospace',
+                        fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
                         fontSize: '0.75rem',
                         maxHeight: 200,
                         overflow: 'auto',

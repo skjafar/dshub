@@ -606,13 +606,13 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                     return (
                       <TableRow key={register.address} hover>
                         <TableCell sx={{ py: 0.5 }}>
-                          <Typography variant="body2" fontFamily="monospace">
+                          <Typography variant="body2" fontFamily='"JetBrains Mono", "Fira Code", "Cascadia Code", monospace'>
                             0x{register.address.toString(16).toUpperCase().padStart(2, '0')} ({register.address})
                           </Typography>
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
                           {arrayIndex !== null && (
-                            <Typography variant="body2" fontFamily="monospace">
+                            <Typography variant="body2" fontFamily='"JetBrains Mono", "Fira Code", "Cascadia Code", monospace'>
                               [{arrayIndex}]
                             </Typography>
                           )}
@@ -663,7 +663,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                                 }}
                               />
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, position: 'relative' }}>
-                                <Typography variant="body2" fontFamily="monospace">
+                                <Typography variant="body2" fontFamily='"JetBrains Mono", "Fira Code", "Cascadia Code", monospace'>
                                   {formatRegisterValue(register)}
                                 </Typography>
                                 <Box sx={{ width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -696,7 +696,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                               </Box>
                             </Box>
                           ) : (
-                            <Typography variant="body2" fontFamily="monospace">
+                            <Typography variant="body2" fontFamily='"JetBrains Mono", "Fira Code", "Cascadia Code", monospace'>
                               {formatRegisterValue(register)}
                             </Typography>
                           )}

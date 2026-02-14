@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { GaugeWidgetConfig } from '../../types/dashboard';
+import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
@@ -8,6 +9,7 @@ import { getWidgetError } from './WidgetErrorState';
 interface GaugeWidgetProps {
   config: GaugeWidgetConfig;
   isEditMode: boolean;
+  widgetSize?: WidgetSizeInfo;
 }
 
 /**
@@ -22,7 +24,7 @@ interface GaugeWidgetProps {
  * - Pressure gauge (0-100 PSI)
  * - Speed gauge (0-100 mm/s)
  */
-export default function GaugeWidget({ config, isEditMode }: GaugeWidgetProps) {
+export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWidgetProps) {
   const { state } = useDSHub();
 
   // Get current data from state
@@ -86,7 +88,7 @@ export default function GaugeWidget({ config, isEditMode }: GaugeWidgetProps) {
       }}
     >
       {/* Widget Label */}
-      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
+      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em' }}>
         {config.label}
       </Typography>
 
@@ -95,7 +97,7 @@ export default function GaugeWidget({ config, isEditMode }: GaugeWidgetProps) {
         sx={{
           position: 'relative',
           width: '100%',
-          maxWidth: 130,
+          maxWidth: widgetSize ? Math.min(widgetSize.width * 0.85, widgetSize.height * 0.65) : 130,
           aspectRatio: '1',
         }}
       >
@@ -147,7 +149,7 @@ export default function GaugeWidget({ config, isEditMode }: GaugeWidgetProps) {
             <Typography
               sx={{
                 fontFamily: '"JetBrains Mono", monospace',
-                fontSize: config.valueFontSize ? `${config.valueFontSize}rem` : '1.75rem',
+                fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 1.75, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '1.75rem'),
                 fontWeight: 700,
                 color: valueColor,
                 lineHeight: 1,
@@ -156,7 +158,7 @@ export default function GaugeWidget({ config, isEditMode }: GaugeWidgetProps) {
               {formatValue(currentValue)}
             </Typography>
             {config.unit && (
-              <Typography sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.625rem', color: 'text.secondary', fontWeight: 500, mt: 0.5 }}>
+              <Typography sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: widgetSize ? scaledRem(0.625, widgetSize.scale) : '0.625rem', color: 'text.secondary', fontWeight: 500, mt: 0.5 }}>
                 {config.unit}
               </Typography>
             )}
@@ -165,11 +167,11 @@ export default function GaugeWidget({ config, isEditMode }: GaugeWidgetProps) {
       </Box>
 
       {/* Min/Max Labels */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', maxWidth: 130 }}>
-        <Typography sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.5625rem', color: 'text.secondary' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', maxWidth: widgetSize ? Math.min(widgetSize.width * 0.85, widgetSize.height * 0.65) : 130 }}>
+        <Typography sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: widgetSize ? scaledRem(0.5625, widgetSize.scale) : '0.5625rem', color: 'text.secondary' }}>
           {config.min}
         </Typography>
-        <Typography sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.5625rem', color: 'text.secondary' }}>
+        <Typography sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: widgetSize ? scaledRem(0.5625, widgetSize.scale) : '0.5625rem', color: 'text.secondary' }}>
           {config.max}
         </Typography>
       </Box>

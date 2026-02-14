@@ -852,13 +852,13 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                     return (
                       <TableRow key={mapEntry.address} hover>
                         <TableCell sx={{ py: 0.5 }}>
-                          <Typography variant="body2" fontFamily="monospace">
+                          <Typography variant="body2" fontFamily='"JetBrains Mono", "Fira Code", "Cascadia Code", monospace'>
                             0x{mapEntry.address.toString(16).toUpperCase().padStart(2, '0')} ({mapEntry.address})
                           </Typography>
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
                           {arrayIndex !== null && (
-                            <Typography variant="body2" fontFamily="monospace">
+                            <Typography variant="body2" fontFamily='"JetBrains Mono", "Fira Code", "Cascadia Code", monospace'>
                               [{arrayIndex}]
                             </Typography>
                           )}
@@ -892,10 +892,10 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                               onKeyDown={(e) => handleInlineValueKeyPress(e, mapEntry.address, parameter, mapEntry)}
                               disabled={!state.connection?.connected}
                               sx={{
-                                fontFamily: 'monospace',
+                                fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
                                 width: 120,
                                 '& .MuiInputBase-input': {
-                                  fontFamily: 'monospace',
+                                  fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
                                   py: 0.5,
                                   fontSize: '0.875rem'
                                 },
@@ -908,7 +908,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                               }}
                             />
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, position: 'relative' }}>
-                              <Typography variant="body2" fontFamily="monospace">
+                              <Typography variant="body2" fontFamily='"JetBrains Mono", "Fira Code", "Cascadia Code", monospace'>
                                 {parameter ? formatParameterValue(parameter) : '---'}
                               </Typography>
                               <Box sx={{ width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>

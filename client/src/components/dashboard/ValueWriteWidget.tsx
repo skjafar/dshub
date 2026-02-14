@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
 import { Box, TextField, Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography } from '@mui/material';
 import { ValueWriteWidgetConfig } from '../../types/dashboard';
+import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useToast } from '../ToastNotification';
 
 interface ValueWriteWidgetProps {
   config: ValueWriteWidgetConfig;
   isEditMode: boolean;
+  widgetSize?: WidgetSizeInfo;
 }
 
-export default function ValueWriteWidget({ config, isEditMode }: ValueWriteWidgetProps) {
+export default function ValueWriteWidget({ config, isEditMode, widgetSize }: ValueWriteWidgetProps) {
   const { state, actions } = useDSHub();
   const { showSuccess, showError } = useToast();
   const [inputValue, setInputValue] = useState<string>('');
@@ -77,7 +79,7 @@ export default function ValueWriteWidget({ config, isEditMode }: ValueWriteWidge
           gap: 1.5
         }}
       >
-        <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
+        <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em' }}>
           {config.label}
         </Typography>
 
@@ -94,7 +96,7 @@ export default function ValueWriteWidget({ config, isEditMode }: ValueWriteWidge
             max: config.max,
             step: config.step || 1
           }}
-          sx={{ '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
+          sx={{ '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: widgetSize ? scaledRem(0.8125, widgetSize.scale) : '0.8125rem' } }}
           helperText={
             config.min !== undefined && config.max !== undefined
               ? `Range: ${config.min} - ${config.max}`
@@ -108,6 +110,7 @@ export default function ValueWriteWidget({ config, isEditMode }: ValueWriteWidge
           size="small"
           disabled={isEditMode || !state.connection?.connected || !inputValue}
           fullWidth
+          sx={{ fontSize: widgetSize ? scaledRem(0.8125, widgetSize.scale) : undefined }}
         >
           Write Value
         </Button>

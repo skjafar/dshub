@@ -169,8 +169,6 @@ export default function PlotPanel() {
     xMax: null
   });
 
-  // Global color tracking across all plots
-  const [usedColors, setUsedColors] = useState<Set<string>>(new Set());
 
   // Chart refs for each plot
   const chartRefs = useRef<Map<string, React.RefObject<ChartJS<"line", any, any>>>>(new Map());
@@ -239,15 +237,22 @@ export default function PlotPanel() {
     return { valid: true };
   };
 
-  // Get next available color globally
-  const getNextAvailableColor = useCallback(() => {
+  // Get next available color within a specific plot
+  const getNextAvailableColor = useCallback((plotId: string) => {
+    const plot = plots.find(p => p.id === plotId);
+    const plotColors = new Set<string>();
+    if (plot) {
+      for (const series of plot.series.values()) {
+        plotColors.add(series.color);
+      }
+    }
     for (const color of COLORS) {
-      if (!usedColors.has(color)) {
+      if (!plotColors.has(color)) {
         return color;
       }
     }
-    return COLORS[usedColors.size % COLORS.length];
-  }, [usedColors]);
+    return COLORS[plotColors.size % COLORS.length];
+  }, [plots]);
 
   // Get chart coordinates helper for a specific plot
   const getChartCoordinates = useCallback((plotId: string, clientX: number, clientY: number) => {
@@ -331,13 +336,8 @@ export default function PlotPanel() {
     if (!plotToRemove) return;
 
     // Stop all series in this plot and free colors
-    plotToRemove.series.forEach((series, seriesName) => {
+    plotToRemove.series.forEach((_series, seriesName) => {
       actions.stopPlotting(seriesName);
-      setUsedColors(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(series.color);
-        return newSet;
-      });
     });
 
     // Clean up chart refs to prevent memory leaks
@@ -376,7 +376,7 @@ export default function PlotPanel() {
       return;
     }
 
-    const color = getNextAvailableColor();
+    const color = getNextAvailableColor(selectedPlotId);
     const newSeries: PlotSeries = {
       name: selectedRegister,
       color,
@@ -394,7 +394,6 @@ export default function PlotPanel() {
       return plot;
     }));
 
-    setUsedColors(prev => new Set([...prev, color]));
     console.log(`[PlotPanel] Starting plotting: ${selectedRegister}, pollInterval: ${pollInterval}ms, address: ${register.address}`);
     actions.startPlotting(selectedRegister, pollInterval, register.address);
     actions.setPlotTimeSpan(selectedRegister, timeSpan);
@@ -409,14 +408,6 @@ export default function PlotPanel() {
     setPlots(prev => prev.map(plot => {
       if (plot.id === plotId) {
         const newSeriesMap = new Map(plot.series);
-        const series = newSeriesMap.get(seriesName);
-        if (series) {
-          setUsedColors(prevColors => {
-            const newSet = new Set(prevColors);
-            newSet.delete(series.color);
-            return newSet;
-          });
-        }
         newSeriesMap.delete(seriesName);
         return { ...plot, series: newSeriesMap };
       }

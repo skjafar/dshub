@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { SystemInfoWidgetConfig } from '../../types/dashboard';
+import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefreshMulti } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
@@ -8,6 +9,7 @@ import { getWidgetError } from './WidgetErrorState';
 interface SystemInfoWidgetProps {
   config: SystemInfoWidgetConfig;
   isEditMode: boolean;
+  widgetSize?: WidgetSizeInfo;
 }
 
 /**
@@ -22,7 +24,7 @@ interface SystemInfoWidgetProps {
  * - Performance metrics (CPU usage, memory, network stats)
  * - Sensor array (multiple sensor readings in one widget)
  */
-export default function SystemInfoWidget({ config, isEditMode }: SystemInfoWidgetProps) {
+export default function SystemInfoWidget({ config, isEditMode, widgetSize }: SystemInfoWidgetProps) {
   const { state } = useDSHub();
 
   // Set up auto-refresh for all items
@@ -79,7 +81,7 @@ export default function SystemInfoWidget({ config, isEditMode }: SystemInfoWidge
           variant="caption"
           sx={{
             color: 'text.secondary',
-            fontSize: '0.7rem',
+            fontSize: widgetSize ? scaledRem(0.7, widgetSize.scale) : '0.7rem',
             textTransform: 'uppercase',
             letterSpacing: '0.05em',
           }}
@@ -91,7 +93,7 @@ export default function SystemInfoWidget({ config, isEditMode }: SystemInfoWidge
             sx={{
               fontFamily: '"JetBrains Mono", monospace',
               color: itemColor,
-              fontSize: config.valueFontSize ? `${config.valueFontSize}rem` : '0.9rem',
+              fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 0.9, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '0.9rem'),
               fontWeight: 600,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -104,7 +106,7 @@ export default function SystemInfoWidget({ config, isEditMode }: SystemInfoWidge
               variant="caption"
               sx={{
                 color: 'text.secondary',
-                fontSize: '0.7rem',
+                fontSize: widgetSize ? scaledRem(0.7, widgetSize.scale) : '0.7rem',
               }}
             >
               {item.unit}
@@ -141,7 +143,7 @@ export default function SystemInfoWidget({ config, isEditMode }: SystemInfoWidge
         variant="overline"
         sx={{
           color: 'text.secondary',
-          fontSize: '0.6rem',
+          fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem',
           letterSpacing: '0.08em',
           borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
           pb: 0.5,
@@ -155,7 +157,7 @@ export default function SystemInfoWidget({ config, isEditMode }: SystemInfoWidge
         sx={{
           display: layout === 'grid' ? 'grid' : 'flex',
           flexDirection: layout === 'vertical' ? 'column' : 'row',
-          gridTemplateColumns: layout === 'grid' ? 'repeat(auto-fit, minmax(120px, 1fr))' : undefined,
+          gridTemplateColumns: layout === 'grid' ? `repeat(auto-fit, minmax(${widgetSize ? scaledPx(120, widgetSize.scale) : 120}px, 1fr))` : undefined,
           gap: layout === 'grid' ? 2 : 1.5,
           flexWrap: layout === 'horizontal' ? 'wrap' : undefined,
           overflow: 'auto',

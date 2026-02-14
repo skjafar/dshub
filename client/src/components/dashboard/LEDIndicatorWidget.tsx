@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { LEDIndicatorWidgetConfig } from '../../types/dashboard';
+import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
@@ -8,6 +9,7 @@ import { getWidgetError } from './WidgetErrorState';
 interface LEDIndicatorWidgetProps {
   config: LEDIndicatorWidgetConfig;
   isEditMode: boolean;
+  widgetSize?: WidgetSizeInfo;
 }
 
 /**
@@ -22,7 +24,7 @@ interface LEDIndicatorWidgetProps {
  * - Connection status (1=green/CONNECTED, 0=red/DISCONNECTED)
  * - Limit switch (1=red/TRIGGERED, 0=gray/NORMAL)
  */
-export default function LEDIndicatorWidget({ config, isEditMode }: LEDIndicatorWidgetProps) {
+export default function LEDIndicatorWidget({ config, isEditMode, widgetSize }: LEDIndicatorWidgetProps) {
   const { state } = useDSHub();
 
   // Get current data from state
@@ -75,7 +77,7 @@ export default function LEDIndicatorWidget({ config, isEditMode }: LEDIndicatorW
       }}
     >
       {/* Widget Label */}
-      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
+      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em' }}>
         {config.label}
       </Typography>
 
@@ -90,11 +92,11 @@ export default function LEDIndicatorWidget({ config, isEditMode }: LEDIndicatorW
         {/* LED Indicator */}
         <Box
           sx={{
-            width: 12,
-            height: 12,
+            width: widgetSize ? scaledPx(12, widgetSize.scale) : 12,
+            height: widgetSize ? scaledPx(12, widgetSize.scale) : 12,
             borderRadius: '50%',
             backgroundColor: ledColor,
-            boxShadow: state.connection?.connected && isOn ? `0 0 8px ${ledColor}80` : 'none',
+            boxShadow: state.connection?.connected && isOn ? `0 0 ${widgetSize ? scaledPx(8, widgetSize.scale) : 8}px ${ledColor}80` : 'none',
             animation: shouldPulse ? 'pulse 1.5s ease-in-out infinite' : 'none',
             '@keyframes pulse': {
               '0%, 100%': {
@@ -112,7 +114,7 @@ export default function LEDIndicatorWidget({ config, isEditMode }: LEDIndicatorW
           sx={{
             color: ledColor,
             fontFamily: '"JetBrains Mono", monospace',
-            fontSize: config.fontSize ? `${config.fontSize}rem` : '0.75rem',
+            fontSize: widgetSize ? scaledRem(config.fontSize ?? 0.75, widgetSize.scale) : (config.fontSize ? `${config.fontSize}rem` : '0.75rem'),
             fontWeight: 600,
             textTransform: 'uppercase',
             letterSpacing: '0.06em',
@@ -124,7 +126,7 @@ export default function LEDIndicatorWidget({ config, isEditMode }: LEDIndicatorW
 
       {/* Connection Status */}
       {!state.connection?.connected && (
-        <Typography variant="caption" color="error" sx={{ fontSize: '0.65rem' }}>
+        <Typography variant="caption" color="error" sx={{ fontSize: widgetSize ? scaledRem(0.65, widgetSize.scale) : '0.65rem' }}>
           Not connected
         </Typography>
       )}
