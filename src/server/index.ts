@@ -20,7 +20,6 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
 
 const logger = Logger.getInstance();
 const deviceScanner = new DeviceScanner();
-const deviceCommunicator = new DeviceCommunicator();
 
 // Middleware
 app.use(helmet({
@@ -44,6 +43,7 @@ if (isProduction) {
 // Socket.IO connection handling
 io.on('connection', (socket) => {
   logger.info(`Client connected: ${socket.id}`);
+  const deviceCommunicator = new DeviceCommunicator();
 
   // Helper to wrap handlers with error handling
   const wrapHandler = <T extends any[]>(eventName: string, handler: (...args: T) => void) => {
@@ -154,7 +154,7 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     logger.info(`Client disconnected: ${socket.id}`);
-    // Clean up log callback to prevent memory leak
+    deviceCommunicator.disconnect();
     removeLogCallback();
   });
 });
