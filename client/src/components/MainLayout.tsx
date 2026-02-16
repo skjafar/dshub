@@ -17,6 +17,7 @@ import {
   Tooltip,
   Button,
   Slider,
+  Switch,
   CircularProgress
 } from '@mui/material';
 import {
@@ -100,6 +101,8 @@ export default function MainLayout() {
   // Dashboard control state
   const [isDashboardEditMode, setIsDashboardEditMode] = useState(false);
   const [dashboardCellSize, setDashboardCellSize] = useState(60);
+  const [dashboardSpacing, setDashboardSpacing] = useState(10);
+  const [dashboardRoundedCorners, setDashboardRoundedCorners] = useState(true);
   const dashboardContainerRef = useRef<HTMLDivElement>(null);
   const [dashboardContainerWidth, setDashboardContainerWidth] = useState(1200);
 
@@ -215,6 +218,8 @@ export default function MainLayout() {
             isEditMode={isDashboardEditMode}
             cellSize={dashboardCellSize}
             cols={dashboardCols}
+            spacing={dashboardSpacing}
+            roundedCorners={dashboardRoundedCorners}
             onEditModeChange={setIsDashboardEditMode}
             onCellSizeChange={setDashboardCellSize}
             onAddWidget={handleDashboardAddWidget}
@@ -540,9 +545,55 @@ export default function MainLayout() {
                         }
                       }}
                     />
-                    <Typography variant="body2" color="inherit" sx={{ whiteSpace: 'nowrap', minWidth: '75px', fontSize: '0.875rem' }}>
+                    <Typography variant="body2" color="inherit" sx={{ whiteSpace: 'nowrap', minWidth: '45px', fontSize: '0.875rem' }}>
                       {dashboardCellSize}px
                     </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: 1 }}>
+                    <Typography variant="body2" color="inherit" sx={{ whiteSpace: 'nowrap', fontSize: '0.875rem' }}>
+                      Spacing:
+                    </Typography>
+                    <Slider
+                      value={dashboardSpacing}
+                      onChange={(_, value) => setDashboardSpacing(value as number)}
+                      min={0}
+                      max={30}
+                      step={2}
+                      valueLabelDisplay="auto"
+                      valueLabelFormat={(value) => `${value}px`}
+                      sx={{
+                        width: 100,
+                        color: 'rgba(255, 255, 255, 0.9)',
+                        '& .MuiSlider-thumb': {
+                          width: 16,
+                          height: 16,
+                        },
+                        '& .MuiSlider-rail': {
+                          opacity: 0.3,
+                        }
+                      }}
+                    />
+                    <Typography variant="body2" color="inherit" sx={{ whiteSpace: 'nowrap', minWidth: '35px', fontSize: '0.875rem' }}>
+                      {dashboardSpacing}px
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', ml: 1 }}>
+                    <Typography variant="body2" color="inherit" sx={{ whiteSpace: 'nowrap', fontSize: '0.875rem' }}>
+                      Rounded:
+                    </Typography>
+                    <Switch
+                      checked={dashboardRoundedCorners}
+                      onChange={(e) => setDashboardRoundedCorners(e.target.checked)}
+                      size="small"
+                      sx={{
+                        '& .MuiSwitch-switchBase.Mui-checked': {
+                          color: 'primary.main',
+                        },
+                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                          backgroundColor: 'primary.main',
+                        },
+                      }}
+                    />
                   </Box>
                 </>
               )}

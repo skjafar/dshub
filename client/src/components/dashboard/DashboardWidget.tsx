@@ -20,11 +20,12 @@ import SystemInfoWidget from './SystemInfoWidget';
 interface DashboardWidgetProps {
   widget: DashboardWidgetType;
   isEditMode: boolean;
+  roundedCorners: boolean;
   onEdit: (widgetId: string) => void;
   onDelete: (widgetId: string) => void;
 }
 
-export default function DashboardWidget({ widget, isEditMode, onEdit, onDelete }: DashboardWidgetProps) {
+export default function DashboardWidget({ widget, isEditMode, roundedCorners, onEdit, onDelete }: DashboardWidgetProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const { width, height } = useWidgetSize(contentRef);
   const widgetSize = getWidgetScale(widget.type, width, height);
@@ -67,6 +68,7 @@ export default function DashboardWidget({ widget, isEditMode, onEdit, onDelete }
         position: 'relative',
         border: isEditMode ? '1.5px dashed' : '1px solid',
         borderColor: isEditMode ? 'primary.main' : 'divider',
+        borderRadius: roundedCorners ? 1 : 0,
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',

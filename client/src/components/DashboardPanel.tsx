@@ -50,6 +50,8 @@ interface DashboardPanelProps {
   isEditMode: boolean;
   cellSize: number;
   cols: number;
+  spacing: number;
+  roundedCorners: boolean;
   onEditModeChange: (editMode: boolean) => void;
   onCellSizeChange: (size: number) => void;
   onAddWidget: () => void;
@@ -62,6 +64,8 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
     isEditMode,
     cellSize,
     cols,
+    spacing,
+    roundedCorners,
     onEditModeChange,
     onCellSizeChange,
     onAddWidget: onAddWidgetExternal,
@@ -443,7 +447,8 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
             layout={activeTab.widgets.map(w => w.layout)}
             cols={cols}
             rowHeight={cellSize}
-            width={containerWidth}
+            width={cellSize * cols + (spacing) * (cols - 1)}
+            margin={[spacing, spacing]}
             isDraggable={isEditMode}
             isResizable={isEditMode}
             onLayoutChange={handleLayoutChange}
@@ -456,6 +461,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
                 <DashboardWidget
                   widget={widget}
                   isEditMode={isEditMode}
+                  roundedCorners={roundedCorners}
                   onEdit={handleEditWidget}
                   onDelete={handleDeleteWidget}
                 />
