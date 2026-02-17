@@ -29,6 +29,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import { useDSHub } from '../contexts/DSHubContext';
 import MapProfilesPanel from './MapProfilesPanel';
+import { FONT_MONO } from '../theme';
 
 export default function SettingsPanel() {
   const { settings, updateSettings, resetSettings, exportSettings, importSettings } = useSettings();
@@ -281,14 +282,14 @@ export default function SettingsPanel() {
                 size="small"
                 placeholder="192.168.1.100"
                 helperText="IP address of the last connected device"
-                sx={{ '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
+                sx={{ '& .MuiInputBase-input': { fontFamily: FONT_MONO, fontSize: '0.8125rem' } }}
               />
 
               <FormControl component="fieldset">
                 <FormLabel component="legend" sx={{ fontSize: '0.75rem' }}>Preferred Interface</FormLabel>
                 <RadioGroup value={settings.lastInterfaceType} onChange={handleInterfaceChange} row>
-                  <FormControlLabel value="TCP" control={<Radio size="small" />} label={<Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace' }}>TCP</Typography>} />
-                  <FormControlLabel value="UDP" control={<Radio size="small" />} label={<Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace' }}>UDP</Typography>} />
+                  <FormControlLabel value="TCP" control={<Radio size="small" />} label={<Typography variant="body2" sx={{ fontFamily: FONT_MONO }}>TCP</Typography>} />
+                  <FormControlLabel value="UDP" control={<Radio size="small" />} label={<Typography variant="body2" sx={{ fontFamily: FONT_MONO }}>UDP</Typography>} />
                 </RadioGroup>
               </FormControl>
 
@@ -327,7 +328,7 @@ export default function SettingsPanel() {
                       "0-10 attempts"
                     }
                     size="small"
-                    sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
+                    sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: FONT_MONO, fontSize: '0.8125rem' } }}
                   />
 
                   <TextField
@@ -344,7 +345,7 @@ export default function SettingsPanel() {
                       "500-10000 ms"
                     }
                     size="small"
-                    sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
+                    sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: FONT_MONO, fontSize: '0.8125rem' } }}
                   />
                 </Box>
               )}
@@ -375,7 +376,7 @@ export default function SettingsPanel() {
                   }}
                   helperText={validateNumber(pollIntervalInput, 50, 10000).error || "50-10000 ms"}
                   size="small"
-                  sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
+                  sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: FONT_MONO, fontSize: '0.8125rem' } }}
                 />
 
                 <TextField
@@ -389,7 +390,7 @@ export default function SettingsPanel() {
                   }}
                   helperText={validateNumber(timeSpanInput, 5, settings.plotDefaults.maxTimeSpan).error || `5-${settings.plotDefaults.maxTimeSpan}s`}
                   size="small"
-                  sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
+                  sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: FONT_MONO, fontSize: '0.8125rem' } }}
                 />
               </Box>
 
@@ -405,7 +406,7 @@ export default function SettingsPanel() {
                   }}
                   helperText={validateNumber(maxTimeSpanInput, 60, 86400).error || "60-86400s"}
                   size="small"
-                  sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
+                  sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: FONT_MONO, fontSize: '0.8125rem' } }}
                 />
 
                 <TextField
@@ -419,7 +420,7 @@ export default function SettingsPanel() {
                   }}
                   helperText={validateNumber(maxDataPointsInput, 1000, 100000).error || `~${Math.round(settings.plotDefaults.maxDataPoints * 16 / 1024)} KB/series`}
                   size="small"
-                  sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
+                  sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: FONT_MONO, fontSize: '0.8125rem' } }}
                 />
               </Box>
 
@@ -590,7 +591,7 @@ export default function SettingsPanel() {
                   `100-10000 entries (~${Math.round(parseInt(maxLogCountInput || '1000') * 0.5)} KB)`
                 }
                 size="small"
-                sx={{ '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
+                sx={{ '& .MuiInputBase-input': { fontFamily: FONT_MONO, fontSize: '0.8125rem' } }}
                 fullWidth
               />
 

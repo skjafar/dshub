@@ -46,9 +46,11 @@ import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import { mapManager } from '../maps/mapManager';
-import { MapEntry, DataAccessPermit, DataForm } from '../maps/mapParser';
-import { int32ToFloat, floatToInt32, formatFloat } from '../utils/floatConversion';
+import { MapEntry, DataAccessPermit } from '../maps/mapParser';
+import { int32ToFloat, formatFloat } from '../utils/floatConversion';
+import { canWriteToDevice, formatDataValue, parseWriteValue } from '../utils/dataTableUtils';
 import { useDebouncedCallback } from '../hooks/useDebounce';
+import { FONT_MONO } from '../theme';
 
 interface RegisterEditDialogProps {
   open: boolean;
@@ -211,10 +213,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
     initializeMaps();
   }, [settings.activeMapProfileId, getActiveProfile, actions]);
 
-  const canWrite = state.connection?.connected && (
-    (state.connection.interface === 'TCP' && state.connection.controlState === 1) ||
-    (state.connection.interface === 'UDP' && state.connection.controlState === 2)
-  );
+  const canWrite = canWriteToDevice(state.connection);
 
   const handleRefreshAll = () => {
     // Read all visible registers in the current tab
@@ -250,48 +249,13 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   const handleInlineValueWrite = (address: number, register: any, mapEntry: MapEntry | undefined) => {
     const valueStr = editingValues[address];
     if (valueStr !== undefined && valueStr !== '') {
-      let parsedValue: number;
-
-      // Handle float type - convert to int32 representation
-      if (mapEntry?.type === 'float') {
-        const floatValue = parseFloat(valueStr);
-        if (isNaN(floatValue)) {
-          showError('Invalid float value');
-          return;
-        }
-        parsedValue = floatToInt32(floatValue);
-      } else if (mapEntry?.showAsHex) {
-        parsedValue = parseInt(valueStr, 16);
-      } else {
-        parsedValue = parseInt(valueStr, 10);
-      }
-
-      if (isNaN(parsedValue)) {
-        showError('Invalid numeric value');
+      const result = parseWriteValue(valueStr, mapEntry);
+      if (result.value === null) {
+        showError(result.error);
         return;
       }
 
-      // CRITICAL: Validate range for safety-critical applications
-      // JavaScript numbers can exceed 32-bit integer ranges, causing device malfunction
-      const MIN_INT32 = -2147483648;
-      const MAX_INT32 = 2147483647;
-      const MAX_UINT32 = 4294967295;
-
-      // Validate based on data type
-      if (mapEntry?.type === DataForm.UINT) {
-        if (parsedValue < 0 || parsedValue > MAX_UINT32) {
-          showError(`Value must be between 0 and ${MAX_UINT32.toLocaleString()} (uint32_t)`);
-          return;
-        }
-      } else {
-        // Signed int32_t
-        if (parsedValue < MIN_INT32 || parsedValue > MAX_INT32) {
-          showError(`Value must be between ${MIN_INT32.toLocaleString()} and ${MAX_INT32.toLocaleString()} (int32_t)`);
-          return;
-        }
-      }
-
-      actions.writeRegister(address, parsedValue);
+      actions.writeRegister(address, result.value);
 
       // Clear editing state to remove orange border indicator
       setEditingValues(prev => {
@@ -383,22 +347,8 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   };
 
   const formatRegisterValue = (register: any): string => {
-    if (register.value === null || register.value === undefined) {
-      return '---'; // Placeholder for unread values
-    }
-
     const mapEntry = getMapEntryForRegister(register.address);
-
-    // Handle float type - convert from int32 representation
-    if (mapEntry?.type === 'float') {
-      const floatValue = int32ToFloat(register.value);
-      return formatFloat(floatValue);
-    }
-
-    if (mapEntry?.showAsHex) {
-      return `0x${register.value.toString(16).toUpperCase()}`;
-    }
-    return register.value.toString();
+    return formatDataValue(register.value, mapEntry);
   };
 
   const getRegistersForCurrentTab = () => {
@@ -606,13 +556,13 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                     return (
                       <TableRow key={register.address} hover>
                         <TableCell sx={{ py: 0.5 }}>
-                          <Typography variant="body2" fontFamily='"JetBrains Mono", "Fira Code", "Cascadia Code", monospace'>
+                          <Typography variant="body2" fontFamily={FONT_MONO}>
                             0x{register.address.toString(16).toUpperCase().padStart(2, '0')} ({register.address})
                           </Typography>
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
                           {arrayIndex !== null && (
-                            <Typography variant="body2" fontFamily='"JetBrains Mono", "Fira Code", "Cascadia Code", monospace'>
+                            <Typography variant="body2" fontFamily={FONT_MONO}>
                               [{arrayIndex}]
                             </Typography>
                           )}
@@ -647,10 +597,10 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                                 onChange={(e) => handleInlineValueChange(register.address, e.target.value)}
                                 onKeyDown={(e) => handleInlineValueKeyPress(e, register.address, register, mapEntry)}
                                 sx={{
-                                  fontFamily: '"JetBrains Mono", monospace',
+                                  fontFamily: FONT_MONO,
                                   width: 120,
                                   '& .MuiInputBase-input': {
-                                    fontFamily: '"JetBrains Mono", monospace',
+                                    fontFamily: FONT_MONO,
                                     py: 0.5,
                                     fontSize: '0.875rem'
                                   },
@@ -663,7 +613,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                                 }}
                               />
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, position: 'relative' }}>
-                                <Typography variant="body2" fontFamily='"JetBrains Mono", "Fira Code", "Cascadia Code", monospace'>
+                                <Typography variant="body2" fontFamily={FONT_MONO}>
                                   {formatRegisterValue(register)}
                                 </Typography>
                                 <Box sx={{ width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -696,7 +646,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                               </Box>
                             </Box>
                           ) : (
-                            <Typography variant="body2" fontFamily='"JetBrains Mono", "Fira Code", "Cascadia Code", monospace'>
+                            <Typography variant="body2" fontFamily={FONT_MONO}>
                               {formatRegisterValue(register)}
                             </Typography>
                           )}

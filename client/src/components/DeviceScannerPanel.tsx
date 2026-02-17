@@ -27,6 +27,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import { InterfaceType, DEFAULT_TCP_PORT, DEFAULT_UDP_PORT } from '../types/shared';
 import { mapManager } from '../maps/mapManager';
+import { FONT_MONO } from '../theme';
 
 const formatMacAddress = (mac: string): string => {
   return mac.toUpperCase();
@@ -195,7 +196,7 @@ export default function DeviceScannerPanel() {
                 error={!!ipError}
                 helperText={ipError}
                 size="small"
-                sx={{ '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
+                sx={{ '& .MuiInputBase-input': { fontFamily: FONT_MONO, fontSize: '0.8125rem' } }}
               />
             </Box>
             <Box sx={{ minWidth: '100px', flex: '0 1 100px' }}>
@@ -205,7 +206,7 @@ export default function DeviceScannerPanel() {
                   value={manualInterface}
                   onChange={handleInterfaceChange}
                   label="Interface"
-                  sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }}
+                  sx={{ fontFamily: FONT_MONO, fontSize: '0.8125rem' }}
                 >
                   <MenuItem value={InterfaceType.TCP}>TCP</MenuItem>
                   <MenuItem value={InterfaceType.UDP}>UDP</MenuItem>
@@ -221,7 +222,7 @@ export default function DeviceScannerPanel() {
                 onChange={(e) => setManualPort(Number(e.target.value))}
                 size="small"
                 disabled
-                sx={{ '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
+                sx={{ '& .MuiInputBase-input': { fontFamily: FONT_MONO, fontSize: '0.8125rem' } }}
               />
             </Box>
             <Button
@@ -275,17 +276,17 @@ export default function DeviceScannerPanel() {
                         <Typography variant="body2" fontWeight={600} sx={{ fontSize: '0.8125rem' }}>
                           {device.board_name}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.6rem' }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: FONT_MONO, fontSize: '0.6rem' }}>
                           {device.device_id}
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }}>
+                        <Typography variant="body2" sx={{ fontFamily: FONT_MONO, fontSize: '0.8125rem' }}>
                           {device.ip_address}
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.75rem', color: 'text.secondary' }}>
+                        <Typography variant="body2" sx={{ fontFamily: FONT_MONO, fontSize: '0.75rem', color: 'text.secondary' }}>
                           {formatMacAddress(device.mac_address)}
                         </Typography>
                       </TableCell>
@@ -294,16 +295,16 @@ export default function DeviceScannerPanel() {
                           label={getBoardTypeName(device.board_type)}
                           size="small"
                           variant="outlined"
-                          sx={{ fontFamily: '"JetBrains Mono", monospace' }}
+                          sx={{ fontFamily: FONT_MONO }}
                         />
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }}>
+                        <Typography variant="body2" sx={{ fontFamily: FONT_MONO, fontSize: '0.8125rem' }}>
                           {formatFirmwareVersion(device.firmware_version)}
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="caption" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.6875rem', color: 'text.secondary' }}>
+                        <Typography variant="caption" sx={{ fontFamily: FONT_MONO, fontSize: '0.6875rem', color: 'text.secondary' }}>
                           {device.tcp_port}/{device.udp_port}
                         </Typography>
                       </TableCell>

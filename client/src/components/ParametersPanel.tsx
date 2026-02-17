@@ -44,10 +44,12 @@ import {
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { mapManager } from '../maps/mapManager';
-import { MapEntry, DataAccessPermit, DataForm } from '../maps/mapParser';
+import { MapEntry } from '../maps/mapParser';
 import { useToast } from './ToastNotification';
-import { int32ToFloat, floatToInt32, formatFloat } from '../utils/floatConversion';
+import { int32ToFloat, formatFloat } from '../utils/floatConversion';
+import { canWriteToDevice, formatDataValue, parseWriteValue } from '../utils/dataTableUtils';
 import { useDebouncedCallback } from '../hooks/useDebounce';
+import { FONT_MONO } from '../theme';
 
 // Constants
 const WRITE_VERIFICATION_DELAY_MS = 100;
@@ -241,10 +243,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
     initializeMaps();
   }, [settings.activeMapProfileId, getActiveProfile, actions]);
 
-  const canWrite = state.connection?.connected && (
-    (state.connection.interface === 'TCP' && state.connection.controlState === 1) ||
-    (state.connection.interface === 'UDP' && state.connection.controlState === 2)
-  );
+  const canWrite = canWriteToDevice(state.connection);
 
   const handleRefreshAll = () => {
     // Read all parameters that have already been read (refresh visible data)
@@ -280,48 +279,13 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
   const handleInlineValueWrite = (address: number, parameter: Parameter | undefined, mapEntry: MapEntry) => {
     const valueStr = editingValues[address];
     if (valueStr !== undefined && valueStr !== '') {
-      let parsedValue: number;
-
-      // Handle float type - convert to int32 representation
-      if (mapEntry.type === 'float') {
-        const floatValue = parseFloat(valueStr);
-        if (isNaN(floatValue)) {
-          toast.showError('Invalid float value');
-          return;
-        }
-        parsedValue = floatToInt32(floatValue);
-      } else if (mapEntry.showAsHex) {
-        parsedValue = parseInt(valueStr, 16);
-      } else {
-        parsedValue = parseInt(valueStr, 10);
-      }
-
-      if (isNaN(parsedValue)) {
-        toast.showError('Invalid numeric value');
+      const result = parseWriteValue(valueStr, mapEntry);
+      if (result.value === null) {
+        toast.showError(result.error);
         return;
       }
 
-      // CRITICAL: Validate range for safety-critical applications
-      // JavaScript numbers can exceed 32-bit integer ranges, causing device malfunction
-      const MIN_INT32 = -2147483648;
-      const MAX_INT32 = 2147483647;
-      const MAX_UINT32 = 4294967295;
-
-      // Validate based on data type
-      if (mapEntry.type === DataForm.UINT) {
-        if (parsedValue < 0 || parsedValue > MAX_UINT32) {
-          toast.showError(`Value must be between 0 and ${MAX_UINT32.toLocaleString()} (uint32_t)`);
-          return;
-        }
-      } else {
-        // Signed int32_t
-        if (parsedValue < MIN_INT32 || parsedValue > MAX_INT32) {
-          toast.showError(`Value must be between ${MIN_INT32.toLocaleString()} and ${MAX_INT32.toLocaleString()} (int32_t)`);
-          return;
-        }
-      }
-
-      actions.writeParameter(address, parsedValue);
+      actions.writeParameter(address, result.value);
 
       // Clear editing state to remove orange border indicator
       setEditingValues(prev => {
@@ -611,21 +575,9 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
         const mapEntry = mapLookup.get(address);
         if (!mapEntry) return;
 
-        let parsedValue: number;
-
-        // Handle float type - convert to int32 representation
-        if (mapEntry.type === 'float') {
-          const floatValue = parseFloat(valueStr);
-          if (isNaN(floatValue)) return;
-          parsedValue = floatToInt32(floatValue);
-        } else if (mapEntry.showAsHex) {
-          parsedValue = parseInt(valueStr, 16);
-        } else {
-          parsedValue = parseInt(valueStr, 10);
-        }
-
-        if (!isNaN(parsedValue)) {
-          actions.writeParameter(address, parsedValue);
+        const result = parseWriteValue(valueStr, mapEntry);
+        if (result.value !== null) {
+          actions.writeParameter(address, result.value);
           addressesToRead.push({ address, name: mapEntry.name });
         }
       }
@@ -650,22 +602,8 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
   };
 
   const formatParameterValue = (parameter: Parameter): string => {
-    if (parameter.value === null || parameter.value === undefined) {
-      return '---';
-    }
-
     const mapEntry = mapLookup.get(parameter.address);
-
-    // Handle float type - convert from int32 representation
-    if (mapEntry?.type === 'float') {
-      const floatValue = int32ToFloat(parameter.value);
-      return formatFloat(floatValue);
-    }
-
-    if (mapEntry?.showAsHex) {
-      return `0x${parameter.value.toString(16).toUpperCase()}`;
-    }
-    return parameter.value.toString();
+    return formatDataValue(parameter.value, mapEntry);
   };
 
   // Expose methods to parent component
@@ -852,13 +790,13 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                     return (
                       <TableRow key={mapEntry.address} hover>
                         <TableCell sx={{ py: 0.5 }}>
-                          <Typography variant="body2" fontFamily='"JetBrains Mono", "Fira Code", "Cascadia Code", monospace'>
+                          <Typography variant="body2" fontFamily={FONT_MONO}>
                             0x{mapEntry.address.toString(16).toUpperCase().padStart(2, '0')} ({mapEntry.address})
                           </Typography>
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
                           {arrayIndex !== null && (
-                            <Typography variant="body2" fontFamily='"JetBrains Mono", "Fira Code", "Cascadia Code", monospace'>
+                            <Typography variant="body2" fontFamily={FONT_MONO}>
                               [{arrayIndex}]
                             </Typography>
                           )}
@@ -892,10 +830,10 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                               onKeyDown={(e) => handleInlineValueKeyPress(e, mapEntry.address, parameter, mapEntry)}
                               disabled={!state.connection?.connected}
                               sx={{
-                                fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
+                                fontFamily: FONT_MONO,
                                 width: 120,
                                 '& .MuiInputBase-input': {
-                                  fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
+                                  fontFamily: FONT_MONO,
                                   py: 0.5,
                                   fontSize: '0.875rem'
                                 },
@@ -908,7 +846,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                               }}
                             />
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, position: 'relative' }}>
-                              <Typography variant="body2" fontFamily='"JetBrains Mono", "Fira Code", "Cascadia Code", monospace'>
+                              <Typography variant="body2" fontFamily={FONT_MONO}>
                                 {parameter ? formatParameterValue(parameter) : '---'}
                               </Typography>
                               <Box sx={{ width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -918,7 +856,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                                     const writtenFloat = parseFloat(editingValues[mapEntry.address]);
                                     const boardFloat = int32ToFloat(parameter.value);
                                     return !isNaN(writtenFloat) && Math.abs(writtenFloat - boardFloat) > FLOAT_COMPARISON_TOLERANCE ? (
-                                      <Tooltip title={`Mismatch: Wrote ${formatFloat(writtenFloat)} but read ${formatFloat(boardFloat)}`}>
+                                      <Tooltip title={`Mismatch: Set ${formatFloat(writtenFloat)} but read ${formatFloat(boardFloat)}`}>
                                         <Box component="span" sx={{ color: 'error.main', display: 'flex', alignItems: 'center' }}>
                                           ⚠️
                                         </Box>
@@ -928,7 +866,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                                     const writtenValue = mapEntry.showAsHex ? parseInt(editingValues[mapEntry.address], 16) : parseInt(editingValues[mapEntry.address], 10);
                                     const boardValue = parameter.value;
                                     return !isNaN(writtenValue) && writtenValue !== boardValue ? (
-                                      <Tooltip title={`Mismatch: Wrote ${writtenValue} but read ${boardValue}`}>
+                                      <Tooltip title={`Mismatch: Set ${writtenValue} but read ${boardValue}`}>
                                         <Box component="span" sx={{ color: 'error.main', display: 'flex', alignItems: 'center' }}>
                                           ⚠️
                                         </Box>

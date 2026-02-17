@@ -5,6 +5,7 @@ import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
+import { FONT_MONO } from '../../theme';
 
 interface ValueReadWidgetProps {
   config: ValueReadWidgetConfig;
@@ -89,7 +90,7 @@ export default function ValueReadWidget({ config, isEditMode, widgetSize }: Valu
       <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75 }}>
         <Typography
           sx={{
-            fontFamily: '"JetBrains Mono", monospace',
+            fontFamily: FONT_MONO,
             fontWeight: 700,
             fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 1.75, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '1.75rem'),
             lineHeight: 1,
@@ -100,7 +101,7 @@ export default function ValueReadWidget({ config, isEditMode, widgetSize }: Valu
         </Typography>
 
         {config.unit && (
-          <Typography sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: widgetSize ? scaledRem(0.75, widgetSize.scale) : '0.75rem', color: 'text.secondary', fontWeight: 500 }}>
+          <Typography sx={{ fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(0.75, widgetSize.scale) : '0.75rem', color: 'text.secondary', fontWeight: 500 }}>
             {config.unit}
           </Typography>
         )}

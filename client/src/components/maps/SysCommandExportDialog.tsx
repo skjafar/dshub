@@ -16,6 +16,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import { SysCommand } from '../../types/settings';
 import { generateSysCommandMapFile, generateSysCommandHeaderFile } from '../../utils/sysCommandFileGenerator';
 import { useToast } from '../ToastNotification';
+import { FONT_MONO } from '../../theme';
 
 interface SysCommandExportDialogProps {
   open: boolean;
@@ -104,7 +105,7 @@ export default function SysCommandExportDialog({
               value={mapFileContent}
               InputProps={{
                 readOnly: true,
-                sx: { fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace', fontSize: '0.875rem' }
+                sx: { fontFamily: FONT_MONO, fontSize: '0.875rem' }
               }}
               rows={15}
             />
@@ -140,7 +141,7 @@ export default function SysCommandExportDialog({
               value={headerFileContent}
               InputProps={{
                 readOnly: true,
-                sx: { fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace', fontSize: '0.875rem' }
+                sx: { fontFamily: FONT_MONO, fontSize: '0.875rem' }
               }}
               rows={15}
             />

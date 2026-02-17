@@ -37,6 +37,7 @@ import { DataForm, DataAccessPermit } from '../../maps/mapParser';
 import MapEntriesList from './MapEntriesList';
 import MapExportDialog from './MapExportDialog';
 import SysCommandsTab from './SysCommandsTab';
+import { FONT_MONO } from '../../theme';
 
 type MapType = 'registers' | 'parameters' | 'sysCommands';
 
@@ -633,7 +634,7 @@ export default function MapEditorPanel() {
           {hasUnsavedChanges && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
               <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#FFAB00' }} />
-              <Typography variant="caption" color="warning.main" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.7rem' }}>
+              <Typography variant="caption" color="warning.main" sx={{ fontFamily: FONT_MONO, fontSize: '0.7rem' }}>
                 Unsaved
               </Typography>
             </Box>
@@ -644,7 +645,7 @@ export default function MapEditorPanel() {
               value={selectedProfileId}
               onChange={handleProfileChange}
               label="Profile"
-              sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }}
+              sx={{ fontFamily: FONT_MONO, fontSize: '0.8125rem' }}
             >
               <MenuItem value={EMPTY_PROFILE_ID}>
                 <em>Empty / Start from Scratch</em>
@@ -692,9 +693,9 @@ export default function MapEditorPanel() {
       {/* Tabs */}
       <Paper sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
         <Tabs value={currentTab} onChange={(_, val) => setCurrentTab(val)}>
-          <Tab label={`Registers (${registerEntries.length})`} value="registers" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }} />
-          <Tab label={`Parameters (${parameterEntries.length})`} value="parameters" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }} />
-          <Tab label={`SYS_COMMANDs (${sysCommandEntries.length})`} value="sysCommands" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }} />
+          <Tab label={`Registers (${registerEntries.length})`} value="registers" sx={{ fontFamily: FONT_MONO, fontSize: '0.8125rem' }} />
+          <Tab label={`Parameters (${parameterEntries.length})`} value="parameters" sx={{ fontFamily: FONT_MONO, fontSize: '0.8125rem' }} />
+          <Tab label={`SYS_COMMANDs (${sysCommandEntries.length})`} value="sysCommands" sx={{ fontFamily: FONT_MONO, fontSize: '0.8125rem' }} />
         </Tabs>
         <Divider />
         <Box sx={{ p: 1.5, flexGrow: 1, overflow: 'auto' }}>

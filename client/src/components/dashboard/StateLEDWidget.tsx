@@ -5,6 +5,7 @@ import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
+import { FONT_MONO } from '../../theme';
 
 interface StateLEDWidgetProps {
   config: StateLEDWidgetConfig;
@@ -93,7 +94,7 @@ export default function StateLEDWidget({ config, isEditMode, widgetSize }: State
         {config.showLabel !== false && (
           <Typography
             sx={{
-              fontFamily: '"JetBrains Mono", monospace',
+              fontFamily: FONT_MONO,
               color: activeState.color,
               fontSize: widgetSize ? scaledRem(config.fontSize ?? 0.875, widgetSize.scale) : (config.fontSize ? `${config.fontSize}rem` : '0.875rem'),
               fontWeight: 600,

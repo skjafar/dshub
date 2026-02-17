@@ -5,6 +5,7 @@ import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
+import { FONT_MONO } from '../../theme';
 
 interface LEDIndicatorWidgetProps {
   config: LEDIndicatorWidgetConfig;
@@ -113,7 +114,7 @@ export default function LEDIndicatorWidget({ config, isEditMode, widgetSize }: L
         <Typography
           sx={{
             color: ledColor,
-            fontFamily: '"JetBrains Mono", monospace',
+            fontFamily: FONT_MONO,
             fontSize: widgetSize ? scaledRem(config.fontSize ?? 0.75, widgetSize.scale) : (config.fontSize ? `${config.fontSize}rem` : '0.75rem'),
             fontWeight: 600,
             textTransform: 'uppercase',

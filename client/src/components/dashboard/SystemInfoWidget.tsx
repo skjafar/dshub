@@ -5,6 +5,7 @@ import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefreshMulti } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
+import { FONT_MONO } from '../../theme';
 
 interface SystemInfoWidgetProps {
   config: SystemInfoWidgetConfig;
@@ -91,7 +92,7 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
         <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5 }}>
           <Typography
             sx={{
-              fontFamily: '"JetBrains Mono", monospace',
+              fontFamily: FONT_MONO,
               color: itemColor,
               fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 0.9, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '0.9rem'),
               fontWeight: 600,

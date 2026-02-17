@@ -5,6 +5,7 @@ import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
+import { FONT_MONO } from '../../theme';
 
 interface ProgressBarWidgetProps {
   config: ProgressBarWidgetConfig;
@@ -94,7 +95,7 @@ export default function ProgressBarWidget({ config, isEditMode, widgetSize }: Pr
           {config.showValue !== false && (
             <Typography
               sx={{
-                fontFamily: '"JetBrains Mono", monospace',
+                fontFamily: FONT_MONO,
                 color: barColor,
                 fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 0.875, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '0.875rem'),
                 fontWeight: 600,

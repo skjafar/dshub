@@ -17,6 +17,7 @@ import {
 } from '@mui/icons-material';
 import { useDSHub } from '../contexts/DSHubContext';
 import { ControlInterfaceState, InterfaceType } from '../types/shared';
+import { FONT_MONO } from '../theme';
 
 const getControlStateLabel = (state: ControlInterfaceState, currentInterface: InterfaceType) => {
   switch (state) {
@@ -64,8 +65,6 @@ export default function DeviceDashboard() {
   const stateRegister = Array.from(state.registers.values()).find(r => r.name.includes('STATE'));
   const warningsRegister = Array.from(state.registers.values()).find(r => r.name.includes('WARNING'));
 
-  const monoFont = '"JetBrains Mono", monospace';
-
   return (
     <Box>
       <Grid container spacing={2}>
@@ -87,15 +86,15 @@ export default function DeviceDashboard() {
                     boxShadowColor: state.connection.connected ? 'success.main' : undefined,
                   }}
                 />
-                <Typography sx={{ fontFamily: monoFont, fontSize: '1rem', fontWeight: 600 }}>
+                <Typography sx={{ fontFamily: FONT_MONO, fontSize: '1rem', fontWeight: 600 }}>
                   {state.connection.connected ? 'Connected' : 'Disconnected'}
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', gap: 2, mb: 1.5 }}>
-                <Typography variant="caption" sx={{ fontFamily: monoFont, color: 'text.secondary' }}>
+                <Typography variant="caption" sx={{ fontFamily: FONT_MONO, color: 'text.secondary' }}>
                   {state.connection.ip}:{state.connection.port}
                 </Typography>
-                <Chip label={state.connection.interface} size="small" variant="outlined" sx={{ fontFamily: monoFont, fontSize: '0.6rem' }} />
+                <Chip label={state.connection.interface} size="small" variant="outlined" sx={{ fontFamily: FONT_MONO, fontSize: '0.6rem' }} />
               </Box>
               {state.connection.connected && (
                 <Button variant="outlined" size="small" color="error" startIcon={<DisconnectIcon />} onClick={actions.disconnectDevice}>
@@ -124,7 +123,7 @@ export default function DeviceDashboard() {
                     boxShadowColor: canControl ? 'success.main' : undefined,
                   }}
                 />
-                <Typography sx={{ fontFamily: monoFont, fontSize: '1rem', fontWeight: 600 }}>
+                <Typography sx={{ fontFamily: FONT_MONO, fontSize: '1rem', fontWeight: 600 }}>
                   {controlState.label}
                 </Typography>
               </Box>
@@ -134,7 +133,7 @@ export default function DeviceDashboard() {
                 </Button>
               )}
               {canControl && (
-                <Typography variant="caption" color="success.main" sx={{ fontFamily: monoFont }}>
+                <Typography variant="caption" color="success.main" sx={{ fontFamily: FONT_MONO }}>
                   Write operations enabled
                 </Typography>
               )}
@@ -152,7 +151,7 @@ export default function DeviceDashboard() {
                     <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1 }}>
                       Device State
                     </Typography>
-                    <Typography sx={{ fontFamily: monoFont, fontSize: '1.5rem', fontWeight: 700, color: 'primary.main', lineHeight: 1.3 }}>
+                    <Typography sx={{ fontFamily: FONT_MONO, fontSize: '1.5rem', fontWeight: 700, color: 'primary.main', lineHeight: 1.3 }}>
                       {stateRegister.value}
                     </Typography>
                   </Box>
@@ -162,7 +161,7 @@ export default function DeviceDashboard() {
                     <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1 }}>
                       Warnings
                     </Typography>
-                    <Typography sx={{ fontFamily: monoFont, fontSize: '1.5rem', fontWeight: 700, color: warningsRegister.value > 0 ? 'error.main' : 'success.main', lineHeight: 1.3 }}>
+                    <Typography sx={{ fontFamily: FONT_MONO, fontSize: '1.5rem', fontWeight: 700, color: warningsRegister.value > 0 ? 'error.main' : 'success.main', lineHeight: 1.3 }}>
                       {warningsRegister.value}
                     </Typography>
                   </Box>
@@ -171,7 +170,7 @@ export default function DeviceDashboard() {
                   <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1 }}>
                     Registers
                   </Typography>
-                  <Typography sx={{ fontFamily: monoFont, fontSize: '1.5rem', fontWeight: 700, lineHeight: 1.3 }}>
+                  <Typography sx={{ fontFamily: FONT_MONO, fontSize: '1.5rem', fontWeight: 700, lineHeight: 1.3 }}>
                     {state.registers.size}
                   </Typography>
                 </Box>
@@ -179,7 +178,7 @@ export default function DeviceDashboard() {
                   <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1 }}>
                     Parameters
                   </Typography>
-                  <Typography sx={{ fontFamily: monoFont, fontSize: '1.5rem', fontWeight: 700, lineHeight: 1.3 }}>
+                  <Typography sx={{ fontFamily: FONT_MONO, fontSize: '1.5rem', fontWeight: 700, lineHeight: 1.3 }}>
                     {state.parameters.size}
                   </Typography>
                 </Box>
@@ -187,7 +186,7 @@ export default function DeviceDashboard() {
                   <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1 }}>
                     Log Entries
                   </Typography>
-                  <Typography sx={{ fontFamily: monoFont, fontSize: '1.5rem', fontWeight: 700, lineHeight: 1.3 }}>
+                  <Typography sx={{ fontFamily: FONT_MONO, fontSize: '1.5rem', fontWeight: 700, lineHeight: 1.3 }}>
                     {state.logs.length}
                   </Typography>
                 </Box>
@@ -195,7 +194,7 @@ export default function DeviceDashboard() {
                   <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1 }}>
                     Plot Series
                   </Typography>
-                  <Typography sx={{ fontFamily: monoFont, fontSize: '1.5rem', fontWeight: 700, lineHeight: 1.3 }}>
+                  <Typography sx={{ fontFamily: FONT_MONO, fontSize: '1.5rem', fontWeight: 700, lineHeight: 1.3 }}>
                     {state.plotData.size}
                   </Typography>
                 </Box>
@@ -228,17 +227,17 @@ export default function DeviceDashboard() {
                               <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.8125rem' }}>
                                 {register.name}
                               </Typography>
-                              <Typography variant="caption" sx={{ fontFamily: monoFont, fontSize: '0.6rem', color: 'text.secondary' }}>
+                              <Typography variant="caption" sx={{ fontFamily: FONT_MONO, fontSize: '0.6rem', color: 'text.secondary' }}>
                                 0x{register.address.toString(16).toUpperCase()}
                               </Typography>
                             </td>
                             <td style={{ padding: '4px 8px', textAlign: 'right' }}>
-                              <Typography sx={{ fontFamily: monoFont, fontSize: '0.875rem', fontWeight: 600 }}>
+                              <Typography sx={{ fontFamily: FONT_MONO, fontSize: '0.875rem', fontWeight: 600 }}>
                                 {register.value}
                               </Typography>
                             </td>
                             <td style={{ padding: '4px 0 4px 8px', textAlign: 'right' }}>
-                              <Typography variant="caption" sx={{ fontFamily: monoFont, fontSize: '0.6rem', color: 'text.secondary' }}>
+                              <Typography variant="caption" sx={{ fontFamily: FONT_MONO, fontSize: '0.6rem', color: 'text.secondary' }}>
                                 {new Date(register.timestamp).toLocaleTimeString()}
                               </Typography>
                             </td>

@@ -19,6 +19,7 @@ import { MapEntry } from '../../maps/mapParser';
 import { generateMapFile } from '../../utils/mapFileGenerator';
 import { generateHeaderFile } from '../../utils/headerFileGenerator';
 import { useToast } from '../ToastNotification';
+import { FONT_MONO } from '../../theme';
 
 interface MapExportDialogProps {
   open: boolean;
@@ -109,7 +110,7 @@ export default function MapExportDialog({
               value={mapFileContent}
               InputProps={{
                 readOnly: true,
-                sx: { fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace', fontSize: '0.875rem' }
+                sx: { fontFamily: FONT_MONO, fontSize: '0.875rem' }
               }}
               rows={15}
             />
@@ -145,7 +146,7 @@ export default function MapExportDialog({
               value={headerFileContent}
               InputProps={{
                 readOnly: true,
-                sx: { fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace', fontSize: '0.875rem' }
+                sx: { fontFamily: FONT_MONO, fontSize: '0.875rem' }
               }}
               rows={15}
             />

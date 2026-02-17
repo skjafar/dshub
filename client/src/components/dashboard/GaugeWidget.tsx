@@ -5,6 +5,7 @@ import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
+import { FONT_MONO } from '../../theme';
 
 interface GaugeWidgetProps {
   config: GaugeWidgetConfig;
@@ -148,7 +149,7 @@ export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWid
           >
             <Typography
               sx={{
-                fontFamily: '"JetBrains Mono", monospace',
+                fontFamily: FONT_MONO,
                 fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 1.75, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '1.75rem'),
                 fontWeight: 700,
                 color: valueColor,
@@ -158,7 +159,7 @@ export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWid
               {formatValue(currentValue)}
             </Typography>
             {config.unit && (
-              <Typography sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: widgetSize ? scaledRem(0.625, widgetSize.scale) : '0.625rem', color: 'text.secondary', fontWeight: 500, mt: 0.5 }}>
+              <Typography sx={{ fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(0.625, widgetSize.scale) : '0.625rem', color: 'text.secondary', fontWeight: 500, mt: 0.5 }}>
                 {config.unit}
               </Typography>
             )}
@@ -168,10 +169,10 @@ export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWid
 
       {/* Min/Max Labels */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', maxWidth: widgetSize ? Math.min(widgetSize.width * 0.85, widgetSize.height * 0.65) : 130 }}>
-        <Typography sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: widgetSize ? scaledRem(0.5625, widgetSize.scale) : '0.5625rem', color: 'text.secondary' }}>
+        <Typography sx={{ fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(0.5625, widgetSize.scale) : '0.5625rem', color: 'text.secondary' }}>
           {config.min}
         </Typography>
-        <Typography sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: widgetSize ? scaledRem(0.5625, widgetSize.scale) : '0.5625rem', color: 'text.secondary' }}>
+        <Typography sx={{ fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(0.5625, widgetSize.scale) : '0.5625rem', color: 'text.secondary' }}>
           {config.max}
         </Typography>
       </Box>

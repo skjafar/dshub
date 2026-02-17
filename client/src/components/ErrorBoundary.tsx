@@ -10,6 +10,7 @@ import {
   Stack,
 } from '@mui/material';
 import { Refresh as RefreshIcon, BugReport as BugIcon } from '@mui/icons-material';
+import { FONT_MONO } from '../theme';
 
 interface Props {
   children: ReactNode;
@@ -82,7 +83,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
                 <Alert severity="error">
                   <AlertTitle>Error Details</AlertTitle>
-                  <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap', fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace' }}>
+                  <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap', fontFamily: FONT_MONO }}>
                     {this.state.error?.toString()}
                   </Typography>
                 </Alert>
@@ -95,7 +96,7 @@ export class ErrorBoundary extends Component<Props, State> {
                       component="pre"
                       sx={{
                         whiteSpace: 'pre-wrap',
-                        fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
+                        fontFamily: FONT_MONO,
                         fontSize: '0.75rem',
                         maxHeight: 200,
                         overflow: 'auto',

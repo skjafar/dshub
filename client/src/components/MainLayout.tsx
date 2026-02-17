@@ -44,6 +44,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import { InterfaceType, ControlInterfaceState } from '../types/shared';
 import { DEFAULT_GRID_CONFIG } from '../types/dashboard';
+import { FONT_MONO } from '../theme';
 import { mapManager } from '../maps/mapManager';
 import DeviceScannerPanel from './DeviceScannerPanel';
 import DeviceDashboard from './DeviceDashboard';
@@ -91,8 +92,6 @@ export default function MainLayout() {
   });
   const [autoConnectAttempts, setAutoConnectAttempts] = useState(0);
   const [isAutoConnecting, setIsAutoConnecting] = useState(false);
-  const [hasAutoScanned, setHasAutoScanned] = useState(false);
-
   // Persist last viewed panel
   useEffect(() => {
     localStorage.setItem('dshub-last-view', currentView);
@@ -127,19 +126,11 @@ export default function MainLayout() {
     return () => window.removeEventListener('resize', updateWidth);
   }, []);
 
-  // Auto-scan on startup if enabled
-  useEffect(() => {
-    if (settings.autoScan && !hasAutoScanned && !state.isScanning) {
-      console.log('Auto-scan enabled, starting device scan...');
-      actions.startScan();
-      setHasAutoScanned(true);
-    }
-  }, [settings.autoScan, hasAutoScanned, state.isScanning, actions]);
-
   // Auto-connect on startup with retry logic
+  // Auto-scan is handled by AutoScanManager in App.tsx
   useEffect(() => {
-    // If auto-scan is enabled, wait for scan to complete before auto-connecting
-    const shouldWaitForScan = settings.autoScan && !hasAutoScanned;
+    // If auto-scan is enabled and scan is still running, wait for it to complete
+    const shouldWaitForScan = settings.autoScan && state.isScanning;
 
     if (
       settings.autoConnect &&
@@ -183,7 +174,7 @@ export default function MainLayout() {
         }
       }, delay);
     }
-  }, [settings.autoConnect, settings.autoScan, settings.lastDeviceIP, settings.lastDeviceName, settings.lastInterfaceType, settings.autoConnectRetries, settings.autoConnectRetryDelay, state.connection?.connected, state.discoveredDevices, state.isScanning, autoConnectAttempts, isAutoConnecting, hasAutoScanned, actions]);
+  }, [settings.autoConnect, settings.autoScan, settings.lastDeviceIP, settings.lastDeviceName, settings.lastInterfaceType, settings.autoConnectRetries, settings.autoConnectRetryDelay, state.connection?.connected, state.discoveredDevices, state.isScanning, autoConnectAttempts, isAutoConnecting, actions]);
 
   // Reset retry counter when successfully connected
   useEffect(() => {
@@ -277,7 +268,7 @@ export default function MainLayout() {
             noWrap
             component="div"
             sx={{
-              fontFamily: '"JetBrains Mono", monospace',
+              fontFamily: FONT_MONO,
               fontSize: '0.875rem',
               fontWeight: 700,
               letterSpacing: '0.12em',
@@ -680,7 +671,7 @@ export default function MainLayout() {
                   <Typography
                     variant="body2"
                     sx={{
-                      fontFamily: '"JetBrains Mono", monospace',
+                      fontFamily: FONT_MONO,
                       fontSize: '0.75rem',
                       fontWeight: 600,
                       color: 'text.primary',
@@ -692,7 +683,7 @@ export default function MainLayout() {
                 <Typography
                   variant="body2"
                   sx={{
-                    fontFamily: '"JetBrains Mono", monospace',
+                    fontFamily: FONT_MONO,
                     fontSize: '0.6875rem',
                     color: 'text.secondary',
                   }}
@@ -704,7 +695,7 @@ export default function MainLayout() {
                   size="small"
                   variant="outlined"
                   sx={{
-                    fontFamily: '"JetBrains Mono", monospace',
+                    fontFamily: FONT_MONO,
                     fontSize: '0.5625rem',
                     height: 18,
                     '& .MuiChip-label': { px: 0.75 },
@@ -736,7 +727,7 @@ export default function MainLayout() {
                   <Typography
                     variant="caption"
                     sx={{
-                      fontFamily: '"JetBrains Mono", monospace',
+                      fontFamily: FONT_MONO,
                       fontSize: '0.6875rem',
                       fontWeight: 500,
                       color: connectionColor,
@@ -772,7 +763,7 @@ export default function MainLayout() {
                     <Typography
                       variant="caption"
                       sx={{
-                        fontFamily: '"JetBrains Mono", monospace',
+                        fontFamily: FONT_MONO,
                         fontSize: '0.6875rem',
                         fontWeight: 500,
                         color: controlStateInfo.color,

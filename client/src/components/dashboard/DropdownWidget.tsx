@@ -4,6 +4,7 @@ import { DropdownWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useToast } from '../ToastNotification';
+import { FONT_MONO } from '../../theme';
 
 interface DropdownWidgetProps {
   config: DropdownWidgetConfig;
@@ -71,7 +72,7 @@ export default function DropdownWidget({ config, isEditMode, widgetSize }: Dropd
             value={selectedValue}
             onChange={(e) => handleChange(e.target.value as number)}
             label="Select Value"
-            sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: widgetSize ? scaledRem(0.8125, widgetSize.scale) : '0.8125rem' }}
+            sx={{ fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(0.8125, widgetSize.scale) : '0.8125rem' }}
           >
             {config.options.map((option) => (
               <MenuItem key={option.value} value={option.value}>

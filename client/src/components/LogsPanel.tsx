@@ -27,6 +27,7 @@ import {
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { LogEntry } from '../types/shared';
+import { FONT_MONO } from '../theme';
 
 const getLevelColor = (level: LogEntry['level']) => {
   switch (level) {
@@ -320,7 +321,7 @@ export default function LogsPanel() {
             }}
             onScroll={handleScroll}
           >
-            <List dense sx={{ fontFamily: '"JetBrains Mono", "Fira Code", monospace' }}>
+            <List dense sx={{ fontFamily: FONT_MONO }}>
               {filteredLogs.map((log, index) => {
                 const timeStr = new Date(log.timestamp).toLocaleTimeString('en-US', { 
                   hour12: false, 
@@ -391,7 +392,7 @@ export default function LogsPanel() {
                                       component="pre"
                                       sx={{
                                         color: '#E0E0E0',
-                                        fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
+                                        fontFamily: FONT_MONO,
                                         margin: 0,
                                         whiteSpace: 'pre-wrap',
                                         wordBreak: 'break-all'
@@ -410,7 +411,7 @@ export default function LogsPanel() {
                                       variant="caption"
                                       sx={{
                                         color: '#E0E0E0',
-                                        fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
+                                        fontFamily: FONT_MONO,
                                         display: 'block',
                                         whiteSpace: 'pre-wrap'
                                       }}

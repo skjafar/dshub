@@ -1,7 +1,21 @@
 import React, { useRef } from 'react';
 import { Box, IconButton, Paper } from '@mui/material';
 import { Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
-import { DashboardWidget as DashboardWidgetType } from '../../types/dashboard';
+import {
+  DashboardWidget as DashboardWidgetType,
+  ButtonWidgetConfig,
+  ValueReadWidgetConfig,
+  ValueWriteWidgetConfig,
+  MiniPlotWidgetConfig,
+  DropdownWidgetConfig,
+  StateLEDWidgetConfig,
+  GaugeWidgetConfig,
+  ProgressBarWidgetConfig,
+  EncoderDisplayWidgetConfig,
+  LEDIndicatorWidgetConfig,
+  DirectionalControlWidgetConfig,
+  SystemInfoWidgetConfig,
+} from '../../types/dashboard';
 import { useWidgetSize } from '../../hooks/useWidgetSize';
 import { getWidgetScale, WidgetSizeInfo } from '../../utils/widgetScaling';
 import ButtonWidget from './ButtonWidget';
@@ -33,29 +47,29 @@ export default function DashboardWidget({ widget, isEditMode, roundedCorners, on
   const renderWidget = (ws: WidgetSizeInfo) => {
     switch (widget.type) {
       case 'button':
-        return <ButtonWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
+        return <ButtonWidget config={widget.config as ButtonWidgetConfig} isEditMode={isEditMode} widgetSize={ws} />;
       case 'valueRead':
-        return <ValueReadWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
+        return <ValueReadWidget config={widget.config as ValueReadWidgetConfig} isEditMode={isEditMode} widgetSize={ws} />;
       case 'valueWrite':
-        return <ValueWriteWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
+        return <ValueWriteWidget config={widget.config as ValueWriteWidgetConfig} isEditMode={isEditMode} widgetSize={ws} />;
       case 'miniPlot':
-        return <MiniPlotWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
+        return <MiniPlotWidget config={widget.config as MiniPlotWidgetConfig} isEditMode={isEditMode} widgetSize={ws} />;
       case 'dropdown':
-        return <DropdownWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
+        return <DropdownWidget config={widget.config as DropdownWidgetConfig} isEditMode={isEditMode} widgetSize={ws} />;
       case 'stateLED':
-        return <StateLEDWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
+        return <StateLEDWidget config={widget.config as StateLEDWidgetConfig} isEditMode={isEditMode} widgetSize={ws} />;
       case 'gauge':
-        return <GaugeWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
+        return <GaugeWidget config={widget.config as GaugeWidgetConfig} isEditMode={isEditMode} widgetSize={ws} />;
       case 'progressBar':
-        return <ProgressBarWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
+        return <ProgressBarWidget config={widget.config as ProgressBarWidgetConfig} isEditMode={isEditMode} widgetSize={ws} />;
       case 'encoderDisplay':
-        return <EncoderDisplayWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
+        return <EncoderDisplayWidget config={widget.config as EncoderDisplayWidgetConfig} isEditMode={isEditMode} widgetSize={ws} />;
       case 'ledIndicator':
-        return <LEDIndicatorWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
+        return <LEDIndicatorWidget config={widget.config as LEDIndicatorWidgetConfig} isEditMode={isEditMode} widgetSize={ws} />;
       case 'directionalControl':
-        return <DirectionalControlWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
+        return <DirectionalControlWidget config={widget.config as DirectionalControlWidgetConfig} isEditMode={isEditMode} widgetSize={ws} />;
       case 'systemInfo':
-        return <SystemInfoWidget config={widget.config as any} isEditMode={isEditMode} widgetSize={ws} />;
+        return <SystemInfoWidget config={widget.config as SystemInfoWidgetConfig} isEditMode={isEditMode} widgetSize={ws} />;
       default:
         return <Box>Unknown widget type</Box>;
     }

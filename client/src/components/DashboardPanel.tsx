@@ -96,26 +96,25 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
     tabId: '',
     currentName: ''
   });
+  const [renameValue, setRenameValue] = useState('');
 
-  // Ref to prevent infinite loop between load and save effects
-  const isLoadingRef = useRef(false);
+  // Version counters to prevent infinite loop between load and save effects
+  const loadVersionRef = useRef(0);
+  const savedVersionRef = useRef(0);
 
   // Load dashboard from settings when profile changes
   useEffect(() => {
-    isLoadingRef.current = true;
+    loadVersionRef.current++;
     const layout = settings.dashboardLayouts[activeProfileId] || createEmptyDashboard();
     setTabs(layout.tabs);
     setActiveTabId(layout.activeTabId);
-    // Use setTimeout to ensure state updates complete before we allow saving again
-    setTimeout(() => {
-      isLoadingRef.current = false;
-    }, 0);
   }, [activeProfileId, settings.dashboardLayouts]);
 
   // Save dashboard to settings whenever it changes
   useEffect(() => {
-    // Don't save if we're currently loading from settings (prevents infinite loop)
-    if (isLoadingRef.current) {
+    // Skip save if this render was triggered by a load
+    if (loadVersionRef.current !== savedVersionRef.current) {
+      savedVersionRef.current = loadVersionRef.current;
       return;
     }
 
@@ -158,6 +157,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
     const tab = tabs.find(t => t.id === tabMenu.tabId);
     if (tab) {
       setRenameDialog({ open: true, tabId: tab.id, currentName: tab.name });
+      setRenameValue(tab.name);
     }
     handleCloseTabMenu();
   };
@@ -508,10 +508,11 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
             autoFocus
             fullWidth
             label="Tab Name"
-            defaultValue={renameDialog.currentName}
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
-                handleSaveRename((e.target as HTMLInputElement).value);
+                handleSaveRename(renameValue);
               }
             }}
             margin="normal"
@@ -520,10 +521,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
         <DialogActions>
           <Button onClick={() => setRenameDialog({ open: false, tabId: '', currentName: '' })}>Cancel</Button>
           <Button
-            onClick={(e) => {
-              const input = e.currentTarget.closest('div')?.querySelector('input');
-              if (input) handleSaveRename(input.value);
-            }}
+            onClick={() => handleSaveRename(renameValue)}
             variant="contained"
           >
             Save

@@ -26,6 +26,7 @@ import {
 } from '@mui/icons-material';
 import { SysCommand } from '../../types/settings';
 import SysCommandExportDialog from './SysCommandExportDialog';
+import { FONT_MONO } from '../../theme';
 
 interface SysCommandsTabProps {
   commands: SysCommand[];
@@ -125,7 +126,7 @@ function CommandRow({ command, index, commands, onUpdate, onDelete, readOnly }: 
           slotProps={{
             htmlInput: { min: 0, max: 255 }
           }}
-          sx={{ fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace' }}
+          sx={{ fontFamily: FONT_MONO }}
         />
       </TableCell>
       <TableCell>

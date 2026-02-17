@@ -6,6 +6,7 @@ import { useDSHub } from '../../contexts/DSHubContext';
 import { mapManager } from '../../maps/mapManager';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
+import { FONT_MONO } from '../../theme';
 
 interface EncoderDisplayWidgetProps {
   config: EncoderDisplayWidgetConfig;
@@ -116,7 +117,7 @@ export default function EncoderDisplayWidget({ config, isEditMode, widgetSize }:
         >
           <Typography
             sx={{
-              fontFamily: '"JetBrains Mono", monospace',
+              fontFamily: FONT_MONO,
               fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 1.5, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '1.5rem'),
               fontWeight: 600,
               color: displayColor,
@@ -145,7 +146,7 @@ export default function EncoderDisplayWidget({ config, isEditMode, widgetSize }:
       {(config.showRawValue !== false || convertedValue === null) && (
         <Typography
           sx={{
-            fontFamily: '"JetBrains Mono", monospace',
+            fontFamily: FONT_MONO,
             fontSize: widgetSize ? scaledRem(0.75, widgetSize.scale) : '0.75rem',
             color: 'text.secondary',
             letterSpacing: '0.05em',

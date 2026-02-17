@@ -4,9 +4,73 @@ import { createTheme } from '@mui/material/styles';
 // Dark-first, monospace-heavy, tight data density.
 // Oscilloscope meets modern IDE.
 
-const FONT_DISPLAY = '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace';
-const FONT_BODY = '"IBM Plex Sans", "Inter", -apple-system, sans-serif';
-const FONT_MONO = '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace';
+export const FONT_MONO = '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace';
+export const FONT_BODY = '"IBM Plex Sans", "Inter", -apple-system, sans-serif';
+const FONT_DISPLAY = FONT_MONO;
+
+// ─── Shared Component Styles (theme-independent structure) ───────────────────
+
+const buttonBase = {
+  root: {
+    borderRadius: 4,
+    padding: '6px 14px',
+    boxShadow: 'none',
+    fontWeight: 600,
+    fontSize: '0.8125rem',
+    letterSpacing: '0.03em',
+    '&:hover': { boxShadow: 'none' },
+  },
+  sizeSmall: {
+    padding: '4px 10px',
+    fontSize: '0.75rem',
+  },
+};
+
+const chipBase = {
+  root: {
+    borderRadius: 4,
+    fontWeight: 500,
+    height: 22,
+    fontSize: '0.6875rem',
+  },
+  sizeSmall: {
+    height: 20,
+    fontSize: '0.625rem',
+  },
+};
+
+const tableCellBase = {
+  root: {
+    padding: '6px 12px',
+    fontSize: '0.8125rem',
+  },
+  head: {
+    fontWeight: 600,
+    fontSize: '0.6875rem',
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase' as const,
+  },
+};
+
+const tabBase = {
+  root: {
+    fontFamily: FONT_MONO,
+    fontSize: '0.75rem',
+    fontWeight: 500,
+    letterSpacing: '0.02em',
+    textTransform: 'none' as const,
+    minHeight: 36,
+    padding: '6px 16px',
+  },
+};
+
+const dialogTitleBase = {
+  root: {
+    fontFamily: FONT_DISPLAY,
+    fontSize: '1rem',
+    fontWeight: 600,
+  },
+};
 
 // ─── Light Theme ──────────────────────────────────────────────────────────────
 
@@ -79,32 +143,18 @@ export const dsHubTheme = createTheme({
     MuiCssBaseline: {
       styleOverrides: {
         body: {
-          fontFeatureSettings: '"tnum"', // Tabular numbers globally
+          fontFeatureSettings: '"tnum"',
         },
       },
     },
     MuiButton: {
       styleOverrides: {
-        root: {
-          borderRadius: 4,
-          padding: '6px 14px',
-          boxShadow: 'none',
-          fontWeight: 600,
-          fontSize: '0.8125rem',
-          letterSpacing: '0.03em',
-          '&:hover': {
-            boxShadow: 'none',
-          },
-        },
+        ...buttonBase,
         contained: {
           boxShadow: 'none',
           '&:hover': {
             boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
           },
-        },
-        sizeSmall: {
-          padding: '4px 10px',
-          fontSize: '0.75rem',
         },
       },
     },
@@ -143,48 +193,24 @@ export const dsHubTheme = createTheme({
       },
     },
     MuiChip: {
-      styleOverrides: {
-        root: {
-          borderRadius: 4,
-          fontWeight: 500,
-          height: 22,
-          fontSize: '0.6875rem',
-        },
-        sizeSmall: {
-          height: 20,
-          fontSize: '0.625rem',
-        },
-      },
+      styleOverrides: chipBase,
     },
     MuiTableCell: {
       styleOverrides: {
+        ...tableCellBase,
         root: {
-          padding: '6px 12px',
-          fontSize: '0.8125rem',
+          ...tableCellBase.root,
           borderBottom: '1px solid rgba(0,0,0,0.06)',
         },
         head: {
-          fontWeight: 600,
-          fontSize: '0.6875rem',
-          letterSpacing: '0.05em',
-          textTransform: 'uppercase',
+          ...tableCellBase.head,
           color: '#5A5A72',
           backgroundColor: '#F5F5F8',
         },
       },
     },
     MuiTab: {
-      styleOverrides: {
-        root: {
-          fontFamily: FONT_MONO,
-          fontSize: '0.75rem',
-          fontWeight: 500,
-          letterSpacing: '0.02em',
-          textTransform: 'none',
-          minHeight: 36,
-          padding: '6px 16px',
-        },
-      },
+      styleOverrides: tabBase,
     },
     MuiTabs: {
       styleOverrides: {
@@ -218,13 +244,7 @@ export const dsHubTheme = createTheme({
       },
     },
     MuiDialogTitle: {
-      styleOverrides: {
-        root: {
-          fontFamily: FONT_DISPLAY,
-          fontSize: '1rem',
-          fontWeight: 600,
-        },
-      },
+      styleOverrides: dialogTitleBase,
     },
   },
 });
@@ -299,6 +319,24 @@ export const dsHubDarkTheme = createTheme({
         },
       },
     },
+    MuiButton: {
+      styleOverrides: {
+        ...buttonBase,
+        contained: {
+          boxShadow: 'none',
+          '&:hover': {
+            boxShadow: '0 0 12px rgba(0, 212, 255, 0.15)',
+          },
+        },
+        outlined: {
+          borderColor: 'rgba(255,255,255,0.12)',
+          '&:hover': {
+            borderColor: 'rgba(255,255,255,0.24)',
+            backgroundColor: 'rgba(255,255,255,0.04)',
+          },
+        },
+      },
+    },
     MuiCard: {
       styleOverrides: {
         root: {
@@ -323,55 +361,6 @@ export const dsHubDarkTheme = createTheme({
         elevation2: {
           boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
           border: '1px solid rgba(255,255,255,0.06)',
-        },
-      },
-    },
-    MuiTableCell: {
-      styleOverrides: {
-        root: {
-          padding: '6px 12px',
-          fontSize: '0.8125rem',
-          borderBottom: '1px solid rgba(255,255,255,0.04)',
-        },
-        head: {
-          fontWeight: 600,
-          fontSize: '0.6875rem',
-          letterSpacing: '0.05em',
-          textTransform: 'uppercase',
-          color: '#7A7A8A',
-          backgroundColor: '#1A1A24',
-        },
-      },
-    },
-    MuiButton: {
-      styleOverrides: {
-        root: {
-          borderRadius: 4,
-          padding: '6px 14px',
-          boxShadow: 'none',
-          fontWeight: 600,
-          fontSize: '0.8125rem',
-          letterSpacing: '0.03em',
-          '&:hover': {
-            boxShadow: 'none',
-          },
-        },
-        contained: {
-          boxShadow: 'none',
-          '&:hover': {
-            boxShadow: '0 0 12px rgba(0, 212, 255, 0.15)',
-          },
-        },
-        outlined: {
-          borderColor: 'rgba(255,255,255,0.12)',
-          '&:hover': {
-            borderColor: 'rgba(255,255,255,0.24)',
-            backgroundColor: 'rgba(255,255,255,0.04)',
-          },
-        },
-        sizeSmall: {
-          padding: '4px 10px',
-          fontSize: '0.75rem',
         },
       },
     },
@@ -402,18 +391,42 @@ export const dsHubDarkTheme = createTheme({
     },
     MuiChip: {
       styleOverrides: {
-        root: {
-          borderRadius: 4,
-          fontWeight: 500,
-          height: 22,
-          fontSize: '0.6875rem',
-        },
-        sizeSmall: {
-          height: 20,
-          fontSize: '0.625rem',
-        },
+        ...chipBase,
         outlined: {
           borderColor: 'rgba(255,255,255,0.12)',
+        },
+      },
+    },
+    MuiTableCell: {
+      styleOverrides: {
+        ...tableCellBase,
+        root: {
+          ...tableCellBase.root,
+          borderBottom: '1px solid rgba(255,255,255,0.04)',
+        },
+        head: {
+          ...tableCellBase.head,
+          color: '#7A7A8A',
+          backgroundColor: '#1A1A24',
+        },
+      },
+    },
+    MuiTab: {
+      styleOverrides: {
+        root: {
+          ...tabBase.root,
+          color: '#7A7A8A',
+          '&.Mui-selected': {
+            color: '#00D4FF',
+          },
+        },
+      },
+    },
+    MuiTabs: {
+      styleOverrides: {
+        indicator: {
+          height: 2,
+          backgroundColor: '#00D4FF',
         },
       },
     },
@@ -443,31 +456,6 @@ export const dsHubDarkTheme = createTheme({
           backgroundColor: 'rgba(0, 212, 255, 0.08)',
           borderColor: 'rgba(0, 212, 255, 0.2)',
           color: '#5CE1FF',
-        },
-      },
-    },
-    MuiTab: {
-      styleOverrides: {
-        root: {
-          fontFamily: FONT_MONO,
-          fontSize: '0.75rem',
-          fontWeight: 500,
-          letterSpacing: '0.02em',
-          textTransform: 'none',
-          minHeight: 36,
-          padding: '6px 16px',
-          color: '#7A7A8A',
-          '&.Mui-selected': {
-            color: '#00D4FF',
-          },
-        },
-      },
-    },
-    MuiTabs: {
-      styleOverrides: {
-        indicator: {
-          height: 2,
-          backgroundColor: '#00D4FF',
         },
       },
     },
@@ -506,13 +494,7 @@ export const dsHubDarkTheme = createTheme({
       },
     },
     MuiDialogTitle: {
-      styleOverrides: {
-        root: {
-          fontFamily: FONT_DISPLAY,
-          fontSize: '1rem',
-          fontWeight: 600,
-        },
-      },
+      styleOverrides: dialogTitleBase,
     },
     MuiMenu: {
       styleOverrides: {

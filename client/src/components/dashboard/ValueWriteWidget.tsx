@@ -4,6 +4,7 @@ import { ValueWriteWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useToast } from '../ToastNotification';
+import { FONT_MONO } from '../../theme';
 
 interface ValueWriteWidgetProps {
   config: ValueWriteWidgetConfig;
@@ -96,7 +97,7 @@ export default function ValueWriteWidget({ config, isEditMode, widgetSize }: Val
             max: config.max,
             step: config.step || 1
           }}
-          sx={{ '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: widgetSize ? scaledRem(0.8125, widgetSize.scale) : '0.8125rem' } }}
+          sx={{ '& .MuiInputBase-input': { fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(0.8125, widgetSize.scale) : '0.8125rem' } }}
           helperText={
             config.min !== undefined && config.max !== undefined
               ? `Range: ${config.min} - ${config.max}`

@@ -37,6 +37,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { MapEntry, DataAccessPermit, DataForm } from '../../maps/mapParser';
 import { consolidateArrayEntries } from '../../utils/mapFileGenerator';
+import { FONT_MONO } from '../../theme';
 
 interface MapEntriesListProps {
   entries: MapEntry[];
@@ -212,7 +213,7 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
 
       {/* Address */}
       <TableCell sx={{ py: 0.5 }}>
-        <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem', color: 'text.secondary' }}>
+        <Typography variant="body2" sx={{ fontFamily: FONT_MONO, fontSize: '0.8125rem', color: 'text.secondary' }}>
           {entry.address}
         </Typography>
       </TableCell>
@@ -225,7 +226,7 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
           onBlur={handleNameBlur}
           size="small"
           fullWidth
-          sx={{ '& .MuiInputBase-input': { fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' } }}
+          sx={{ '& .MuiInputBase-input': { fontFamily: FONT_MONO, fontSize: '0.8125rem' } }}
         />
       </TableCell>
 
@@ -236,7 +237,7 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
           onChange={(e) => handleTypeChange(e.target.value as DataForm)}
           size="small"
           fullWidth
-          sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '0.8125rem' }}
+          sx={{ fontFamily: FONT_MONO, fontSize: '0.8125rem' }}
         >
           <MenuItem value={DataForm.UINT}>uint32_t</MenuItem>
           <MenuItem value={DataForm.INT}>int32_t</MenuItem>
