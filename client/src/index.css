@@ -10,7 +10,7 @@ code {
   font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', source-code-pro, monospace;
 }
 
-/* Scrollbar styling for dark theme */
+/* Scrollbar styling — theme-aware via CSS custom properties set in App.tsx */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -21,17 +21,17 @@ code {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--scrollbar-thumb, rgba(255, 255, 255, 0.1));
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--scrollbar-thumb-hover, rgba(255, 255, 255, 0.2));
 }
 
-/* Selection color */
+/* Selection color — theme-aware */
 ::selection {
-  background: rgba(0, 212, 255, 0.25);
+  background: var(--selection-bg, rgba(0, 212, 255, 0.25));
   color: inherit;
 }
 

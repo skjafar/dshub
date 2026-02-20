@@ -3,11 +3,9 @@ import {
   Box,
   Button,
   Card,
-  CardContent,
   IconButton,
   Tabs,
   Tab,
-  Typography,
   TextField,
   Dialog,
   DialogTitle,
@@ -21,8 +19,10 @@ import {
 import {
   Edit as EditIcon,
   Add as AddIcon,
-  MoreVert as MoreVertIcon
+  MoreVert as MoreVertIcon,
+  Dashboard as DashboardEmptyIcon
 } from '@mui/icons-material';
+import EmptyState from './EmptyState';
 import GridLayout from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import { useSettings } from '../contexts/SettingsContext';
@@ -413,34 +413,18 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
       {/* Dashboard Grid */}
       <Box ref={containerRef} sx={{ minHeight: '500px', width: '100%' }}>
         {activeTab.widgets.length === 0 ? (
-          <Card>
-            <CardContent>
-              <Box
-                sx={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  minHeight: '300px',
-                  gap: 2
-                }}
-              >
-                <Typography variant="h6" color="text.secondary">
-                  No widgets yet
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {isEditMode
-                    ? 'Click "Add Widget" to start building your dashboard'
-                    : 'Enable Edit Mode to add widgets'}
-                </Typography>
-                {!isEditMode && (
-                  <Button variant="outlined" startIcon={<EditIcon />} onClick={() => onEditModeChange(true)}>
-                    Enable Edit Mode
-                  </Button>
-                )}
-              </Box>
-            </CardContent>
-          </Card>
+          <EmptyState
+            icon={<DashboardEmptyIcon />}
+            title="No Widgets"
+            subtitle={isEditMode
+              ? 'Click "Add Widget" to start building your dashboard'
+              : 'Enable Edit Mode to add widgets'}
+            action={!isEditMode ? {
+              label: 'Enable Edit Mode',
+              onClick: () => onEditModeChange(true),
+              icon: <EditIcon />,
+            } : undefined}
+          />
         ) : (
           <GridLayout
             className="layout"

@@ -249,7 +249,8 @@ export default function SettingsPanel() {
   return (
     <Box>
       <Stack spacing={2}>
-        {/* Theme Settings */}
+        {/* Theme + Connection side-by-side */}
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, alignItems: 'start' }}>
         <Card>
           <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
             <Typography variant="overline" sx={{ color: 'text.secondary', mb: 1.5, display: 'block', letterSpacing: '0.08em' }}>
@@ -266,7 +267,6 @@ export default function SettingsPanel() {
           </CardContent>
         </Card>
 
-        {/* Connection Settings */}
         <Card>
           <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
             <Typography variant="overline" sx={{ color: 'text.secondary', mb: 1.5, display: 'block', letterSpacing: '0.08em' }}>
@@ -352,6 +352,7 @@ export default function SettingsPanel() {
             </Stack>
           </CardContent>
         </Card>
+        </Box>
 
         {/* Map Profiles */}
         <MapProfilesPanel />

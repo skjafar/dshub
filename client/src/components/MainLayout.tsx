@@ -56,6 +56,7 @@ import ParametersPanel, { ParametersPanelRef } from './ParametersPanel';
 import LogsPanel from './LogsPanel';
 import SettingsPanel from './SettingsPanel';
 import MapEditorPanel from './maps/MapEditorPanel';
+import AboutPanel from './AboutPanel';
 
 const drawerWidth = 240;
 const drawerWidthCollapsed = 64;
@@ -92,10 +93,13 @@ export default function MainLayout() {
   });
   const [autoConnectAttempts, setAutoConnectAttempts] = useState(0);
   const [isAutoConnecting, setIsAutoConnecting] = useState(false);
-  // Persist last viewed panel
+  // Persist last viewed panel & mark logs read when viewing logs
   useEffect(() => {
     localStorage.setItem('dshub-last-view', currentView);
-  }, [currentView]);
+    if (currentView === 'logs') {
+      actions.markLogsRead();
+    }
+  }, [currentView, actions]);
 
   // Dashboard control state
   const [isDashboardEditMode, setIsDashboardEditMode] = useState(false);
@@ -233,19 +237,7 @@ export default function MainLayout() {
       case 'settings':
         return <SettingsPanel />;
       case 'about':
-        return (
-          <Box sx={{ p: 3 }}>
-            <Typography variant="h4" gutterBottom>
-              DSHub
-            </Typography>
-            <Typography variant="body1" paragraph>
-              Version 1.0.0 - Web-based device monitoring and control interface
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Built with React, TypeScript, and Material-UI
-            </Typography>
-          </Box>
-        );
+        return <AboutPanel />;
       default:
         return <DeviceScannerPanel />;
     }
@@ -294,7 +286,7 @@ export default function MainLayout() {
             {group.map((viewKey) => {
               const view = views.find(v => v.key === viewKey)!;
               const isLogs = view.key === 'logs';
-              const logCount = isLogs ? state.logs.length : 0;
+              const logCount = isLogs ? state.unreadLogCount : 0;
 
               const listItemButton = (
                 <ListItemButton
@@ -807,7 +799,7 @@ export default function MainLayout() {
                 duration: theme.transitions.duration.enteringScreen,
               }),
               overflowX: 'hidden',
-              backgroundColor: theme.palette.mode === 'dark' ? '#0A0A0F' : theme.palette.background.paper,
+              backgroundColor: theme.palette.mode === 'dark' ? '#0A0A0F' : '#F5F6FA',
               borderRight: `1px solid ${theme.palette.divider}`,
             },
           }}

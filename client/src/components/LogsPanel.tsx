@@ -22,8 +22,10 @@ import {
   Clear as ClearIcon,
   Download as ExportIcon,
   Pause as PauseIcon,
-  PlayArrow as PlayIcon
+  PlayArrow as PlayIcon,
+  Receipt as ReceiptIcon
 } from '@mui/icons-material';
+import EmptyState from './EmptyState';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { LogEntry } from '../types/shared';
@@ -300,14 +302,13 @@ export default function LogsPanel() {
         border: '1px solid rgba(255,255,255,0.06)',
       }}>
         {filteredLogs.length === 0 ? (
-          <Box sx={{ p: 3, textAlign: 'center' }}>
-            <Typography color="text.secondary">
-              {displayLogs.length === 0
-                ? 'No log entries yet. Activity will appear here as the application runs.'
-                : `No ${levelFilter} log entries found.`
-              }
-            </Typography>
-          </Box>
+          <EmptyState
+            icon={<ReceiptIcon />}
+            title={displayLogs.length === 0 ? 'No Log Entries' : `No ${levelFilter} Entries`}
+            subtitle={displayLogs.length === 0
+              ? 'Activity will appear here as the application runs.'
+              : 'Try changing the filter level to see other entries.'}
+          />
         ) : (
           <Box
             ref={listContainerRef}

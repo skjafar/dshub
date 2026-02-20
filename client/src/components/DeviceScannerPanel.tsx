@@ -21,7 +21,8 @@ import {
   MenuItem,
   Tooltip
 } from '@mui/material';
-import { Refresh as RefreshIcon, Link as ConnectIcon, Add as AddIcon } from '@mui/icons-material';
+import { Refresh as RefreshIcon, Link as ConnectIcon, Add as AddIcon, Radar as RadarIcon } from '@mui/icons-material';
+import EmptyState from './EmptyState';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
@@ -240,14 +241,11 @@ export default function DeviceScannerPanel() {
       </Card>
 
       {state.discoveredDevices.length === 0 && !state.isScanning && (
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', py: 8, color: 'text.secondary' }}>
-          <Typography variant="body2" sx={{ mb: 1 }}>
-            No devices discovered
-          </Typography>
-          <Typography variant="caption">
-            Click "Scan Network" to search for devices on your network
-          </Typography>
-        </Box>
+        <EmptyState
+          icon={<RadarIcon />}
+          title="No Devices Found"
+          subtitle='Click "Scan Network" to search for devices on your network.'
+        />
       )}
 
       {state.discoveredDevices.length > 0 && (

@@ -118,7 +118,14 @@ export const dsHubTheme = createTheme({
       secondary: '#5A5A72',
       disabled: '#9CA3AF',
     },
-    divider: 'rgba(0, 0, 0, 0.06)',
+    divider: 'rgba(0, 0, 0, 0.1)',
+    action: {
+      active: '#1A1A2E',
+      hover: 'rgba(0, 119, 182, 0.04)',
+      selected: 'rgba(0, 119, 182, 0.08)',
+      disabled: 'rgba(0, 0, 0, 0.26)',
+      disabledBackground: 'rgba(0, 0, 0, 0.06)',
+    },
   },
   typography: {
     fontFamily: FONT_BODY,
@@ -153,7 +160,14 @@ export const dsHubTheme = createTheme({
         contained: {
           boxShadow: 'none',
           '&:hover': {
-            boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+            boxShadow: '0 0 12px rgba(0, 119, 182, 0.2)',
+          },
+        },
+        outlined: {
+          borderColor: 'rgba(0,0,0,0.15)',
+          '&:hover': {
+            borderColor: 'rgba(0,0,0,0.3)',
+            backgroundColor: 'rgba(0, 119, 182, 0.04)',
           },
         },
       },
@@ -163,7 +177,7 @@ export const dsHubTheme = createTheme({
         root: {
           borderRadius: 6,
           boxShadow: 'none',
-          border: '1px solid rgba(0,0,0,0.08)',
+          border: '1px solid rgba(0,0,0,0.12)',
         },
       },
     },
@@ -175,11 +189,11 @@ export const dsHubTheme = createTheme({
         },
         elevation1: {
           boxShadow: 'none',
-          border: '1px solid rgba(0,0,0,0.08)',
+          border: '1px solid rgba(0,0,0,0.1)',
         },
         elevation2: {
-          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-          border: '1px solid rgba(0,0,0,0.06)',
+          boxShadow: 'none',
+          border: '1px solid rgba(0,0,0,0.1)',
         },
       },
     },
@@ -200,7 +214,7 @@ export const dsHubTheme = createTheme({
         ...tableCellBase,
         root: {
           ...tableCellBase.root,
-          borderBottom: '1px solid rgba(0,0,0,0.06)',
+          borderBottom: '1px solid rgba(0,0,0,0.08)',
         },
         head: {
           ...tableCellBase.head,
@@ -210,12 +224,21 @@ export const dsHubTheme = createTheme({
       },
     },
     MuiTab: {
-      styleOverrides: tabBase,
+      styleOverrides: {
+        root: {
+          ...tabBase.root,
+          color: '#5A5A72',
+          '&.Mui-selected': {
+            color: '#0077B6',
+          },
+        },
+      },
     },
     MuiTabs: {
       styleOverrides: {
         indicator: {
           height: 2,
+          backgroundColor: '#0077B6',
         },
       },
     },
@@ -224,6 +247,40 @@ export const dsHubTheme = createTheme({
         root: {
           borderRadius: 4,
           fontSize: '0.8125rem',
+          border: '1px solid',
+        },
+        standardSuccess: {
+          backgroundColor: 'rgba(5, 150, 105, 0.06)',
+          borderColor: 'rgba(5, 150, 105, 0.25)',
+          color: '#047857',
+        },
+        standardError: {
+          backgroundColor: 'rgba(220, 38, 38, 0.06)',
+          borderColor: 'rgba(220, 38, 38, 0.25)',
+          color: '#B91C1C',
+        },
+        standardWarning: {
+          backgroundColor: 'rgba(217, 119, 6, 0.06)',
+          borderColor: 'rgba(217, 119, 6, 0.25)',
+          color: '#B45309',
+        },
+        standardInfo: {
+          backgroundColor: 'rgba(0, 119, 182, 0.06)',
+          borderColor: 'rgba(0, 119, 182, 0.25)',
+          color: '#005A8C',
+        },
+      },
+    },
+    MuiListItemButton: {
+      styleOverrides: {
+        root: {
+          '&.Mui-selected': {
+            backgroundColor: 'rgba(0, 119, 182, 0.06)',
+            borderLeft: '3px solid #0077B6',
+            '&:hover': {
+              backgroundColor: 'rgba(0, 119, 182, 0.1)',
+            },
+          },
         },
       },
     },
@@ -233,6 +290,9 @@ export const dsHubTheme = createTheme({
           fontFamily: FONT_BODY,
           fontSize: '0.6875rem',
           borderRadius: 4,
+          backgroundColor: '#1A1A2E',
+          border: '1px solid rgba(0,0,0,0.15)',
+          color: '#E8E8EC',
         },
       },
     },
@@ -240,11 +300,45 @@ export const dsHubTheme = createTheme({
       styleOverrides: {
         paper: {
           borderRadius: 8,
+          border: '1px solid rgba(0,0,0,0.1)',
         },
       },
     },
     MuiDialogTitle: {
       styleOverrides: dialogTitleBase,
+    },
+    MuiMenu: {
+      styleOverrides: {
+        paper: {
+          border: '1px solid rgba(0,0,0,0.1)',
+          borderRadius: 6,
+        },
+      },
+    },
+    MuiMenuItem: {
+      styleOverrides: {
+        root: {
+          fontSize: '0.8125rem',
+          '&:hover': {
+            backgroundColor: 'rgba(0, 119, 182, 0.06)',
+          },
+          '&.Mui-selected': {
+            backgroundColor: 'rgba(0, 119, 182, 0.1)',
+          },
+        },
+      },
+    },
+    MuiSwitch: {
+      styleOverrides: {
+        switchBase: {
+          '&.Mui-checked': {
+            color: '#0077B6',
+          },
+          '&.Mui-checked + .MuiSwitch-track': {
+            backgroundColor: '#0077B6',
+          },
+        },
+      },
     },
   },
 });

@@ -28,8 +28,10 @@ import {
   Add as AddIcon,
   Remove as RemoveIcon,
   Download as SaveIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  ShowChart as ShowChartIcon
 } from '@mui/icons-material';
+import EmptyState from './EmptyState';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -1424,19 +1426,11 @@ export default function PlotPanel() {
                     )}
                   </>
                 ) : (
-                  <Box
-                    sx={{
-                      height: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: 'text.secondary'
-                    }}
-                  >
-                    <Typography>
-                      Add a register series to this plot
-                    </Typography>
-                  </Box>
+                  <EmptyState
+                    icon={<ShowChartIcon />}
+                    title="No Series"
+                    subtitle="Add a register series to begin visualization."
+                  />
                 )}
               </Paper>
 

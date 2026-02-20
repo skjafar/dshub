@@ -15,7 +15,9 @@ import {
   Build as ControlTakeIcon,
   PowerSettingsNew as DisconnectIcon
 } from '@mui/icons-material';
+import { LinkOff as LinkOffIcon } from '@mui/icons-material';
 import { useDSHub } from '../contexts/DSHubContext';
+import EmptyState from './EmptyState';
 import { ControlInterfaceState, InterfaceType } from '../types/shared';
 import { FONT_MONO } from '../theme';
 
@@ -47,11 +49,11 @@ export default function DeviceDashboard() {
 
   if (!state.connection) {
     return (
-      <Box>
-        <Typography variant="body2" sx={{ color: 'text.secondary', textAlign: 'center', py: 4 }}>
-          No device connected. Please use the Device Scanner to discover and connect to a device.
-        </Typography>
-      </Box>
+      <EmptyState
+        icon={<LinkOffIcon />}
+        title="No Device Connected"
+        subtitle="Use the Device Scanner to discover and connect to a device on your network."
+      />
     );
   }
 

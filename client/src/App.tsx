@@ -31,6 +31,15 @@ function ThemedApp() {
     }
   }, [settings.theme, prefersDarkMode]);
 
+  // Sync CSS custom properties for scrollbar & selection styling
+  useEffect(() => {
+    const root = document.documentElement;
+    const isDark = theme.palette.mode === 'dark';
+    root.style.setProperty('--scrollbar-thumb', isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.15)');
+    root.style.setProperty('--scrollbar-thumb-hover', isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.25)');
+    root.style.setProperty('--selection-bg', isDark ? 'rgba(0,212,255,0.25)' : 'rgba(0,119,182,0.2)');
+  }, [theme]);
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />

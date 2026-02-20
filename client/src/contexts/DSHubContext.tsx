@@ -42,6 +42,7 @@ interface DSHubState {
   registers: Map<number, RegisterData>;
   parameters: Map<number, ParameterData>;
   logs: LogEntry[];
+  unreadLogCount: number;
   plotData: Map<string, PlotDataPoint[]>;
   activePlots: Map<string, { address: number; pollInterval: number }>;
   isScanning: boolean;
@@ -74,6 +75,7 @@ type DSHubAction =
   | { type: 'SET_PLOT_TIME_SPAN'; payload: { series: string; timeSpan: number } }
   | { type: 'SET_PLOT_PAUSED'; payload: boolean }
   | { type: 'CLEAR_LOGS' }
+  | { type: 'MARK_LOGS_READ' }
   | { type: 'CLEAR_REGISTERS' }
   | { type: 'CLEAR_PARAMETERS' }
   | { type: 'SET_AUTO_REFRESH'; payload: { enabled: boolean; interval?: number } }
@@ -92,6 +94,7 @@ const initialState: DSHubState = {
   registers: new Map(),
   parameters: new Map(),
   logs: [],
+  unreadLogCount: 0,
   plotData: new Map(),
   activePlots: new Map(),
   isScanning: false,
@@ -166,7 +169,12 @@ function createDSHubReducer(getLogSettings: () => LogSettings) {
         if (newLogs.length > logSettings.maxLogCount) {
           newLogs = newLogs.slice(newLogs.length - logSettings.maxLogCount);
         }
-        return { ...state, logs: newLogs };
+        const isAlertLevel = action.payload.level === 'error' || action.payload.level === 'warning';
+        return {
+          ...state,
+          logs: newLogs,
+          unreadLogCount: isAlertLevel ? state.unreadLogCount + 1 : state.unreadLogCount,
+        };
     
     case 'ADD_PLOT_DATA':
       const newPlotData = new Map(state.plotData);
@@ -227,7 +235,10 @@ function createDSHubReducer(getLogSettings: () => LogSettings) {
       return { ...state, plotPaused: action.payload };
 
     case 'CLEAR_LOGS':
-      return { ...state, logs: [] };
+      return { ...state, logs: [], unreadLogCount: 0 };
+
+    case 'MARK_LOGS_READ':
+      return { ...state, unreadLogCount: 0 };
 
     case 'CLEAR_REGISTERS':
       return { ...state, registers: new Map() };
@@ -324,6 +335,7 @@ interface DSHubContextType {
     setPlotTimeSpan: (series: string, timeSpan: number) => void;
     setPlotPaused: (paused: boolean) => void;
     clearLogs: () => void;
+    markLogsRead: () => void;
     clearRegisters: () => void;
     clearParameters: () => void;
     setAutoRefresh: (enabled: boolean, interval?: number) => void;
@@ -698,6 +710,10 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
     clearLogs: () => {
       dispatch({ type: 'CLEAR_LOGS' });
       dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: 'Activity log cleared by user', timestamp: Date.now() } });
+    },
+
+    markLogsRead: () => {
+      dispatch({ type: 'MARK_LOGS_READ' });
     },
 
     clearRegisters: () => {
