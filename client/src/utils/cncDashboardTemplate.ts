@@ -115,7 +115,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
         { direction: 'left', command: 221 },
         { direction: 'right', command: 220 },
       ],
-      buttonSize: 48, color: '#00F2FF',
+      buttonSize: 40, color: '#00F2FF',
     },
     layout: { w: 3, h: 3, x: 0, y: 4, i: 'modern-cnc-8', moved: false, static: false },
   },

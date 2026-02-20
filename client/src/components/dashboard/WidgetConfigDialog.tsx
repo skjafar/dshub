@@ -252,9 +252,9 @@ export default function WidgetConfigDialog({
     const errors: string[] = [];
     const c = config as any;
 
-    // Label required for all types
-    if (!c.label?.trim()) {
-      errors.push('Label is required');
+    // Button must have at least a label or an icon
+    if (widgetType === 'button' && !c.label?.trim() && !c.icon) {
+      errors.push('Button must have a label, an icon, or both');
     }
 
     // Address required for address-based widgets
@@ -294,6 +294,23 @@ export default function WidgetConfigDialog({
       errors.push('Poll interval must be greater than 0');
     }
 
+    // SysCommand codes must match a defined command
+    const sysCommands = activeProfile?.sysCommands ?? [];
+    if (sysCommands.length > 0) {
+      const validCodes = new Set(sysCommands.map(cmd => cmd.code));
+
+      if (widgetType === 'button' && c.target === 'sysCommand' && !validCodes.has(c.address)) {
+        errors.push('Command code must match a defined system command');
+      }
+
+      if (widgetType === 'directionalControl' && c.directions?.length > 0) {
+        const invalidDirs = c.directions.filter((d: { command: number }) => !validCodes.has(d.command));
+        if (invalidDirs.length > 0) {
+          errors.push('All direction commands must match defined system commands');
+        }
+      }
+    }
+
     return errors;
   };
 
@@ -313,7 +330,8 @@ export default function WidgetConfigDialog({
   };
 
   const renderConfigFields = () => {
-    const commonProps = { registers, parameters };
+    const sysCommands = activeProfile?.sysCommands ?? [];
+    const commonProps = { registers, parameters, sysCommands };
 
     switch (widgetType) {
       case 'button':

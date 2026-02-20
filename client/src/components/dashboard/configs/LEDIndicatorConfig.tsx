@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import { LEDIndicatorWidgetConfig, DataSource } from '../../../types/dashboard';
 import AddressSelector, { AddressItem } from './AddressSelector';
+import ColorPickerField from './ColorPickerField';
 
 interface LEDIndicatorConfigProps {
   config: Partial<LEDIndicatorWidgetConfig>;
@@ -90,29 +91,21 @@ export default function LEDIndicatorConfig({ config, onConfigChange, registers, 
           sx={{ flex: 1 }}
         />
       </Box>
-      <Box sx={{ display: 'flex', gap: 2 }}>
-        <Box sx={{ flex: 1, mt: 2 }}>
-          <Typography variant="caption" color="text.secondary">On Color</Typography>
-          <TextField
-            fullWidth
-            value={config.onColor ?? '#4ADE80'}
-            onChange={(e) => onConfigChange({ ...config, onColor: e.target.value })}
-            type="color"
-            size="small"
-            sx={{ mt: 0.5 }}
-          />
-        </Box>
-        <Box sx={{ flex: 1, mt: 2 }}>
-          <Typography variant="caption" color="text.secondary">Off Color</Typography>
-          <TextField
-            fullWidth
-            value={config.offColor ?? '#6B7280'}
-            onChange={(e) => onConfigChange({ ...config, offColor: e.target.value })}
-            type="color"
-            size="small"
-            sx={{ mt: 0.5 }}
-          />
-        </Box>
+      <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
+        <ColorPickerField
+          label="On Color"
+          value={config.onColor ?? '#4ADE80'}
+          onChange={(color) => onConfigChange({ ...config, onColor: color })}
+          size="small"
+          fullWidth
+        />
+        <ColorPickerField
+          label="Off Color"
+          value={config.offColor ?? '#6B7280'}
+          onChange={(color) => onConfigChange({ ...config, offColor: color })}
+          size="small"
+          fullWidth
+        />
       </Box>
       <FormControlLabel
         control={

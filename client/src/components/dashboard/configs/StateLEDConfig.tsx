@@ -19,6 +19,7 @@ import {
 } from '@mui/icons-material';
 import { StateLEDWidgetConfig, DataSource } from '../../../types/dashboard';
 import AddressSelector, { AddressItem } from './AddressSelector';
+import ColorPickerField from './ColorPickerField';
 
 interface StateLEDConfigProps {
   config: Partial<StateLEDWidgetConfig>;
@@ -119,17 +120,16 @@ export default function StateLEDConfig({ config, onConfigChange, registers, para
             size="small"
             sx={{ flex: 1 }}
           />
-          <TextField
+          <ColorPickerField
             label="Color"
             value={state.color}
-            onChange={(e) => {
+            onChange={(color) => {
               const states = [...(config.states ?? [])];
-              states[index] = { ...states[index], color: e.target.value };
+              states[index] = { ...states[index], color };
               onConfigChange({ ...config, states });
             }}
             size="small"
-            type="color"
-            sx={{ width: 80 }}
+            sx={{ width: 120 }}
           />
           <IconButton
             onClick={() => {

@@ -10,16 +10,20 @@ import {
   Divider
 } from '@mui/material';
 import { DirectionalControlWidgetConfig } from '../../../types/dashboard';
+import type { SysCommand } from '../../../types/settings';
 import { AddressItem } from './AddressSelector';
+import SysCommandSelector from './SysCommandSelector';
+import ColorPickerField from './ColorPickerField';
 
 interface DirectionalControlConfigProps {
   config: Partial<DirectionalControlWidgetConfig>;
   onConfigChange: (updates: Partial<DirectionalControlWidgetConfig>) => void;
   registers: AddressItem[];
   parameters: AddressItem[];
+  sysCommands: SysCommand[];
 }
 
-export default function DirectionalControlConfig({ config, onConfigChange }: DirectionalControlConfigProps): React.ReactElement {
+export default function DirectionalControlConfig({ config, onConfigChange, sysCommands }: DirectionalControlConfigProps): React.ReactElement {
   const updateDirection = (dir: string, command: number) => {
     const directions = config.directions ?? [];
     const existingIndex = directions.findIndex(d => d.direction === dir);
@@ -71,11 +75,11 @@ export default function DirectionalControlConfig({ config, onConfigChange }: Dir
         return (
           <Box key={dir} sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'center' }}>
             <Typography sx={{ width: 80, textTransform: 'capitalize' }}>{dir}:</Typography>
-            <TextField
-              label="Command"
-              type="number"
+            <SysCommandSelector
               value={direction?.command ?? 0}
-              onChange={(e) => updateDirection(dir, parseInt(e.target.value))}
+              onChange={(code) => updateDirection(dir, code)}
+              sysCommands={sysCommands}
+              label="Command"
               size="small"
               sx={{ flex: 1 }}
             />
@@ -90,11 +94,11 @@ export default function DirectionalControlConfig({ config, onConfigChange }: Dir
             <Typography sx={{ width: 80, textTransform: 'capitalize' }}>
               {dir.replace(/([A-Z])/g, ' $1').trim()}:
             </Typography>
-            <TextField
-              label="Command"
-              type="number"
+            <SysCommandSelector
               value={direction?.command ?? 0}
-              onChange={(e) => updateDirection(dir, parseInt(e.target.value))}
+              onChange={(code) => updateDirection(dir, code)}
+              sysCommands={sysCommands}
+              label="Command"
               size="small"
               sx={{ flex: 1 }}
             />
@@ -102,13 +106,12 @@ export default function DirectionalControlConfig({ config, onConfigChange }: Dir
         );
       })}
 
-      <TextField
-        fullWidth
-        label="Control Color (optional)"
+      <ColorPickerField
+        label="Control Color"
         value={config.color ?? ''}
-        onChange={(e) => onConfigChange({ ...config, color: e.target.value })}
+        onChange={(color) => onConfigChange({ ...config, color })}
+        fullWidth
         margin="normal"
-        type="color"
       />
     </>
   );

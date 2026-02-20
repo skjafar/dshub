@@ -11,16 +11,20 @@ import {
 } from '@mui/material';
 import { AVAILABLE_ICONS } from '../../../constants/widgetIcons';
 import { ButtonWidgetConfig, DataSource } from '../../../types/dashboard';
+import type { SysCommand } from '../../../types/settings';
 import AddressSelector, { AddressItem } from './AddressSelector';
+import SysCommandSelector from './SysCommandSelector';
+import ColorPickerField from './ColorPickerField';
 
 interface ButtonConfigProps {
   config: Partial<ButtonWidgetConfig>;
   onConfigChange: (updates: Partial<ButtonWidgetConfig>) => void;
   registers: AddressItem[];
   parameters: AddressItem[];
+  sysCommands: SysCommand[];
 }
 
-export default function ButtonConfig({ config, onConfigChange, registers, parameters }: ButtonConfigProps): React.ReactElement {
+export default function ButtonConfig({ config, onConfigChange, registers, parameters, sysCommands }: ButtonConfigProps): React.ReactElement {
   return (
     <>
       <TextField
@@ -69,14 +73,10 @@ export default function ButtonConfig({ config, onConfigChange, registers, parame
         </Select>
       </FormControl>
       {config.target === 'sysCommand' ? (
-        <TextField
-          fullWidth
-          type="number"
-          label="Command Code"
-          value={config.address ?? 0}
-          onChange={(e) => onConfigChange({ ...config, address: parseInt(e.target.value) })}
-          margin="normal"
-          helperText="System command code (e.g., 200 for ENABLE_ALL_MOTORS)"
+        <SysCommandSelector
+          value={config.address}
+          onChange={(code) => onConfigChange({ ...config, address: code })}
+          sysCommands={sysCommands}
         />
       ) : (
         <AddressSelector
@@ -97,13 +97,12 @@ export default function ButtonConfig({ config, onConfigChange, registers, parame
         margin="normal"
         helperText={config.target === 'sysCommand' ? 'Optional value parameter for the command' : undefined}
       />
-      <TextField
-        fullWidth
-        label="Button Color (optional)"
+      <ColorPickerField
+        label="Button Color"
         value={config.color ?? ''}
-        onChange={(e) => onConfigChange({ ...config, color: e.target.value })}
+        onChange={(color) => onConfigChange({ ...config, color })}
+        fullWidth
         margin="normal"
-        placeholder="#FF5722"
       />
       <FormControlLabel
         control={

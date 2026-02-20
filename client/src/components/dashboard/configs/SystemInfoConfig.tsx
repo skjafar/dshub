@@ -19,6 +19,7 @@ import {
 } from '@mui/icons-material';
 import { SystemInfoWidgetConfig, DataSource } from '../../../types/dashboard';
 import { AddressItem } from './AddressSelector';
+import ColorPickerField from './ColorPickerField';
 
 interface SystemInfoConfigProps {
   config: Partial<SystemInfoWidgetConfig>;
@@ -181,17 +182,16 @@ export default function SystemInfoConfig({ config, onConfigChange }: SystemInfoC
               size="small"
               sx={{ flex: 1 }}
             />
-            <TextField
-              label="Color (optional)"
+            <ColorPickerField
+              label="Color"
               value={item.color ?? '#00F2FF'}
-              onChange={(e) => {
+              onChange={(color) => {
                 const items = [...(config.items ?? [])];
-                items[index] = { ...items[index], color: e.target.value };
+                items[index] = { ...items[index], color };
                 onConfigChange({ ...config, items });
               }}
               size="small"
-              type="color"
-              sx={{ width: 80 }}
+              sx={{ width: 120 }}
             />
           </Box>
         </Box>

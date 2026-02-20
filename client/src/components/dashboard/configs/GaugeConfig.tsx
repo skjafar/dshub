@@ -19,6 +19,7 @@ import {
 } from '@mui/icons-material';
 import { GaugeWidgetConfig, DataSource } from '../../../types/dashboard';
 import AddressSelector, { AddressItem } from './AddressSelector';
+import ColorPickerField from './ColorPickerField';
 
 interface GaugeConfigProps {
   config: Partial<GaugeWidgetConfig>;
@@ -164,17 +165,16 @@ export default function GaugeConfig({ config, onConfigChange, registers, paramet
             size="small"
             sx={{ flex: 1 }}
           />
-          <TextField
+          <ColorPickerField
             label="Color"
             value={range.color}
-            onChange={(e) => {
+            onChange={(color) => {
               const colorRanges = [...(config.colorRanges ?? [])];
-              colorRanges[index] = { ...colorRanges[index], color: e.target.value };
+              colorRanges[index] = { ...colorRanges[index], color };
               onConfigChange({ ...config, colorRanges });
             }}
             size="small"
-            type="color"
-            sx={{ width: 80 }}
+            sx={{ width: 120 }}
           />
           <IconButton
             onClick={() => {

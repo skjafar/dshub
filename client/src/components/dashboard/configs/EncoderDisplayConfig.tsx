@@ -10,6 +10,7 @@ import {
 } from '@mui/material';
 import { EncoderDisplayWidgetConfig, DataSource } from '../../../types/dashboard';
 import AddressSelector, { AddressItem } from './AddressSelector';
+import ColorPickerField from './ColorPickerField';
 
 interface EncoderDisplayConfigProps {
   config: Partial<EncoderDisplayWidgetConfig>;
@@ -111,13 +112,12 @@ export default function EncoderDisplayConfig({ config, onConfigChange, registers
         onChange={(e) => onConfigChange({ ...config, refreshInterval: parseInt(e.target.value) })}
         margin="normal"
       />
-      <TextField
-        fullWidth
+      <ColorPickerField
         label="Display Color"
         value={config.color ?? '#00F2FF'}
-        onChange={(e) => onConfigChange({ ...config, color: e.target.value })}
+        onChange={(color) => onConfigChange({ ...config, color })}
+        fullWidth
         margin="normal"
-        type="color"
       />
       <FormControlLabel
         control={

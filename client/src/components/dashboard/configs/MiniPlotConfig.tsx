@@ -10,6 +10,7 @@ import {
 } from '@mui/material';
 import { MiniPlotWidgetConfig, DataSource } from '../../../types/dashboard';
 import AddressSelector, { AddressItem } from './AddressSelector';
+import ColorPickerField from './ColorPickerField';
 
 interface MiniPlotConfigProps {
   config: Partial<MiniPlotWidgetConfig>;
@@ -63,13 +64,12 @@ export default function MiniPlotConfig({ config, onConfigChange, registers, para
         onChange={(e) => onConfigChange({ ...config, pollInterval: parseInt(e.target.value) })}
         margin="normal"
       />
-      <TextField
-        fullWidth
-        label="Line Color (optional)"
+      <ColorPickerField
+        label="Line Color"
         value={config.color ?? ''}
-        onChange={(e) => onConfigChange({ ...config, color: e.target.value })}
+        onChange={(color) => onConfigChange({ ...config, color })}
+        fullWidth
         margin="normal"
-        placeholder="#4A9EFF"
       />
       <FormControlLabel
         control={
