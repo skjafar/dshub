@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { UserSettings, DEFAULT_SETTINGS, MapProfile, DEFAULT_PROFILE_ID, CNC_PROFILE_ID, SysCommand } from '../types/settings';
 import { createModernCNCDashboard, CNC_SYS_COMMANDS } from '../utils/cncDashboardTemplate';
+import { mapManager } from '../maps/mapManager';
 
 const STORAGE_KEY = 'dshub_settings';
 
@@ -108,6 +109,23 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cncProfile]);
+
+  // Initialize mapManager at app level so maps are available on all panels (including dashboard)
+  useEffect(() => {
+    const activeProfile =
+      settings.activeMapProfileId === DEFAULT_PROFILE_ID ? defaultProfile :
+      settings.activeMapProfileId === CNC_PROFILE_ID ? cncProfile :
+      settings.mapProfiles.find(p => p.id === settings.activeMapProfileId) ?? null;
+
+    if (!activeProfile) return;
+
+    const currentProfileId = mapManager.getCurrentProfileId();
+    if (currentProfileId === activeProfile.id && mapManager.isInitialized()) return;
+
+    mapManager.initialize(activeProfile).catch(error => {
+      console.error('Failed to initialize mapManager:', error);
+    });
+  }, [settings.activeMapProfileId, settings.mapProfiles, defaultProfile, cncProfile]);
 
   // Save to localStorage whenever settings change
   useEffect(() => {
