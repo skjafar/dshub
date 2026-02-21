@@ -133,8 +133,9 @@ export default function MainLayout() {
   // Auto-connect on startup with retry logic
   // Auto-scan is handled by AutoScanManager in App.tsx
   useEffect(() => {
-    // If auto-scan is enabled and scan is still running, wait for it to complete
-    const shouldWaitForScan = settings.autoScan && state.isScanning;
+    // If auto-scan is enabled and scan is still running, wait unless the target device is already discovered
+    const targetDeviceFound = state.discoveredDevices.some(d => d.ip_address === settings.lastDeviceIP);
+    const shouldWaitForScan = settings.autoScan && !targetDeviceFound;
 
     if (
       settings.autoConnect &&
@@ -143,7 +144,6 @@ export default function MainLayout() {
       autoConnectAttempts < settings.autoConnectRetries &&
       !isAutoConnecting &&
       !shouldWaitForScan
-      // Removed scanner blocking: scanning and connecting are independent operations
     ) {
       setIsAutoConnecting(true);
       const interfaceType = settings.lastInterfaceType === 'TCP' ? InterfaceType.TCP : InterfaceType.UDP;
