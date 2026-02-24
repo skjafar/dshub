@@ -135,7 +135,7 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
         height: '100%',
         gap: config.compact ? 0.5 : 1,
         p: config.compact ? 1 : 2,
-        backgroundColor: 'rgba(0, 0, 0, 0.1)',
+        backgroundColor: 'action.hover',
         borderRadius: 1,
       }}
     >
@@ -146,7 +146,8 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
           color: 'text.secondary',
           fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem',
           letterSpacing: '0.08em',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+          borderBottom: '1px solid',
+          borderColor: 'divider',
           pb: 0.5,
         }}
       >
@@ -176,7 +177,8 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
             textAlign: 'center',
             mt: 'auto',
             pt: 1,
-            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+            borderTop: '1px solid',
+            borderColor: 'divider',
           }}
         >
           Not connected

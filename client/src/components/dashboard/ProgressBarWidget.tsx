@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Typography, LinearProgress } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { ProgressBarWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
@@ -124,7 +125,7 @@ export default function ProgressBarWidget({ config, isEditMode, widgetSize }: Pr
         sx={{
           height: widgetSize ? scaledPx(12, widgetSize.scale) : 12,
           borderRadius: 2,
-          backgroundColor: 'rgba(255, 255, 255, 0.1)',
+          backgroundColor: (theme) => alpha(theme.palette.text.primary, 0.1),
           '& .MuiLinearProgress-bar': {
             backgroundColor: barColor,
             borderRadius: 2,

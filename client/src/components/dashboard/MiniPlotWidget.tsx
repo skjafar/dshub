@@ -42,14 +42,24 @@ export default function MiniPlotWidget({ config, isEditMode, widgetSize }: MiniP
     const now = Date.now();
     const cutoffTime = now - config.timeWindow * 1000;
 
+    // Calculate max data points based on time window and poll interval (+10% buffer)
+    const maxDataPoints = Math.ceil((config.timeWindow * 1000 / config.pollInterval) * 1.1);
+
     setDataPoints(prev => {
       // Add new point
       const newPoints = [...prev, { x: now, y: currentData.value as number }];
 
-      // Filter out old points
-      return newPoints.filter(point => point.x >= cutoffTime);
+      // Filter out old points based on time window
+      let filtered = newPoints.filter(point => point.x >= cutoffTime);
+
+      // Enforce maximum data points limit to prevent memory growth
+      if (filtered.length > maxDataPoints) {
+        filtered = filtered.slice(filtered.length - maxDataPoints);
+      }
+
+      return filtered;
     });
-  }, [currentData?.timestamp, isEditMode, config.timeWindow]);
+  }, [currentData?.timestamp, isEditMode, config.timeWindow, config.pollInterval]);
 
   const chartData = {
     datasets: [
@@ -65,6 +75,13 @@ export default function MiniPlotWidget({ config, isEditMode, widgetSize }: MiniP
     ]
   };
 
+  const now = Date.now();
+  // Use earliest collected point as min so the axis grows left-to-right as data
+  // accumulates, then slides once it fills the full window. Without this,
+  // the axis always spans the full timeWindow even when only a few points exist,
+  // making data appear crammed into the right edge.
+  const xMin = dataPoints.length > 0 ? dataPoints[0].x : now - config.timeWindow * 1000;
+
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
@@ -72,8 +89,8 @@ export default function MiniPlotWidget({ config, isEditMode, widgetSize }: MiniP
     scales: {
       x: {
         type: 'linear' as const,
-        min: Date.now() - config.timeWindow * 1000,
-        max: Date.now(),
+        min: xMin,
+        max: now,
         ticks: {
           display: false
         },

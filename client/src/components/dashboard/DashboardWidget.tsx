@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { Box, IconButton, Paper } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import {
   DashboardWidget as DashboardWidgetType,
@@ -100,7 +101,7 @@ export default function DashboardWidget({ widget, isEditMode, roundedCorners, on
             zIndex: 1000,
             display: 'flex',
             gap: 0.25,
-            backgroundColor: 'rgba(20, 20, 26, 0.85)',
+            backgroundColor: (theme) => alpha(theme.palette.background.paper, 0.9),
             backdropFilter: 'blur(8px)',
             borderRadius: '4px',
             padding: '2px',

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Box, Typography, IconButton } from '@mui/material';
 import {
   ArrowUpward,
@@ -35,6 +35,7 @@ interface DirectionalControlWidgetProps {
 export default function DirectionalControlWidget({ config, isEditMode, widgetSize }: DirectionalControlWidgetProps) {
   const { state, actions } = useDSHub();
   const [activeDirection, setActiveDirection] = useState<string | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isConnected = state.connection?.connected ?? false;
   const layout = config.layout || '4way';
@@ -42,15 +43,29 @@ export default function DirectionalControlWidget({ config, isEditMode, widgetSiz
   const buttonSize = widgetSize ? scaledPx(baseButtonSize, widgetSize.scale) : baseButtonSize;
   const color = config.color || '#00F2FF';
 
+  // Cleanup timeout on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
   /**
    * Send directional command via the proper actions.sendCommand API
    */
   const sendDirectionCommand = (command: number, direction: string) => {
     if (!isConnected || isEditMode) return;
 
+    // Clear any existing timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+
     // Visual feedback
     setActiveDirection(direction);
-    setTimeout(() => setActiveDirection(null), 150);
+    timeoutRef.current = setTimeout(() => setActiveDirection(null), 150);
 
     // Send system command through the DSHub actions API
     actions.sendCommand(command, 0);
@@ -172,7 +187,8 @@ export default function DirectionalControlWidget({ config, isEditMode, widgetSiz
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              border: `1px solid rgba(255, 255, 255, 0.1)`,
+              border: '1px solid',
+              borderColor: 'divider',
               borderRadius: 1,
             }}
           />
@@ -255,7 +271,8 @@ export default function DirectionalControlWidget({ config, isEditMode, widgetSiz
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              border: `1px solid rgba(255, 255, 255, 0.1)`,
+              border: '1px solid',
+              borderColor: 'divider',
               borderRadius: 1,
             }}
           />

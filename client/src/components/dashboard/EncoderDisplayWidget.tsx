@@ -97,7 +97,7 @@ export default function EncoderDisplayWidget({ config, isEditMode, widgetSize }:
         alignItems: 'center',
         gap: 1,
         p: 2,
-        backgroundColor: 'rgba(0, 0, 0, 0.1)',
+        backgroundColor: 'action.hover',
         borderRadius: 1,
       }}
     >

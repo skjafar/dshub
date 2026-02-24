@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, Typography, useTheme } from '@mui/material';
 import { GaugeWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
@@ -27,6 +27,7 @@ interface GaugeWidgetProps {
  */
 export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWidgetProps) {
   const { state } = useDSHub();
+  const theme = useTheme();
 
   // Get current data from state
   const currentData = config.source === 'register'
@@ -112,7 +113,7 @@ export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWid
             cy="60"
             r={radius}
             fill="none"
-            stroke="rgba(255, 255, 255, 0.08)"
+            stroke={theme.palette.divider}
             strokeWidth="5"
             strokeDasharray={`${arcLength} ${circumference}`}
             strokeLinecap="round"

@@ -342,7 +342,13 @@ export default function PlotPanel() {
       actions.stopPlotting(seriesName);
     });
 
-    // Clean up chart refs to prevent memory leaks
+    // Destroy Chart.js instance before removing refs to prevent memory leaks
+    const chartRef = chartRefs.current.get(plotId);
+    if (chartRef?.current) {
+      chartRef.current.destroy();
+    }
+
+    // Clean up chart refs
     chartRefs.current.delete(plotId);
     chartContainerRefs.current.delete(plotId);
 
@@ -803,6 +809,19 @@ export default function PlotPanel() {
       }
     });
   }, [plots]);
+
+  // Cleanup all Chart.js instances on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      chartRefs.current.forEach((ref) => {
+        if (ref.current) {
+          ref.current.destroy();
+        }
+      });
+      chartRefs.current.clear();
+      chartContainerRefs.current.clear();
+    };
+  }, []);
 
   // Mouse wheel zoom handler for a specific plot
   const handleWheel = useCallback((plotId: string, e: React.WheelEvent) => {

@@ -157,6 +157,7 @@ import {
   Add as AddIcon,
   Delete as DeleteIcon
 } from '@mui/icons-material';
+import { alpha } from '@mui/material/styles';
 import { ButtonWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
@@ -423,14 +424,14 @@ export default function ButtonWidget({ config, isEditMode, widgetSize }: ButtonW
               bottom: '4px',
               left: '50%',
               transform: 'translateX(-50%)',
-              backgroundColor: 'rgba(0, 0, 0, 0.6)',
+              backgroundColor: (theme) => alpha(theme.palette.background.default, 0.8),
               px: 1,
               py: 0.5,
               borderRadius: 1,
               pointerEvents: 'none'
             }}
           >
-            <Typography variant="caption" sx={{ color: 'white', fontSize: widgetSize ? scaledRem(0.65, widgetSize.scale) : '0.65rem' }}>
+            <Typography variant="caption" sx={{ color: 'text.primary', fontSize: widgetSize ? scaledRem(0.65, widgetSize.scale) : '0.65rem' }}>
               Not connected
             </Typography>
           </Box>

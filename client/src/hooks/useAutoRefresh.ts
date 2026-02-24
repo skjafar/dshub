@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useDSHub } from '../contexts/DSHubContext';
 import { mapManager } from '../maps/mapManager';
 import type { DataSource } from '../types/dashboard';
@@ -27,22 +27,27 @@ export function useAutoRefresh({ source, address, refreshInterval, isEditMode }:
     : mapManager.getParameterByAddress(address);
   const actualName = mapEntry?.name;
 
+  // Use a ref so the callback always has the latest actions without
+  // including the (unstable) actions object in the dependency array.
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+
   useEffect(() => {
     if (isEditMode || !state.connection?.connected) return;
     if (!mapManager.isInitialized() || !actualName) return;
 
     const readData = () => {
       if (source === 'register') {
-        actions.readRegister(address, actualName);
+        actionsRef.current.readRegister(address, actualName);
       } else {
-        actions.readParameter(address, actualName);
+        actionsRef.current.readParameter(address, actualName);
       }
     };
 
     readData();
     const intervalId = setInterval(readData, refreshInterval);
     return () => clearInterval(intervalId);
-  }, [source, address, refreshInterval, isEditMode, state.connection?.connected, actualName, actions]);
+  }, [source, address, refreshInterval, isEditMode, state.connection?.connected, actualName]);
 
   if (!isEditMode && state.connection?.connected) {
     if (!mapManager.isInitialized()) {
@@ -77,21 +82,32 @@ interface UseAutoRefreshMultiOptions {
 export function useAutoRefreshMulti({ items, refreshInterval, isEditMode }: UseAutoRefreshMultiOptions): AutoRefreshStatus {
   const { state, actions } = useDSHub();
 
+  // Stable key so the effect only restarts when addresses actually change,
+  // not on every render due to a new array reference.
+  const itemsKey = items.map(i => `${i.source}:${i.address}`).join(',');
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
+  // Use a ref so the callback always has the latest actions without
+  // including the (unstable) actions object in the dependency array.
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+
   useEffect(() => {
     if (isEditMode || !state.connection?.connected) return;
     if (!mapManager.isInitialized()) return;
 
     const readAllData = () => {
-      items.forEach(item => {
+      itemsRef.current.forEach(item => {
         const mapEntry = item.source === 'register'
           ? mapManager.getRegisterByAddress(item.address)
           : mapManager.getParameterByAddress(item.address);
 
         if (mapEntry) {
           if (item.source === 'register') {
-            actions.readRegister(item.address, mapEntry.name);
+            actionsRef.current.readRegister(item.address, mapEntry.name);
           } else {
-            actions.readParameter(item.address, mapEntry.name);
+            actionsRef.current.readParameter(item.address, mapEntry.name);
           }
         }
       });
@@ -100,7 +116,7 @@ export function useAutoRefreshMulti({ items, refreshInterval, isEditMode }: UseA
     readAllData();
     const intervalId = setInterval(readAllData, refreshInterval);
     return () => clearInterval(intervalId);
-  }, [items, refreshInterval, isEditMode, state.connection?.connected, actions]);
+  }, [itemsKey, refreshInterval, isEditMode, state.connection?.connected]);
 
   if (!isEditMode && state.connection?.connected && !mapManager.isInitialized()) {
     return { error: 'Map not loaded' };

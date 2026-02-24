@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Typography } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { ValueReadWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
@@ -76,7 +77,7 @@ export default function ValueReadWidget({ config, isEditMode, widgetSize }: Valu
         borderRadius: 1,
         transition: 'border-color 0.3s ease',
         ...(isLoading && {
-          borderColor: 'rgba(0, 212, 255, 0.3)',
+          borderColor: (theme) => alpha(theme.palette.primary.main, 0.3),
         }),
       }}
     >
