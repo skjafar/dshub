@@ -26,7 +26,7 @@ uint32_t            MOTOR_Z_ENABLED;
 uint32_t            SPINDLE_ENABLED;
 
 /*********************/
-/**** read write *****/
+/**** read/write *****/
 /*********************/
 
 // Motor position setpoints

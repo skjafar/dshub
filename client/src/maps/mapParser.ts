@@ -37,7 +37,9 @@ export function parseMapFile(content: string, isRegisterMap: boolean = false): P
 
     // Check for read/write boundary in registers BEFORE skipping comments
     // This allows detecting the boundary even if it's in a comment like /***** read/write registers *****/
-    if (isRegisterMap && trimmedLine.toLowerCase().includes('read/write')) {
+    // Accept both "read/write" and "read write" (with space) as boundary markers
+    const lower = trimmedLine.toLowerCase();
+    if (isRegisterMap && (lower.includes('read/write') || lower.includes('read write')) && !lower.includes('read only')) {
       readOnlyMaxIndex = address - 1;
       accessPermit = DataAccessPermit.READ_WRITE;
       continue;

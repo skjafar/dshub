@@ -97,24 +97,13 @@ export default function ValueWriteWidget({ config, isEditMode, widgetSize }: Val
             max: config.max,
             step: config.step || 1
           }}
-          sx={{ '& .MuiInputBase-input': { fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(0.8125, widgetSize.scale) : '0.8125rem' } }}
+          sx={{ '& .MuiInputBase-input': { fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 0.8125, widgetSize.scale) : `${config.valueFontSize ?? 0.8125}rem` } }}
           helperText={
             config.min !== undefined && config.max !== undefined
               ? `Range: ${config.min} - ${config.max}`
               : ''
           }
         />
-
-        <Button
-          type="submit"
-          variant="contained"
-          size="small"
-          disabled={isEditMode || !state.connection?.connected || !inputValue}
-          fullWidth
-          sx={{ fontSize: widgetSize ? scaledRem(0.8125, widgetSize.scale) : undefined }}
-        >
-          Write Value
-        </Button>
 
         {!state.connection?.connected && (
           <Typography variant="caption" color="error" sx={{ textAlign: 'center' }}>

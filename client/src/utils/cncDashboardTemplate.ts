@@ -1,7 +1,8 @@
-import type { DashboardLayout, DashboardWidget } from '../types/dashboard';
+import type { DashboardLayout, DashboardWidget, AlarmRule } from '../types/dashboard';
 import type { SysCommand } from '../types/settings';
 
 const CNC_TAB_ID = 'cnc-demo-tab';
+const CNC_MONITORING_TAB_ID = 'cnc-monitoring-tab';
 
 // ──────────────────────────────────────────────────────────────
 // Grid layout (12 cols × 11 rows):
@@ -410,6 +411,158 @@ const CNC_WIDGETS: DashboardWidget[] = [
   },
 ];
 
+// ──────────────────────────────────────────────────────────────
+// Tab 2: Monitoring — Data Table, Alarm List, Status Matrix
+//
+// Grid layout (12 cols × 8 rows):
+//
+//        0    1    2    3    4    5    6    7    8    9   10   11
+//   0:  [--------- Data Table ---------][------- Alarm List -------]
+//   1:  [--------- Data Table ---------][------- Alarm List -------]
+//   2:  [--------- Data Table ---------][------- Alarm List -------]
+//   3:  [--------- Data Table ---------][------- Alarm List -------]
+//   4:  [--------- Data Table ---------][------- Alarm List -------]
+//   5:  [-- Status Matrix ---][-------- Axis Control ---------------]
+//   6:  [-- Status Matrix ---][-------- Axis Control ---------------]
+//   7:  [-- Status Matrix ---][-------- Axis Control ---------------]
+//   8:  [                    ][-------- Axis Control ---------------]
+// ──────────────────────────────────────────────────────────────
+
+const CNC_MONITORING_WIDGETS: DashboardWidget[] = [
+  // 0 — Axis Positions & Spindle Data Table
+  {
+    id: 'cnc-mon-0',
+    type: 'dataTable',
+    config: {
+      label: 'Live Readings',
+      items: [
+        { label: 'X Position', source: 'register' as const, address: 5, format: 'decimal' as const, unit: 'steps' },
+        { label: 'Y Position', source: 'register' as const, address: 6, format: 'decimal' as const, unit: 'steps' },
+        { label: 'Z Position', source: 'register' as const, address: 7, format: 'decimal' as const, unit: 'steps' },
+        { label: 'Spindle RPM', source: 'register' as const, address: 8, format: 'decimal' as const, unit: 'RPM' },
+        { label: 'Spindle Load', source: 'register' as const, address: 9, format: 'decimal' as const, unit: '%' },
+        { label: 'Uptime', source: 'register' as const, address: 3, format: 'decimal' as const, unit: 's' },
+        { label: 'Packets', source: 'register' as const, address: 0, format: 'decimal' as const },
+        { label: 'Errors', source: 'register' as const, address: 1, format: 'decimal' as const },
+      ],
+      refreshInterval: 200,
+      showTimestamp: true,
+      compact: false,
+      striped: true,
+      valueFontSize: 0.75,
+    },
+    layout: { w: 6, h: 6, x: 0, y: 0, i: 'cnc-mon-0', moved: false, static: false },
+  },
+
+  // 1 — CNC Alarm List
+  {
+    id: 'cnc-mon-1',
+    type: 'alarmList',
+    config: {
+      label: 'CNC Alarms',
+      refreshInterval: 100,
+      alarms: [
+        {
+          label: 'Machine Error',
+          source: 'register' as const,
+          address: 4,
+          type: 'state' as const,
+          triggerValues: [5],
+          severity: 'critical' as const,
+        },
+        {
+          label: 'E-Stop Active',
+          source: 'register' as const,
+          address: 4,
+          type: 'state' as const,
+          triggerValues: [6],
+          severity: 'critical' as const,
+        },
+        {
+          label: 'Spindle Overload',
+          source: 'register' as const,
+          address: 9,
+          type: 'threshold' as const,
+          max: 85,
+          severity: 'critical' as const,
+        },
+        {
+          label: 'Spindle Load High',
+          source: 'register' as const,
+          address: 9,
+          type: 'threshold' as const,
+          max: 70,
+          severity: 'warning' as const,
+        },
+        {
+          label: 'Spindle Overspeed',
+          source: 'register' as const,
+          address: 8,
+          type: 'threshold' as const,
+          max: 9000,
+          severity: 'warning' as const,
+        },
+        {
+          label: 'Comm Errors',
+          source: 'register' as const,
+          address: 1,
+          type: 'threshold' as const,
+          max: 10,
+          severity: 'warning' as const,
+        },
+      ] satisfies AlarmRule[],
+      showInactive: true,
+      compact: false,
+    },
+    layout: { w: 6, h: 6, x: 6, y: 0, i: 'cnc-mon-1', moved: false, static: false },
+  },
+
+  // 2 — I/O Status Matrix
+  {
+    id: 'cnc-mon-2',
+    type: 'statusMatrix',
+    config: {
+      label: 'I/O Status',
+      refreshInterval: 100,
+      items: [
+        { label: 'Motor X', source: 'register' as const, address: 10, onValue: 1, onColor: '#00F2FF', offColor: '#6B7280' },
+        { label: 'Motor Y', source: 'register' as const, address: 11, onValue: 1, onColor: '#4ADE80', offColor: '#6B7280' },
+        { label: 'Motor Z', source: 'register' as const, address: 12, onValue: 1, onColor: '#FF8C42', offColor: '#6B7280' },
+        { label: 'Spindle', source: 'register' as const, address: 13, onValue: 1, onColor: '#00F2FF', offColor: '#6B7280' },
+      ],
+      showLabels: true,
+      dotSize: 14,
+      compact: false,
+    },
+    layout: { w: 4, h: 3, x: 0, y: 6, i: 'cnc-mon-2', moved: false, static: false },
+  },
+
+  // 3 — Axis Control Table (read-only positions + writable setpoints)
+  {
+    id: 'cnc-mon-3',
+    type: 'controlTable',
+    config: {
+      label: 'Axis Control',
+      rows: [
+        { label: 'X Position', source: 'register' as const, address: 5, unit: 'steps' },
+        { label: 'X Setpoint', source: 'register' as const, address: 14, unit: 'steps' },
+        { label: 'Y Position', source: 'register' as const, address: 6, unit: 'steps' },
+        { label: 'Y Setpoint', source: 'register' as const, address: 15, unit: 'steps' },
+        { label: 'Z Position', source: 'register' as const, address: 7, unit: 'steps' },
+        { label: 'Z Setpoint', source: 'register' as const, address: 16, unit: 'steps' },
+        { label: 'Spindle RPM', source: 'register' as const, address: 8, unit: 'RPM' },
+        { label: 'Spindle Target', source: 'register' as const, address: 17, unit: 'RPM', min: 0, max: 10000, step: 100 },
+        { label: 'Jog Distance', source: 'register' as const, address: 18, unit: 'steps', min: 1, max: 1000, step: 10 },
+      ],
+      refreshInterval: 200,
+      compact: false,
+      confirmWrites: false,
+      valueFontSize: 0.75,
+    },
+    layout: { w: 8, h: 4, x: 4, y: 6, i: 'cnc-mon-3', moved: false, static: false },
+  },
+];
+
 /** CNC system commands for the emulator */
 export const CNC_SYS_COMMANDS: SysCommand[] = [
   { code: 200, name: 'ENABLE_ALL_MOTORS', description: 'Enable all motor axes' },
@@ -443,8 +596,13 @@ export function createModernCNCDashboard(): DashboardLayout {
     tabs: [
       {
         id: CNC_TAB_ID,
-        name: 'Modern CNC Dashboard',
+        name: 'CNC Control',
         widgets: CNC_WIDGETS,
+      },
+      {
+        id: CNC_MONITORING_TAB_ID,
+        name: 'Monitoring',
+        widgets: CNC_MONITORING_WIDGETS,
       },
     ],
     activeTabId: CNC_TAB_ID,

@@ -83,6 +83,16 @@ export default function ValueWriteConfig({ config, onConfigChange, registers, pa
         margin="normal"
         helperText="Increment step for the input (e.g., 0.1, 1, 10)"
       />
+      <TextField
+        fullWidth
+        type="number"
+        label="Value Font Size (rem, optional)"
+        value={config.valueFontSize ?? ''}
+        onChange={(e) => onConfigChange({ ...config, valueFontSize: e.target.value ? parseFloat(e.target.value) : undefined })}
+        margin="normal"
+        inputProps={{ min: 0.5, max: 5, step: 0.1 }}
+        helperText="Input text size (default: 0.81)"
+      />
       <FormControlLabel
         control={
           <Switch

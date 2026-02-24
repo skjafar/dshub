@@ -13,7 +13,11 @@ export type WidgetType =
   | 'encoderDisplay'
   | 'ledIndicator'
   | 'directionalControl'
-  | 'systemInfo';
+  | 'systemInfo'
+  | 'dataTable'
+  | 'alarmList'
+  | 'statusMatrix'
+  | 'controlTable';
 
 // Data source types
 export type DataSource = 'register' | 'parameter' | 'sysCommand';
@@ -55,6 +59,7 @@ export interface ValueWriteWidgetConfig {
   max?: number;
   step?: number;
   confirmationRequired?: boolean;
+  valueFontSize?: number; // Input text size in rem
 }
 
 // Mini plot widget configuration
@@ -78,6 +83,7 @@ export interface DropdownWidgetConfig {
     value: number;
   }>;
   confirmationRequired?: boolean;
+  valueFontSize?: number; // Select text size in rem
 }
 
 // State LED widget configuration - shows register value as colored LED with state labels
@@ -201,6 +207,85 @@ export interface SystemInfoWidgetConfig {
   compact?: boolean; // Reduce internal padding for dense layouts
 }
 
+// Data table widget configuration - tabular display of multiple register/parameter values
+export interface DataTableWidgetConfig {
+  label: string;
+  items: Array<{
+    label: string;
+    source: DataSource;
+    address: number;
+    format?: 'decimal' | 'hex' | 'binary';
+    unit?: string;
+    decimals?: number;
+  }>;
+  refreshInterval: number; // in milliseconds
+  showTimestamp?: boolean; // Show last-updated column
+  compact?: boolean; // Reduce padding for dense layouts
+  valueFontSize?: number; // Value text size in rem
+  striped?: boolean; // Alternating row backgrounds
+}
+
+// Alarm rule for alarm list widget
+export interface AlarmRule {
+  label: string;
+  source: DataSource;
+  address: number;
+  type: 'threshold' | 'state';
+  // Threshold mode: value outside [min, max] triggers alarm
+  min?: number;
+  max?: number;
+  // State mode: specific values that trigger the alarm
+  triggerValues?: number[];
+  severity: 'warning' | 'critical';
+}
+
+// Alarm list widget configuration - monitors addresses and shows active alarms
+export interface AlarmListWidgetConfig {
+  label: string;
+  refreshInterval: number; // in milliseconds
+  alarms: AlarmRule[];
+  showInactive?: boolean; // Show all alarms including OK ones
+  compact?: boolean;
+}
+
+// Status matrix widget configuration - grid of LED status dots
+export interface StatusMatrixWidgetConfig {
+  label: string;
+  refreshInterval: number; // in milliseconds
+  items: Array<{
+    label: string;
+    source: DataSource;
+    address: number;
+    onValue?: number; // Value considered "on" (default: 1)
+    onColor?: string; // Color when on (default: #4ADE80)
+    offColor?: string; // Color when off (default: #6B7280)
+  }>;
+  showLabels?: boolean; // Show text labels under each LED (default: true)
+  dotSize?: number; // LED dot size in pixels (default: 12)
+  compact?: boolean;
+}
+
+// Control table row — either read-only display or writable input
+export interface ControlTableRow {
+  label: string;
+  source: DataSource; // 'register' or 'parameter'
+  address: number;
+  unit?: string;
+  min?: number; // Validation for writable rows
+  max?: number;
+  step?: number;
+}
+
+// Control table widget configuration — hybrid read/write table
+export interface ControlTableWidgetConfig {
+  label: string;
+  rows: ControlTableRow[];
+  refreshInterval: number; // in milliseconds
+  compact?: boolean;
+  confirmWrites?: boolean; // Show confirmation dialog before writing
+  valueFontSize?: number; // Value text size in rem
+}
+
 // Union type for all widget configurations
 export type WidgetConfig =
   | ButtonWidgetConfig
@@ -214,7 +299,11 @@ export type WidgetConfig =
   | EncoderDisplayWidgetConfig
   | LEDIndicatorWidgetConfig
   | DirectionalControlWidgetConfig
-  | SystemInfoWidgetConfig;
+  | SystemInfoWidgetConfig
+  | DataTableWidgetConfig
+  | AlarmListWidgetConfig
+  | StatusMatrixWidgetConfig
+  | ControlTableWidgetConfig;
 
 // Widget instance
 export interface DashboardWidget {
@@ -264,7 +353,11 @@ export const DEFAULT_WIDGET_SIZES: Record<WidgetType, { w: number; h: number; mi
   encoderDisplay: { w: 3, h: 2, minW: 2, minH: 1 },
   ledIndicator: { w: 2, h: 1, minW: 1, minH: 1 },
   directionalControl: { w: 3, h: 3, minW: 2, minH: 2 },
-  systemInfo: { w: 4, h: 3, minW: 3, minH: 2 }
+  systemInfo: { w: 4, h: 3, minW: 3, minH: 2 },
+  dataTable: { w: 5, h: 4, minW: 3, minH: 2 },
+  alarmList: { w: 4, h: 4, minW: 3, minH: 2 },
+  statusMatrix: { w: 4, h: 3, minW: 2, minH: 2 },
+  controlTable: { w: 5, h: 4, minW: 3, minH: 2 }
 };
 
 // Helper function to create empty dashboard

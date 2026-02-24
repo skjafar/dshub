@@ -37,6 +37,10 @@ import EncoderDisplayConfig from './configs/EncoderDisplayConfig';
 import LEDIndicatorConfig from './configs/LEDIndicatorConfig';
 import DirectionalControlConfig from './configs/DirectionalControlConfig';
 import SystemInfoConfig from './configs/SystemInfoConfig';
+import DataTableConfig from './configs/DataTableConfig';
+import AlarmListConfig from './configs/AlarmListConfig';
+import StatusMatrixConfig from './configs/StatusMatrixConfig';
+import ControlTableConfig from './configs/ControlTableConfig';
 
 interface WidgetConfigDialogProps {
   open: boolean;
@@ -60,6 +64,10 @@ const WIDGET_TYPE_LABELS: Record<WidgetType, string> = {
   ledIndicator: 'LED Indicator',
   directionalControl: 'Directional Control',
   systemInfo: 'System Info',
+  dataTable: 'Data Table',
+  alarmList: 'Alarm List',
+  statusMatrix: 'Status Matrix',
+  controlTable: 'Control Table',
 };
 
 export default function WidgetConfigDialog({
@@ -245,6 +253,50 @@ export default function WidgetConfigDialog({
           layout: 'vertical'
         });
         break;
+      case 'dataTable':
+        setConfig({
+          label: 'Data Table',
+          items: [
+            { label: 'Item 1', source: 'register', address: 0, format: 'decimal' }
+          ],
+          refreshInterval: 1000,
+          showTimestamp: false,
+          compact: false,
+          striped: true
+        });
+        break;
+      case 'alarmList':
+        setConfig({
+          label: 'Alarms',
+          refreshInterval: 500,
+          alarms: [
+            { label: 'Alarm 1', source: 'register', address: 0, type: 'threshold', severity: 'warning' }
+          ],
+          showInactive: false
+        });
+        break;
+      case 'statusMatrix':
+        setConfig({
+          label: 'Status Matrix',
+          refreshInterval: 500,
+          items: [
+            { label: 'Status 1', source: 'register', address: 0, onValue: 1, onColor: '#4ADE80', offColor: '#6B7280' }
+          ],
+          showLabels: true,
+          dotSize: 12
+        });
+        break;
+      case 'controlTable':
+        setConfig({
+          label: 'Control Table',
+          rows: [
+            { label: 'Value', source: 'register', address: 0 }
+          ],
+          refreshInterval: 500,
+          compact: false,
+          confirmWrites: false
+        });
+        break;
     }
   };
 
@@ -264,7 +316,7 @@ export default function WidgetConfigDialog({
     }
 
     // Refresh interval for polling widgets
-    const pollingTypes: WidgetType[] = ['valueRead', 'stateLED', 'gauge', 'progressBar', 'encoderDisplay', 'ledIndicator', 'systemInfo'];
+    const pollingTypes: WidgetType[] = ['valueRead', 'stateLED', 'gauge', 'progressBar', 'encoderDisplay', 'ledIndicator', 'systemInfo', 'dataTable', 'alarmList', 'statusMatrix', 'controlTable'];
     if (pollingTypes.includes(widgetType) && (c.refreshInterval === undefined || c.refreshInterval <= 0)) {
       errors.push('Refresh interval must be greater than 0');
     }
@@ -279,9 +331,19 @@ export default function WidgetConfigDialog({
       errors.push('At least one state is required');
     }
 
-    // At least 1 item for SystemInfo
-    if (widgetType === 'systemInfo' && (!c.items || c.items.length === 0)) {
-      errors.push('At least one info item is required');
+    // At least 1 item for SystemInfo, DataTable, StatusMatrix
+    if ((widgetType === 'systemInfo' || widgetType === 'dataTable' || widgetType === 'statusMatrix') && (!c.items || c.items.length === 0)) {
+      errors.push('At least one item is required');
+    }
+
+    // At least 1 alarm for AlarmList
+    if (widgetType === 'alarmList' && (!c.alarms || c.alarms.length === 0)) {
+      errors.push('At least one alarm rule is required');
+    }
+
+    // At least 1 row for ControlTable
+    if (widgetType === 'controlTable' && (!c.rows || c.rows.length === 0)) {
+      errors.push('At least one row is required');
     }
 
     // At least 1 direction for DirectionalControl
@@ -358,6 +420,14 @@ export default function WidgetConfigDialog({
         return <DirectionalControlConfig config={config as any} onConfigChange={handleConfigChange as any} {...commonProps} />;
       case 'systemInfo':
         return <SystemInfoConfig config={config as any} onConfigChange={handleConfigChange as any} {...commonProps} />;
+      case 'dataTable':
+        return <DataTableConfig config={config as any} onConfigChange={handleConfigChange as any} {...commonProps} />;
+      case 'alarmList':
+        return <AlarmListConfig config={config as any} onConfigChange={handleConfigChange as any} {...commonProps} />;
+      case 'statusMatrix':
+        return <StatusMatrixConfig config={config as any} onConfigChange={handleConfigChange as any} {...commonProps} />;
+      case 'controlTable':
+        return <ControlTableConfig config={config as any} onConfigChange={handleConfigChange as any} {...commonProps} />;
     }
   };
 
@@ -389,6 +459,10 @@ export default function WidgetConfigDialog({
               <MenuItem value="ledIndicator">LED Indicator</MenuItem>
               <MenuItem value="directionalControl">Directional Control</MenuItem>
               <MenuItem value="systemInfo">System Info</MenuItem>
+              <MenuItem value="dataTable">Data Table</MenuItem>
+              <MenuItem value="alarmList">Alarm List</MenuItem>
+              <MenuItem value="statusMatrix">Status Matrix</MenuItem>
+              <MenuItem value="controlTable">Control Table</MenuItem>
             </Select>
           </FormControl>
         )}

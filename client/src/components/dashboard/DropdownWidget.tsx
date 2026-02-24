@@ -72,7 +72,7 @@ export default function DropdownWidget({ config, isEditMode, widgetSize }: Dropd
             value={selectedValue}
             onChange={(e) => handleChange(e.target.value as number)}
             label="Select Value"
-            sx={{ fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(0.8125, widgetSize.scale) : '0.8125rem' }}
+            sx={{ fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 0.8125, widgetSize.scale) : `${config.valueFontSize ?? 0.8125}rem` }}
           >
             {config.options.map((option) => (
               <MenuItem key={option.value} value={option.value}>

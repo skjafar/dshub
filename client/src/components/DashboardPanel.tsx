@@ -42,6 +42,10 @@ import DashboardWidget from './dashboard/DashboardWidget';
 import WidgetConfigDialog from './dashboard/WidgetConfigDialog';
 import { Layout } from 'react-grid-layout';
 
+/** Tab IDs that are template-generated and should not be editable */
+const LOCKED_TAB_IDS = new Set(['cnc-demo-tab', 'cnc-monitoring-tab']);
+const isLockedTab = (tabId: string | null): boolean => LOCKED_TAB_IDS.has(tabId ?? '');
+
 export interface DashboardPanelRef {
   openAddWidgetDialog: () => void;
 }
@@ -188,7 +192,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
 
   const handleDeleteTab = () => {
     if (!tabMenu.tabId || tabs.length === 1) return;
-    if (tabMenu.tabId === 'cnc-demo-tab') return;
+    if (isLockedTab(tabMenu.tabId)) return;
     const newTabs = tabs.filter(t => t.id !== tabMenu.tabId);
     setTabs(newTabs);
     if (activeTabId === tabMenu.tabId) {
@@ -266,7 +270,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
   };
 
   const handleSaveRename = (newName: string) => {
-    if (renameDialog.tabId === 'cnc-demo-tab') return;
+    if (isLockedTab(renameDialog.tabId)) return;
     setTabs(tabs.map(tab =>
       tab.id === renameDialog.tabId ? { ...tab, name: newName } : tab
     ));
@@ -286,7 +290,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
   }));
 
   const handleEditWidget = (widgetId: string) => {
-    if (activeTabId === 'cnc-demo-tab') return;
+    if (isLockedTab(activeTabId)) return;
     const widget = activeTab.widgets.find(w => w.id === widgetId);
     if (widget) {
       setConfigDialog({
@@ -300,7 +304,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
   };
 
   const handleDeleteWidget = (widgetId: string) => {
-    if (activeTabId === 'cnc-demo-tab') return;
+    if (isLockedTab(activeTabId)) return;
     setTabs(tabs.map(tab =>
       tab.id === activeTabId
         ? { ...tab, widgets: tab.widgets.filter(w => w.id !== widgetId) }
@@ -309,7 +313,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
   };
 
   const handleSaveWidget = (type: WidgetType, config: WidgetConfig) => {
-    if (activeTabId === 'cnc-demo-tab') return;
+    if (isLockedTab(activeTabId)) return;
     if (configDialog.mode === 'add') {
       // Add new widget
       const widgetId = generateWidgetId();
@@ -357,7 +361,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
   const layoutChangeTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const handleLayoutChange = useCallback((layout: Layout[]) => {
     if (!isEditMode) return;
-    if (activeTabId === 'cnc-demo-tab') return;
+    if (isLockedTab(activeTabId)) return;
 
     if (layoutChangeTimerRef.current) clearTimeout(layoutChangeTimerRef.current);
     layoutChangeTimerRef.current = setTimeout(() => {
@@ -471,7 +475,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
         open={Boolean(tabMenu.anchorEl)}
         onClose={handleCloseTabMenu}
       >
-        <MenuItem onClick={handleRenameTab} disabled={tabMenu.tabId === 'cnc-demo-tab'}>Rename</MenuItem>
+        <MenuItem onClick={handleRenameTab} disabled={isLockedTab(tabMenu.tabId)}>Rename</MenuItem>
         <MenuItem onClick={handleDuplicateTab}>Duplicate</MenuItem>
         <Divider />
         <MenuItem onClick={handleExportTab}>Export Tab</MenuItem>
@@ -479,7 +483,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
         {tabs.length > 1 && (
           <>
             <Divider />
-            <MenuItem onClick={handleDeleteTab} disabled={tabMenu.tabId === 'cnc-demo-tab'}>Delete</MenuItem>
+            <MenuItem onClick={handleDeleteTab} disabled={isLockedTab(tabMenu.tabId)}>Delete</MenuItem>
           </>
         )}
       </Menu>
