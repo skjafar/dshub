@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { StatusMatrixWidgetConfig } from '../../types/dashboard';
-import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
+import { WidgetSizeInfo, scaledRem, isCompactSize } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefreshMulti } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
@@ -35,11 +35,12 @@ export default function StatusMatrixWidget({ config, isEditMode, widgetSize }: S
     if (errorState) return errorState;
   }
 
-  const dotSize = scaledPx(config.dotSize ?? 12, scale);
-  const showLabels = config.showLabels !== false;
-  const compact = config.compact;
+  const autoCompact = widgetSize ? isCompactSize(widgetSize, 100) : false;
+  const compact = config.compact || autoCompact;
+  const dotSize = config.dotSize ?? 12;
+  const showLabels = (config.showLabels !== false) && !autoCompact;
   // Cell width: dot + label space
-  const cellMinWidth = showLabels ? scaledPx(compact ? 48 : 56, scale) : scaledPx(compact ? 24 : 32, scale);
+  const cellMinWidth = showLabels ? (compact ? 48 : 56) : (compact ? 24 : 32);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', gap: compact ? 0.5 : 1 }}>
@@ -96,7 +97,7 @@ export default function StatusMatrixWidget({ config, isEditMode, widgetSize }: S
                   height: dotSize,
                   borderRadius: '50%',
                   backgroundColor: color,
-                  boxShadow: isOn ? `0 0 ${scaledPx(8, scale)}px ${color}80` : 'none',
+                  boxShadow: isOn ? `0 0 8px ${color}80` : 'none',
                   transition: 'all 0.15s ease',
                 }}
               />
@@ -104,7 +105,7 @@ export default function StatusMatrixWidget({ config, isEditMode, widgetSize }: S
               {showLabels && (
                 <Typography
                   sx={{
-                    fontSize: scaledRem(compact ? 0.5 : 0.55, scale),
+                    fontSize: compact ? '0.5rem' : '0.55rem',
                     color: isOn ? 'text.primary' : 'text.secondary',
                     textAlign: 'center',
                     lineHeight: 1.1,

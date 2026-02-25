@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Typography, LinearProgress } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { ProgressBarWidgetConfig } from '../../types/dashboard';
-import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
+import { WidgetSizeInfo, scaledRem, scaledPx, isCompactSize } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
@@ -70,6 +70,8 @@ export default function ProgressBarWidget({ config, isEditMode, widgetSize }: Pr
   const errorState = getWidgetError(config.source, config.address);
   if (errorState) return errorState;
 
+  const compact = widgetSize ? isCompactSize(widgetSize) : false;
+
   return (
     <Box
       sx={{
@@ -77,8 +79,8 @@ export default function ProgressBarWidget({ config, isEditMode, widgetSize }: Pr
         flexDirection: 'column',
         height: '100%',
         justifyContent: 'center',
-        gap: 1,
-        p: 2,
+        gap: compact ? 0.5 : 1,
+        p: compact ? 1 : 2,
       }}
     >
       {/* Header: Label and Value/Percentage */}
@@ -135,22 +137,24 @@ export default function ProgressBarWidget({ config, isEditMode, widgetSize }: Pr
       />
 
       {/* Min/Max Labels */}
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-        }}
-      >
-        <Typography variant="caption" color="text.secondary">
-          {config.min}{config.unit || ''}
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          {config.max}{config.unit || ''}
-        </Typography>
-      </Box>
+      {!compact && (
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+          }}
+        >
+          <Typography variant="caption" color="text.secondary">
+            {config.min}{config.unit || ''}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {config.max}{config.unit || ''}
+          </Typography>
+        </Box>
+      )}
 
       {/* Connection Status */}
-      {!state.connection?.connected && (
+      {!compact && !state.connection?.connected && (
         <Typography variant="caption" color="error" sx={{ textAlign: 'center' }}>
           Not connected
         </Typography>

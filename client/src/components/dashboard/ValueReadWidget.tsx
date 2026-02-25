@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { ValueReadWidgetConfig } from '../../types/dashboard';
-import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
+import { WidgetSizeInfo, scaledRem, isCompactSize } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
@@ -64,6 +64,8 @@ export default function ValueReadWidget({ config, isEditMode, widgetSize }: Valu
   const errorState = getWidgetError(config.source, config.address);
   if (errorState) return errorState;
 
+  const compact = widgetSize ? isCompactSize(widgetSize) : false;
+
   return (
     <Box
       sx={{
@@ -88,39 +90,41 @@ export default function ValueReadWidget({ config, isEditMode, widgetSize }: Valu
         {config.label}
       </Typography>
 
-      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75 }}>
-        <Typography
-          sx={{
-            fontFamily: FONT_MONO,
-            fontWeight: 700,
-            fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 1.75, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '1.75rem'),
-            lineHeight: 1,
-            color: data?.valid === false ? 'error.main' : 'text.primary',
-          }}
-        >
-          {formatValue(data?.value ?? null)}
-        </Typography>
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75 }}>
+          <Typography
+            sx={{
+              fontFamily: FONT_MONO,
+              fontWeight: 700,
+              fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 1.75, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '1.75rem'),
+              lineHeight: 1,
+              color: data?.valid === false ? 'error.main' : 'text.primary',
+            }}
+          >
+            {formatValue(data?.value ?? null)}
+          </Typography>
 
-        {config.unit && (
-          <Typography sx={{ fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(0.75, widgetSize.scale) : '0.75rem', color: 'text.secondary', fontWeight: 500 }}>
-            {config.unit}
+          {config.unit && (
+            <Typography sx={{ fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(0.75, widgetSize.scale) : '0.75rem', color: 'text.secondary', fontWeight: 500 }}>
+              {config.unit}
+            </Typography>
+          )}
+        </Box>
+
+        {!compact && config.showTimestamp && data?.timestamp && (
+          <Typography variant="caption" color="text.secondary">
+            Last update: {getTimestamp()}
           </Typography>
         )}
       </Box>
 
-      {config.showTimestamp && data?.timestamp && (
-        <Typography variant="caption" color="text.secondary">
-          Last update: {getTimestamp()}
-        </Typography>
-      )}
-
-      {!state.connection?.connected && (
+      {!compact && !state.connection?.connected && (
         <Typography variant="caption" color="error">
           Not connected
         </Typography>
       )}
 
-      {data?.valid === false && (
+      {!compact && data?.valid === false && (
         <Typography variant="caption" color="error">
           Invalid data
         </Typography>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { SystemInfoWidgetConfig } from '../../types/dashboard';
-import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
+import { WidgetSizeInfo, scaledRem, getOrientation } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefreshMulti } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
@@ -118,7 +118,12 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
     );
   };
 
-  const layout = config.layout || 'vertical';
+  const configLayout = config.layout || 'vertical';
+  const orientation = widgetSize ? getOrientation(widgetSize) : 'square';
+  // Auto-adapt: if layout contradicts aspect ratio, override
+  let layout = configLayout;
+  if (orientation === 'landscape' && configLayout === 'vertical') layout = 'horizontal';
+  if (orientation === 'portrait' && configLayout === 'horizontal') layout = 'vertical';
 
   // Check first item for map availability
   if (config.items.length > 0) {
@@ -159,7 +164,7 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
         sx={{
           display: layout === 'grid' ? 'grid' : 'flex',
           flexDirection: layout === 'vertical' ? 'column' : 'row',
-          gridTemplateColumns: layout === 'grid' ? `repeat(auto-fit, minmax(${widgetSize ? scaledPx(120, widgetSize.scale) : 120}px, 1fr))` : undefined,
+          gridTemplateColumns: layout === 'grid' ? `repeat(auto-fit, minmax(120px, 1fr))` : undefined,
           gap: layout === 'grid' ? 2 : 1.5,
           flexWrap: layout === 'horizontal' ? 'wrap' : undefined,
           overflow: 'auto',

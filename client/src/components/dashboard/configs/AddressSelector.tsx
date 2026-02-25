@@ -21,6 +21,7 @@ interface AddressSelectorProps {
   label?: string;
   registers: AddressItem[];
   parameters: AddressItem[];
+  size?: 'small' | 'medium';
 }
 
 export default function AddressSelector({
@@ -29,7 +30,8 @@ export default function AddressSelector({
   onChange,
   label = 'Address',
   registers,
-  parameters
+  parameters,
+  size = 'medium',
 }: AddressSelectorProps): React.ReactElement {
   const items = dataSource === 'register' ? registers : parameters;
   const selectedItem = items.find(item => item.address === currentAddress);
@@ -37,6 +39,7 @@ export default function AddressSelector({
   return (
     <Autocomplete
       fullWidth
+      size={size}
       options={items}
       getOptionLabel={(option) => `${option.address} - ${option.name}`}
       value={selectedItem ?? null}
@@ -49,7 +52,7 @@ export default function AddressSelector({
         <TextField
           {...params}
           label={label}
-          margin="normal"
+          margin={size === 'small' ? 'none' : 'normal'}
           helperText={items.length === 0 ? `No ${dataSource}s mapped` : ''}
         />
       )}

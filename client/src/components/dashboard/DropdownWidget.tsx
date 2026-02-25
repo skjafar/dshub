@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Box, FormControl, InputLabel, Select, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography } from '@mui/material';
 import { DropdownWidgetConfig } from '../../types/dashboard';
-import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
+import { WidgetSizeInfo, scaledRem, getOrientation, isCompactSize } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useToast } from '../ToastNotification';
 import { FONT_MONO } from '../../theme';
@@ -50,22 +50,27 @@ export default function DropdownWidget({ config, isEditMode, widgetSize }: Dropd
     }
   };
 
+  const orientation = widgetSize ? getOrientation(widgetSize) : 'square';
+  const compact = widgetSize ? isCompactSize(widgetSize) : false;
+  const isLandscape = orientation === 'landscape';
+
   return (
     <>
       <Box
         sx={{
           display: 'flex',
-          flexDirection: 'column',
+          flexDirection: isLandscape ? 'row' : 'column',
           height: '100%',
-          justifyContent: 'center',
+          justifyContent: isLandscape ? 'space-between' : 'center',
+          alignItems: isLandscape ? 'center' : undefined,
           gap: 1.5
         }}
       >
-        <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em' }}>
+        <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em', flexShrink: 0 }}>
           {config.label}
         </Typography>
 
-        <FormControl fullWidth disabled={isEditMode || !state.connection?.connected}>
+        <FormControl fullWidth={!isLandscape} disabled={isEditMode || !state.connection?.connected} sx={isLandscape ? { flex: 1, maxWidth: '65%' } : undefined}>
           <InputLabel id={`dropdown-${config.address}-label`}>Select Value</InputLabel>
           <Select
             labelId={`dropdown-${config.address}-label`}
@@ -82,7 +87,7 @@ export default function DropdownWidget({ config, isEditMode, widgetSize }: Dropd
           </Select>
         </FormControl>
 
-        {!state.connection?.connected && (
+        {!compact && !state.connection?.connected && (
           <Typography variant="caption" color="error" sx={{ textAlign: 'center' }}>
             Not connected
           </Typography>

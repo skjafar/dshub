@@ -56,3 +56,23 @@ export function scaledRem(baseRem: number, scale: number): string {
 export function scaledPx(basePx: number, scale: number): number {
   return Math.round(basePx * scale);
 }
+
+/** Layout orientation derived from widget aspect ratio. */
+export type WidgetOrientation = 'landscape' | 'portrait' | 'square';
+
+/**
+ * Determine layout orientation from widget dimensions.
+ * Uses a dead-zone threshold (default 1.4) to prevent flickering during resize.
+ */
+export function getOrientation(size: WidgetSizeInfo, threshold = 1.4): WidgetOrientation {
+  if (size.height === 0 || size.width === 0) return 'square';
+  const ratio = size.width / size.height;
+  if (ratio > threshold) return 'landscape';
+  if (ratio < 1 / threshold) return 'portrait';
+  return 'square';
+}
+
+/** True when the widget is below a pixel threshold in either dimension. */
+export function isCompactSize(size: WidgetSizeInfo, minDimension = 80): boolean {
+  return size.width < minDimension || size.height < minDimension;
+}

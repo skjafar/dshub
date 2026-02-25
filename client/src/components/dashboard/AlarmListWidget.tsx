@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Box, Typography } from '@mui/material';
 import { AlarmListWidgetConfig, AlarmRule } from '../../types/dashboard';
-import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
+import { WidgetSizeInfo, scaledRem, scaledPx, isCompactSize } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefreshMulti } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
@@ -91,7 +91,8 @@ export default function AlarmListWidget({ config, isEditMode, widgetSize }: Alar
     : sortedAlarms.filter(a => a.active);
 
   const activeCount = evaluatedAlarms.filter(a => a.active).length;
-  const compact = config.compact;
+  const autoCompact = widgetSize ? isCompactSize(widgetSize, 120) : false;
+  const compact = config.compact || autoCompact;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 0.5 }}>
@@ -120,7 +121,7 @@ export default function AlarmListWidget({ config, isEditMode, widgetSize }: Alar
         {visibleAlarms.length === 0 && (
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 1 }}>
             <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#00E676', boxShadow: '0 0 6px #00E67680' }} />
-            <Typography sx={{ fontFamily: FONT_MONO, fontSize: scaledRem(0.75, scale), color: '#00E676' }}>
+            <Typography sx={{ fontFamily: FONT_MONO, fontSize: '0.75rem', color: '#00E676' }}>
               No active alarms
             </Typography>
           </Box>
@@ -141,13 +142,14 @@ export default function AlarmListWidget({ config, isEditMode, widgetSize }: Alar
                 backgroundColor: alarm.active ? `${color}12` : 'transparent',
                 borderLeft: `2px solid ${color}`,
                 opacity: alarm.active ? 1 : 0.5,
+                flexShrink: 0,
               }}
             >
               {/* Severity LED */}
               <Box
                 sx={{
-                  width: scaledPx(8, scale),
-                  height: scaledPx(8, scale),
+                  width: 8,
+                  height: 8,
                   borderRadius: '50%',
                   backgroundColor: color,
                   boxShadow: alarm.active ? `0 0 6px ${color}80` : 'none',
@@ -164,7 +166,7 @@ export default function AlarmListWidget({ config, isEditMode, widgetSize }: Alar
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography
                   sx={{
-                    fontSize: scaledRem(0.7, scale),
+                    fontSize: compact ? '0.65rem' : '0.75rem',
                     fontWeight: 600,
                     color: alarm.active ? color : 'text.secondary',
                     whiteSpace: 'nowrap',
@@ -180,7 +182,7 @@ export default function AlarmListWidget({ config, isEditMode, widgetSize }: Alar
               <Typography
                 sx={{
                   fontFamily: FONT_MONO,
-                  fontSize: scaledRem(0.65, scale),
+                  fontSize: compact ? '0.6rem' : '0.7rem',
                   color: alarm.active ? 'text.primary' : 'text.secondary',
                   flexShrink: 0,
                 }}

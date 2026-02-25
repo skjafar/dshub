@@ -18,7 +18,7 @@ import {
   Delete as DeleteIcon
 } from '@mui/icons-material';
 import { AlarmListWidgetConfig, AlarmRule, DataSource } from '../../../types/dashboard';
-import { AddressItem } from './AddressSelector';
+import AddressSelector, { AddressItem } from './AddressSelector';
 
 interface AlarmListConfigProps {
   config: Partial<AlarmListWidgetConfig>;
@@ -27,7 +27,7 @@ interface AlarmListConfigProps {
   parameters: AddressItem[];
 }
 
-export default function AlarmListConfig({ config, onConfigChange }: AlarmListConfigProps): React.ReactElement {
+export default function AlarmListConfig({ config, onConfigChange, registers, parameters }: AlarmListConfigProps): React.ReactElement {
   return (
     <>
       <TextField
@@ -119,8 +119,8 @@ export default function AlarmListConfig({ config, onConfigChange }: AlarmListCon
             </IconButton>
           </Box>
 
-          {/* Row 2: Source + Address */}
-          <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+          {/* Row 2: Source + Address (searchable) */}
+          <Box sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'flex-start' }}>
             <FormControl size="small" sx={{ flex: 1 }}>
               <InputLabel>Source</InputLabel>
               <Select
@@ -136,18 +136,21 @@ export default function AlarmListConfig({ config, onConfigChange }: AlarmListCon
                 <MenuItem value="parameter">Parameter</MenuItem>
               </Select>
             </FormControl>
-            <TextField
-              label="Address"
-              type="number"
-              value={alarm.address}
-              onChange={(e) => {
-                const alarms = [...(config.alarms ?? [])];
-                alarms[index] = { ...alarms[index], address: parseInt(e.target.value) };
-                onConfigChange({ ...config, alarms });
-              }}
-              size="small"
-              sx={{ flex: 1 }}
-            />
+            <Box sx={{ flex: 2 }}>
+              <AddressSelector
+                dataSource={alarm.source}
+                currentAddress={alarm.address}
+                onChange={(address) => {
+                  const alarms = [...(config.alarms ?? [])];
+                  alarms[index] = { ...alarms[index], address };
+                  onConfigChange({ ...config, alarms });
+                }}
+                registers={registers}
+                parameters={parameters}
+                label="Address"
+                size="small"
+              />
+            </Box>
           </Box>
 
           {/* Row 3: Type + Severity */}

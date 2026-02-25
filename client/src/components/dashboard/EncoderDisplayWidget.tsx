@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { EncoderDisplayWidgetConfig } from '../../types/dashboard';
-import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
+import { WidgetSizeInfo, scaledRem, isCompactSize } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { mapManager } from '../../maps/mapManager';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
@@ -87,6 +87,8 @@ export default function EncoderDisplayWidget({ config, isEditMode, widgetSize }:
   const errorState = getWidgetError(config.source, config.address);
   if (errorState) return errorState;
 
+  const compact = widgetSize ? isCompactSize(widgetSize) : false;
+
   return (
     <Box
       sx={{
@@ -106,58 +108,63 @@ export default function EncoderDisplayWidget({ config, isEditMode, widgetSize }:
         {config.label}
       </Typography>
 
-      {/* Converted Value Display (Primary) */}
-      {convertedValue !== null && (
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'baseline',
-            gap: 1,
-          }}
-        >
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        {/* Converted Value Display (Primary) */}
+        {convertedValue !== null && (
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: 1,
+            }}
+          >
+            <Typography
+              sx={{
+                fontFamily: FONT_MONO,
+                fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 1.5, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '1.5rem'),
+                fontWeight: 600,
+                color: displayColor,
+                lineHeight: 1,
+                letterSpacing: '0.05em',
+                textShadow: state.connection?.connected ? `0 0 10px ${displayColor}` : 'none',
+              }}
+            >
+              {formatValue(convertedValue)}
+            </Typography>
+            {config.primaryUnit && (
+              <Typography
+                sx={{
+                  color: 'text.secondary',
+                  fontSize: widgetSize ? scaledRem(0.875, widgetSize.scale) : '0.875rem',
+                  fontWeight: 500,
+                }}
+              >
+                {config.primaryUnit}
+              </Typography>
+            )}
+          </Box>
+        )}
+
+        {/* Raw Value Display (Secondary) */}
+        {!compact && (config.showRawValue !== false || convertedValue === null) && (
           <Typography
             sx={{
               fontFamily: FONT_MONO,
-              fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 1.5, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '1.5rem'),
-              fontWeight: 600,
-              color: displayColor,
-              lineHeight: 1,
+              fontSize: widgetSize ? scaledRem(0.75, widgetSize.scale) : '0.75rem',
+              color: 'text.secondary',
               letterSpacing: '0.05em',
-              textShadow: state.connection?.connected ? `0 0 10px ${displayColor}` : 'none',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
             }}
           >
-            {formatValue(convertedValue)}
+            [{formatRawValue(rawValue)} {config.secondaryUnit || 'raw'}]
           </Typography>
-          {config.primaryUnit && (
-            <Typography
-              sx={{
-                color: 'text.secondary',
-                fontSize: widgetSize ? scaledRem(0.875, widgetSize.scale) : '0.875rem',
-                fontWeight: 500,
-              }}
-            >
-              {config.primaryUnit}
-            </Typography>
-          )}
-        </Box>
-      )}
-
-      {/* Raw Value Display (Secondary) */}
-      {(config.showRawValue !== false || convertedValue === null) && (
-        <Typography
-          sx={{
-            fontFamily: FONT_MONO,
-            fontSize: widgetSize ? scaledRem(0.75, widgetSize.scale) : '0.75rem',
-            color: 'text.secondary',
-            letterSpacing: '0.05em',
-          }}
-        >
-          [{formatRawValue(rawValue)} {config.secondaryUnit || 'raw'}]
-        </Typography>
-      )}
+        )}
+      </Box>
 
       {/* Connection Status */}
-      {!state.connection?.connected && (
+      {!compact && !state.connection?.connected && (
         <Typography variant="caption" color="error">
           Not connected
         </Typography>

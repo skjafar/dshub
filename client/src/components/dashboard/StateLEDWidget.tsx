@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { StateLEDWidgetConfig } from '../../types/dashboard';
-import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
+import { WidgetSizeInfo, scaledRem, scaledPx, getOrientation } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
@@ -58,20 +58,23 @@ export default function StateLEDWidget({ config, isEditMode, widgetSize }: State
   const errorState = getWidgetError(config.source, config.address);
   if (errorState) return errorState;
 
+  const orientation = widgetSize ? getOrientation(widgetSize) : 'square';
+  const isLandscape = orientation === 'landscape';
+
   return (
     <Box
       sx={{
         display: 'flex',
-        flexDirection: 'column',
+        flexDirection: isLandscape ? 'row' : 'column',
         height: '100%',
         justifyContent: 'center',
         alignItems: 'center',
-        gap: 1,
-        p: 2,
+        gap: isLandscape ? 1.5 : 1,
+        p: isLandscape ? 1 : 2,
       }}
     >
       {/* Widget Label */}
-      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em' }}>
+      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em', flexShrink: 0 }}>
         {config.label}
       </Typography>
 

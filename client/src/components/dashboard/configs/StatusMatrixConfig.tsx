@@ -18,7 +18,7 @@ import {
   Delete as DeleteIcon
 } from '@mui/icons-material';
 import { StatusMatrixWidgetConfig, DataSource } from '../../../types/dashboard';
-import { AddressItem } from './AddressSelector';
+import AddressSelector, { AddressItem } from './AddressSelector';
 import ColorPickerField from './ColorPickerField';
 
 interface StatusMatrixConfigProps {
@@ -28,7 +28,7 @@ interface StatusMatrixConfigProps {
   parameters: AddressItem[];
 }
 
-export default function StatusMatrixConfig({ config, onConfigChange }: StatusMatrixConfigProps): React.ReactElement {
+export default function StatusMatrixConfig({ config, onConfigChange, registers, parameters }: StatusMatrixConfigProps): React.ReactElement {
   return (
     <>
       <TextField
@@ -128,7 +128,7 @@ export default function StatusMatrixConfig({ config, onConfigChange }: StatusMat
               <DeleteIcon />
             </IconButton>
           </Box>
-          <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+          <Box sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'flex-start' }}>
             <FormControl size="small" sx={{ flex: 1 }}>
               <InputLabel>Source</InputLabel>
               <Select
@@ -144,18 +144,21 @@ export default function StatusMatrixConfig({ config, onConfigChange }: StatusMat
                 <MenuItem value="parameter">Parameter</MenuItem>
               </Select>
             </FormControl>
-            <TextField
-              label="Address"
-              type="number"
-              value={item.address}
-              onChange={(e) => {
-                const items = [...(config.items ?? [])];
-                items[index] = { ...items[index], address: parseInt(e.target.value) };
-                onConfigChange({ ...config, items });
-              }}
-              size="small"
-              sx={{ flex: 1 }}
-            />
+            <Box sx={{ flex: 2 }}>
+              <AddressSelector
+                dataSource={item.source}
+                currentAddress={item.address}
+                onChange={(address) => {
+                  const items = [...(config.items ?? [])];
+                  items[index] = { ...items[index], address };
+                  onConfigChange({ ...config, items });
+                }}
+                registers={registers}
+                parameters={parameters}
+                label="Address"
+                size="small"
+              />
+            </Box>
             <TextField
               label="On Value"
               type="number"

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Typography, useTheme } from '@mui/material';
 import { GaugeWidgetConfig } from '../../types/dashboard';
-import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
+import { WidgetSizeInfo, scaledRem, isCompactSize } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
@@ -77,6 +77,12 @@ export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWid
   const errorState = getWidgetError(config.source, config.address);
   if (errorState) return errorState;
 
+  const compact = widgetSize ? isCompactSize(widgetSize) : false;
+
+  const gaugeMaxSize = widgetSize
+    ? Math.min(widgetSize.width * 0.85, widgetSize.height * 0.65)
+    : 130;
+
   return (
     <Box
       sx={{
@@ -99,7 +105,7 @@ export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWid
         sx={{
           position: 'relative',
           width: '100%',
-          maxWidth: widgetSize ? Math.min(widgetSize.width * 0.85, widgetSize.height * 0.65) : 130,
+          maxWidth: gaugeMaxSize,
           aspectRatio: '1',
         }}
       >
@@ -169,17 +175,19 @@ export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWid
       </Box>
 
       {/* Min/Max Labels */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', maxWidth: widgetSize ? Math.min(widgetSize.width * 0.85, widgetSize.height * 0.65) : 130 }}>
-        <Typography sx={{ fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(0.5625, widgetSize.scale) : '0.5625rem', color: 'text.secondary' }}>
-          {config.min}
-        </Typography>
-        <Typography sx={{ fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(0.5625, widgetSize.scale) : '0.5625rem', color: 'text.secondary' }}>
-          {config.max}
-        </Typography>
-      </Box>
+      {!compact && (
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', maxWidth: gaugeMaxSize }}>
+          <Typography sx={{ fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(0.5625, widgetSize.scale) : '0.5625rem', color: 'text.secondary' }}>
+            {config.min}
+          </Typography>
+          <Typography sx={{ fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(0.5625, widgetSize.scale) : '0.5625rem', color: 'text.secondary' }}>
+            {config.max}
+          </Typography>
+        </Box>
+      )}
 
       {/* Connection Status */}
-      {!state.connection?.connected && (
+      {!compact && !state.connection?.connected && (
         <Typography variant="caption" color="error">
           Not connected
         </Typography>
