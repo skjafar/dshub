@@ -47,7 +47,7 @@ import { mapManager } from '../maps/mapManager';
 import { MapEntry } from '../maps/mapParser';
 import { useToast } from './ToastNotification';
 import { int32ToFloat, formatFloat } from '../utils/floatConversion';
-import { canWriteToDevice, formatDataValue, parseWriteValue } from '../utils/dataTableUtils';
+import { canWriteToDevice, formatDataValue, parseWriteValue, filterWriteValueFromMap } from '../utils/dataTableUtils';
 import { useDebouncedCallback } from '../hooks/useDebounce';
 import { FONT_MONO } from '../theme';
 
@@ -68,23 +68,26 @@ interface Parameter {
 interface ParameterEditDialogProps {
   open: boolean;
   parameter: Parameter | null;
+  mapEntry?: MapEntry;
   onClose: () => void;
   onWrite: (address: number, value: number) => void;
 }
 
-function ParameterEditDialog({ open, parameter, onClose, onWrite }: ParameterEditDialogProps) {
-  const [value, setValue] = useState(0);
+function ParameterEditDialog({ open, parameter, mapEntry, onClose, onWrite }: ParameterEditDialogProps) {
+  const [valueStr, setValueStr] = useState('');
 
   // Update value when parameter changes
   useEffect(() => {
     if (parameter) {
-      setValue(parameter.value ?? 0);
+      setValueStr(String(parameter.value ?? 0));
     }
   }, [parameter]);
 
   const handleWrite = () => {
     if (parameter) {
-      onWrite(parameter.address, value);
+      const parsed = parseWriteValue(valueStr, mapEntry);
+      if (parsed.value === null) return;
+      onWrite(parameter.address, parsed.value);
       onClose();
     }
   };
@@ -99,13 +102,14 @@ function ParameterEditDialog({ open, parameter, onClose, onWrite }: ParameterEdi
           autoFocus
           margin="dense"
           label="Value"
-          type="number"
+          type="text"
           fullWidth
           variant="outlined"
-          value={value}
-          onChange={(e) => setValue(Number(e.target.value))}
+          value={valueStr}
+          placeholder={mapEntry?.showAsHex ? '0x0000' : '0'}
+          onChange={(e) => setValueStr(filterWriteValueFromMap(e.target.value, mapEntry))}
           sx={{ mt: 2 }}
-          helperText="Parameter values are typically configuration settings that persist across device resets"
+          helperText={mapEntry?.showAsHex ? 'Hex input (e.g. 1A2B or 0x1A2B)' : mapEntry?.type === 'float' ? 'Float value' : 'Parameter values persist across device resets'}
         />
       </DialogContent>
       <DialogActions>
@@ -175,7 +179,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
   const { state, actions } = useDSHub();
   const { settings, getActiveProfile } = useSettings();
   const toast = useToast();
-  const [editDialog, setEditDialog] = useState<{ open: boolean; parameter: Parameter | null }>({
+  const [editDialog, setEditDialog] = useState<{ open: boolean; parameter: Parameter | null; mapEntry?: MapEntry }>({
     open: false,
     parameter: null
   });
@@ -260,8 +264,8 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
     });
   };
 
-  const handleEditParameter = (parameter: Parameter) => {
-    setEditDialog({ open: true, parameter });
+  const handleEditParameter = (parameter: Parameter, mapEntry?: MapEntry) => {
+    setEditDialog({ open: true, parameter, mapEntry });
   };
 
   const handleWriteParameter = (address: number, value: number) => {
@@ -272,8 +276,8 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
     actions.readParameter(address, name);
   };
 
-  const handleInlineValueChange = (address: number, value: string) => {
-    setEditingValues(prev => ({ ...prev, [address]: value }));
+  const handleInlineValueChange = (address: number, value: string, mapEntry?: MapEntry) => {
+    setEditingValues(prev => ({ ...prev, [address]: filterWriteValueFromMap(value, mapEntry) }));
   };
 
   const handleInlineValueWrite = (address: number, parameter: Parameter | undefined, mapEntry: MapEntry) => {
@@ -826,7 +830,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                               size="small"
                               placeholder="Write value..."
                               value={editingValues[mapEntry.address] || ''}
-                              onChange={(e) => handleInlineValueChange(mapEntry.address, e.target.value)}
+                              onChange={(e) => handleInlineValueChange(mapEntry.address, e.target.value, mapEntry)}
                               onKeyDown={(e) => handleInlineValueKeyPress(e, mapEntry.address, parameter, mapEntry)}
                               disabled={!state.connection?.connected}
                               sx={{
@@ -917,7 +921,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                             <Tooltip title="Edit parameter value">
                               <IconButton
                                 size="small"
-                                onClick={() => handleEditParameter(parameter || { address: mapEntry.address, name: mapEntry.name, value: null, valid: false, timestamp: 0 })}
+                                onClick={() => handleEditParameter(parameter || { address: mapEntry.address, name: mapEntry.name, value: null, valid: false, timestamp: 0 }, mapEntry)}
                                 disabled={!canWrite}
                               >
                                 <EditIcon fontSize="small" />
@@ -938,6 +942,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
       <ParameterEditDialog
         open={editDialog.open}
         parameter={editDialog.parameter}
+        mapEntry={editDialog.mapEntry}
         onClose={() => setEditDialog({ open: false, parameter: null })}
         onWrite={handleWriteParameter}
       />

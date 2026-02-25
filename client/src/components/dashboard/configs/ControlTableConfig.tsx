@@ -18,7 +18,7 @@ import {
   Delete as DeleteIcon
 } from '@mui/icons-material';
 import { ControlTableWidgetConfig, DataSource } from '../../../types/dashboard';
-import { AddressItem } from './AddressSelector';
+import AddressSelector, { AddressItem } from './AddressSelector';
 import { mapManager } from '../../../maps/mapManager';
 
 interface ControlTableConfigProps {
@@ -28,7 +28,7 @@ interface ControlTableConfigProps {
   parameters: AddressItem[];
 }
 
-export default function ControlTableConfig({ config, onConfigChange }: ControlTableConfigProps): React.ReactElement {
+export default function ControlTableConfig({ config, onConfigChange, registers, parameters }: ControlTableConfigProps): React.ReactElement {
   return (
     <>
       <TextField
@@ -146,8 +146,8 @@ export default function ControlTableConfig({ config, onConfigChange }: ControlTa
               </IconButton>
             </Box>
 
-            {/* Row 2: Source + Address + Unit */}
-            <Box sx={{ display: 'flex', gap: 1, mb: isWritable ? 1 : 0 }}>
+            {/* Row 2: Source + Address (searchable) + Unit */}
+            <Box sx={{ display: 'flex', gap: 1, mb: isWritable ? 1 : 0, alignItems: 'flex-start' }}>
               <FormControl size="small" sx={{ flex: 1 }}>
                 <InputLabel>Source</InputLabel>
                 <Select
@@ -163,18 +163,21 @@ export default function ControlTableConfig({ config, onConfigChange }: ControlTa
                   <MenuItem value="parameter">Parameter</MenuItem>
                 </Select>
               </FormControl>
-              <TextField
-                label="Address"
-                type="number"
-                value={row.address}
-                onChange={(e) => {
-                  const rows = [...(config.rows ?? [])];
-                  rows[index] = { ...rows[index], address: parseInt(e.target.value) };
-                  onConfigChange({ ...config, rows });
-                }}
-                size="small"
-                sx={{ flex: 1 }}
-              />
+              <Box sx={{ flex: 2 }}>
+                <AddressSelector
+                  dataSource={row.source}
+                  currentAddress={row.address}
+                  onChange={(address) => {
+                    const rows = [...(config.rows ?? [])];
+                    rows[index] = { ...rows[index], address };
+                    onConfigChange({ ...config, rows });
+                  }}
+                  registers={registers}
+                  parameters={parameters}
+                  label="Address"
+                  size="small"
+                />
+              </Box>
               <TextField
                 label="Unit"
                 value={row.unit ?? ''}
@@ -188,7 +191,27 @@ export default function ControlTableConfig({ config, onConfigChange }: ControlTa
               />
             </Box>
 
-            {/* Row 3: Min/Max/Step (only for writable addresses) */}
+            {/* Row 3: Format (only for writable addresses) */}
+            {isWritable && (
+              <FormControl size="small" fullWidth>
+                <InputLabel>Input Format</InputLabel>
+                <Select
+                  value={row.format ?? 'decimal'}
+                  onChange={(e) => {
+                    const rows = [...(config.rows ?? [])];
+                    rows[index] = { ...rows[index], format: e.target.value as 'decimal' | 'hex' | 'binary' };
+                    onConfigChange({ ...config, rows });
+                  }}
+                  label="Input Format"
+                >
+                  <MenuItem value="decimal">Decimal</MenuItem>
+                  <MenuItem value="hex">Hexadecimal</MenuItem>
+                  <MenuItem value="binary">Binary</MenuItem>
+                </Select>
+              </FormControl>
+            )}
+
+            {/* Row 4: Min/Max/Step (only for writable addresses) */}
             {isWritable && (
               <Box sx={{ display: 'flex', gap: 1 }}>
                 <TextField

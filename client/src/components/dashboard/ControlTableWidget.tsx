@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { Box, Typography, Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material';
 import { Send as SendIcon } from '@mui/icons-material';
 import { ControlTableWidgetConfig, ControlTableRow } from '../../types/dashboard';
-import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
+import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefreshMulti } from '../../hooks/useAutoRefresh';
 import { useToast } from '../ToastNotification';
 import { getWidgetError } from './WidgetErrorState';
 import { FONT_MONO } from '../../theme';
 import { mapManager } from '../../maps/mapManager';
+import { parseWriteInput, filterWriteInput } from '../../utils/writeInputParse';
 
 interface ControlTableWidgetProps {
   config: ControlTableWidgetConfig;
@@ -69,17 +70,25 @@ export default function ControlTableWidget({ config, isEditMode, widgetSize }: C
     const raw = inputValues[rowIndex];
     if (raw === undefined || raw === '') return;
 
-    const numValue = parseFloat(raw);
-    if (isNaN(numValue)) {
-      showError('Invalid number');
+    const result = parseWriteInput(raw, row.format ?? 'decimal');
+    if (result.ok === false) {
+      showError(result.error);
       return;
     }
+    const numValue = result.value;
+
     if (row.min !== undefined && numValue < row.min) {
       showError(`Value must be at least ${row.min}`);
       return;
     }
     if (row.max !== undefined && numValue > row.max) {
       showError(`Value must be at most ${row.max}`);
+      return;
+    }
+
+    const step = row.step ?? 1;
+    if (step > 0 && numValue % step !== 0) {
+      showError(`Value must be a multiple of ${step} (e.g. 0, ${step}, ${step * 2}...)`);
       return;
     }
 
@@ -106,10 +115,13 @@ export default function ControlTableWidget({ config, isEditMode, widgetSize }: C
     }
   };
 
-  const cellPadding = config.compact ? '2px 4px' : '4px 8px';
-  const fontSize = scaledRem(config.valueFontSize ?? 0.75, scale);
-  const headerFontSize = scaledRem(0.6, scale);
+  const autoCompact = widgetSize ? widgetSize.width < 200 || widgetSize.height < 120 : false;
+  const effectiveCompact = config.compact || autoCompact;
+  const cellPadding = effectiveCompact ? '2px 4px' : '4px 8px';
+  const fontSize = `${config.valueFontSize ?? 0.75}rem`;
+  const headerFontSize = '0.6rem';
   const connected = state.connection?.connected ?? false;
+  const showUnitColumn = !widgetSize || widgetSize.width >= 200;
 
   return (
     <>
@@ -142,11 +154,13 @@ export default function ControlTableWidget({ config, isEditMode, widgetSize }: C
                     Current
                   </Typography>
                 </th>
-                <th style={{ padding: cellPadding, textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: headerFontSize, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    Unit
-                  </Typography>
-                </th>
+                {showUnitColumn && (
+                  <th style={{ padding: cellPadding, textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                    <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: headerFontSize, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      Unit
+                    </Typography>
+                  </th>
+                )}
                 <th style={{ padding: cellPadding, textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
                   <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: headerFontSize, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                     Write
@@ -168,7 +182,7 @@ export default function ControlTableWidget({ config, isEditMode, widgetSize }: C
                   <tr key={`${row.source}-${row.address}-${index}`} style={{ backgroundColor: striped ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
                     {/* Name */}
                     <td style={{ padding: cellPadding }}>
-                      <Typography sx={{ fontSize, color: 'text.secondary', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: scaledPx(120, scale) }}>
+                      <Typography sx={{ fontSize, color: 'text.secondary', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 120 }}>
                         {row.label}
                       </Typography>
                     </td>
@@ -181,11 +195,13 @@ export default function ControlTableWidget({ config, isEditMode, widgetSize }: C
                     </td>
 
                     {/* Unit */}
-                    <td style={{ padding: cellPadding }}>
-                      <Typography sx={{ fontSize, color: 'text.secondary' }}>
-                        {row.unit ?? ''}
-                      </Typography>
-                    </td>
+                    {showUnitColumn && (
+                      <td style={{ padding: cellPadding }}>
+                        <Typography sx={{ fontSize, color: 'text.secondary' }}>
+                          {row.unit ?? ''}
+                        </Typography>
+                      </td>
+                    )}
 
                     {/* Write Input or empty */}
                     <td style={{ padding: cellPadding, textAlign: 'right' }}>
@@ -195,17 +211,19 @@ export default function ControlTableWidget({ config, isEditMode, widgetSize }: C
                           onSubmit={(e: React.FormEvent) => { e.preventDefault(); handleWrite(row, index); }}
                           sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.3em', fontSize }}
                         >
-                          <Box
-                            component="input"
-                            type="number"
+                          <input
+                            type="text"
                             value={inputValues[index] ?? ''}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInputValues(prev => ({ ...prev, [index]: e.target.value }))}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInputValues(prev => ({ ...prev, [index]: filterWriteInput(e.target.value, row.format ?? 'decimal') }))}
                             disabled={isEditMode || !connected}
-                            placeholder={value !== undefined ? String(value) : ''}
-                            min={row.min}
-                            max={row.max}
-                            step={row.step ?? 1}
-                            sx={{
+                            placeholder={
+                              row.format === 'hex' ? '0x0000' :
+                              row.format === 'binary' ? '0b0000' :
+                              value !== undefined ? String(value) : '0'
+                            }
+                            onFocus={e => { e.currentTarget.style.borderColor = 'var(--mui-palette-primary-main, #00D4FF)'; }}
+                            onBlur={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; }}
+                            style={{
                               fontFamily: FONT_MONO,
                               fontSize: 'inherit',
                               lineHeight: 1.2,
@@ -213,20 +231,13 @@ export default function ControlTableWidget({ config, isEditMode, widgetSize }: C
                               width: '6em',
                               padding: '0 0.3em',
                               textAlign: 'right',
-                              border: '1px solid',
-                              borderColor: 'divider',
+                              border: '1px solid rgba(255,255,255,0.12)',
                               borderRadius: '3px',
-                              bgcolor: 'transparent',
-                              color: 'text.primary',
+                              background: 'transparent',
+                              color: 'inherit',
                               outline: 'none',
-                              '&:focus': { borderColor: 'primary.main' },
-                              '&:disabled': { opacity: 0.4 },
-                              /* Hide number spinners */
-                              '&::-webkit-outer-spin-button, &::-webkit-inner-spin-button': {
-                                WebkitAppearance: 'none',
-                                margin: 0,
-                              },
-                              MozAppearance: 'textfield',
+                              opacity: (isEditMode || !connected) ? 0.4 : 1,
+                              boxSizing: 'border-box',
                             }}
                           />
                           <Box
@@ -251,7 +262,7 @@ export default function ControlTableWidget({ config, isEditMode, widgetSize }: C
                           </Box>
                         </Box>
                       ) : (
-                        <Typography sx={{ fontSize: scaledRem(0.6, scale), color: 'text.disabled', fontStyle: 'italic' }}>
+                        <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', fontStyle: 'italic' }}>
                           read-only
                         </Typography>
                       )}

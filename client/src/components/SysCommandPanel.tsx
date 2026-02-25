@@ -18,6 +18,7 @@ import {
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
+import { filterWriteInput } from '../utils/writeInputParse';
 
 export default function SysCommandPanel() {
   const { state, actions } = useDSHub();
@@ -29,8 +30,8 @@ export default function SysCommandPanel() {
   const profileCommands = activeProfile?.sysCommands || [];
 
   // Initialize with first command or 0
-  const [commandCode, setCommandCode] = useState<number>(profileCommands.length > 0 ? profileCommands[0].code : 0);
-  const [commandValue, setCommandValue] = useState<number>(0);
+  const [commandCode, setCommandCode] = useState<string>(String(profileCommands.length > 0 ? profileCommands[0].code : 0));
+  const [commandValue, setCommandValue] = useState<string>('0');
   const [lastResponse, setLastResponse] = useState<{ command: number; result: number; success: boolean } | null>(null);
 
   const canSend = state.connection?.connected && (
@@ -44,20 +45,27 @@ export default function SysCommandPanel() {
       return;
     }
 
+    const code = parseInt(commandCode, 10);
+    const value = parseInt(commandValue, 10);
+    if (isNaN(code) || isNaN(value)) {
+      showError('Invalid command code or value');
+      return;
+    }
+
     try {
-      actions.sendCommand(commandCode, commandValue);
-      showSuccess(`Sent SYS_COMMAND ${commandCode} with value ${commandValue}`);
+      actions.sendCommand(code, value);
+      showSuccess(`Sent SYS_COMMAND ${code} with value ${value}`);
 
       // Store the sent command for display
       setLastResponse({
-        command: commandCode,
+        command: code,
         result: 0, // Will be updated when response arrives
         success: true
       });
     } catch (error) {
       showError(`Failed to send command: ${error}`);
       setLastResponse({
-        command: commandCode,
+        command: code,
         result: -1,
         success: false
       });
@@ -65,12 +73,13 @@ export default function SysCommandPanel() {
   };
 
   const handleQuickCommand = (code: number) => {
-    setCommandCode(code);
-    setCommandValue(0);
+    setCommandCode(String(code));
+    setCommandValue('0');
   };
 
-  const getCommandInfo = (code: number) => {
-    return profileCommands.find(cmd => cmd.code === code);
+  const getCommandInfo = (code: string) => {
+    const n = parseInt(code, 10);
+    return isNaN(n) ? undefined : profileCommands.find(cmd => cmd.code === n);
   };
 
   const currentCommandInfo = getCommandInfo(commandCode);
@@ -102,19 +111,21 @@ export default function SysCommandPanel() {
               <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <TextField
                   label="Command Code"
-                  type="number"
+                  type="text"
                   fullWidth
                   value={commandCode}
-                  onChange={(e) => setCommandCode(Number(e.target.value))}
+                  onChange={(e) => setCommandCode(filterWriteInput(e.target.value, 'decimal'))}
+                  slotProps={{ htmlInput: { inputMode: 'numeric' } }}
                   helperText={currentCommandInfo ? currentCommandInfo.name : 'Custom command code'}
                 />
 
                 <TextField
                   label="Value (Optional)"
-                  type="number"
+                  type="text"
                   fullWidth
                   value={commandValue}
-                  onChange={(e) => setCommandValue(Number(e.target.value))}
+                  onChange={(e) => setCommandValue(filterWriteInput(e.target.value, 'decimal'))}
+                  slotProps={{ htmlInput: { inputMode: 'numeric' } }}
                   helperText="Command-specific value parameter"
                 />
 
@@ -163,8 +174,8 @@ export default function SysCommandPanel() {
                         '&:hover': {
                           bgcolor: 'action.hover'
                         },
-                        border: commandCode === cmd.code ? '2px solid' : '1px solid',
-                        borderColor: commandCode === cmd.code ? 'primary.main' : 'divider'
+                        border: parseInt(commandCode, 10) === cmd.code ? '2px solid' : '1px solid',
+                        borderColor: parseInt(commandCode, 10) === cmd.code ? 'primary.main' : 'divider'
                       }}
                       onClick={() => handleQuickCommand(cmd.code)}
                     >

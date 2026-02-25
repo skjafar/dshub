@@ -54,7 +54,7 @@ export interface ValueWriteWidgetConfig {
   label: string;
   target: DataSource;
   address: number;
-  inputType: 'number' | 'text';
+  format: 'decimal' | 'hex' | 'binary';
   min?: number;
   max?: number;
   step?: number;
@@ -217,12 +217,15 @@ export interface DataTableWidgetConfig {
     format?: 'decimal' | 'hex' | 'binary';
     unit?: string;
     decimals?: number;
+    min?: number; // Validation for writable rows
+    max?: number;
+    step?: number;
   }>;
   refreshInterval: number; // in milliseconds
-  showTimestamp?: boolean; // Show last-updated column
   compact?: boolean; // Reduce padding for dense layouts
   valueFontSize?: number; // Value text size in rem
   striped?: boolean; // Alternating row backgrounds
+  confirmWrites?: boolean; // Show confirmation dialog before writing
 }
 
 // Alarm rule for alarm list widget
@@ -270,6 +273,7 @@ export interface ControlTableRow {
   label: string;
   source: DataSource; // 'register' or 'parameter'
   address: number;
+  format?: 'decimal' | 'hex' | 'binary'; // Input/display format for writable rows
   unit?: string;
   min?: number; // Validation for writable rows
   max?: number;

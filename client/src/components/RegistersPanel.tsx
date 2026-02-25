@@ -48,33 +48,38 @@ import { useToast } from './ToastNotification';
 import { mapManager } from '../maps/mapManager';
 import { MapEntry, DataAccessPermit } from '../maps/mapParser';
 import { int32ToFloat, formatFloat } from '../utils/floatConversion';
-import { canWriteToDevice, formatDataValue, parseWriteValue } from '../utils/dataTableUtils';
+import { canWriteToDevice, formatDataValue, parseWriteValue, filterWriteValueFromMap } from '../utils/dataTableUtils';
 import { useDebouncedCallback } from '../hooks/useDebounce';
 import { FONT_MONO } from '../theme';
 
 interface RegisterEditDialogProps {
   open: boolean;
   register: { address: number; name: string; value: number | null } | null;
+  mapEntry?: MapEntry;
   onClose: () => void;
   onWrite: (address: number, value: number) => void;
 }
 
-function RegisterEditDialog({ open, register, onClose, onWrite }: RegisterEditDialogProps) {
-  const [value, setValue] = useState(0);
+function RegisterEditDialog({ open, register, mapEntry, onClose, onWrite }: RegisterEditDialogProps) {
+  const [valueStr, setValueStr] = useState('');
 
   // Update value when register changes
   useEffect(() => {
     if (register) {
-      setValue(register.value ?? 0);
+      setValueStr(String(register.value ?? 0));
     }
   }, [register]);
 
   const handleWrite = () => {
     if (register) {
-      onWrite(register.address, value);
+      const parsed = parseWriteValue(valueStr, mapEntry);
+      if (parsed.value === null) return;
+      onWrite(register.address, parsed.value);
       onClose();
     }
   };
+
+  const placeholder = mapEntry?.showAsHex ? '0x0000' : '0';
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
@@ -86,12 +91,14 @@ function RegisterEditDialog({ open, register, onClose, onWrite }: RegisterEditDi
           autoFocus
           margin="dense"
           label="Value"
-          type="number"
+          type="text"
           fullWidth
           variant="outlined"
-          value={value}
-          onChange={(e) => setValue(Number(e.target.value))}
+          value={valueStr}
+          placeholder={placeholder}
+          onChange={(e) => setValueStr(filterWriteValueFromMap(e.target.value, mapEntry))}
           sx={{ mt: 2 }}
+          helperText={mapEntry?.showAsHex ? 'Hex input (e.g. 1A2B or 0x1A2B)' : mapEntry?.type === 'float' ? 'Float value' : 'Integer value'}
         />
       </DialogContent>
       <DialogActions>
@@ -161,7 +168,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   const { state, actions } = useDSHub();
   const { settings, getActiveProfile } = useSettings();
   const { showError } = useToast();
-  const [editDialog, setEditDialog] = useState<{ open: boolean; register: any }>({
+  const [editDialog, setEditDialog] = useState<{ open: boolean; register: any; mapEntry?: MapEntry }>({
     open: false,
     register: null
   });
@@ -230,8 +237,8 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
     });
   };
 
-  const handleEditRegister = (register: any) => {
-    setEditDialog({ open: true, register });
+  const handleEditRegister = (register: any, mapEntry?: MapEntry) => {
+    setEditDialog({ open: true, register, mapEntry });
   };
 
   const handleWriteRegister = (address: number, value: number) => {
@@ -242,8 +249,8 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
     actions.readRegister(address, name);
   };
 
-  const handleInlineValueChange = (address: number, value: string) => {
-    setEditingValues(prev => ({ ...prev, [address]: value }));
+  const handleInlineValueChange = (address: number, value: string, mapEntry?: MapEntry) => {
+    setEditingValues(prev => ({ ...prev, [address]: filterWriteValueFromMap(value, mapEntry) }));
   };
 
   const handleInlineValueWrite = (address: number, register: any, mapEntry: MapEntry | undefined) => {
@@ -594,7 +601,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                                 size="small"
                                 placeholder="Write value..."
                                 value={editingValues[register.address] || ''}
-                                onChange={(e) => handleInlineValueChange(register.address, e.target.value)}
+                                onChange={(e) => handleInlineValueChange(register.address, e.target.value, mapEntry)}
                                 onKeyDown={(e) => handleInlineValueKeyPress(e, register.address, register, mapEntry)}
                                 sx={{
                                   fontFamily: FONT_MONO,
@@ -692,7 +699,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                               <span>
                                 <IconButton
                                   size="small"
-                                  onClick={() => handleEditRegister(register)}
+                                  onClick={() => handleEditRegister(register, mapEntry)}
                                   disabled={!canWrite || currentTab === 0}
                                 >
                                   <EditIcon fontSize="small" />
@@ -714,6 +721,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
       <RegisterEditDialog
         open={editDialog.open}
         register={editDialog.register}
+        mapEntry={editDialog.mapEntry}
         onClose={() => setEditDialog({ open: false, register: null })}
         onWrite={handleWriteRegister}
       />

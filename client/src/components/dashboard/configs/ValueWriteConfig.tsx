@@ -48,14 +48,15 @@ export default function ValueWriteConfig({ config, onConfigChange, registers, pa
         parameters={parameters}
       />
       <FormControl fullWidth margin="normal">
-        <InputLabel>Input Type</InputLabel>
+        <InputLabel>Input Format</InputLabel>
         <Select
-          value={config.inputType ?? 'number'}
-          onChange={(e) => onConfigChange({ ...config, inputType: e.target.value as 'number' | 'text' })}
-          label="Input Type"
+          value={config.format ?? 'decimal'}
+          onChange={(e) => onConfigChange({ ...config, format: e.target.value as 'decimal' | 'hex' | 'binary' })}
+          label="Input Format"
         >
-          <MenuItem value="number">Number</MenuItem>
-          <MenuItem value="text">Text</MenuItem>
+          <MenuItem value="decimal">Decimal</MenuItem>
+          <MenuItem value="hex">Hexadecimal</MenuItem>
+          <MenuItem value="binary">Binary</MenuItem>
         </Select>
       </FormControl>
       <TextField

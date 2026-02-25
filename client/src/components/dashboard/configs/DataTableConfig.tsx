@@ -18,7 +18,8 @@ import {
   Delete as DeleteIcon
 } from '@mui/icons-material';
 import { DataTableWidgetConfig, DataSource } from '../../../types/dashboard';
-import { AddressItem } from './AddressSelector';
+import AddressSelector, { AddressItem } from './AddressSelector';
+import { mapManager } from '../../../maps/mapManager';
 
 interface DataTableConfigProps {
   config: Partial<DataTableWidgetConfig>;
@@ -27,7 +28,7 @@ interface DataTableConfigProps {
   parameters: AddressItem[];
 }
 
-export default function DataTableConfig({ config, onConfigChange }: DataTableConfigProps): React.ReactElement {
+export default function DataTableConfig({ config, onConfigChange, registers, parameters }: DataTableConfigProps): React.ReactElement {
   return (
     <>
       <TextField
@@ -45,15 +46,15 @@ export default function DataTableConfig({ config, onConfigChange }: DataTableCon
         onChange={(e) => onConfigChange({ ...config, refreshInterval: parseInt(e.target.value) })}
         margin="normal"
       />
-      <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
+      <Box sx={{ display: 'flex', gap: 2, mt: 1, flexWrap: 'wrap' }}>
         <FormControlLabel
           control={
             <Switch
-              checked={config.showTimestamp ?? false}
-              onChange={(e) => onConfigChange({ ...config, showTimestamp: e.target.checked })}
+              checked={config.confirmWrites ?? false}
+              onChange={(e) => onConfigChange({ ...config, confirmWrites: e.target.checked })}
             />
           }
-          label="Show Timestamp"
+          label="Confirm Writes"
         />
         <FormControlLabel
           control={
@@ -105,104 +106,178 @@ export default function DataTableConfig({ config, onConfigChange }: DataTableCon
         </Button>
       </Box>
 
-      {(config.items ?? []).map((item, index) => (
-        <Box key={index} sx={{ mb: 2, p: 2, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 1 }}>
-          <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-            <TextField
-              label="Label"
-              value={item.label}
-              onChange={(e) => {
-                const items = [...(config.items ?? [])];
-                items[index] = { ...items[index], label: e.target.value };
-                onConfigChange({ ...config, items });
-              }}
-              size="small"
-              sx={{ flex: 1 }}
-            />
-            <IconButton
-              onClick={() => {
-                const items = (config.items ?? []).filter((_, i) => i !== index);
-                onConfigChange({ ...config, items });
-              }}
-              size="small"
-              color="error"
-            >
-              <DeleteIcon />
-            </IconButton>
-          </Box>
-          <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-            <FormControl size="small" sx={{ flex: 1 }}>
-              <InputLabel>Source</InputLabel>
-              <Select
-                value={item.source}
+      {(config.items ?? []).map((item, index) => {
+        const isWritable = item.source === 'parameter'
+          || mapManager.getRegisterByAddress(item.address)?.accessPermit === 'READ_WRITE';
+
+        return (
+          <Box key={index} sx={{ mb: 2, p: 2, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 1 }}>
+            {/* Row 1: Label + R/O|R/W badge + Delete */}
+            <Box sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'center' }}>
+              <TextField
+                label="Label"
+                value={item.label}
                 onChange={(e) => {
                   const items = [...(config.items ?? [])];
-                  items[index] = { ...items[index], source: e.target.value as DataSource };
+                  items[index] = { ...items[index], label: e.target.value };
                   onConfigChange({ ...config, items });
                 }}
-                label="Source"
+                size="small"
+                sx={{ flex: 1 }}
+              />
+              <Typography
+                variant="caption"
+                sx={{
+                  px: 1,
+                  py: 0.25,
+                  borderRadius: 0.5,
+                  fontSize: '0.65rem',
+                  fontWeight: 600,
+                  letterSpacing: '0.04em',
+                  whiteSpace: 'nowrap',
+                  color: isWritable ? 'success.main' : 'text.disabled',
+                  border: '1px solid',
+                  borderColor: isWritable ? 'success.main' : 'divider',
+                }}
               >
-                <MenuItem value="register">Register</MenuItem>
-                <MenuItem value="parameter">Parameter</MenuItem>
-              </Select>
-            </FormControl>
-            <TextField
-              label="Address"
-              type="number"
-              value={item.address}
-              onChange={(e) => {
-                const items = [...(config.items ?? [])];
-                items[index] = { ...items[index], address: parseInt(e.target.value) };
-                onConfigChange({ ...config, items });
-              }}
-              size="small"
-              sx={{ flex: 1 }}
-            />
-          </Box>
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <FormControl size="small" sx={{ flex: 1 }}>
-              <InputLabel>Format</InputLabel>
-              <Select
-                value={item.format ?? 'decimal'}
+                {isWritable ? 'R/W' : 'R/O'}
+              </Typography>
+              <IconButton
+                onClick={() => {
+                  const items = (config.items ?? []).filter((_, i) => i !== index);
+                  onConfigChange({ ...config, items });
+                }}
+                size="small"
+                color="error"
+              >
+                <DeleteIcon />
+              </IconButton>
+            </Box>
+
+            {/* Row 2: Source + Address (searchable) + Unit */}
+            <Box sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'flex-start' }}>
+              <FormControl size="small" sx={{ flex: 1 }}>
+                <InputLabel>Source</InputLabel>
+                <Select
+                  value={item.source}
+                  onChange={(e) => {
+                    const items = [...(config.items ?? [])];
+                    items[index] = { ...items[index], source: e.target.value as DataSource };
+                    onConfigChange({ ...config, items });
+                  }}
+                  label="Source"
+                >
+                  <MenuItem value="register">Register</MenuItem>
+                  <MenuItem value="parameter">Parameter</MenuItem>
+                </Select>
+              </FormControl>
+              <Box sx={{ flex: 2 }}>
+                <AddressSelector
+                  dataSource={item.source}
+                  currentAddress={item.address}
+                  onChange={(address) => {
+                    const items = [...(config.items ?? [])];
+                    items[index] = { ...items[index], address };
+                    onConfigChange({ ...config, items });
+                  }}
+                  registers={registers}
+                  parameters={parameters}
+                  label="Address"
+                  size="small"
+                />
+              </Box>
+              <TextField
+                label="Unit"
+                value={item.unit ?? ''}
                 onChange={(e) => {
                   const items = [...(config.items ?? [])];
-                  items[index] = { ...items[index], format: e.target.value as 'decimal' | 'hex' | 'binary' };
+                  items[index] = { ...items[index], unit: e.target.value };
                   onConfigChange({ ...config, items });
                 }}
-                label="Format"
-              >
-                <MenuItem value="decimal">Decimal</MenuItem>
-                <MenuItem value="hex">Hexadecimal</MenuItem>
-                <MenuItem value="binary">Binary</MenuItem>
-              </Select>
-            </FormControl>
-            <TextField
-              label="Unit"
-              value={item.unit ?? ''}
-              onChange={(e) => {
-                const items = [...(config.items ?? [])];
-                items[index] = { ...items[index], unit: e.target.value };
-                onConfigChange({ ...config, items });
-              }}
-              size="small"
-              sx={{ flex: 1 }}
-            />
-            <TextField
-              label="Decimals"
-              type="number"
-              value={item.decimals ?? ''}
-              onChange={(e) => {
-                const items = [...(config.items ?? [])];
-                items[index] = { ...items[index], decimals: e.target.value ? parseInt(e.target.value) : undefined };
-                onConfigChange({ ...config, items });
-              }}
-              size="small"
-              sx={{ width: 80 }}
-              inputProps={{ min: 0, max: 10 }}
-            />
+                size="small"
+                sx={{ flex: 1 }}
+              />
+            </Box>
+
+            {/* Row 3: Format + Decimals (decimals only for decimal format) */}
+            <Box sx={{ display: 'flex', gap: 1, mb: isWritable ? 1 : 0 }}>
+              <FormControl size="small" sx={{ flex: 1 }}>
+                <InputLabel>Format</InputLabel>
+                <Select
+                  value={item.format ?? 'decimal'}
+                  onChange={(e) => {
+                    const items = [...(config.items ?? [])];
+                    items[index] = { ...items[index], format: e.target.value as 'decimal' | 'hex' | 'binary' };
+                    onConfigChange({ ...config, items });
+                  }}
+                  label="Format"
+                >
+                  <MenuItem value="decimal">Decimal</MenuItem>
+                  <MenuItem value="hex">Hexadecimal</MenuItem>
+                  <MenuItem value="binary">Binary</MenuItem>
+                </Select>
+              </FormControl>
+              {(item.format ?? 'decimal') === 'decimal' && (
+                <TextField
+                  label="Decimals"
+                  type="number"
+                  value={item.decimals ?? ''}
+                  onChange={(e) => {
+                    const items = [...(config.items ?? [])];
+                    items[index] = { ...items[index], decimals: e.target.value ? parseInt(e.target.value) : undefined };
+                    onConfigChange({ ...config, items });
+                  }}
+                  size="small"
+                  sx={{ width: 100 }}
+                  inputProps={{ min: 0, max: 10 }}
+                />
+              )}
+            </Box>
+
+            {/* Row 4: Min/Max/Step — only for writable addresses */}
+            {isWritable && (
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <TextField
+                  label="Min"
+                  type="number"
+                  value={item.min ?? ''}
+                  onChange={(e) => {
+                    const items = [...(config.items ?? [])];
+                    items[index] = { ...items[index], min: e.target.value ? parseFloat(e.target.value) : undefined };
+                    onConfigChange({ ...config, items });
+                  }}
+                  size="small"
+                  sx={{ flex: 1 }}
+                />
+                <TextField
+                  label="Max"
+                  type="number"
+                  value={item.max ?? ''}
+                  onChange={(e) => {
+                    const items = [...(config.items ?? [])];
+                    items[index] = { ...items[index], max: e.target.value ? parseFloat(e.target.value) : undefined };
+                    onConfigChange({ ...config, items });
+                  }}
+                  size="small"
+                  sx={{ flex: 1 }}
+                />
+                <TextField
+                  label="Step"
+                  type="number"
+                  value={item.step ?? ''}
+                  onChange={(e) => {
+                    const items = [...(config.items ?? [])];
+                    items[index] = { ...items[index], step: e.target.value ? parseFloat(e.target.value) : undefined };
+                    onConfigChange({ ...config, items });
+                  }}
+                  size="small"
+                  sx={{ flex: 1 }}
+                />
+              </Box>
+            )}
           </Box>
-        </Box>
-      ))}
+        );
+      })}
     </>
   );
 }

@@ -142,7 +142,7 @@ export default function WidgetConfigDialog({
           label: 'Write Value',
           target: 'register',
           address: 0,
-          inputType: 'number',
+          format: 'decimal',
           confirmationRequired: false
         } as ValueWriteWidgetConfig);
         break;
@@ -260,9 +260,9 @@ export default function WidgetConfigDialog({
             { label: 'Item 1', source: 'register', address: 0, format: 'decimal' }
           ],
           refreshInterval: 1000,
-          showTimestamp: false,
           compact: false,
-          striped: true
+          striped: true,
+          confirmWrites: false
         });
         break;
       case 'alarmList':

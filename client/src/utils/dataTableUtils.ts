@@ -1,5 +1,6 @@
 import { DataForm, MapEntry } from '../maps/mapParser';
 import { int32ToFloat, floatToInt32, formatFloat } from './floatConversion';
+import { filterWriteInput } from './writeInputParse';
 
 // Shared constants
 export const MIN_INT32 = -2147483648;
@@ -29,6 +30,19 @@ export function formatDataValue(value: number | null | undefined, mapEntry: MapE
     return `0x${value.toString(16).toUpperCase()}`;
   }
   return value.toString();
+}
+
+/**
+ * Filter keystroke input based on the map entry's data type.
+ * - float → decimal (digits, minus, dot, scientific notation)
+ * - showAsHex → hex (0-9, A-F, optional 0x prefix)
+ * - everything else → decimal integers (digits + optional leading minus)
+ */
+export function filterWriteValueFromMap(value: string, mapEntry: MapEntry | undefined): string {
+  if (mapEntry?.type === 'float') return filterWriteInput(value, 'decimal');
+  if (mapEntry?.showAsHex) return filterWriteInput(value, 'hex');
+  // Integer decimal: digits and optional leading minus only
+  return filterWriteInput(value, 'decimal');
 }
 
 // Parse a string value for writing, handling float/hex/decimal based on map entry type
