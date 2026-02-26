@@ -539,10 +539,10 @@ const CNC_MONITORING_WIDGETS: DashboardWidget[] = [
   // 3 — Axis Control Table (read-only positions + writable setpoints)
   {
     id: 'cnc-mon-3',
-    type: 'controlTable',
+    type: 'dataTable',
     config: {
       label: 'Axis Control',
-      rows: [
+      items: [
         { label: 'X Position', source: 'register' as const, address: 5, unit: 'steps' },
         { label: 'X Setpoint', source: 'register' as const, address: 14, unit: 'steps' },
         { label: 'Y Position', source: 'register' as const, address: 6, unit: 'steps' },
@@ -557,6 +557,7 @@ const CNC_MONITORING_WIDGETS: DashboardWidget[] = [
       compact: false,
       confirmWrites: false,
       valueFontSize: 0.75,
+      striped: true,
     },
     layout: { w: 8, h: 4, x: 4, y: 6, i: 'cnc-mon-3', moved: false, static: false },
   },

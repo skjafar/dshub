@@ -40,7 +40,6 @@ import SystemInfoConfig from './configs/SystemInfoConfig';
 import DataTableConfig from './configs/DataTableConfig';
 import AlarmListConfig from './configs/AlarmListConfig';
 import StatusMatrixConfig from './configs/StatusMatrixConfig';
-import ControlTableConfig from './configs/ControlTableConfig';
 
 interface WidgetConfigDialogProps {
   open: boolean;
@@ -67,7 +66,7 @@ const WIDGET_TYPE_LABELS: Record<WidgetType, string> = {
   dataTable: 'Data Table',
   alarmList: 'Alarm List',
   statusMatrix: 'Status Matrix',
-  controlTable: 'Control Table',
+
 };
 
 export default function WidgetConfigDialog({
@@ -286,17 +285,7 @@ export default function WidgetConfigDialog({
           dotSize: 12
         });
         break;
-      case 'controlTable':
-        setConfig({
-          label: 'Control Table',
-          rows: [
-            { label: 'Value', source: 'register', address: 0 }
-          ],
-          refreshInterval: 500,
-          compact: false,
-          confirmWrites: false
-        });
-        break;
+
     }
   };
 
@@ -316,7 +305,7 @@ export default function WidgetConfigDialog({
     }
 
     // Refresh interval for polling widgets
-    const pollingTypes: WidgetType[] = ['valueRead', 'stateLED', 'gauge', 'progressBar', 'encoderDisplay', 'ledIndicator', 'systemInfo', 'dataTable', 'alarmList', 'statusMatrix', 'controlTable'];
+    const pollingTypes: WidgetType[] = ['valueRead', 'stateLED', 'gauge', 'progressBar', 'encoderDisplay', 'ledIndicator', 'systemInfo', 'dataTable', 'alarmList', 'statusMatrix'];
     if (pollingTypes.includes(widgetType) && (c.refreshInterval === undefined || c.refreshInterval <= 0)) {
       errors.push('Refresh interval must be greater than 0');
     }
@@ -341,10 +330,6 @@ export default function WidgetConfigDialog({
       errors.push('At least one alarm rule is required');
     }
 
-    // At least 1 row for ControlTable
-    if (widgetType === 'controlTable' && (!c.rows || c.rows.length === 0)) {
-      errors.push('At least one row is required');
-    }
 
     // At least 1 direction for DirectionalControl
     if (widgetType === 'directionalControl' && (!c.directions || c.directions.length === 0)) {
@@ -426,8 +411,6 @@ export default function WidgetConfigDialog({
         return <AlarmListConfig config={config as any} onConfigChange={handleConfigChange as any} {...commonProps} />;
       case 'statusMatrix':
         return <StatusMatrixConfig config={config as any} onConfigChange={handleConfigChange as any} {...commonProps} />;
-      case 'controlTable':
-        return <ControlTableConfig config={config as any} onConfigChange={handleConfigChange as any} {...commonProps} />;
     }
   };
 
@@ -462,7 +445,6 @@ export default function WidgetConfigDialog({
               <MenuItem value="dataTable">Data Table</MenuItem>
               <MenuItem value="alarmList">Alarm List</MenuItem>
               <MenuItem value="statusMatrix">Status Matrix</MenuItem>
-              <MenuItem value="controlTable">Control Table</MenuItem>
             </Select>
           </FormControl>
         )}

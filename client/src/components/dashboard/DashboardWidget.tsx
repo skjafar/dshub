@@ -19,7 +19,6 @@ import {
   DataTableWidgetConfig,
   AlarmListWidgetConfig,
   StatusMatrixWidgetConfig,
-  ControlTableWidgetConfig,
 } from '../../types/dashboard';
 import { useWidgetSize } from '../../hooks/useWidgetSize';
 import { getWidgetScale, WidgetSizeInfo } from '../../utils/widgetScaling';
@@ -38,7 +37,6 @@ import SystemInfoWidget from './SystemInfoWidget';
 import DataTableWidget from './DataTableWidget';
 import AlarmListWidget from './AlarmListWidget';
 import StatusMatrixWidget from './StatusMatrixWidget';
-import ControlTableWidget from './ControlTableWidget';
 
 interface DashboardWidgetProps {
   widget: DashboardWidgetType;
@@ -85,8 +83,6 @@ export default function DashboardWidget({ widget, isEditMode, roundedCorners, on
         return <AlarmListWidget config={widget.config as AlarmListWidgetConfig} isEditMode={isEditMode} widgetSize={ws} />;
       case 'statusMatrix':
         return <StatusMatrixWidget config={widget.config as StatusMatrixWidgetConfig} isEditMode={isEditMode} widgetSize={ws} />;
-      case 'controlTable':
-        return <ControlTableWidget config={widget.config as ControlTableWidgetConfig} isEditMode={isEditMode} widgetSize={ws} />;
       default:
         return <Box>Unknown widget type</Box>;
     }

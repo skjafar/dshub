@@ -16,8 +16,7 @@ export type WidgetType =
   | 'systemInfo'
   | 'dataTable'
   | 'alarmList'
-  | 'statusMatrix'
-  | 'controlTable';
+  | 'statusMatrix';
 
 // Data source types
 export type DataSource = 'register' | 'parameter' | 'sysCommand';
@@ -268,28 +267,6 @@ export interface StatusMatrixWidgetConfig {
   compact?: boolean;
 }
 
-// Control table row — either read-only display or writable input
-export interface ControlTableRow {
-  label: string;
-  source: DataSource; // 'register' or 'parameter'
-  address: number;
-  format?: 'decimal' | 'hex' | 'binary'; // Input/display format for writable rows
-  unit?: string;
-  min?: number; // Validation for writable rows
-  max?: number;
-  step?: number;
-}
-
-// Control table widget configuration — hybrid read/write table
-export interface ControlTableWidgetConfig {
-  label: string;
-  rows: ControlTableRow[];
-  refreshInterval: number; // in milliseconds
-  compact?: boolean;
-  confirmWrites?: boolean; // Show confirmation dialog before writing
-  valueFontSize?: number; // Value text size in rem
-}
-
 // Union type for all widget configurations
 export type WidgetConfig =
   | ButtonWidgetConfig
@@ -306,8 +283,7 @@ export type WidgetConfig =
   | SystemInfoWidgetConfig
   | DataTableWidgetConfig
   | AlarmListWidgetConfig
-  | StatusMatrixWidgetConfig
-  | ControlTableWidgetConfig;
+  | StatusMatrixWidgetConfig;
 
 // Widget instance
 export interface DashboardWidget {
@@ -361,7 +337,6 @@ export const DEFAULT_WIDGET_SIZES: Record<WidgetType, { w: number; h: number; mi
   dataTable: { w: 5, h: 4, minW: 3, minH: 2 },
   alarmList: { w: 4, h: 4, minW: 3, minH: 2 },
   statusMatrix: { w: 4, h: 3, minW: 2, minH: 2 },
-  controlTable: { w: 5, h: 4, minW: 3, minH: 2 }
 };
 
 // Helper function to create empty dashboard
