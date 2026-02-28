@@ -81,7 +81,7 @@ export default function MainLayout() {
   const theme = useTheme();
   const { state, actions } = useDSHub();
   const { settings } = useSettings();
-  const { showWarning, showInfo } = useToast();
+  const { showWarning, showInfo, showError } = useToast();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [drawerCollapsed, setDrawerCollapsed] = useState(false);
   const [currentView, setCurrentView] = useState<ViewType>(() => {
@@ -100,6 +100,19 @@ export default function MainLayout() {
       actions.markLogsRead();
     }
   }, [currentView, actions]);
+
+  // Show error toast when a connection attempt is refused (device already connected elsewhere)
+  const wasConnectingRef = useRef(false);
+  useEffect(() => {
+    if (state.connecting) wasConnectingRef.current = true;
+  }, [state.connecting]);
+  useEffect(() => {
+    if (wasConnectingRef.current && state.connection && !state.connection.connected) {
+      wasConnectingRef.current = false;
+      const name = state.connection.deviceName ?? state.connection.ip;
+      showError(`${name} is already connected in another session`);
+    }
+  }, [state.connection]);
 
   // Dashboard control state
   const [isDashboardEditMode, setIsDashboardEditMode] = useState(false);

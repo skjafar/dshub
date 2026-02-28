@@ -7,7 +7,16 @@ import path from 'path';
 import { DeviceScanner } from './services/DeviceScanner';
 import { DeviceCommunicator } from './services/DeviceCommunicator';
 import { Logger } from './utils/Logger';
-import { ServerToClientEvents, ClientToServerEvents } from '../shared/types';
+import { ServerToClientEvents, ClientToServerEvents, InterfaceType, ControlInterfaceState, DEFAULT_TCP_PORT, DEFAULT_UDP_PORT } from '../shared/types';
+
+// Server-wide registry of active device connections keyed by "ip:port".
+// Prevents multiple browser tabs from connecting to the same device endpoint.
+const activeConnections = new Set<string>();
+
+function deviceKey(ip: string, interfaceType: InterfaceType): string {
+  const port = interfaceType === InterfaceType.TCP ? DEFAULT_TCP_PORT : DEFAULT_UDP_PORT;
+  return `${ip}:${port}`;
+}
 
 const app = express();
 const server = createServer(app);
@@ -73,14 +82,45 @@ io.on('connection', (socket) => {
     });
   }));
 
+  // Track the key claimed by this socket so it can be released on disconnect
+  let claimedKey: string | null = null;
+
   // Device connection
   socket.on('connectDevice', wrapHandler('connectDevice', (ip, interfaceType, deviceName) => {
+    const key = deviceKey(ip, interfaceType);
+
+    if (activeConnections.has(key)) {
+      logger.error(`Connection refused: ${key} is already in use by another session`);
+      socket.emit('connectionStatus', {
+        ip,
+        port: interfaceType === InterfaceType.TCP ? DEFAULT_TCP_PORT : DEFAULT_UDP_PORT,
+        interface: interfaceType,
+        connected: false,
+        controlState: ControlInterfaceState.UNDECIDED,
+        ...(deviceName ? { deviceName } : {}),
+      });
+      socket.emit('logEntry', {
+        level: 'error',
+        category: 'connection',
+        message: `Connection refused: ${key} is already connected in another tab`,
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
+    activeConnections.add(key);
+    claimedKey = key;
+
     const displayName = deviceName ? `${deviceName} (${ip})` : ip;
     logger.info(`Connecting to device: ${displayName} via ${interfaceType}`);
     deviceCommunicator.connect(ip, interfaceType, (status) => {
-      // Add device name to connection status
       if (deviceName) {
         status.deviceName = deviceName;
+      }
+      // If the communicator reports disconnection, release the registry slot
+      if (!status.connected && claimedKey) {
+        activeConnections.delete(claimedKey);
+        claimedKey = null;
       }
       socket.emit('connectionStatus', status);
     }, (register) => {
@@ -94,6 +134,10 @@ io.on('connection', (socket) => {
 
   socket.on('disconnectDevice', wrapHandler('disconnectDevice', () => {
     logger.info('Disconnecting device');
+    if (claimedKey) {
+      activeConnections.delete(claimedKey);
+      claimedKey = null;
+    }
     deviceCommunicator.disconnect();
   }));
 
@@ -154,6 +198,10 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     logger.info(`Client disconnected: ${socket.id}`);
+    if (claimedKey) {
+      activeConnections.delete(claimedKey);
+      claimedKey = null;
+    }
     deviceCommunicator.disconnect();
     removeLogCallback();
   });

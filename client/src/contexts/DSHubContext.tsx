@@ -49,6 +49,7 @@ interface DSHubState {
   maxDataPoints: number; // Maximum number of data points to retain per series
   plotTimeSpans: Map<string, number>; // Time span in seconds for each active plot
   plotPaused: boolean; // Global pause state for plots
+  connecting: boolean; // true while a connectDevice call is in-flight (before first connectionStatus)
   autoRefresh: {
     enabled: boolean;
     interval: number; // in milliseconds
@@ -83,7 +84,8 @@ type DSHubAction =
   | { type: 'REMOVE_AUTO_REFRESH_REGISTER'; payload: number }
   | { type: 'ADD_AUTO_REFRESH_PARAMETER'; payload: number }
   | { type: 'REMOVE_AUTO_REFRESH_PARAMETER'; payload: number }
-  | { type: 'CLEAR_AUTO_REFRESH_ADDRESSES' };
+  | { type: 'CLEAR_AUTO_REFRESH_ADDRESSES' }
+  | { type: 'SET_CONNECTING'; payload: boolean };
 
 const initialState: DSHubState = {
   socket: null,
@@ -101,6 +103,7 @@ const initialState: DSHubState = {
   maxDataPoints: 20000, // Default: 20k points per series
   plotTimeSpans: new Map(), // Time span for each series
   plotPaused: false, // Not paused by default
+  connecting: false,
   autoRefresh: {
     enabled: false,
     interval: 1000, // Default 1 second
@@ -133,6 +136,9 @@ function createDSHubReducer(getLogSettings: () => LogSettings) {
 
       case 'CLEAR_DISCOVERED_DEVICES':
         return { ...state, discoveredDevices: [] };
+
+      case 'SET_CONNECTING':
+        return { ...state, connecting: action.payload };
 
       case 'SET_CONNECTION':
         return { ...state, connection: action.payload };
@@ -429,6 +435,7 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
     });
 
     socket.on('connectionStatus', (status: DeviceConnection) => {
+      dispatch({ type: 'SET_CONNECTING', payload: false });
       dispatch({ type: 'SET_CONNECTION', payload: status });
       if (status.connected) {
         dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'success', category: 'connection', message: `Connected to device at ${status.ip}:${status.port} via ${status.interface}`, timestamp: Date.now() } });
@@ -605,6 +612,7 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
       if (state.socket) {
         const displayName = deviceName ? `${deviceName} (${ip})` : ip;
         dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: `Connecting to ${displayName} via ${interfaceType}...`, timestamp: Date.now() } });
+        dispatch({ type: 'SET_CONNECTING', payload: true });
         state.socket.emit('connectDevice', ip, interfaceType, deviceName);
       } else {
         dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'error', category: 'connection', message: 'Cannot connect: no socket connection', timestamp: Date.now() } });
