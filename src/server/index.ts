@@ -29,18 +29,28 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
 
 const logger = Logger.getInstance();
 const deviceScanner = new DeviceScanner();
+const clientBuildPath = path.join(__dirname, '../../client/build');
+const isProduction = process.env.NODE_ENV === 'production' || !process.env.NODE_ENV;
 
 // Middleware
 app.use(helmet({
-  contentSecurityPolicy: false // Disable CSP for development
+  contentSecurityPolicy: isProduction ? {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:"],
+      connectSrc: ["'self'", "ws:", "wss:"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+    }
+  } : false
 }));
 app.use(cors());
 app.use(express.json());
 
 // Serve static files in production
-const clientBuildPath = path.join(__dirname, '../../client/build');
-const isProduction = process.env.NODE_ENV === 'production' || !process.env.NODE_ENV;
-
 logger.info(`Client build path: ${clientBuildPath}`);
 logger.info(`Is production mode: ${isProduction}`);
 
