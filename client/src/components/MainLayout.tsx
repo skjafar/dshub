@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import {
   AppBar,
   Box,
@@ -47,16 +47,21 @@ import { DEFAULT_GRID_CONFIG } from '../types/dashboard';
 import { FONT_MONO } from '../theme';
 import { mapManager } from '../maps/mapManager';
 import DeviceScannerPanel from './DeviceScannerPanel';
-import DeviceDashboard from './DeviceDashboard';
-import DashboardPanel, { DashboardPanelRef } from './DashboardPanel';
-import PlotPanel from './PlotPanel';
-import SysCommandPanel from './SysCommandPanel';
-import RegistersPanel, { RegistersPanelRef } from './RegistersPanel';
-import ParametersPanel, { ParametersPanelRef } from './ParametersPanel';
-import LogsPanel from './LogsPanel';
-import SettingsPanel from './SettingsPanel';
-import MapEditorPanel from './maps/MapEditorPanel';
-import AboutPanel from './AboutPanel';
+import type { DashboardPanelRef } from './DashboardPanel';
+import type { RegistersPanelRef } from './RegistersPanel';
+import type { ParametersPanelRef } from './ParametersPanel';
+
+// Lazy-load heavy panels for code splitting
+const DeviceDashboard = lazy(() => import('./DeviceDashboard'));
+const DashboardPanel = lazy(() => import('./DashboardPanel'));
+const PlotPanel = lazy(() => import('./PlotPanel'));
+const SysCommandPanel = lazy(() => import('./SysCommandPanel'));
+const RegistersPanel = lazy(() => import('./RegistersPanel'));
+const ParametersPanel = lazy(() => import('./ParametersPanel'));
+const LogsPanel = lazy(() => import('./LogsPanel'));
+const SettingsPanel = lazy(() => import('./SettingsPanel'));
+const MapEditorPanel = lazy(() => import('./maps/MapEditorPanel'));
+const AboutPanel = lazy(() => import('./AboutPanel'));
 
 const drawerWidth = 240;
 const drawerWidthCollapsed = 64;
@@ -834,7 +839,9 @@ export default function MainLayout() {
         }}
       >
         <Toolbar />
-        {renderCurrentView()}
+        <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', pt: 8 }}><CircularProgress /></Box>}>
+          {renderCurrentView()}
+        </Suspense>
       </Box>
     </Box>
   );
