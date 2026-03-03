@@ -182,31 +182,41 @@ function createDSHubReducer(getLogSettings: () => LogSettings) {
           unreadLogCount: isAlertLevel ? state.unreadLogCount + 1 : state.unreadLogCount,
         };
     
-    case 'ADD_PLOT_DATA':
+    case 'ADD_PLOT_DATA': {
       const newPlotData = new Map(state.plotData);
       const currentData = newPlotData.get(action.payload.series) || [];
-      const updatedData = [...currentData, action.payload.point];
 
       // Get time span for this series (default to 60 seconds if not set)
       const timeSpan = state.plotTimeSpans.get(action.payload.series) || 60;
-
-      // Calculate cutoff time: only keep data within the time window (unless paused)
-      const currentTime = Date.now() / 1000; // Current time in seconds
+      const currentTime = Date.now() / 1000;
       const cutoffTime = currentTime - timeSpan;
 
-      // Filter data based on pause state
-      let filteredData = state.plotPaused
-        ? updatedData // Keep all data when paused
-        : updatedData.filter(point => point.x >= cutoffTime); // Only keep data within time window
+      let filteredData: typeof currentData;
 
-      // ALWAYS enforce maxDataPoints limit to prevent unbounded growth
+      if (state.plotPaused) {
+        // When paused, append without filtering — use concat to avoid full spread copy
+        filteredData = currentData.concat(action.payload.point);
+      } else {
+        // Find first index within the time window using binary search
+        let lo = 0;
+        let hi = currentData.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          if (currentData[mid].x < cutoffTime) lo = mid + 1;
+          else hi = mid;
+        }
+        // Build new array from the kept portion + new point (avoids copying discarded items)
+        filteredData = lo > 0 ? currentData.slice(lo).concat(action.payload.point) : currentData.concat(action.payload.point);
+      }
+
+      // Enforce maxDataPoints limit to prevent unbounded growth
       if (filteredData.length > state.maxDataPoints) {
-        // Use slice instead of splice to avoid mutating the array
         filteredData = filteredData.slice(filteredData.length - state.maxDataPoints);
       }
 
       newPlotData.set(action.payload.series, filteredData);
       return { ...state, plotData: newPlotData };
+    }
 
     case 'CLEAR_PLOT_DATA':
       const clearedPlotData = new Map(state.plotData);
