@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, memo } from 'react';
 import { Box, IconButton, Paper } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
@@ -46,7 +46,7 @@ interface DashboardWidgetProps {
   onDelete: (widgetId: string) => void;
 }
 
-export default function DashboardWidget({ widget, isEditMode, roundedCorners, onEdit, onDelete }: DashboardWidgetProps) {
+function DashboardWidgetInner({ widget, isEditMode, roundedCorners, onEdit, onDelete }: DashboardWidgetProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const { width, height } = useWidgetSize(contentRef);
   const widgetSize = getWidgetScale(widget.type, width, height);
@@ -126,6 +126,7 @@ export default function DashboardWidget({ widget, isEditMode, roundedCorners, on
         >
           <IconButton
             size="small"
+            aria-label="Edit widget"
             onClick={(e) => { e.stopPropagation(); onEdit(widget.id); }}
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
@@ -135,6 +136,7 @@ export default function DashboardWidget({ widget, isEditMode, roundedCorners, on
           </IconButton>
           <IconButton
             size="small"
+            aria-label="Delete widget"
             onClick={(e) => { e.stopPropagation(); onDelete(widget.id); }}
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
@@ -152,3 +154,6 @@ export default function DashboardWidget({ widget, isEditMode, roundedCorners, on
     </Paper>
   );
 }
+
+const DashboardWidget = memo(DashboardWidgetInner);
+export default DashboardWidget;
