@@ -588,9 +588,21 @@ export class DeviceCommunicator {
     }, 100);
   }
 
+  private isValidAddress(address: number, category: LogCategory): boolean {
+    if (typeof address !== 'number' || !Number.isInteger(address) || address < 0 || address > 255) {
+      this.logger.error(`Invalid address: ${address} (must be integer 0-255)`, category);
+      return false;
+    }
+    return true;
+  }
+
   public readRegister(address: number, name: string): void {
     if (!this.connection?.connected) {
       this.logger.error('Cannot read register: not connected', 'register');
+      return;
+    }
+
+    if (!this.isValidAddress(address, 'register')) {
       return;
     }
 
@@ -638,6 +650,10 @@ export class DeviceCommunicator {
       return;
     }
 
+    if (!this.isValidAddress(address, 'register')) {
+      return;
+    }
+
     this.logger.info(`Writing register at address ${address} with value ${value}`, 'register');
 
     const requestId = `reg_write_${address}_${Date.now()}`;
@@ -667,6 +683,10 @@ export class DeviceCommunicator {
   public readParameter(address: number, name: string): void {
     if (!this.connection?.connected) {
       this.logger.error('Cannot read parameter: not connected', 'parameter');
+      return;
+    }
+
+    if (!this.isValidAddress(address, 'parameter')) {
       return;
     }
 
@@ -705,6 +725,10 @@ export class DeviceCommunicator {
   public writeParameter(address: number, value: number): void {
     if (!this.connection?.connected) {
       this.logger.error('Cannot write parameter: not connected', 'parameter');
+      return;
+    }
+
+    if (!this.isValidAddress(address, 'parameter')) {
       return;
     }
 
