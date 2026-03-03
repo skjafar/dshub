@@ -340,11 +340,12 @@ export class DeviceCommunicator {
       }
     } catch (error) {
       this.logger.error(`Error parsing response: ${error}`, responseCategory);
+    } finally {
+      // Always clear current request and process next in queue,
+      // even on early returns or exceptions, to prevent queue stalls
+      this.currentRequest = null;
+      this.processNextRequest();
     }
-
-    // Clear current request and process next in queue
-    this.currentRequest = null;
-    this.processNextRequest();
   }
 
   /**
