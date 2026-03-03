@@ -640,13 +640,28 @@ export class DeviceCommunicator {
 
     this.logger.info(`Writing register at address ${address} with value ${value}`, 'register');
 
+    const requestId = `reg_write_${address}_${Date.now()}`;
+
     // Create write register packet (6 bytes: cmd + addr + value)
     const packet = Buffer.alloc(6);
     packet.writeUInt8(2, 0); // Write register command
     packet.writeUInt8(address, 1); // Address (1 byte)
     packet.writeInt32LE(value, 2); // Value (4 bytes)
 
-    this.sendData(packet);
+    const request: DataRequest = {
+      id: requestId,
+      address,
+      value,
+      command: 2,
+      expectedResponseLength: 6,
+      timestamp: Date.now(),
+      packet,
+      callback: (data) => {
+        this.registerCallback?.(data as RegisterData);
+      }
+    };
+
+    this.queueRequest(request);
   }
 
   public readParameter(address: number, name: string): void {
@@ -695,13 +710,28 @@ export class DeviceCommunicator {
 
     this.logger.info(`Writing parameter at address ${address} with value ${value}`, 'parameter');
 
+    const requestId = `param_write_${address}_${Date.now()}`;
+
     // Create write parameter packet (6 bytes: cmd + addr + value)
     const packet = Buffer.alloc(6);
     packet.writeUInt8(4, 0); // Write parameter command
     packet.writeUInt8(address, 1); // Address (1 byte)
     packet.writeInt32LE(value, 2); // Value (4 bytes)
 
-    this.sendData(packet);
+    const request: DataRequest = {
+      id: requestId,
+      address,
+      value,
+      command: 4,
+      expectedResponseLength: 6,
+      timestamp: Date.now(),
+      packet,
+      callback: (data) => {
+        this.parameterCallback?.(data as ParameterData);
+      }
+    };
+
+    this.queueRequest(request);
   }
 
   public startPlotting(
