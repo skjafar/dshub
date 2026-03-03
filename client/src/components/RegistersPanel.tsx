@@ -14,10 +14,6 @@ import {
   TableRow,
   Paper,
   IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   Chip,
   Alert,
   Tooltip,
@@ -48,110 +44,10 @@ import { useToast } from './ToastNotification';
 import { mapManager } from '../maps/mapManager';
 import { MapEntry, DataAccessPermit } from '../maps/mapParser';
 import { int32ToFloat, formatFloat } from '../utils/floatConversion';
-import { canWriteToDevice, formatDataValue, parseWriteValue, filterWriteValueFromMap } from '../utils/dataTableUtils';
+import { canWriteToDevice, formatDataValue } from '../utils/dataTableUtils';
 import { useDebouncedCallback } from '../hooks/useDebounce';
+import { DataEditDialog, DataReadDialog } from './DataEditDialog';
 import { FONT_MONO } from '../theme';
-
-interface RegisterEditDialogProps {
-  open: boolean;
-  register: { address: number; name: string; value: number | null } | null;
-  mapEntry?: MapEntry;
-  onClose: () => void;
-  onWrite: (address: number, value: number) => void;
-}
-
-function RegisterEditDialog({ open, register, mapEntry, onClose, onWrite }: RegisterEditDialogProps) {
-  const [valueStr, setValueStr] = useState('');
-
-  // Update value when register changes
-  useEffect(() => {
-    if (register) {
-      setValueStr(String(register.value ?? 0));
-    }
-  }, [register]);
-
-  const handleWrite = () => {
-    if (register) {
-      const parsed = parseWriteValue(valueStr, mapEntry);
-      if (parsed.value === null) return;
-      onWrite(register.address, parsed.value);
-      onClose();
-    }
-  };
-
-  const placeholder = mapEntry?.showAsHex ? '0x0000' : '0';
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>
-        Edit Register {register?.name || ''} (0x{register?.address.toString(16).toUpperCase()})
-      </DialogTitle>
-      <DialogContent>
-        <TextField
-          autoFocus
-          margin="dense"
-          label="Value"
-          type="text"
-          fullWidth
-          variant="outlined"
-          value={valueStr}
-          placeholder={placeholder}
-          onChange={(e) => setValueStr(filterWriteValueFromMap(e.target.value, mapEntry))}
-          sx={{ mt: 2 }}
-          helperText={mapEntry?.showAsHex ? 'Hex input (e.g. 1A2B or 0x1A2B)' : mapEntry?.type === 'float' ? 'Float value' : 'Integer value'}
-        />
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={handleWrite} variant="contained">
-          Write
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
-
-interface ReadRegisterDialogProps {
-  open: boolean;
-  onClose: () => void;
-  onRead: (address: number) => void;
-}
-
-function ReadRegisterDialog({ open, onClose, onRead }: ReadRegisterDialogProps) {
-  const [address, setAddress] = useState(0);
-
-  const handleRead = () => {
-    onRead(address);
-    onClose();
-    setAddress(0);
-  };
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Read Register</DialogTitle>
-      <DialogContent>
-        <TextField
-          autoFocus
-          margin="dense"
-          label="Register Address (decimal)"
-          type="number"
-          fullWidth
-          variant="outlined"
-          value={address}
-          onChange={(e) => setAddress(Number(e.target.value))}
-          sx={{ mt: 2 }}
-          helperText="Enter the register address in decimal format"
-        />
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={handleRead} variant="contained" disabled={address <= 0}>
-          Read
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
 
 export interface RegistersPanelRef {
   openReadDialog: () => void;
@@ -718,16 +614,18 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
         </Card>
       )}
 
-      <RegisterEditDialog
+      <DataEditDialog
         open={editDialog.open}
-        register={editDialog.register}
+        dataType="Register"
+        item={editDialog.register}
         mapEntry={editDialog.mapEntry}
         onClose={() => setEditDialog({ open: false, register: null })}
         onWrite={handleWriteRegister}
       />
 
-      <ReadRegisterDialog
+      <DataReadDialog
         open={readDialog}
+        dataType="Register"
         onClose={() => setReadDialog(false)}
         onRead={handleReadRegister}
       />

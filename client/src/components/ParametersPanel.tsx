@@ -14,10 +14,6 @@ import {
   TableRow,
   Paper,
   IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   Chip,
   Alert,
   Tooltip,
@@ -47,8 +43,9 @@ import { mapManager } from '../maps/mapManager';
 import { MapEntry } from '../maps/mapParser';
 import { useToast } from './ToastNotification';
 import { int32ToFloat, formatFloat } from '../utils/floatConversion';
-import { canWriteToDevice, formatDataValue, parseWriteValue, filterWriteValueFromMap } from '../utils/dataTableUtils';
+import { canWriteToDevice, formatDataValue } from '../utils/dataTableUtils';
 import { useDebouncedCallback } from '../hooks/useDebounce';
+import { DataEditDialog, DataReadDialog } from './DataEditDialog';
 import { FONT_MONO } from '../theme';
 
 // Constants
@@ -63,105 +60,6 @@ interface Parameter {
   value: number | null;
   valid: boolean;
   timestamp: number;
-}
-
-interface ParameterEditDialogProps {
-  open: boolean;
-  parameter: Parameter | null;
-  mapEntry?: MapEntry;
-  onClose: () => void;
-  onWrite: (address: number, value: number) => void;
-}
-
-function ParameterEditDialog({ open, parameter, mapEntry, onClose, onWrite }: ParameterEditDialogProps) {
-  const [valueStr, setValueStr] = useState('');
-
-  // Update value when parameter changes
-  useEffect(() => {
-    if (parameter) {
-      setValueStr(String(parameter.value ?? 0));
-    }
-  }, [parameter]);
-
-  const handleWrite = () => {
-    if (parameter) {
-      const parsed = parseWriteValue(valueStr, mapEntry);
-      if (parsed.value === null) return;
-      onWrite(parameter.address, parsed.value);
-      onClose();
-    }
-  };
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>
-        Edit Parameter {parameter?.name || ''} (0x{parameter?.address.toString(16).toUpperCase()})
-      </DialogTitle>
-      <DialogContent>
-        <TextField
-          autoFocus
-          margin="dense"
-          label="Value"
-          type="text"
-          fullWidth
-          variant="outlined"
-          value={valueStr}
-          placeholder={mapEntry?.showAsHex ? '0x0000' : '0'}
-          onChange={(e) => setValueStr(filterWriteValueFromMap(e.target.value, mapEntry))}
-          sx={{ mt: 2 }}
-          helperText={mapEntry?.showAsHex ? 'Hex input (e.g. 1A2B or 0x1A2B)' : mapEntry?.type === 'float' ? 'Float value' : 'Parameter values persist across device resets'}
-        />
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={handleWrite} variant="contained">
-          Write
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
-
-interface ReadParameterDialogProps {
-  open: boolean;
-  onClose: () => void;
-  onRead: (address: number) => void;
-}
-
-function ReadParameterDialog({ open, onClose, onRead }: ReadParameterDialogProps) {
-  const [address, setAddress] = useState(0);
-
-  const handleRead = () => {
-    onRead(address);
-    onClose();
-    setAddress(0);
-  };
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Read Parameter</DialogTitle>
-      <DialogContent>
-        <TextField
-          autoFocus
-          margin="dense"
-          label="Parameter Address (decimal)"
-          type="number"
-          fullWidth
-          variant="outlined"
-          value={address}
-          onChange={(e) => setAddress(Number(e.target.value))}
-          sx={{ mt: 2 }}
-          helperText="Enter the parameter address in decimal format. Parameters typically start at address 1000+"
-        />
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={handleRead} variant="contained" disabled={address <= 0}>
-          Read
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
 }
 
 export interface ParametersPanelRef {
@@ -939,18 +837,21 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
         </Card>
       )}
 
-      <ParameterEditDialog
+      <DataEditDialog
         open={editDialog.open}
-        parameter={editDialog.parameter}
+        dataType="Parameter"
+        item={editDialog.parameter}
         mapEntry={editDialog.mapEntry}
         onClose={() => setEditDialog({ open: false, parameter: null })}
         onWrite={handleWriteParameter}
       />
 
-      <ReadParameterDialog
+      <DataReadDialog
         open={readDialog}
+        dataType="Parameter"
         onClose={() => setReadDialog(false)}
         onRead={handleReadParameter}
+        helperText="Enter the parameter address in decimal format. Parameters typically start at address 1000+"
       />
     </Box>
   );
