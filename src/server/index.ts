@@ -34,16 +34,21 @@ const isProduction = process.env.NODE_ENV === 'production' || !process.env.NODE_
 
 // Middleware
 app.use(helmet({
+  // Disable HSTS since we serve over plain HTTP — the header causes browsers
+  // to upgrade requests to HTTPS, breaking asset loads with ERR_SSL_PROTOCOL_ERROR
+  strictTransportSecurity: false,
   contentSecurityPolicy: isProduction ? {
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       imgSrc: ["'self'", "data:"],
       connectSrc: ["'self'", "ws:", "wss:"],
-      fontSrc: ["'self'"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"],
+      // Disable upgrade-insecure-requests since we serve over plain HTTP
+      upgradeInsecureRequests: null,
     }
   } : false
 }));
@@ -242,7 +247,7 @@ io.on('connection', (socket) => {
     if (!isValidAddress(address)) {
       return reject('startPlotting', `address must be an integer 0-255, got ${String(address)}`);
     }
-    console.log(`[Server] startPlotting received: registerName=${registerName}, pollInterval=${pollInterval}ms, address=${address}`);
+    logger.info(`startPlotting: ${registerName} (address: ${address}) at ${pollInterval}ms interval`);
     deviceCommunicator.startPlotting(registerName, pollInterval, address, (seriesName, point) => {
       socket.emit('plotData', seriesName, point);
     });
@@ -306,3 +311,25 @@ server.listen(PORT, () => {
   logger.info(`DSHub server running on port ${PORT}`);
   logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
+
+// Graceful shutdown
+function shutdown(signal: string): void {
+  logger.info(`Received ${signal}, shutting down gracefully...`);
+
+  // Disconnect all socket.io clients (triggers per-socket disconnect handlers)
+  io.disconnectSockets(true);
+
+  server.close(() => {
+    logger.info('HTTP server closed');
+    process.exit(0);
+  });
+
+  // Force exit after 5 seconds if graceful shutdown stalls
+  setTimeout(() => {
+    logger.error('Graceful shutdown timed out, forcing exit');
+    process.exit(1);
+  }, 5000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
