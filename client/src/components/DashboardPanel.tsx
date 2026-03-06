@@ -394,6 +394,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
                     {isEditMode && (
                       <IconButton
                         size="small"
+                        aria-label="Tab options"
                         onClick={(e) => handleTabMenu(e, tab.id)}
                         sx={{ ml: 0.5 }}
                       >

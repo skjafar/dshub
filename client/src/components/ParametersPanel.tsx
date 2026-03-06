@@ -43,7 +43,7 @@ import { mapManager } from '../maps/mapManager';
 import { MapEntry } from '../maps/mapParser';
 import { useToast } from './ToastNotification';
 import { int32ToFloat, formatFloat } from '../utils/floatConversion';
-import { canWriteToDevice, formatDataValue } from '../utils/dataTableUtils';
+import { canWriteToDevice, formatDataValue, filterWriteValueFromMap, parseWriteValue } from '../utils/dataTableUtils';
 import { useDebouncedCallback } from '../hooks/useDebounce';
 import { DataEditDialog, DataReadDialog } from './DataEditDialog';
 import { FONT_MONO } from '../theme';

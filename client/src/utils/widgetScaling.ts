@@ -39,6 +39,9 @@ export function getWidgetScale(type: WidgetType, width: number, height: number):
   }
 
   const ref = WIDGET_REFERENCE_SIZES[type];
+  if (!ref) {
+    return { width, height, scale: 1 };
+  }
   const wRatio = width / ref.width;
   const hRatio = height / ref.height;
   const scale = Math.max(0.5, Math.min(3.0, Math.min(wRatio, hRatio)));

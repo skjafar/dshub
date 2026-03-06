@@ -1,7 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
+import {
+  Chart as ChartJS,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Tooltip as ChartTooltip,
+  Legend,
+} from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { MiniPlotWidgetConfig } from '../../types/dashboard';
+
+ChartJS.register(LinearScale, PointElement, LineElement, ChartTooltip, Legend);
 import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';

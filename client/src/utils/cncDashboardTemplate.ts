@@ -422,35 +422,41 @@ const CNC_WIDGETS: DashboardWidget[] = [
 //   2:  [--------- Data Table ---------][------- Alarm List -------]
 //   3:  [--------- Data Table ---------][------- Alarm List -------]
 //   4:  [--------- Data Table ---------][------- Alarm List -------]
-//   5:  [-- Status Matrix ---][-------- Axis Control ---------------]
-//   6:  [-- Status Matrix ---][-------- Axis Control ---------------]
-//   7:  [-- Status Matrix ---][-------- Axis Control ---------------]
-//   8:  [                    ][-------- Axis Control ---------------]
+//   5:  [--------- Data Table ---------][------- Alarm List -------]
+//   6:  [--------- Data Table ---------][------- Alarm List -------]
+//   7:  [--------- Data Table ---------][-- Status Matrix ---------]
+//   8:  [--------- Data Table ---------][-- Status Matrix ---------]
 // ──────────────────────────────────────────────────────────────
 
 const CNC_MONITORING_WIDGETS: DashboardWidget[] = [
-  // 0 — Axis Positions & Spindle Data Table
+  // 0 — Combined Readings & Control Data Table
   {
     id: 'cnc-mon-0',
     type: 'dataTable',
     config: {
-      label: 'Live Readings',
+      label: 'Live Readings & Control',
       items: [
         { label: 'X Position', source: 'register' as const, address: 5, format: 'decimal' as const, unit: 'steps' },
+        { label: 'X Setpoint', source: 'register' as const, address: 14, unit: 'steps' },
         { label: 'Y Position', source: 'register' as const, address: 6, format: 'decimal' as const, unit: 'steps' },
+        { label: 'Y Setpoint', source: 'register' as const, address: 15, unit: 'steps' },
         { label: 'Z Position', source: 'register' as const, address: 7, format: 'decimal' as const, unit: 'steps' },
+        { label: 'Z Setpoint', source: 'register' as const, address: 16, unit: 'steps' },
         { label: 'Spindle RPM', source: 'register' as const, address: 8, format: 'decimal' as const, unit: 'RPM' },
+        { label: 'Spindle Target', source: 'register' as const, address: 17, unit: 'RPM', min: 0, max: 10000, step: 100 },
         { label: 'Spindle Load', source: 'register' as const, address: 9, format: 'decimal' as const, unit: '%' },
+        { label: 'Jog Distance', source: 'register' as const, address: 18, unit: 'steps', min: 1, max: 1000, step: 10 },
         { label: 'Uptime', source: 'register' as const, address: 3, format: 'decimal' as const, unit: 's' },
         { label: 'Packets', source: 'register' as const, address: 0, format: 'decimal' as const },
         { label: 'Errors', source: 'register' as const, address: 1, format: 'decimal' as const },
       ],
       refreshInterval: 200,
       compact: false,
+      confirmWrites: false,
       striped: true,
       valueFontSize: 0.75,
     },
-    layout: { w: 6, h: 6, x: 0, y: 0, i: 'cnc-mon-0', moved: false, static: false },
+    layout: { w: 6, h: 9, x: 0, y: 0, i: 'cnc-mon-0', moved: false, static: false },
   },
 
   // 1 — CNC Alarm List
@@ -513,7 +519,7 @@ const CNC_MONITORING_WIDGETS: DashboardWidget[] = [
       showInactive: true,
       compact: false,
     },
-    layout: { w: 6, h: 6, x: 6, y: 0, i: 'cnc-mon-1', moved: false, static: false },
+    layout: { w: 6, h: 7, x: 6, y: 0, i: 'cnc-mon-1', moved: false, static: false },
   },
 
   // 2 — I/O Status Matrix
@@ -533,33 +539,7 @@ const CNC_MONITORING_WIDGETS: DashboardWidget[] = [
       dotSize: 14,
       compact: false,
     },
-    layout: { w: 4, h: 3, x: 0, y: 6, i: 'cnc-mon-2', moved: false, static: false },
-  },
-
-  // 3 — Axis Control Table (read-only positions + writable setpoints)
-  {
-    id: 'cnc-mon-3',
-    type: 'dataTable',
-    config: {
-      label: 'Axis Control',
-      items: [
-        { label: 'X Position', source: 'register' as const, address: 5, unit: 'steps' },
-        { label: 'X Setpoint', source: 'register' as const, address: 14, unit: 'steps' },
-        { label: 'Y Position', source: 'register' as const, address: 6, unit: 'steps' },
-        { label: 'Y Setpoint', source: 'register' as const, address: 15, unit: 'steps' },
-        { label: 'Z Position', source: 'register' as const, address: 7, unit: 'steps' },
-        { label: 'Z Setpoint', source: 'register' as const, address: 16, unit: 'steps' },
-        { label: 'Spindle RPM', source: 'register' as const, address: 8, unit: 'RPM' },
-        { label: 'Spindle Target', source: 'register' as const, address: 17, unit: 'RPM', min: 0, max: 10000, step: 100 },
-        { label: 'Jog Distance', source: 'register' as const, address: 18, unit: 'steps', min: 1, max: 1000, step: 10 },
-      ],
-      refreshInterval: 200,
-      compact: false,
-      confirmWrites: false,
-      valueFontSize: 0.75,
-      striped: true,
-    },
-    layout: { w: 8, h: 4, x: 4, y: 6, i: 'cnc-mon-3', moved: false, static: false },
+    layout: { w: 6, h: 2, x: 6, y: 7, i: 'cnc-mon-2', moved: false, static: false },
   },
 ];
 
