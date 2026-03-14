@@ -14,10 +14,13 @@ jobs:
         include:
           - os: ubuntu-22.04
             label: linux
+            bundles: deb,rpm
           - os: windows-latest
             label: windows
+            bundles: nsis
           - os: macos-latest
             label: macos
+            bundles: dmg
 
     runs-on: ${{ matrix.os }}
 
@@ -38,7 +41,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22
           cache: npm
           cache-dependency-path: client/package-lock.json
 
@@ -50,16 +53,17 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Install frontend dependencies
-        run: npm --prefix client ci
+      - name: Build frontend
+        run: |
+          npm --prefix client ci
+          npm --prefix client run build
 
       - name: Build with Tauri
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          projectPath: src-tauri
-          args: --bundles deb,rpm,nsis,dmg
+          args: --bundles ${{ matrix.bundles }}
 
       - name: Zip Linux binary
         if: matrix.os == 'ubuntu-22.04'
