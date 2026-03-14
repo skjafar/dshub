@@ -195,13 +195,27 @@ hex         HEX_VALUE;
 
 ## Build Commands
 
+Use the included `build.sh` helper from the project root:
+
+| Command | Description |
+|---------|-------------|
+| `./build.sh dev` | Development mode with hot-reload |
+| `./build.sh bin` | Build standalone binary only (fast) |
+| `./build.sh pkg` | Build binary + .deb and .rpm packages |
+| `./build.sh install` | Build .deb and install with dpkg |
+| `./build.sh run` | Run the last built binary |
+| `./build.sh clean` | Remove all build artifacts |
+
+Or invoke the underlying tools directly:
+
 | Command | Description |
 |---------|-------------|
 | `cargo tauri dev` | Development mode with hot-reload (run from `src-tauri/`) |
-| `cargo tauri build` | Release build with .deb/.rpm packages |
+| `cargo tauri build` | Release build with packages |
 | `cargo build --release` | Binary only (faster, no bundling) |
-| `npm --prefix client run dev` | Frontend dev server only |
 | `npm --prefix client run build` | Frontend production build |
+
+Windows and macOS builds are handled automatically by GitHub Actions (`.github/workflows/build.yml`) when a version tag is pushed.
 
 ## Technology Stack
 

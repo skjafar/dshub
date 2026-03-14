@@ -28,9 +28,8 @@ sudo rpm -i DSHub-0.2.0-1.x86_64.rpm
 
 ```bash
 git clone https://github.com/skjafar/dshub.git && cd dshub
-npm --prefix client ci && npm --prefix client run build
-cd src-tauri && cargo build --release
-./target/release/dshub
+./build.sh bin    # builds frontend + binary
+./build.sh run    # launch it
 ```
 
 ---

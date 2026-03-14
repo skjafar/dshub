@@ -37,19 +37,17 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 ## Build Steps
 
+The `build.sh` script in the project root handles all build variants:
+
 ```bash
 git clone https://github.com/skjafar/dshub.git
 cd dshub
 
-# 1. Install frontend dependencies
-npm --prefix client ci
-
-# 2. Build the React frontend
-npm --prefix client run build
-
-# 3. Build the Tauri app (binary + packages)
-cd src-tauri
-cargo tauri build
+./build.sh bin      # standalone binary only (fast)
+./build.sh pkg      # binary + .deb + .rpm packages
+./build.sh install  # build .deb and install with dpkg
+./build.sh run      # launch the last built binary
+./build.sh clean    # remove all build artifacts
 ```
 
 Output files:
@@ -59,12 +57,18 @@ src-tauri/target/release/bundle/deb/        # .deb package
 src-tauri/target/release/bundle/rpm/        # .rpm package
 ```
 
-### Binary Only (faster, no packaging)
+### Manual Steps (without build.sh)
 
 ```bash
-cd src-tauri
-cargo build --release
-# binary: target/release/dshub
+# 1. Install and build frontend
+npm --prefix client ci
+npm --prefix client run build
+
+# 2. Build binary + packages
+cd src-tauri && cargo tauri build
+
+# Or binary only (faster):
+cd src-tauri && cargo build --release
 ```
 
 ---
@@ -96,11 +100,12 @@ sudo install -Dm755 src-tauri/target/release/dshub /usr/local/bin/dshub
 ## Development Mode
 
 ```bash
-cd src-tauri
-cargo tauri dev
+./build.sh dev
+# or manually:
+cd src-tauri && cargo tauri dev
 ```
 
-This starts the Vite dev server (`npm --prefix client run dev` via `beforeDevCommand`) and opens a Tauri window with hot-reload. Changes to Rust code trigger a full recompile; changes to the frontend hot-reload in-place.
+This starts the Vite dev server and opens a Tauri window with hot-reload. Rust changes trigger a full recompile; frontend changes hot-reload in-place. Requires `tauri-cli` (`cargo install tauri-cli --version "^2" --locked`).
 
 ---
 
@@ -108,12 +113,12 @@ This starts the Vite dev server (`npm --prefix client run dev` via `beforeDevCom
 
 1. Update `version` in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`
 2. Build: `cargo tauri build`
-3. Tag the release:
+3. Tag the release and push — GitHub Actions builds all platform packages automatically:
    ```bash
-   git tag v0.1.1
-   git push origin v0.1.1
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
    ```
-4. Upload `.deb` and `.rpm` from `target/release/bundle/` to the GitHub release
+4. The GitHub Actions workflow uploads `.deb`, `.rpm`, `.exe`, `.dmg`, and a Linux `.zip` to the release
 5. Update the AUR package (see `aur/MAINTAINER_GUIDE.md`)
 
 ---
