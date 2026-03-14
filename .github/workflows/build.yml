@@ -81,7 +81,9 @@ jobs:
 
       - name: Zip Linux binary
         if: matrix.platform == 'ubuntu-22.04'
-        run: zip src-tauri/target/release/dshub-linux-x86_64.zip src-tauri/target/release/dshub
+        run: |
+          cd src-tauri/target/release
+          zip dshub-linux-x86_64.zip dshub
 
       - name: Upload Linux binary zip to release
         if: matrix.platform == 'ubuntu-22.04'
