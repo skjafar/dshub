@@ -1,6 +1,6 @@
 # Maintainer: Sofian Jafar <skjafar@gmail.com>
 pkgname=dshub
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="Desktop application for monitoring and controlling industrial devices via TCP/UDP"
 arch=('x86_64')
