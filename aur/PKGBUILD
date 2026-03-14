@@ -2,106 +2,58 @@
 pkgname=dshub
 pkgver=0.1.0
 pkgrel=1
-pkgdesc="Modern web application for monitoring and controlling embedded devices via TCP/UDP"
-arch=('x86_64' 'aarch64')
+pkgdesc="Desktop application for monitoring and controlling industrial devices via TCP/UDP"
+arch=('x86_64')
 url="https://github.com/skjafar/dshub"
 license=('MIT')
-depends=('nodejs>=18.0.0' 'npm')
-optdepends=(
-    'python: for board emulator'
-    'pm2: for process management (recommended)'
+depends=(
+    'webkit2gtk-4.1'
+    'gtk3'
+    'openssl'
+    'libsoup3'
+    'xdg-utils'
 )
-makedepends=('git' 'npm')
-backup=(
-    'etc/dshub/config.env'
-    'etc/dshub/maps/registers.map'
-    'etc/dshub/maps/parameters.map'
-    'etc/dshub/maps/boardtypes.map'
+makedepends=(
+    'rust'
+    'npm'
+    'webkit2gtk-4.1'
+    'libsoup3'
 )
 source=("git+${url}.git#tag=v${pkgver}")
 sha256sums=('SKIP')
-install=dshub.install
 
 build() {
     cd "${srcdir}/${pkgname}"
 
-    # Install dependencies
-    npm install --production=false
-    cd client
-    npm install --production=false
-    cd ..
+    # Build the React frontend
+    npm --prefix client ci
+    npm --prefix client run build
 
-    # Build the application
-    npm run build
+    # Build the Tauri (Rust) binary
+    cd src-tauri
+    cargo build --release --locked
 }
 
 package() {
     cd "${srcdir}/${pkgname}"
 
-    # Install to /opt/dshub
-    install -dm755 "${pkgdir}/opt/${pkgname}"
+    # Binary
+    install -Dm755 "src-tauri/target/release/${pkgname}" \
+        "${pkgdir}/usr/bin/${pkgname}"
 
-    # Copy application files
-    cp -r dist "${pkgdir}/opt/${pkgname}/"
-    cp -r client/build "${pkgdir}/opt/${pkgname}/client/"
-    cp -r node_modules "${pkgdir}/opt/${pkgname}/"
-    cp package.json package-lock.json "${pkgdir}/opt/${pkgname}/"
-    cp ecosystem.config.js "${pkgdir}/opt/${pkgname}/"
-
-    # Copy emulator
-    install -dm755 "${pkgdir}/opt/${pkgname}/emulator"
-    install -Dm755 emulator/dshub_emulator.py "${pkgdir}/opt/${pkgname}/emulator/"
-    install -Dm755 emulator/run_emulator.sh "${pkgdir}/opt/${pkgname}/emulator/"
-    install -Dm644 emulator/README.md "${pkgdir}/opt/${pkgname}/emulator/"
-
-    # Install systemd service
-    install -Dm644 "${srcdir}/${pkgname}/aur/dshub.service" \
-        "${pkgdir}/usr/lib/systemd/system/${pkgname}.service"
-    install -Dm644 "${srcdir}/${pkgname}/aur/dshub-emulator.service" \
-        "${pkgdir}/usr/lib/systemd/system/${pkgname}-emulator.service"
-
-    # Install desktop entry
-    install -Dm644 "${srcdir}/${pkgname}/aur/dshub.desktop" \
+    # Desktop entry
+    install -Dm644 "aur/${pkgname}.desktop" \
         "${pkgdir}/usr/share/applications/${pkgname}.desktop"
 
-    # Install icon
-    install -Dm644 "${srcdir}/${pkgname}/client/public/favicon.ico" \
-        "${pkgdir}/usr/share/pixmaps/${pkgname}.ico"
+    # Icons
+    install -Dm644 "src-tauri/icons/32x32.png" \
+        "${pkgdir}/usr/share/icons/hicolor/32x32/apps/${pkgname}.png"
+    install -Dm644 "src-tauri/icons/128x128.png" \
+        "${pkgdir}/usr/share/icons/hicolor/128x128/apps/${pkgname}.png"
+    install -Dm644 "src-tauri/icons/128x128@2x.png" \
+        "${pkgdir}/usr/share/icons/hicolor/256x256/apps/${pkgname}.png"
 
-    # Install configuration
-    install -dm755 "${pkgdir}/etc/${pkgname}"
-    install -Dm644 "${srcdir}/${pkgname}/aur/config.env" \
-        "${pkgdir}/etc/${pkgname}/config.env"
-
-    # Install maps
-    install -dm755 "${pkgdir}/etc/${pkgname}/maps"
-    install -Dm644 "${srcdir}/${pkgname}/client/public/maps/registers.map" \
-        "${pkgdir}/etc/${pkgname}/maps/"
-    install -Dm644 "${srcdir}/${pkgname}/client/public/maps/parameters.map" \
-        "${pkgdir}/etc/${pkgname}/maps/"
-    install -Dm644 "${srcdir}/${pkgname}/client/public/maps/boardtypes.map" \
-        "${pkgdir}/etc/${pkgname}/maps/"
-
-    # Create symlink for config
-    ln -s /etc/${pkgname}/config.env "${pkgdir}/opt/${pkgname}/.env"
-
-    # Create symlink for maps
-    ln -s /etc/${pkgname}/maps "${pkgdir}/opt/${pkgname}/client/build/maps"
-
-    # Install documentation
-    install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
-    install -Dm644 QUICK_START.md "${pkgdir}/usr/share/doc/${pkgname}/QUICK_START.md"
-    install -Dm644 DEPLOYMENT-PM2.md "${pkgdir}/usr/share/doc/${pkgname}/DEPLOYMENT-PM2.md"
-
-    # Install license
-    install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
-
-    # Install binary wrapper
-    install -Dm755 "${srcdir}/${pkgname}/aur/dshub-server" \
-        "${pkgdir}/usr/bin/${pkgname}"
-    install -Dm755 "${srcdir}/${pkgname}/aur/dshub-emulator-bin" \
-        "${pkgdir}/usr/bin/${pkgname}-emulator"
-
-    # Create logs directory
-    install -dm755 "${pkgdir}/var/log/${pkgname}"
+    # License
+    install -Dm644 LICENSE \
+        "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }

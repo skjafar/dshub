@@ -1,22 +1,19 @@
 pkgbase = dshub
-	pkgdesc = DSHub - Modern web application for monitoring and controlling embedded devices via TCP/UDP
+	pkgdesc = Desktop application for monitoring and controlling industrial devices via TCP/UDP
 	pkgver = 0.1.0
 	pkgrel = 1
 	url = https://github.com/skjafar/dshub
-	install = dshub.install
 	arch = x86_64
-	arch = aarch64
 	license = MIT
-	makedepends = git
+	makedepends = rust
 	makedepends = npm
-	depends = nodejs>=18.0.0
-	depends = npm
-	optdepends = python: for board emulator
-	optdepends = pm2: for process management (recommended)
-	backup = etc/dshub/config.env
-	backup = etc/dshub/maps/registers.map
-	backup = etc/dshub/maps/parameters.map
-	backup = etc/dshub/maps/boardtypes.map
+	makedepends = webkit2gtk-4.1
+	makedepends = libsoup3
+	depends = webkit2gtk-4.1
+	depends = gtk3
+	depends = openssl
+	depends = libsoup3
+	depends = xdg-utils
 	source = git+https://github.com/skjafar/dshub.git#tag=v0.1.0
 	sha256sums = SKIP
 
