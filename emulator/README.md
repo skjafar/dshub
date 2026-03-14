@@ -52,21 +52,15 @@ The emulator will start and listen on:
 
 ### 2. Connect from DSHub
 
-1. Start your DSHub web application:
-   ```bash
-   cd ..
-   ./start.sh
-   ```
+1. Launch DSHub (from AUR: `dshub`, from source: `cargo tauri dev` in `src-tauri/`)
 
-2. Open your browser to http://localhost:3000
+2. Click **"Scan for Devices"** — the emulator will be discovered as "Python Emulator"
 
-3. Click **"Scan for Devices"** - the emulator will be discovered as "Python Emulator"
+3. Click **Connect** (TCP or UDP)
 
-4. Click **Connect** (TCP or UDP)
+4. Click **"Take Control"**
 
-5. Click **"Take Control"**
-
-6. Start reading/writing registers and parameters!
+5. Start reading/writing registers and parameters!
 
 ## CNC Motor Controller Profile
 
