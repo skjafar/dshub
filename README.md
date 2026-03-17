@@ -110,7 +110,9 @@ dshub/
 │   │   └── types.rs     # Shared types (serde)
 │   └── tauri.conf.json
 ├── emulator/            # Python board emulator (no dependencies)
-└── aur/                 # Arch Linux AUR package files
+├── aur/                 # Arch Linux AUR package files
+└── libs/                # Third-party libs (gitignored, clone manually)
+    └── datastream/      # Protocol definitions — git clone https://github.com/skjafar/datastream
 ```
 
 ## Architecture
@@ -258,6 +260,16 @@ sudo apt install libwebkit2gtk-4.1-dev
 cd src-tauri
 cargo update
 ```
+
+## External Dependencies
+
+The **datastream** protocol library (header files and protocol definitions) is not bundled in this repository. After cloning, fetch it with:
+
+```bash
+git clone https://github.com/skjafar/datastream libs/datastream
+```
+
+The `libs/` folder is gitignored — it will never appear in `git status`.
 
 ## Contributing
 

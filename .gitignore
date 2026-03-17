@@ -140,6 +140,11 @@ dmypy.json
 tsconfig.tsbuildinfo
 
 # ============================================
+# Third-party Libraries (cloned manually, not submodules)
+# ============================================
+libs/
+
+# ============================================
 # AUR Package Build Artifacts
 # ============================================
 aur/pkg/
