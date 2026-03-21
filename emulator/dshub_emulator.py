@@ -6,10 +6,15 @@ Emulates a DSHub board with full protocol support including:
 - UDP discovery protocol
 - TCP/UDP data communication
 - Register and parameter read/write
+- System register read (read-only from protocol, cmd 6)
 - Auto-incrementing counters and realistic register behavior
 - Control interface state management
 
 Uses only Python standard library - no external dependencies required.
+
+Protocol v0.2.2: 8-byte packets with 16-bit type/address/status fields.
+  RX: type(u16 LE) + address(u16 LE) + value(i32 LE) = 8 bytes
+  TX: status(i16 LE) + address(u16 LE) + value(i32 LE) = 8 bytes
 """
 
 import socket
@@ -28,59 +33,104 @@ DISCOVERY_PORT = 2011
 DEFAULT_TCP_PORT = 2009
 DEFAULT_UDP_PORT = 2011
 
-# Command Types
-CMD_SYS_COMMAND = 0
-CMD_READ_REGISTER = 1
-CMD_WRITE_REGISTER = 2
-CMD_READ_PARAMETER = 3
-CMD_WRITE_PARAMETER = 4
-CMD_TAKE_CONTROL = 5
+# Command Types (type field in RX packet, u16)
+CMD_SYS_COMMAND             = 0
+CMD_READ_REGISTER           = 1
+CMD_WRITE_REGISTER          = 2
+CMD_READ_PARAMETER          = 3
+CMD_WRITE_PARAMETER         = 4
+CMD_TAKE_CONTROL            = 5
+CMD_READ_SYSTEM_REGISTER    = 6
+CMD_WRITE_SYSTEM_REGISTER   = 7   # Always returns PERMISSION_ERROR (-5)
+
+# Response Status Codes (status field in TX packet, i16)
+STATUS_SYS_COMMAND_OK       = 0
+STATUS_READ_REGISTER_OK     = 1
+STATUS_WRITE_REGISTER_OK    = 2
+STATUS_READ_PARAMETER_OK    = 3
+STATUS_WRITE_PARAMETER_OK   = 4
+STATUS_CONTROL_OK           = 5
+STATUS_READ_SYS_REG_OK      = 6
+STATUS_PERMISSION_ERROR     = -5
 
 # Control Interface States
-CONTROL_UNDECIDED = 0
-CONTROL_TCP_DATASTREAM = 1
-CONTROL_UDP_DATASTREAM = 2
-CONTROL_TCP_CLI = 101
-CONTROL_USB = 102
+CONTROL_UNDECIDED           = 0
+CONTROL_TCP_DATASTREAM      = 1
+CONTROL_UDP_DATASTREAM      = 2
+CONTROL_TCP_CLI             = 101
+CONTROL_USB                 = 102
 
-# System Commands (for CMD_SYS_COMMAND, address field contains command code)
-CMD_SYS_READ_FLASH = 0
-CMD_SYS_WRITE_FLASH = 1
-CMD_SYS_RESET_FIRMWARE = 2
+# Library System Commands (for CMD_SYS_COMMAND, address field, u16)
+# Range 65000-65535 reserved for library use (v0.2.2+)
+CMD_SYS_READ_FLASH          = 65000
+CMD_SYS_WRITE_FLASH         = 65001
+CMD_SYS_RESET_FIRMWARE      = 65002
 
-# CNC Motor Controller Commands (200+ range)
-CMD_ENABLE_ALL_MOTORS = 200
-CMD_DISABLE_ALL_MOTORS = 201
-CMD_ENABLE_MOTOR_X = 202
-CMD_ENABLE_MOTOR_Y = 203
-CMD_ENABLE_MOTOR_Z = 204
-CMD_DISABLE_MOTOR_X = 205
-CMD_DISABLE_MOTOR_Y = 206
-CMD_DISABLE_MOTOR_Z = 207
-CMD_ENABLE_SPINDLE = 208
-CMD_DISABLE_SPINDLE = 209
-CMD_HOME_ALL = 210
-CMD_HOME_X = 211
-CMD_HOME_Y = 212
-CMD_HOME_Z = 213
-CMD_E_STOP = 214
-CMD_RESET_E_STOP = 215
-CMD_CLEAR_ERRORS = 216
-CMD_JOG_X_POSITIVE = 220
-CMD_JOG_X_NEGATIVE = 221
-CMD_JOG_Y_POSITIVE = 222
-CMD_JOG_Y_NEGATIVE = 223
-CMD_JOG_Z_POSITIVE = 224
-CMD_JOG_Z_NEGATIVE = 225
+# CNC Motor Controller Commands (user-defined types, sent as the type field, u16)
+# Range 100+ is user-defined; CNC commands start at 200 for clarity.
+CMD_ENABLE_ALL_MOTORS       = 200
+CMD_DISABLE_ALL_MOTORS      = 201
+CMD_ENABLE_MOTOR_X          = 202
+CMD_ENABLE_MOTOR_Y          = 203
+CMD_ENABLE_MOTOR_Z          = 204
+CMD_DISABLE_MOTOR_X         = 205
+CMD_DISABLE_MOTOR_Y         = 206
+CMD_DISABLE_MOTOR_Z         = 207
+CMD_ENABLE_SPINDLE          = 208
+CMD_DISABLE_SPINDLE         = 209
+CMD_HOME_ALL                = 210
+CMD_HOME_X                  = 211
+CMD_HOME_Y                  = 212
+CMD_HOME_Z                  = 213
+CMD_E_STOP                  = 214
+CMD_RESET_E_STOP            = 215
+CMD_CLEAR_ERRORS            = 216
+CMD_JOG_X_POSITIVE          = 220
+CMD_JOG_X_NEGATIVE          = 221
+CMD_JOG_Y_POSITIVE          = 222
+CMD_JOG_Y_NEGATIVE          = 223
+CMD_JOG_Z_POSITIVE          = 224
+CMD_JOG_Z_NEGATIVE          = 225
 
 # Controller States
-STATE_IDLE = 0
+STATE_IDLE   = 0
 STATE_HOMING = 1
-STATE_READY = 2
+STATE_READY  = 2
 STATE_RUNNING = 3
 STATE_PAUSED = 4
-STATE_ERROR = 5
+STATE_ERROR  = 5
 STATE_E_STOP = 6
+
+# ── System register address constants (cmd 6) ────────────────────────────────
+# Only the 4 library-managed fields from ds_system_register_names_t.
+SYSREG_DS_PACKET_COUNT      = 0
+SYSREG_DS_ERROR_COUNT       = 1
+SYSREG_CONTROL_INTERFACE    = 2
+SYSREG_COUNTER_1HZ          = 3
+
+# ── CNC user register address constants (cmd 1/2) ────────────────────────────
+# Read-only section (addresses 0–9): application state, written internally.
+# Protocol CMD_WRITE_REGISTER to these addresses returns PERMISSION_ERROR.
+REG_CONTROLLER_STATE        = 0
+REG_MOTOR_X_ENCODER         = 1
+REG_MOTOR_Y_ENCODER         = 2
+REG_MOTOR_Z_ENCODER         = 3
+REG_SPINDLE_RPM             = 4
+REG_SPINDLE_LOAD            = 5
+REG_MOTOR_X_ENABLED         = 6
+REG_MOTOR_Y_ENABLED         = 7
+REG_MOTOR_Z_ENABLED         = 8
+REG_SPINDLE_ENABLED         = 9
+
+# Read-write section (addresses 10–14): setpoints written by the host.
+REG_MOTOR_X_SETPOINT        = 10
+REG_MOTOR_Y_SETPOINT        = 11
+REG_MOTOR_Z_SETPOINT        = 12
+REG_SPINDLE_SPEED_SETPOINT  = 13
+REG_JOG_DISTANCE            = 14
+
+# Number of read-only user registers at the start of the address space
+USER_REG_READ_ONLY_COUNT    = 10
 
 
 class MotorAxis:
@@ -88,26 +138,20 @@ class MotorAxis:
 
     def __init__(self, name: str, kp: float, ki: float, kd: float, max_vel: float, max_accel: float):
         self.name = name
-        self.position = 0.0  # Current encoder position (counts)
-        self.velocity = 0.0  # Current velocity (counts/sec)
-        self.setpoint = 0    # Target position (counts)
+        self.position = 0.0
+        self.velocity = 0.0
+        self.setpoint = 0
         self.enabled = False
-
-        # PID parameters
         self.kp = kp
         self.ki = ki
         self.kd = kd
         self.integral = 0.0
         self.prev_error = 0.0
-
-        # Motion limits
         self.max_vel = max_vel
         self.max_accel = max_accel
 
     def update(self, dt: float):
-        """Update position using critically damped PID control"""
         if not self.enabled:
-            # Decelerate to stop when disabled
             if abs(self.velocity) > 0.1:
                 decel = -self.max_accel if self.velocity > 0 else self.max_accel
                 self.velocity += decel * dt
@@ -116,34 +160,20 @@ class MotorAxis:
                 self.velocity = 0.0
             return
 
-        # Calculate error
         error = self.setpoint - self.position
-
-        # PID calculation
         self.integral += error * dt
         derivative = (error - self.prev_error) / dt if dt > 0 else 0.0
-
-        # Commanded acceleration from PID
         accel = self.kp * error + self.ki * self.integral + self.kd * derivative
-
-        # Limit acceleration
         accel = max(-self.max_accel, min(self.max_accel, accel))
-
-        # Update velocity
         self.velocity += accel * dt
         self.velocity = max(-self.max_vel, min(self.max_vel, self.velocity))
-
-        # Update position
         self.position += self.velocity * dt
-
         self.prev_error = error
 
     def get_encoder(self) -> int:
-        """Get current encoder reading"""
         return int(self.position)
 
     def reset_integrator(self):
-        """Reset PID integral term"""
         self.integral = 0.0
 
 
@@ -151,17 +181,15 @@ class SpindleController:
     """Simulates a high-speed spindle motor"""
 
     def __init__(self, max_rpm: int, accel_rpm_per_sec: int):
-        self.rpm = 0.0           # Current RPM
-        self.setpoint = 0        # Target RPM
+        self.rpm = 0.0
+        self.setpoint = 0
         self.enabled = False
-        self.load = 50           # Load percentage (30-70% when running)
+        self.load = 50
         self.max_rpm = max_rpm
         self.accel = accel_rpm_per_sec
 
     def update(self, dt: float):
-        """Update spindle RPM with acceleration limiting"""
         if not self.enabled:
-            # Decelerate to stop
             if self.rpm > 0:
                 self.rpm -= self.accel * dt
                 if self.rpm < 0:
@@ -169,7 +197,6 @@ class SpindleController:
             self.load = 0
             return
 
-        # Accelerate/decelerate towards setpoint
         error = self.setpoint - self.rpm
         if abs(error) < 1:
             self.rpm = self.setpoint
@@ -180,7 +207,6 @@ class SpindleController:
             else:
                 self.rpm -= min(delta, -error)
 
-        # Simulate varying load (30-70% when running)
         import random
         if self.rpm > 100:
             self.load = int(random.uniform(30, 70))
@@ -188,39 +214,119 @@ class SpindleController:
             self.load = 0
 
     def get_rpm(self) -> int:
-        """Get current RPM"""
         return int(self.rpm)
 
     def get_load(self) -> int:
-        """Get current load percentage"""
         return self.load
+
+
+class SystemRegisterMap:
+    """
+    Library-managed system registers (addresses 0–3).
+    Matches ds_system_register_names_t from the datastream library.
+    Read-only from the external protocol (cmd 6 = read, cmd 7 = always PERMISSION_ERROR).
+    Written internally by the firmware/emulator logic only.
+    """
+
+    def __init__(self):
+        self.start_time = time.time()
+        self.registers: Dict[int, int] = {
+            SYSREG_DS_PACKET_COUNT:   0,
+            SYSREG_DS_ERROR_COUNT:    0,
+            SYSREG_CONTROL_INTERFACE: CONTROL_UNDECIDED,
+            SYSREG_COUNTER_1HZ:       0,
+        }
+
+    def read(self, address: int) -> int:
+        """Read a system register value (updates dynamic registers first)."""
+        self._update_dynamic()
+        return self.registers.get(address, 0)
+
+    def write_internal(self, address: int, value: int):
+        """Write a system register internally (firmware use only — not from protocol)."""
+        self.registers[address] = _clamp_i32(value)
+
+    def set_control_interface(self, value: int):
+        self.registers[SYSREG_CONTROL_INTERFACE] = value
+
+    def increment_packet_count(self):
+        self.registers[SYSREG_DS_PACKET_COUNT] = _clamp_i32(
+            self.registers[SYSREG_DS_PACKET_COUNT] + 1)
+
+    def increment_error_count(self):
+        self.registers[SYSREG_DS_ERROR_COUNT] = _clamp_i32(
+            self.registers[SYSREG_DS_ERROR_COUNT] + 1)
+
+    def _update_dynamic(self):
+        self.registers[SYSREG_COUNTER_1HZ] = int(time.time() - self.start_time)
+
+
+class UserRegisterMap:
+    """
+    CNC application user registers (addresses 0–14).
+    - Addresses 0–9 (USER_REG_READ_ONLY_COUNT): read-only from the protocol.
+      Written internally by the CNC controller via write_internal().
+      CMD_WRITE_REGISTER to these addresses returns PERMISSION_ERROR.
+    - Addresses 10–14: read-write, written by the host via CMD_WRITE_REGISTER.
+    """
+
+    def __init__(self):
+        self.registers: Dict[int, int] = {
+            # Read-only section (0–9): CNC application state
+            REG_CONTROLLER_STATE:       STATE_IDLE,
+            REG_MOTOR_X_ENCODER:        0,
+            REG_MOTOR_Y_ENCODER:        0,
+            REG_MOTOR_Z_ENCODER:        0,
+            REG_SPINDLE_RPM:            0,
+            REG_SPINDLE_LOAD:           0,
+            REG_MOTOR_X_ENABLED:        0,
+            REG_MOTOR_Y_ENABLED:        0,
+            REG_MOTOR_Z_ENABLED:        0,
+            REG_SPINDLE_ENABLED:        0,
+            # Read-write section (10–14): setpoints
+            REG_MOTOR_X_SETPOINT:       0,
+            REG_MOTOR_Y_SETPOINT:       0,
+            REG_MOTOR_Z_SETPOINT:       0,
+            REG_SPINDLE_SPEED_SETPOINT: 0,
+            REG_JOG_DISTANCE:           100,  # default: 100 encoder counts
+        }
+
+    def read(self, address: int) -> int:
+        return self.registers.get(address, 0)
+
+    def write(self, address: int, value: int) -> bool:
+        """Write via protocol (cmd 2). Rejects read-only section (addresses < USER_REG_READ_ONLY_COUNT)."""
+        if address < USER_REG_READ_ONLY_COUNT:
+            return False  # Read-only — caller should return PERMISSION_ERROR
+        if address not in self.registers:
+            return False
+        self.registers[address] = _clamp_i32(value)
+        return True
+
+    def write_internal(self, address: int, value: int):
+        """Write from firmware logic — allowed for all addresses including read-only section."""
+        self.registers[address] = _clamp_i32(value)
 
 
 class CNCController:
     """CNC Motor Controller state machine and command processor"""
 
-    def __init__(self, registers, parameters):
-        self.registers = registers
+    def __init__(self, system_registers: SystemRegisterMap,
+                 user_registers: UserRegisterMap, parameters):
+        self.sys_regs = system_registers
+        self.user_regs = user_registers
         self.parameters = parameters
         self.state = STATE_IDLE
 
-        # Initialize motors with default PID gains
         self.motors = {
             'X': MotorAxis('X', kp=2.0, ki=0.1, kd=0.5, max_vel=10000, max_accel=5000),
             'Y': MotorAxis('Y', kp=2.0, ki=0.1, kd=0.5, max_vel=10000, max_accel=5000),
-            'Z': MotorAxis('Z', kp=2.0, ki=0.1, kd=0.5, max_vel=8000, max_accel=4000),
+            'Z': MotorAxis('Z', kp=2.0, ki=0.1, kd=0.5, max_vel=8000,  max_accel=4000),
         }
-
-        # Initialize spindle
         self.spindle = SpindleController(max_rpm=24000, accel_rpm_per_sec=10000)
-
-        # Homing state
         self.homing_axis = None
 
     def handle_sys_command(self, cmd: int, value: int) -> int:
-        """Handle SYS_COMMAND requests and return result"""
-
-        # Motor enable/disable commands
         if cmd == CMD_ENABLE_ALL_MOTORS:
             for motor in self.motors.values():
                 motor.enabled = True
@@ -241,12 +347,10 @@ class CNCController:
             self.motors[axis].enabled = False
             return 0
 
-        # Spindle control
         elif cmd == CMD_ENABLE_SPINDLE:
             self.spindle.enabled = True
-            # If no setpoint is set, use a default speed (e.g., 12000 RPM)
-            if self.registers.read(17) == 0:
-                self.registers.write(17, 12000)
+            if self.user_regs.read(REG_SPINDLE_SPEED_SETPOINT) == 0:
+                self.user_regs.write_internal(REG_SPINDLE_SPEED_SETPOINT, 12000)
                 self.spindle.setpoint = 12000
             return 0
 
@@ -254,7 +358,6 @@ class CNCController:
             self.spindle.enabled = False
             return 0
 
-        # Homing commands
         elif cmd == CMD_HOME_ALL:
             self.state = STATE_HOMING
             self.homing_axis = 'ALL'
@@ -266,7 +369,6 @@ class CNCController:
             self.homing_axis = axis
             return 0
 
-        # Emergency stop
         elif cmd == CMD_E_STOP:
             self.state = STATE_E_STOP
             for motor in self.motors.values():
@@ -284,265 +386,128 @@ class CNCController:
                 self.state = STATE_IDLE
             return 0
 
-        # Jog commands
         elif cmd in (CMD_JOG_X_POSITIVE, CMD_JOG_X_NEGATIVE,
                      CMD_JOG_Y_POSITIVE, CMD_JOG_Y_NEGATIVE,
                      CMD_JOG_Z_POSITIVE, CMD_JOG_Z_NEGATIVE):
-            jog_distance = self.registers.read(18)  # JOG_DISTANCE register
-
+            jog_distance = self.user_regs.read(REG_JOG_DISTANCE)
             axis_map = {
-                CMD_JOG_X_POSITIVE: ('X', 1), CMD_JOG_X_NEGATIVE: ('X', -1),
-                CMD_JOG_Y_POSITIVE: ('Y', 1), CMD_JOG_Y_NEGATIVE: ('Y', -1),
-                CMD_JOG_Z_POSITIVE: ('Z', 1), CMD_JOG_Z_NEGATIVE: ('Z', -1),
+                CMD_JOG_X_POSITIVE: ('X', 1,  REG_MOTOR_X_SETPOINT),
+                CMD_JOG_X_NEGATIVE: ('X', -1, REG_MOTOR_X_SETPOINT),
+                CMD_JOG_Y_POSITIVE: ('Y', 1,  REG_MOTOR_Y_SETPOINT),
+                CMD_JOG_Y_NEGATIVE: ('Y', -1, REG_MOTOR_Y_SETPOINT),
+                CMD_JOG_Z_POSITIVE: ('Z', 1,  REG_MOTOR_Z_SETPOINT),
+                CMD_JOG_Z_NEGATIVE: ('Z', -1, REG_MOTOR_Z_SETPOINT),
             }
-            axis, direction = axis_map[cmd]
-
-            # Update setpoint
-            reg_addr = {'X': 14, 'Y': 15, 'Z': 16}[axis]
-            current_setpoint = self.registers.read(reg_addr)
-            new_setpoint = current_setpoint + (jog_distance * direction)
+            axis, direction, reg_addr = axis_map[cmd]
+            new_setpoint = self.user_regs.read(reg_addr) + (jog_distance * direction)
             self.motors[axis].setpoint = new_setpoint
-
-            # Update register
-            self.registers.write(reg_addr, new_setpoint)
-
+            self.user_regs.write_internal(reg_addr, new_setpoint)
             return 0
 
-        # Unknown command
         return -1
 
     def update(self, dt: float):
         """Update CNC controller state and motors (called at 100Hz)"""
-        # Update all motors
         for motor in self.motors.values():
             motor.update(dt)
-
-        # Update spindle
         self.spindle.update(dt)
 
         # Handle homing logic
         if self.state == STATE_HOMING:
-            # Simplified homing: move to home position from parameters
             if self.homing_axis == 'ALL':
-                # Check if all axes are at home
                 all_home = True
                 for axis in ['X', 'Y', 'Z']:
                     motor = self.motors[axis]
-                    home_addr = {'X': 22, 'Y': 23, 'Z': 24}[axis]
-                    home_pos = self.parameters.read(home_addr)
-
+                    home_pos = self.parameters.read({'X': 22, 'Y': 23, 'Z': 24}[axis])
                     if abs(motor.position - home_pos) > 1.0:
                         all_home = False
                         motor.setpoint = home_pos
-
                 if all_home:
                     self.state = STATE_READY
                     self.homing_axis = None
-
             elif self.homing_axis:
-                # Single axis homing
                 motor = self.motors[self.homing_axis]
-                home_addr = {'X': 22, 'Y': 23, 'Z': 24}[self.homing_axis]
-                home_pos = self.parameters.read(home_addr)
-
+                home_pos = self.parameters.read(
+                    {'X': 22, 'Y': 23, 'Z': 24}[self.homing_axis])
                 if abs(motor.position - home_pos) < 1.0:
                     self.state = STATE_READY
                     self.homing_axis = None
                 else:
                     motor.setpoint = home_pos
 
-        # Update controller state register
-        self.registers.registers[4] = self.state
+        # Write current state to user registers (read-only section, internal writes)
+        self.user_regs.write_internal(REG_CONTROLLER_STATE,  self.state)
+        self.user_regs.write_internal(REG_MOTOR_X_ENCODER,   self.motors['X'].get_encoder())
+        self.user_regs.write_internal(REG_MOTOR_Y_ENCODER,   self.motors['Y'].get_encoder())
+        self.user_regs.write_internal(REG_MOTOR_Z_ENCODER,   self.motors['Z'].get_encoder())
+        self.user_regs.write_internal(REG_SPINDLE_RPM,        self.spindle.get_rpm())
+        self.user_regs.write_internal(REG_SPINDLE_LOAD,       self.spindle.get_load())
+        self.user_regs.write_internal(REG_MOTOR_X_ENABLED,    1 if self.motors['X'].enabled else 0)
+        self.user_regs.write_internal(REG_MOTOR_Y_ENABLED,    1 if self.motors['Y'].enabled else 0)
+        self.user_regs.write_internal(REG_MOTOR_Z_ENABLED,    1 if self.motors['Z'].enabled else 0)
+        self.user_regs.write_internal(REG_SPINDLE_ENABLED,    1 if self.spindle.enabled else 0)
 
-        # Update motor encoder registers (read-only registers 5, 6, 7)
-        self.registers.registers[5] = self.motors['X'].get_encoder()
-        self.registers.registers[6] = self.motors['Y'].get_encoder()
-        self.registers.registers[7] = self.motors['Z'].get_encoder()
-
-        # Update spindle registers (read-only registers 8, 9)
-        self.registers.registers[8] = self.spindle.get_rpm()
-        self.registers.registers[9] = self.spindle.get_load()
-
-        # Update motor enabled status registers (read-only registers 10, 11, 12, 13)
-        self.registers.registers[10] = 1 if self.motors['X'].enabled else 0
-        self.registers.registers[11] = 1 if self.motors['Y'].enabled else 0
-        self.registers.registers[12] = 1 if self.motors['Z'].enabled else 0
-        self.registers.registers[13] = 1 if self.spindle.enabled else 0
-
-        # Update motor setpoints from registers (read-write registers 14, 15, 16)
-        self.motors['X'].setpoint = self.registers.read(14)
-        self.motors['Y'].setpoint = self.registers.read(15)
-        self.motors['Z'].setpoint = self.registers.read(16)
-
-        # Update spindle setpoint from register (read-write register 17)
-        self.spindle.setpoint = self.registers.read(17)
-
-
-class RegisterMap:
-    """Manages register values and behavior"""
-
-    def __init__(self):
-        # Read-only registers (addresses 0-13)
-        self.DS_PACKET_COUNT = 0  # Address 0
-        self.DS_ERROR_COUNT = 1   # Address 1
-        self.CONTROL_INTERFACE = 2  # Address 2
-        self.COUNTER_1HZ = 3      # Address 3
-        # CNC registers
-        self.CONTROLLER_STATE = 4   # Address 4
-        self.MOTOR_X_ENCODER = 5    # Address 5
-        self.MOTOR_Y_ENCODER = 6    # Address 6
-        self.MOTOR_Z_ENCODER = 7    # Address 7
-        self.SPINDLE_RPM = 8        # Address 8
-        self.SPINDLE_LOAD = 9       # Address 9
-        self.MOTOR_X_ENABLED = 10   # Address 10
-        self.MOTOR_Y_ENABLED = 11   # Address 11
-        self.MOTOR_Z_ENABLED = 12   # Address 12
-        self.SPINDLE_ENABLED = 13   # Address 13
-
-        # Register storage: address -> value
-        self.registers: Dict[int, int] = {
-            # Standard registers
-            0: 0,  # DS_PACKET_COUNT
-            1: 0,  # DS_ERROR_COUNT
-            2: CONTROL_UNDECIDED,  # CONTROL_INTERFACE
-            3: 0,  # COUNTER_1HZ
-            # CNC read-only registers
-            4: STATE_IDLE,  # CONTROLLER_STATE
-            5: 0,  # MOTOR_X_ENCODER
-            6: 0,  # MOTOR_Y_ENCODER
-            7: 0,  # MOTOR_Z_ENCODER
-            8: 0,  # SPINDLE_RPM
-            9: 0,  # SPINDLE_LOAD
-            10: 0,  # MOTOR_X_ENABLED
-            11: 0,  # MOTOR_Y_ENABLED
-            12: 0,  # MOTOR_Z_ENABLED
-            13: 0,  # SPINDLE_ENABLED
-            # CNC read-write registers
-            14: 0,  # MOTOR_X_SETPOINT
-            15: 0,  # MOTOR_Y_SETPOINT
-            16: 0,  # MOTOR_Z_SETPOINT
-            17: 0,  # SPINDLE_SPEED_SETPOINT
-            18: 100,  # JOG_DISTANCE (default 100 encoder counts)
-        }
-
-        # Track start time for counters
-        self.start_time = time.time()
-
-    def read(self, address: int) -> int:
-        """Read a register value"""
-        # Update dynamic registers before reading
-        self._update_dynamic_registers()
-        return self.registers.get(address, 0)
-
-    def write(self, address: int, value: int) -> bool:
-        """Write a register value (only for writable registers)"""
-        # Addresses 0-13 are read-only, except CONTROL_INTERFACE (2) via Take Control
-        if address < 14 and address != 2:
-            return False
-
-        # CONTROL_INTERFACE can only be set via Take Control command
-        if address == 2:
-            return False
-
-        # Addresses 14-18 are read-write CNC registers
-        self.registers[address] = self._clamp_to_int32(value)
-        return True
-
-    def set_control_interface(self, value: int):
-        """Set control interface (only via Take Control command)"""
-        self.registers[2] = value
-
-    def _update_dynamic_registers(self):
-        """Update registers that change automatically"""
-        # COUNTER_1HZ increments every second
-        elapsed = int(time.time() - self.start_time)
-        self.registers[3] = elapsed
-
-    def increment_packet_count(self):
-        """Increment packet counter"""
-        self.registers[0] = self._clamp_to_int32(self.registers[0] + 1)
-
-    def increment_error_count(self):
-        """Increment error counter"""
-        self.registers[1] = self._clamp_to_int32(self.registers[1] + 1)
-
-    def _clamp_to_int32(self, value: int) -> int:
-        """Clamp value to signed 32-bit integer range"""
-        if value > 2147483647:
-            return 2147483647
-        elif value < -2147483648:
-            return -2147483648
-        return value
+        # Read setpoints from user registers (read-write section)
+        self.motors['X'].setpoint = self.user_regs.read(REG_MOTOR_X_SETPOINT)
+        self.motors['Y'].setpoint = self.user_regs.read(REG_MOTOR_Y_SETPOINT)
+        self.motors['Z'].setpoint = self.user_regs.read(REG_MOTOR_Z_SETPOINT)
+        self.spindle.setpoint     = self.user_regs.read(REG_SPINDLE_SPEED_SETPOINT)
 
 
 class ParameterMap:
     """Manages parameter values"""
 
     def __init__(self):
-        # Parameter storage: address -> value (CNC parameters)
         self.parameters: Dict[int, int] = {
-            # Motor maximum velocities (counts/sec)
-            0: 10000,  # MOTOR_X_MAX_VEL
-            1: 10000,  # MOTOR_Y_MAX_VEL
-            2: 8000,   # MOTOR_Z_MAX_VEL
-            # Motor maximum accelerations (counts/sec²)
-            3: 5000,   # MOTOR_X_MAX_ACCEL
-            4: 5000,   # MOTOR_Y_MAX_ACCEL
-            5: 4000,   # MOTOR_Z_MAX_ACCEL
-            # X-axis PID gains (stored as float bits via struct.pack)
-            6: struct.unpack('i', struct.pack('f', 2.0))[0],   # MOTOR_X_KP
-            7: struct.unpack('i', struct.pack('f', 0.1))[0],   # MOTOR_X_KI
-            8: struct.unpack('i', struct.pack('f', 0.5))[0],   # MOTOR_X_KD
-            # Y-axis PID gains
-            9: struct.unpack('i', struct.pack('f', 2.0))[0],   # MOTOR_Y_KP
-            10: struct.unpack('i', struct.pack('f', 0.1))[0],  # MOTOR_Y_KI
-            11: struct.unpack('i', struct.pack('f', 0.5))[0],  # MOTOR_Y_KD
-            # Z-axis PID gains
-            12: struct.unpack('i', struct.pack('f', 2.0))[0],  # MOTOR_Z_KP
-            13: struct.unpack('i', struct.pack('f', 0.1))[0],  # MOTOR_Z_KI
-            14: struct.unpack('i', struct.pack('f', 0.5))[0],  # MOTOR_Z_KD
-            # Motor scaling (steps per mm)
-            15: struct.unpack('i', struct.pack('f', 200.0))[0],  # MOTOR_X_STEPS_PER_MM
-            16: struct.unpack('i', struct.pack('f', 200.0))[0],  # MOTOR_Y_STEPS_PER_MM
-            17: struct.unpack('i', struct.pack('f', 400.0))[0],  # MOTOR_Z_STEPS_PER_MM
-            # Spindle parameters
-            18: 24000,   # SPINDLE_MAX_RPM
-            19: 10000,   # SPINDLE_ACCEL_RPM_PER_SEC
-            # Emergency stop deceleration
-            20: 20000,   # E_STOP_DECEL
-            # Homing speed
-            21: 2000,    # HOMING_SPEED
-            # Home positions (encoder counts)
-            22: 0,       # HOME_X_POSITION
-            23: 0,       # HOME_Y_POSITION
-            24: 0,       # HOME_Z_POSITION
+            0:  10000,
+            1:  10000,
+            2:  8000,
+            3:  5000,
+            4:  5000,
+            5:  4000,
+            6:  struct.unpack('i', struct.pack('f', 2.0))[0],
+            7:  struct.unpack('i', struct.pack('f', 0.1))[0],
+            8:  struct.unpack('i', struct.pack('f', 0.5))[0],
+            9:  struct.unpack('i', struct.pack('f', 2.0))[0],
+            10: struct.unpack('i', struct.pack('f', 0.1))[0],
+            11: struct.unpack('i', struct.pack('f', 0.5))[0],
+            12: struct.unpack('i', struct.pack('f', 2.0))[0],
+            13: struct.unpack('i', struct.pack('f', 0.1))[0],
+            14: struct.unpack('i', struct.pack('f', 0.5))[0],
+            15: struct.unpack('i', struct.pack('f', 200.0))[0],
+            16: struct.unpack('i', struct.pack('f', 200.0))[0],
+            17: struct.unpack('i', struct.pack('f', 400.0))[0],
+            18: 24000,
+            19: 10000,
+            20: 20000,
+            21: 2000,
+            22: 0,
+            23: 0,
+            24: 0,
         }
 
     def read(self, address: int) -> int:
-        """Read a parameter value"""
         return self.parameters.get(address, 0)
 
     def write(self, address: int, value: int) -> bool:
-        """Write a parameter value (all CNC parameters are writable)"""
-        # All CNC parameters (0-24) are writable
         if address < 0 or address > 24:
             return False
-
-        self.parameters[address] = self._clamp_to_int32(value)
+        self.parameters[address] = _clamp_i32(value)
         return True
 
-    def _clamp_to_int32(self, value: int) -> int:
-        """Clamp value to signed 32-bit integer range"""
-        if value > 2147483647:
-            return 2147483647
-        elif value < -2147483648:
-            return -2147483648
-        return value
-
     def get_mac_address(self) -> bytes:
-        """Return emulator MAC address (6 bytes)"""
-        # Use a locally administered MAC address (02:xx:xx:xx:xx:xx)
         return bytes([0x02, 0x00, 0x00, 0x00, 0x00, 0x01])
+
+
+def _clamp_i32(value: int) -> int:
+    """Clamp value to signed 32-bit integer range"""
+    return max(-2147483648, min(2147483647, value))
+
+
+def _pack_response(status: int, address: int, value: int) -> bytes:
+    """Pack an 8-byte response packet (protocol v0.2.2).
+    status: signed i16, address: unsigned u16, value: signed i32."""
+    return struct.pack('<hHi', status, address, value)
 
 
 class DSHubEmulator:
@@ -554,88 +519,60 @@ class DSHubEmulator:
         self.board_type = board_type
         self.firmware_version = firmware_version
 
-        # Data structures
-        self.registers = RegisterMap()
+        self.system_registers = SystemRegisterMap()
+        self.user_registers = UserRegisterMap()
         self.parameters = ParameterMap()
 
-        # CNC Controller
-        self.cnc_controller = CNCController(self.registers, self.parameters)
+        self.cnc_controller = CNCController(
+            self.system_registers, self.user_registers, self.parameters)
 
-        # Network sockets
         self.discovery_socket: Optional[socket.socket] = None
         self.tcp_socket: Optional[socket.socket] = None
-        self.udp_socket: Optional[socket.socket] = None
-
-        # Running flag
         self.running = False
-
-        # Statistics
         self.total_packets_received = 0
         self.total_packets_sent = 0
-
-        # Lock for thread-safe access
         self.lock = threading.Lock()
 
         print(f"DSHub Emulator initialized: {board_name}")
         print(f"Board Type: {board_type}, Firmware: 0x{firmware_version:04X}")
 
     def start(self):
-        """Start the emulator"""
         self.running = True
-
-        # Start discovery/UDP service (handles both discovery and data packets)
         threading.Thread(target=self._discovery_service, daemon=True).start()
-
-        # Start TCP service
         threading.Thread(target=self._tcp_service, daemon=True).start()
-
-        # UDP service is now integrated with discovery service
-        # threading.Thread(target=self._udp_service, daemon=True).start()
-
-        # Start CNC motion control thread (100Hz update rate)
         threading.Thread(target=self._motion_update_thread, daemon=True).start()
 
         print(f"\nEmulator started successfully!")
-        print(f"Discovery/UDP: port {DISCOVERY_PORT} (handles both discovery and data)")
-        print(f"TCP Data: port {DEFAULT_TCP_PORT}")
-        print(f"CNC Motion Control: 100Hz update rate")
+        print(f"Discovery/UDP: port {DISCOVERY_PORT}")
+        print(f"TCP Data:      port {DEFAULT_TCP_PORT}")
+        print(f"CNC Motion:    100Hz update rate")
         print(f"\nPress Ctrl+C to stop the emulator\n")
 
     def stop(self):
-        """Stop the emulator"""
         self.running = False
-
         if self.discovery_socket:
             self.discovery_socket.close()
         if self.tcp_socket:
             self.tcp_socket.close()
-        if self.udp_socket:
-            self.udp_socket.close()
 
     def _discovery_service(self):
-        """Handle UDP discovery requests and data packets"""
         try:
             self.discovery_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.discovery_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.discovery_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             self.discovery_socket.bind(('', DISCOVERY_PORT))
             self.discovery_socket.settimeout(1.0)
-
             print(f"[Discovery/UDP] Listening on UDP port {DISCOVERY_PORT}")
 
             while self.running:
                 try:
                     data, addr = self.discovery_socket.recvfrom(1024)
-
                     if len(data) >= 5:
                         magic, command = struct.unpack('<IB', data[:5])
-
-                        # Check if this is a discovery request
                         if magic == DS_DISCOVERY_MAGIC and command == DS_DISCOVERY_REQUEST:
                             print(f"[Discovery] Request from {addr[0]}:{addr[1]}")
                             self._send_discovery_response(addr)
                         else:
-                            # This is a data packet, process it
                             response = self._process_packet(data, 'UDP', addr)
                             if response:
                                 self.discovery_socket.sendto(response, addr)
@@ -648,50 +585,28 @@ class DSHubEmulator:
             print(f"[Discovery/UDP] Failed to start: {e}")
 
     def _send_discovery_response(self, addr: Tuple[str, int]):
-        """Send discovery response"""
-        # Build response packet
-        # Format: magic(4) + command(1) + board_type(1) + firmware(2) + board_id(4) +
-        #         ip(4) + tcp_port(2) + udp_port(2) + mac(6) + reserved(2) + name(variable)
-
-        board_id = self.parameters.read(0)  # DEVICE_ID
+        board_id = 1
         mac = self.parameters.get_mac_address()
-
-        # Use localhost IP (127.0.0.1)
         ip_bytes = bytes([127, 0, 0, 1])
         ip_uint32 = struct.unpack('<I', ip_bytes)[0]
 
-        # Build packet
         response = struct.pack('<IBBHIIHHH',
-            DS_DISCOVERY_MAGIC,           # magic
-            DS_DISCOVERY_RESPONSE,        # command
-            self.board_type,              # board_type
-            self.firmware_version,        # firmware_version
-            board_id,                     # board_id
-            ip_uint32,                    # ip_address (little-endian)
-            DEFAULT_TCP_PORT,             # tcp_port
-            DEFAULT_UDP_PORT,             # udp_port
-            0                             # reserved (2 bytes)
-        )
-
-        # Add MAC address
+            DS_DISCOVERY_MAGIC, DS_DISCOVERY_RESPONSE,
+            self.board_type, self.firmware_version,
+            board_id, ip_uint32,
+            DEFAULT_TCP_PORT, DEFAULT_UDP_PORT, 0)
         response += mac
+        response += self.board_name.encode('ascii')[:32] + b'\x00'
 
-        # Add board name (null-terminated)
-        name_bytes = self.board_name.encode('ascii')[:32]  # Max 32 chars
-        response += name_bytes + b'\x00'
-
-        # Send response
         self.discovery_socket.sendto(response, addr)
         print(f"[Discovery] Sent response to {addr[0]}:{addr[1]}")
 
     def _tcp_service(self):
-        """Handle TCP data connections"""
         try:
             self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.tcp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.tcp_socket.bind(('127.0.0.1', DEFAULT_TCP_PORT))
             self.tcp_socket.listen(1)
-
             print(f"[TCP] Listening on port {DEFAULT_TCP_PORT}")
 
             while self.running:
@@ -699,10 +614,8 @@ class DSHubEmulator:
                     self.tcp_socket.settimeout(1.0)
                     client, addr = self.tcp_socket.accept()
                     print(f"[TCP] Client connected from {addr[0]}:{addr[1]}")
-
-                    # Handle client in new thread
                     threading.Thread(target=self._handle_tcp_client,
-                                   args=(client, addr), daemon=True).start()
+                                     args=(client, addr), daemon=True).start()
                 except socket.timeout:
                     continue
                 except Exception as e:
@@ -712,7 +625,6 @@ class DSHubEmulator:
             print(f"[TCP] Failed to start: {e}")
 
     def _handle_tcp_client(self, client: socket.socket, addr: Tuple[str, int]):
-        """Handle a TCP client connection"""
         try:
             client.settimeout(1.0)
             while self.running:
@@ -720,8 +632,6 @@ class DSHubEmulator:
                     data = client.recv(1024)
                     if not data:
                         break
-
-                    # Process packet
                     response = self._process_packet(data, 'TCP', addr)
                     if response:
                         client.sendall(response)
@@ -734,167 +644,149 @@ class DSHubEmulator:
             client.close()
             print(f"[TCP] Client disconnected from {addr[0]}:{addr[1]}")
 
-    def _udp_service(self):
-        """Handle UDP data packets"""
-        try:
-            self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.udp_socket.bind(('127.0.0.1', DEFAULT_UDP_PORT))
-
-            print(f"[UDP] Listening on port {DEFAULT_UDP_PORT}")
-
-            while self.running:
-                try:
-                    self.udp_socket.settimeout(1.0)
-                    data, addr = self.udp_socket.recvfrom(1024)
-
-                    # Process packet
-                    response = self._process_packet(data, 'UDP', addr)
-                    if response:
-                        self.udp_socket.sendto(response, addr)
-                except socket.timeout:
-                    continue
-                except Exception as e:
-                    if self.running:
-                        print(f"[UDP] Error: {e}")
-        except Exception as e:
-            print(f"[UDP] Failed to start: {e}")
-
     def _motion_update_thread(self):
-        """Motion control loop running at 100Hz"""
-        dt = 0.01  # 10ms update interval
+        dt = 0.01
         print(f"[MOTION] Motion control thread started (100Hz)")
-
         while self.running:
             start_time = time.time()
-
-            # Update CNC controller
             with self.lock:
                 self.cnc_controller.update(dt)
-
-            # Sleep to maintain 100Hz rate
             elapsed = time.time() - start_time
             sleep_time = dt - elapsed
             if sleep_time > 0:
                 time.sleep(sleep_time)
 
-    def _process_packet(self, data: bytes, interface: str, addr: Tuple[str, int]) -> Optional[bytes]:
-        """Process a data packet and return response"""
-        if len(data) < 6:
+    def _process_packet(self, data: bytes, interface: str,
+                        addr: Tuple[str, int]) -> Optional[bytes]:
+        # Protocol v0.2.2: 8-byte packets with 16-bit type/address fields
+        if len(data) < 8:
             return None
 
         with self.lock:
-            self.registers.increment_packet_count()
+            self.system_registers.increment_packet_count()
             self.total_packets_received += 1
 
         try:
-            # Parse packet: command(1) + address(1) + value(4)
-            command = data[0]
-            address = data[1]
-            value = struct.unpack('<i', data[2:6])[0]  # Signed 32-bit
+            command, address = struct.unpack('<HH', data[0:4])
+            value = struct.unpack('<i', data[4:8])[0]
+            ts = datetime.now().strftime('%H:%M:%S.%f')[:-3]
 
-            timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
-
-            # Process based on command
             if command == CMD_SYS_COMMAND:
-                # SYS_COMMAND: address field contains the command code
-                sys_cmd = address
-                cmd_value = value
-
-                # Command name lookup
-                cmd_names = {
-                    CMD_SYS_READ_FLASH: "READ_FLASH",
-                    CMD_SYS_WRITE_FLASH: "WRITE_FLASH",
+                # Library system commands (address=65000–65002)
+                sys_cmd_names = {
+                    CMD_SYS_READ_FLASH:     "READ_FLASH",
+                    CMD_SYS_WRITE_FLASH:    "WRITE_FLASH",
                     CMD_SYS_RESET_FIRMWARE: "RESET_FIRMWARE",
-                    CMD_ENABLE_ALL_MOTORS: "ENABLE_ALL_MOTORS",
-                    CMD_DISABLE_ALL_MOTORS: "DISABLE_ALL_MOTORS",
-                    CMD_ENABLE_MOTOR_X: "ENABLE_MOTOR_X",
-                    CMD_ENABLE_MOTOR_Y: "ENABLE_MOTOR_Y",
-                    CMD_ENABLE_MOTOR_Z: "ENABLE_MOTOR_Z",
-                    CMD_DISABLE_MOTOR_X: "DISABLE_MOTOR_X",
-                    CMD_DISABLE_MOTOR_Y: "DISABLE_MOTOR_Y",
-                    CMD_DISABLE_MOTOR_Z: "DISABLE_MOTOR_Z",
-                    CMD_ENABLE_SPINDLE: "ENABLE_SPINDLE",
-                    CMD_DISABLE_SPINDLE: "DISABLE_SPINDLE",
-                    CMD_HOME_ALL: "HOME_ALL",
-                    CMD_HOME_X: "HOME_X",
-                    CMD_HOME_Y: "HOME_Y",
-                    CMD_HOME_Z: "HOME_Z",
-                    CMD_E_STOP: "E_STOP",
-                    CMD_RESET_E_STOP: "RESET_E_STOP",
-                    CMD_CLEAR_ERRORS: "CLEAR_ERRORS",
-                    CMD_JOG_X_POSITIVE: "JOG_X_POSITIVE",
-                    CMD_JOG_X_NEGATIVE: "JOG_X_NEGATIVE",
-                    CMD_JOG_Y_POSITIVE: "JOG_Y_POSITIVE",
-                    CMD_JOG_Y_NEGATIVE: "JOG_Y_NEGATIVE",
-                    CMD_JOG_Z_POSITIVE: "JOG_Z_POSITIVE",
-                    CMD_JOG_Z_NEGATIVE: "JOG_Z_NEGATIVE",
                 }
-                cmd_name = cmd_names.get(sys_cmd, f"UNKNOWN({sys_cmd})")
-
-                print(f"[{interface}] {timestamp} SYS_COMMAND: {cmd_name} (value={cmd_value})")
-
-                # Handle CNC commands
-                result = self.cnc_controller.handle_sys_command(sys_cmd, cmd_value)
-
-                if result == 0:
-                    # Success (status = 0)
-                    response = struct.pack('<BBi', 0, sys_cmd, result)
+                cmd_name = sys_cmd_names.get(address, f"UNKNOWN_SYS({address})")
+                print(f"[{interface}] {ts} SYS_COMMAND: {cmd_name} (value={value})")
+                if address in sys_cmd_names:
+                    response = _pack_response(STATUS_SYS_COMMAND_OK, address, 0)
                 else:
-                    # Error (status = -1)
-                    print(f"[{interface}] {timestamp} SYS_COMMAND {cmd_name} FAILED")
-                    self.registers.increment_error_count()
-                    response = struct.pack('<BBi', -1, sys_cmd, 0)
+                    print(f"[{interface}] {ts} Unknown sys command address: {address}")
+                    self.system_registers.increment_error_count()
+                    response = _pack_response(-1, address, 0)
 
             elif command == CMD_READ_REGISTER:
-                reg_value = self.registers.read(address)
-                print(f"[{interface}] {timestamp} Read Register {address} = {reg_value}")
-                response = struct.pack('<BBi', command, address, reg_value)
+                reg_value = self.user_registers.read(address)
+                print(f"[{interface}] {ts} Read Register[{address}] = {reg_value}")
+                response = _pack_response(STATUS_READ_REGISTER_OK, address, reg_value)
 
             elif command == CMD_WRITE_REGISTER:
-                success = self.registers.write(address, value)
+                success = self.user_registers.write(address, value)
                 if not success:
-                    print(f"[{interface}] {timestamp} Write Register {address} FAILED (read-only)")
-                    self.registers.increment_error_count()
+                    if address < USER_REG_READ_ONLY_COUNT:
+                        print(f"[{interface}] {ts} Write Register[{address}] REJECTED (read-only)")
+                        self.system_registers.increment_error_count()
+                        response = _pack_response(STATUS_PERMISSION_ERROR, address, 0)
+                    else:
+                        print(f"[{interface}] {ts} Write Register[{address}] FAILED (unknown address)")
+                        self.system_registers.increment_error_count()
+                        response = _pack_response(-4, address, 0)  # ADDRESS_OUT_OF_RANGE
                 else:
-                    print(f"[{interface}] {timestamp} Write Register {address} = {value}")
-                # Return current value
-                reg_value = self.registers.read(address)
-                response = struct.pack('<BBi', command, address, reg_value)
+                    print(f"[{interface}] {ts} Write Register[{address}] = {value}")
+                    reg_value = self.user_registers.read(address)
+                    response = _pack_response(STATUS_WRITE_REGISTER_OK, address, reg_value)
 
             elif command == CMD_READ_PARAMETER:
                 param_value = self.parameters.read(address)
-                print(f"[{interface}] {timestamp} Read Parameter {address} = {param_value}")
-                response = struct.pack('<BBi', command, address, param_value)
+                print(f"[{interface}] {ts} Read Parameter[{address}] = {param_value}")
+                response = _pack_response(STATUS_READ_PARAMETER_OK, address, param_value)
 
             elif command == CMD_WRITE_PARAMETER:
                 success = self.parameters.write(address, value)
                 if not success:
-                    print(f"[{interface}] {timestamp} Write Parameter {address} FAILED (read-only)")
-                    self.registers.increment_error_count()
+                    print(f"[{interface}] {ts} Write Parameter[{address}] FAILED")
+                    self.system_registers.increment_error_count()
                 else:
-                    print(f"[{interface}] {timestamp} Write Parameter {address} = {value}")
-                # Return current value
+                    print(f"[{interface}] {ts} Write Parameter[{address}] = {value}")
                 param_value = self.parameters.read(address)
-                response = struct.pack('<BBi', command, address, param_value)
+                response = _pack_response(STATUS_WRITE_PARAMETER_OK, address, param_value)
 
             elif command == CMD_TAKE_CONTROL:
-                # Take Control command - set control interface
-                self.registers.set_control_interface(value)
+                self.system_registers.set_control_interface(value)
                 control_name = {
-                    CONTROL_UNDECIDED: "UNDECIDED",
-                    CONTROL_TCP_DATASTREAM: "TCP_DATASTREAM",
-                    CONTROL_UDP_DATASTREAM: "UDP_DATASTREAM",
-                    CONTROL_TCP_CLI: "TCP_CLI",
-                    CONTROL_USB: "USB"
+                    CONTROL_UNDECIDED:       "UNDECIDED",
+                    CONTROL_TCP_DATASTREAM:  "TCP_DATASTREAM",
+                    CONTROL_UDP_DATASTREAM:  "UDP_DATASTREAM",
+                    CONTROL_TCP_CLI:         "TCP_CLI",
+                    CONTROL_USB:             "USB",
                 }.get(value, f"UNKNOWN({value})")
-                print(f"[{interface}] {timestamp} Take Control -> {control_name}")
-                # Response: same format
-                response = struct.pack('<BBi', command, 0, value)
+                print(f"[{interface}] {ts} Take Control -> {control_name}")
+                response = _pack_response(STATUS_CONTROL_OK, 0, value)
+
+            elif command == CMD_READ_SYSTEM_REGISTER:
+                sys_value = self.system_registers.read(address)
+                print(f"[{interface}] {ts} Read SysReg[{address}] = {sys_value}")
+                response = _pack_response(STATUS_READ_SYS_REG_OK, address, sys_value)
+
+            elif command == CMD_WRITE_SYSTEM_REGISTER:
+                # System registers are always read-only from the protocol
+                print(f"[{interface}] {ts} Write SysReg[{address}] REJECTED (PERMISSION_ERROR)")
+                self.system_registers.increment_error_count()
+                response = _pack_response(STATUS_PERMISSION_ERROR, address, 0)
+
+            elif command >= 100:
+                # User-defined command types (CNC motor commands: 200+)
+                cmd_names = {
+                    CMD_ENABLE_ALL_MOTORS:  "ENABLE_ALL_MOTORS",
+                    CMD_DISABLE_ALL_MOTORS: "DISABLE_ALL_MOTORS",
+                    CMD_ENABLE_MOTOR_X:     "ENABLE_MOTOR_X",
+                    CMD_ENABLE_MOTOR_Y:     "ENABLE_MOTOR_Y",
+                    CMD_ENABLE_MOTOR_Z:     "ENABLE_MOTOR_Z",
+                    CMD_DISABLE_MOTOR_X:    "DISABLE_MOTOR_X",
+                    CMD_DISABLE_MOTOR_Y:    "DISABLE_MOTOR_Y",
+                    CMD_DISABLE_MOTOR_Z:    "DISABLE_MOTOR_Z",
+                    CMD_ENABLE_SPINDLE:     "ENABLE_SPINDLE",
+                    CMD_DISABLE_SPINDLE:    "DISABLE_SPINDLE",
+                    CMD_HOME_ALL:           "HOME_ALL",
+                    CMD_HOME_X:             "HOME_X",
+                    CMD_HOME_Y:             "HOME_Y",
+                    CMD_HOME_Z:             "HOME_Z",
+                    CMD_E_STOP:             "E_STOP",
+                    CMD_RESET_E_STOP:       "RESET_E_STOP",
+                    CMD_CLEAR_ERRORS:       "CLEAR_ERRORS",
+                    CMD_JOG_X_POSITIVE:     "JOG_X+",
+                    CMD_JOG_X_NEGATIVE:     "JOG_X-",
+                    CMD_JOG_Y_POSITIVE:     "JOG_Y+",
+                    CMD_JOG_Y_NEGATIVE:     "JOG_Y-",
+                    CMD_JOG_Z_POSITIVE:     "JOG_Z+",
+                    CMD_JOG_Z_NEGATIVE:     "JOG_Z-",
+                }
+                cmd_name = cmd_names.get(command, f"USER_CMD({command})")
+                print(f"[{interface}] {ts} User Command: {cmd_name} (addr={address}, value={value})")
+                with self.lock:
+                    result = self.cnc_controller.handle_sys_command(command, value)
+                if result == 0:
+                    response = _pack_response(STATUS_SYS_COMMAND_OK, 0, 0)
+                else:
+                    print(f"[{interface}] {ts} User Command {cmd_name} FAILED")
+                    self.system_registers.increment_error_count()
+                    response = _pack_response(-1, 0, 0)
 
             else:
-                print(f"[{interface}] {timestamp} Unknown command: {command}")
-                self.registers.increment_error_count()
+                print(f"[{interface}] {ts} Unknown command type: {command}")
+                self.system_registers.increment_error_count()
                 return None
 
             with self.lock:
@@ -904,56 +796,58 @@ class DSHubEmulator:
 
         except Exception as e:
             print(f"[{interface}] Packet processing error: {e}")
-            self.registers.increment_error_count()
+            self.system_registers.increment_error_count()
             return None
 
     def print_status(self):
-        """Print emulator status"""
         print("\n" + "="*60)
         print(f"DSHub Emulator Status - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("="*60)
         print(f"Board: {self.board_name}")
         print(f"Type: {self.board_type}, Firmware: 0x{self.firmware_version:04X}")
         print(f"\nPackets Received: {self.total_packets_received}")
-        print(f"Packets Sent: {self.total_packets_sent}")
-        print(f"\nKey Registers:")
-        print(f"  DS_PACKET_COUNT (0): {self.registers.read(0)}")
-        print(f"  DS_ERROR_COUNT (1): {self.registers.read(1)}")
-        print(f"  CONTROL_INTERFACE (2): {self.registers.read(2)}")
-        print(f"  COUNTER_1HZ (3): {self.registers.read(3)}")
+        print(f"Packets Sent:     {self.total_packets_sent}")
+        print(f"\nSystem Registers (cmd 6):")
+        print(f"  [0] DS_PACKET_COUNT:   {self.system_registers.read(SYSREG_DS_PACKET_COUNT)}")
+        print(f"  [1] DS_ERROR_COUNT:    {self.system_registers.read(SYSREG_DS_ERROR_COUNT)}")
+        print(f"  [2] CONTROL_INTERFACE: {self.system_registers.read(SYSREG_CONTROL_INTERFACE)}")
+        print(f"  [3] COUNTER_1HZ:       {self.system_registers.read(SYSREG_COUNTER_1HZ)}")
+        print(f"\nUser Registers (cmd 1) — read-only section:")
+        print(f"  [0] CONTROLLER_STATE:  {self.user_registers.read(REG_CONTROLLER_STATE)}")
+        print(f"  [1] MOTOR_X_ENCODER:   {self.user_registers.read(REG_MOTOR_X_ENCODER)}")
+        print(f"  [2] MOTOR_Y_ENCODER:   {self.user_registers.read(REG_MOTOR_Y_ENCODER)}")
+        print(f"  [3] MOTOR_Z_ENCODER:   {self.user_registers.read(REG_MOTOR_Z_ENCODER)}")
+        print(f"\nUser Registers (cmd 1/2) — read-write section:")
+        print(f"  [10] MOTOR_X_SETPOINT: {self.user_registers.read(REG_MOTOR_X_SETPOINT)}")
+        print(f"  [11] MOTOR_Y_SETPOINT: {self.user_registers.read(REG_MOTOR_Y_SETPOINT)}")
+        print(f"  [12] MOTOR_Z_SETPOINT: {self.user_registers.read(REG_MOTOR_Z_SETPOINT)}")
+        print(f"  [14] JOG_DISTANCE:     {self.user_registers.read(REG_JOG_DISTANCE)}")
         print("="*60 + "\n")
 
 
 def main():
-    """Main entry point"""
     print("\n" + "="*60)
     print("DSHub Board Emulator")
     print("="*60)
     print("Pure Python emulator with no external dependencies")
     print("Emulates register/parameter read/write and auto-discovery")
+    print("Protocol v0.2.2: 8-byte packets, 16-bit type/address fields")
     print("="*60 + "\n")
 
-    # Create and start emulator
     emulator = DSHubEmulator(
         board_name="Python Emulator",
         board_type=1,
-        firmware_version=0x0100
+        firmware_version=0x0200,
     )
 
     try:
         emulator.start()
-
-        # Print status every 10 seconds
         last_status = time.time()
-
         while True:
             time.sleep(1)
-
-            # Print status periodically
             if time.time() - last_status >= 10:
                 emulator.print_status()
                 last_status = time.time()
-
     except KeyboardInterrupt:
         print("\n\nShutting down emulator...")
         emulator.stop()

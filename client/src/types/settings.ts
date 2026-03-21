@@ -43,6 +43,9 @@ export interface MapProfile {
   isDefault: boolean;
   registersMap: string; // File content as string
   parametersMap: string; // File content as string
+  /** System registers map (cmd 6). Library-managed, read-only from protocol.
+   *  Optional — if absent the System tab will show no entries. */
+  systemRegistersMap?: string;
   boardTypesMap?: string; // Optional board types map content
   sysCommands?: SysCommand[]; // Optional list of system commands
   createdAt: number;
@@ -80,6 +83,7 @@ export interface UserSettings {
   activeMapProfileId: string; // Currently active profile ID (default or custom)
   logSettings: LogSettings; // Activity log filtering and retention settings
   dashboardLayouts: Record<string, DashboardLayout>; // Dashboard layouts per profile ID
+  cncDashboardVersion?: number; // Tracks CNC dashboard template version for auto-reset
 }
 
 export const DEFAULT_PROFILE_ID = 'default';

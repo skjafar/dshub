@@ -12,16 +12,16 @@ yay -S dshub
 
 ### From a .deb package (Ubuntu / Debian)
 
-Download `DSHub_0.2.0_amd64.deb` from the releases page, then:
+Download `DSHub_0.2.2_amd64.deb` from the releases page, then:
 
 ```bash
-sudo dpkg -i DSHub_0.2.0_amd64.deb
+sudo dpkg -i DSHub_0.2.2_amd64.deb
 ```
 
 ### From a .rpm package (Fedora / openSUSE)
 
 ```bash
-sudo rpm -i DSHub-0.2.0-1.x86_64.rpm
+sudo rpm -i DSHub-0.2.2-1.x86_64.rpm
 ```
 
 ### From Source

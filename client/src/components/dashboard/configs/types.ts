@@ -12,4 +12,5 @@ export interface WidgetConfigComponentProps<T> {
   onConfigChange: (updates: Partial<T>) => void;
   registers: AddressItem[];
   parameters: AddressItem[];
+  systemRegisters: AddressItem[];
 }

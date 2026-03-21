@@ -6,7 +6,8 @@ use tokio::sync::mpsc;
 use tauri::async_runtime::JoinHandle;
 
 use crate::communicator::{
-    emit_log, make_control_packet, make_read_packet, make_sys_cmd_packet, make_write_packet,
+    emit_log, make_control_packet, make_read_packet, make_sys_cmd_packet,
+    make_user_cmd_packet, make_write_packet,
     run_tcp_communicator, run_udp_communicator, DeviceRequest,
 };
 use crate::types::*;
@@ -192,7 +193,7 @@ pub async fn take_control(state: State<'_, AppState>) -> Result<(), String> {
         &state,
         DeviceRequest {
             packet: make_control_packet(value),
-            command: 5,
+            command: CMD_TAKE_CONTROL,
             address: 0,
             name: Some("TAKE_CONTROL".into()),
             emit_plot: false,
@@ -203,15 +204,15 @@ pub async fn take_control(state: State<'_, AppState>) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn read_register(
-    address: u8,
+    address: u16,
     name: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     queue_request(
         &state,
         DeviceRequest {
-            packet: make_read_packet(1, address),
-            command: 1,
+            packet: make_read_packet(CMD_READ_REGISTER, address),
+            command: CMD_READ_REGISTER,
             address,
             name: Some(name),
             emit_plot: false,
@@ -222,15 +223,15 @@ pub async fn read_register(
 
 #[tauri::command]
 pub async fn write_register(
-    address: u8,
+    address: u16,
     value: i32,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     queue_request(
         &state,
         DeviceRequest {
-            packet: make_write_packet(2, address, value),
-            command: 2,
+            packet: make_write_packet(CMD_WRITE_REGISTER, address, value),
+            command: CMD_WRITE_REGISTER,
             address,
             name: None,
             emit_plot: false,
@@ -241,15 +242,15 @@ pub async fn write_register(
 
 #[tauri::command]
 pub async fn read_parameter(
-    address: u8,
+    address: u16,
     name: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     queue_request(
         &state,
         DeviceRequest {
-            packet: make_read_packet(3, address),
-            command: 3,
+            packet: make_read_packet(CMD_READ_PARAMETER, address),
+            command: CMD_READ_PARAMETER,
             address,
             name: Some(name),
             emit_plot: false,
@@ -260,15 +261,15 @@ pub async fn read_parameter(
 
 #[tauri::command]
 pub async fn write_parameter(
-    address: u8,
+    address: u16,
     value: i32,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     queue_request(
         &state,
         DeviceRequest {
-            packet: make_write_packet(4, address, value),
-            command: 4,
+            packet: make_write_packet(CMD_WRITE_PARAMETER, address, value),
+            command: CMD_WRITE_PARAMETER,
             address,
             name: None,
             emit_plot: false,
@@ -281,7 +282,7 @@ pub async fn write_parameter(
 pub async fn start_plotting(
     register_name: String,
     poll_interval: u64,
-    address: u8,
+    address: u16,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     // Stop any existing plot for this register
@@ -307,8 +308,8 @@ pub async fn start_plotting(
         loop {
             ticker.tick().await;
             let req = DeviceRequest {
-                packet: make_read_packet(1, address),
-                command: 1,
+                packet: make_read_packet(CMD_READ_REGISTER, address),
+                command: CMD_READ_REGISTER,
                 address,
                 name: Some(name.clone()),
                 emit_plot: true,
@@ -335,18 +336,90 @@ pub async fn stop_plotting(
 }
 
 #[tauri::command]
+pub async fn start_plotting_sys_register(
+    register_name: String,
+    poll_interval: u64,
+    address: u16,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    // Stop any existing plot for this name
+    if let Some(handle) = state.plot_tasks.lock().await.remove(&register_name) {
+        handle.abort();
+    }
+
+    let tx = {
+        let guard = state.communicator_tx.lock().await;
+        guard
+            .as_ref()
+            .ok_or("Not connected")?
+            .clone()
+    };
+
+    let name = register_name.clone();
+    let interval_ms = poll_interval.max(10);
+
+    let handle = tauri::async_runtime::spawn(async move {
+        let mut ticker =
+            tokio::time::interval(std::time::Duration::from_millis(interval_ms));
+        loop {
+            ticker.tick().await;
+            let req = DeviceRequest {
+                packet: make_read_packet(CMD_READ_SYS_REG, address),
+                command: CMD_READ_SYS_REG,
+                address,
+                name: Some(name.clone()),
+                emit_plot: true,
+            };
+            if tx.send(req).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    state.plot_tasks.lock().await.insert(register_name, handle);
+    Ok(())
+}
+
+/// Send a user-defined command (type field = command, for CNC and other app-specific commands).
+/// command: u16 type value (100–64999 for user-defined; e.g. 200 = ENABLE_ALL_MOTORS)
+/// address: sub-address passed in the address field (typically 0 for CNC commands)
+/// value:   parameter passed in the value field
+#[tauri::command]
 pub async fn send_command(
-    command: u8,
+    command: u16,
+    address: u16,
     value: i32,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     queue_request(
         &state,
         DeviceRequest {
-            packet: make_sys_cmd_packet(command, value),
-            command: 0,
-            address: command,
-            name: Some(format!("SYS_CMD_{}", command)),
+            packet: make_user_cmd_packet(command, address, value),
+            command,
+            address,
+            name: Some(format!("CMD_{}", command)),
+            emit_plot: false,
+        },
+    )
+    .await
+}
+
+/// Send a library system command (type=0, address=sys_cmd address).
+/// sys_cmd: one of SYS_CMD_READ_FLASH (65000), SYS_CMD_WRITE_FLASH (65001),
+///          SYS_CMD_RESET_FIRMWARE (65002)
+#[tauri::command]
+pub async fn send_sys_command(
+    sys_cmd: u16,
+    value: i32,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    queue_request(
+        &state,
+        DeviceRequest {
+            packet: make_sys_cmd_packet(sys_cmd, value),
+            command: CMD_SYS_COMMAND,
+            address: sys_cmd,
+            name: Some(format!("SYS_CMD_{}", sys_cmd)),
             emit_plot: false,
         },
     )
@@ -360,4 +433,46 @@ pub async fn update_log_settings(
 ) -> Result<(), String> {
     *state.log_settings.lock().await = settings;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn read_system_register(
+    address: u16,
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    queue_request(
+        &state,
+        DeviceRequest {
+            packet: make_read_packet(CMD_READ_SYS_REG, address),
+            command: CMD_READ_SYS_REG,
+            address,
+            name: Some(name),
+            emit_plot: false,
+        },
+    )
+    .await
+}
+
+/// Sends a write system register packet (command type 7).
+/// The device always returns PERMISSION_ERROR (-5) — all system registers are read-only
+/// from the external protocol. This command is provided for future compatibility should
+/// the library introduce writable system registers.
+#[tauri::command]
+pub async fn write_system_register(
+    address: u16,
+    value: i32,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    queue_request(
+        &state,
+        DeviceRequest {
+            packet: make_write_packet(CMD_WRITE_SYS_REG, address, value),
+            command: CMD_WRITE_SYS_REG,
+            address,
+            name: None,
+            emit_plot: false,
+        },
+    )
+    .await
 }

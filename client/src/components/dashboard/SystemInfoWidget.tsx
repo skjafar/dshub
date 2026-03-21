@@ -62,6 +62,8 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
   const renderInfoItem = (item: typeof config.items[0]) => {
     const currentData = item.source === 'register'
       ? state.registers.get(item.address)
+      : item.source === 'sysRegister'
+      ? state.systemRegisters.get(item.address)
       : state.parameters.get(item.address);
 
     const value = currentData?.value !== undefined ? (currentData.value as number) : undefined;

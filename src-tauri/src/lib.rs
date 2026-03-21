@@ -29,9 +29,13 @@ pub fn run() {
             commands::read_parameter,
             commands::write_parameter,
             commands::start_plotting,
+            commands::start_plotting_sys_register,
             commands::stop_plotting,
             commands::send_command,
+            commands::send_sys_command,
             commands::update_log_settings,
+            commands::read_system_register,
+            commands::write_system_register,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

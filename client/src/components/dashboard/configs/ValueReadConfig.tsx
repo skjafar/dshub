@@ -16,9 +16,10 @@ interface ValueReadConfigProps {
   onConfigChange: (updates: Partial<ValueReadWidgetConfig>) => void;
   registers: AddressItem[];
   parameters: AddressItem[];
+  systemRegisters: AddressItem[];
 }
 
-export default function ValueReadConfig({ config, onConfigChange, registers, parameters }: ValueReadConfigProps): React.ReactElement {
+export default function ValueReadConfig({ config, onConfigChange, registers, parameters, systemRegisters }: ValueReadConfigProps): React.ReactElement {
   return (
     <>
       <TextField
@@ -37,15 +38,17 @@ export default function ValueReadConfig({ config, onConfigChange, registers, par
         >
           <MenuItem value="register">Register</MenuItem>
           <MenuItem value="parameter">Parameter</MenuItem>
+          <MenuItem value="sysRegister">System Register</MenuItem>
         </Select>
       </FormControl>
       <AddressSelector
         dataSource={config.source ?? 'register'}
         currentAddress={config.address}
         onChange={(address) => onConfigChange({ ...config, address })}
-        label={`${config.source === 'parameter' ? 'Parameter' : 'Register'} Address`}
+        label="Address"
         registers={registers}
         parameters={parameters}
+        systemRegisters={systemRegisters}
       />
       <FormControl fullWidth margin="normal">
         <InputLabel>Display Format</InputLabel>

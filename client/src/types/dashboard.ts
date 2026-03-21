@@ -19,7 +19,7 @@ export type WidgetType =
   | 'statusMatrix';
 
 // Data source types
-export type DataSource = 'register' | 'parameter' | 'sysCommand';
+export type DataSource = 'register' | 'parameter' | 'sysCommand' | 'sysRegister';
 
 // Display format for values
 export type DisplayFormat = 'decimal' | 'hex' | 'binary';

@@ -26,9 +26,10 @@ interface GaugeConfigProps {
   onConfigChange: (updates: Partial<GaugeWidgetConfig>) => void;
   registers: AddressItem[];
   parameters: AddressItem[];
+  systemRegisters: AddressItem[];
 }
 
-export default function GaugeConfig({ config, onConfigChange, registers, parameters }: GaugeConfigProps): React.ReactElement {
+export default function GaugeConfig({ config, onConfigChange, registers, parameters, systemRegisters }: GaugeConfigProps): React.ReactElement {
   return (
     <>
       <TextField
@@ -47,6 +48,7 @@ export default function GaugeConfig({ config, onConfigChange, registers, paramet
         >
           <MenuItem value="register">Register</MenuItem>
           <MenuItem value="parameter">Parameter</MenuItem>
+          <MenuItem value="sysRegister">System Register</MenuItem>
         </Select>
       </FormControl>
       <AddressSelector
@@ -55,6 +57,7 @@ export default function GaugeConfig({ config, onConfigChange, registers, paramet
         onChange={(address) => onConfigChange({ ...config, address })}
         registers={registers}
         parameters={parameters}
+        systemRegisters={systemRegisters}
       />
       <Box sx={{ display: 'flex', gap: 2 }}>
         <TextField

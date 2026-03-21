@@ -43,7 +43,7 @@ pub struct DeviceConnection {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegisterData {
-    pub address: u8,
+    pub address: u16,
     pub name: String,
     pub value: i32,
     pub valid: bool,
@@ -52,7 +52,7 @@ pub struct RegisterData {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParameterData {
-    pub address: u8,
+    pub address: u16,
     pub name: String,
     pub value: i32,
     pub valid: bool,
@@ -155,6 +155,26 @@ impl Default for LogSettings {
 }
 
 // ── Protocol constants ────────────────────────────────────────────────────────
+
+/// Command type field values for the datastream protocol (v0.2.2: u16).
+/// Packets are 8 bytes: type(u16 LE) + address(u16 LE) + value(i32 LE) for TX,
+///                       status(i16 LE) + address(u16 LE) + value(i32 LE) for RX.
+pub const CMD_SYS_COMMAND: u16      = 0;
+pub const CMD_READ_REGISTER: u16    = 1;
+pub const CMD_WRITE_REGISTER: u16   = 2;
+pub const CMD_READ_PARAMETER: u16   = 3;
+pub const CMD_WRITE_PARAMETER: u16  = 4;
+pub const CMD_TAKE_CONTROL: u16     = 5;
+/// System registers are library-managed and read-only from the protocol.
+/// Writes via CMD_WRITE_SYS_REG always return PERMISSION_ERROR (-5) from the device.
+pub const CMD_READ_SYS_REG: u16     = 6;
+pub const CMD_WRITE_SYS_REG: u16    = 7;
+
+/// Library system command addresses (v0.2.2: moved to 65000–65002 range).
+/// Sent as: type=CMD_SYS_COMMAND(0), address=SYS_CMD_*.
+pub const SYS_CMD_READ_FLASH: u16     = 65000;
+pub const SYS_CMD_WRITE_FLASH: u16    = 65001;
+pub const SYS_CMD_RESET_FIRMWARE: u16 = 65002;
 
 pub const DS_DISCOVERY_MAGIC: u32 = 0xDEAD_BEEF;
 pub const DS_DISCOVERY_REQUEST: u8 = 0x01;

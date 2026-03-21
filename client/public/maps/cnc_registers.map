@@ -1,16 +1,18 @@
+// CNC user registers — accessed via command byte 1 (READ_REGISTER) / 2 (WRITE_REGISTER).
+// Read-only section (addresses 0–9): application state updated internally by the firmware.
+// Read-write section (addresses 10–14): setpoints written by the host controller.
+//
+// System registers (DS_PACKET_COUNT, DS_ERROR_COUNT, CONTROL_INTERFACE, COUNTER_1HZ)
+// are in cnc_system_registers.map and accessed via command byte 6 (READ_SYSTEM_REGISTER).
+
 /*********************/
-/***** read only *****/
+/**** read-only  *****/
 /*********************/
 
-uint32_t            DS_PACKET_COUNT;
-uint32_t            DS_ERROR_COUNT;
-uint32_t            CONTROL_INTERFACE;
-uint32_t            COUNTER_1HZ;
-
-// CNC Controller State (0=IDLE, 1=HOMING, 2=READY, 3=RUNNING, 4=PAUSED, 5=ERROR, 6=E_STOP)
+// CNC controller state (0=IDLE, 1=HOMING, 2=READY, 3=RUNNING, 4=PAUSED, 5=ERROR, 6=E_STOP)
 uint32_t            CONTROLLER_STATE;
 
-// Motor encoder positions
+// Motor encoder positions (encoder counts, read-only feedback)
 int32_t             MOTOR_X_ENCODER;
 int32_t             MOTOR_Y_ENCODER;
 int32_t             MOTOR_Z_ENCODER;
@@ -19,7 +21,7 @@ int32_t             MOTOR_Z_ENCODER;
 uint32_t            SPINDLE_RPM;
 uint32_t            SPINDLE_LOAD;
 
-// Motor/spindle enabled status
+// Motor and spindle enabled status (0=disabled, 1=enabled)
 uint32_t            MOTOR_X_ENABLED;
 uint32_t            MOTOR_Y_ENABLED;
 uint32_t            MOTOR_Z_ENABLED;
@@ -29,12 +31,12 @@ uint32_t            SPINDLE_ENABLED;
 /**** read/write *****/
 /*********************/
 
-// Motor position setpoints
+// Motor position setpoints (encoder counts)
 int32_t             MOTOR_X_SETPOINT;
 int32_t             MOTOR_Y_SETPOINT;
 int32_t             MOTOR_Z_SETPOINT;
 
-// Spindle speed setpoint
+// Spindle speed setpoint (RPM)
 uint32_t            SPINDLE_SPEED_SETPOINT;
 
 // Jog distance (encoder counts per jog step)

@@ -26,9 +26,10 @@ interface ProgressBarConfigProps {
   onConfigChange: (updates: Partial<ProgressBarWidgetConfig>) => void;
   registers: AddressItem[];
   parameters: AddressItem[];
+  systemRegisters: AddressItem[];
 }
 
-export default function ProgressBarConfig({ config, onConfigChange, registers, parameters }: ProgressBarConfigProps): React.ReactElement {
+export default function ProgressBarConfig({ config, onConfigChange, registers, parameters, systemRegisters }: ProgressBarConfigProps): React.ReactElement {
   return (
     <>
       <TextField
@@ -47,6 +48,7 @@ export default function ProgressBarConfig({ config, onConfigChange, registers, p
         >
           <MenuItem value="register">Register</MenuItem>
           <MenuItem value="parameter">Parameter</MenuItem>
+          <MenuItem value="sysRegister">System Register</MenuItem>
         </Select>
       </FormControl>
       <AddressSelector
@@ -55,6 +57,7 @@ export default function ProgressBarConfig({ config, onConfigChange, registers, p
         onChange={(address) => onConfigChange({ ...config, address })}
         registers={registers}
         parameters={parameters}
+        systemRegisters={systemRegisters}
       />
       <Box sx={{ display: 'flex', gap: 2 }}>
         <TextField

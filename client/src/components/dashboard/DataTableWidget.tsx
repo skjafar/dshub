@@ -188,6 +188,8 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
               {config.items.map((item, index) => {
                 const data = item.source === 'register'
                   ? state.registers.get(item.address)
+                  : item.source === 'sysRegister'
+                  ? state.systemRegisters.get(item.address)
                   : state.parameters.get(item.address);
                 const value = data?.value !== undefined ? (data.value as number) : undefined;
                 const isInvalid = data?.valid === false;

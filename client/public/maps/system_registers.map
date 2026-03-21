@@ -1,0 +1,8 @@
+// System registers are library-managed and read-only from the protocol.
+// Accessed via command byte 6 (READ_SYSTEM_REGISTER).
+// Defined in ds_system_register_names.h from the datastream library.
+
+uint32_t            DS_PACKET_COUNT;
+uint32_t            DS_ERROR_COUNT;
+uint32_t            CONTROL_INTERFACE;
+uint32_t            COUNTER_1HZ;

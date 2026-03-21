@@ -11,45 +11,48 @@ use crate::types::*;
 
 pub struct DeviceRequest {
     pub packet: Vec<u8>,
-    pub command: u8,
-    pub address: u8,
+    pub command: u16,
+    pub address: u16,
     pub name: Option<String>,
     /// When true the response also emits a plotData event
     pub emit_plot: bool,
 }
 
-// ── Packet builders ───────────────────────────────────────────────────────────
+// ── Packet builders (protocol v0.2.2: 8-byte packets, 16-bit fields) ─────────
 
-/// 6-byte read packet: [cmd][addr][0 0 0 0]
-pub fn make_read_packet(command: u8, address: u8) -> Vec<u8> {
-    let mut p = vec![0u8; 6];
-    p[0] = command;
-    p[1] = address;
+/// 8-byte read packet: [type u16 LE][addr u16 LE][0 0 0 0]
+pub fn make_read_packet(command: u16, address: u16) -> Vec<u8> {
+    let mut p = vec![0u8; 8];
+    p[0..2].copy_from_slice(&command.to_le_bytes());
+    p[2..4].copy_from_slice(&address.to_le_bytes());
+    // bytes [4..8] remain 0 (value = 0 for reads)
     p
 }
 
-/// 6-byte write packet: [cmd][addr][value LE i32]
-pub fn make_write_packet(command: u8, address: u8, value: i32) -> Vec<u8> {
-    let mut p = vec![0u8; 6];
-    p[0] = command;
-    p[1] = address;
-    p[2..6].copy_from_slice(&value.to_le_bytes());
+/// 8-byte write packet: [type u16 LE][addr u16 LE][value i32 LE]
+pub fn make_write_packet(command: u16, address: u16, value: i32) -> Vec<u8> {
+    let mut p = vec![0u8; 8];
+    p[0..2].copy_from_slice(&command.to_le_bytes());
+    p[2..4].copy_from_slice(&address.to_le_bytes());
+    p[4..8].copy_from_slice(&value.to_le_bytes());
     p
 }
 
-/// 6-byte take-control packet: [5][0][interface_value LE]
+/// 8-byte take-control packet: [5 u16 LE][0 u16 LE][interface_value i32 LE]
 pub fn make_control_packet(interface_value: u32) -> Vec<u8> {
-    make_write_packet(5, 0, interface_value as i32)
+    make_write_packet(CMD_TAKE_CONTROL, 0, interface_value as i32)
 }
 
-/// 10-byte system command packet: [0][cmd][value LE][0 0 0 0 checksum]
-pub fn make_sys_cmd_packet(command: u8, value: i32) -> Vec<u8> {
-    let mut p = vec![0u8; 10];
-    p[0] = 0;
-    p[1] = command;
-    p[2..6].copy_from_slice(&value.to_le_bytes());
-    // bytes [6..10] remain 0 (checksum placeholder)
-    p
+/// 8-byte system command packet: [0 u16 LE][sys_cmd u16 LE][value i32 LE]
+/// sys_cmd uses the address field; library commands are 65000–65002 (v0.2.2).
+pub fn make_sys_cmd_packet(sys_cmd: u16, value: i32) -> Vec<u8> {
+    make_write_packet(CMD_SYS_COMMAND, sys_cmd, value)
+}
+
+/// 8-byte user-defined command packet: [cmd_type u16 LE][address u16 LE][value i32 LE]
+/// For application commands (CNC motor control, etc.) with type >= 100.
+pub fn make_user_cmd_packet(cmd_type: u16, address: u16, value: i32) -> Vec<u8> {
+    make_write_packet(cmd_type, address, value)
 }
 
 // ── Time helpers ──────────────────────────────────────────────────────────────
@@ -84,18 +87,20 @@ pub fn emit_log(app: &AppHandle, level: LogLevel, category: LogCategory, message
 // ── Response processor ────────────────────────────────────────────────────────
 
 fn process_response(data: &[u8], req: &DeviceRequest, app: &AppHandle) {
-    if data.len() < 6 {
+    // Protocol v0.2.2: 8-byte response: status(i16 LE) + address(u16 LE) + value(i32 LE)
+    if data.len() < 8 {
         emit_log(
             app,
             LogLevel::Error,
             LogCategory::Connection,
-            format!("Short response: {} bytes (expected 6)", data.len()),
+            format!("Short response: {} bytes (expected 8)", data.len()),
         );
         return;
     }
 
-    let address = data[1];
-    let value = i32::from_le_bytes([data[2], data[3], data[4], data[5]]);
+    let status  = i16::from_le_bytes([data[0], data[1]]);
+    let address = u16::from_le_bytes([data[2], data[3]]);
+    let value   = i32::from_le_bytes([data[4], data[5], data[6], data[7]]);
     let ts = now_ms();
 
     match req.command {
@@ -170,7 +175,16 @@ fn process_response(data: &[u8], req: &DeviceRequest, app: &AppHandle) {
             let _ = app.emit("parameterUpdate", &param);
         }
         5 => {
-            // Take control response
+            // Take control response — emit sysRegisterUpdate for CONTROL_INTERFACE (addr 2)
+            // so the frontend can update its controlState display.
+            let reg = RegisterData {
+                address: 2, // SYSREG_CONTROL_INTERFACE
+                name: "CONTROL_INTERFACE".to_string(),
+                value,
+                valid: true,
+                timestamp: ts,
+            };
+            let _ = app.emit("sysRegisterUpdate", &reg);
             emit_log(
                 app,
                 LogLevel::Info,
@@ -179,15 +193,60 @@ fn process_response(data: &[u8], req: &DeviceRequest, app: &AppHandle) {
             );
         }
         0 => {
-            // System command response
+            // System command response (library sys commands: READ_FLASH etc.)
             emit_log(
                 app,
                 LogLevel::Info,
                 LogCategory::Connection,
-                format!("System command response: status={}, value={}", data[0], value),
+                format!("System command response: status={}, addr={}, value={}", status, address, value),
             );
         }
-        _ => {}
+        6 => {
+            // System register read response
+            let name = req
+                .name
+                .clone()
+                .unwrap_or_else(|| format!("sysreg_{}", address));
+            let reg = RegisterData {
+                address,
+                name: name.clone(),
+                value,
+                valid: true,
+                timestamp: ts,
+            };
+            let _ = app.emit("sysRegisterUpdate", &reg);
+            if req.emit_plot {
+                let payload = PlotDataPayload {
+                    series_name: name,
+                    point: PlotDataPoint {
+                        x: now_secs(),
+                        y: value as f64,
+                    },
+                };
+                let _ = app.emit("plotData", &payload);
+            }
+        }
+        7 => {
+            // System register write response — device always returns PERMISSION_ERROR (-5)
+            emit_log(
+                app,
+                LogLevel::Warning,
+                LogCategory::Register,
+                format!(
+                    "Write system register addr={} returned status={} (expected PERMISSION_ERROR=-5)",
+                    address, status
+                ),
+            );
+        }
+        _ => {
+            // User-defined command response (CNC motor commands etc.)
+            emit_log(
+                app,
+                LogLevel::Info,
+                LogCategory::Connection,
+                format!("User command {} response: status={}, value={}", req.command, status, value),
+            );
+        }
     }
 }
 
@@ -213,8 +272,8 @@ pub async fn run_tcp_communicator(
             break;
         }
 
-        // Read exactly 6-byte response (handles TCP stream fragmentation)
-        let mut buf = [0u8; 6];
+        // Read exactly 8-byte response (protocol v0.2.2; handles TCP stream fragmentation)
+        let mut buf = [0u8; 8];
         match timeout(REQUEST_TIMEOUT, stream.read_exact(&mut buf)).await {
             Ok(Ok(_)) => {
                 process_response(&buf, &req, &app);
@@ -286,10 +345,10 @@ pub async fn run_udp_communicator(
                 match socket.recv_from(&mut buf).await {
                     Ok((n, src)) => {
                         if src.ip().to_string() == remote_ip && src.port() == remote_port {
-                            if n >= 6 {
-                                let mut out = [0u8; 6];
-                                out.copy_from_slice(&buf[..6]);
-                                return Ok::<[u8; 6], String>(out);
+                            if n >= 8 {
+                                let mut out = [0u8; 8];
+                                out.copy_from_slice(&buf[..8]);
+                                return Ok::<[u8; 8], String>(out);
                             } else {
                                 return Err(format!("Short UDP response: {} bytes", n));
                             }

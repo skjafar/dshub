@@ -1,6 +1,6 @@
 # DSHub — Building and Distributing
 
-DSHub v0.2.0+ is a native Tauri desktop application. It does not run as a server and does not require PM2, Node.js, or systemd at runtime. This document covers building release packages for distribution.
+DSHub v0.2.2+ is a native Tauri desktop application. It does not run as a server and does not require PM2, Node.js, or systemd at runtime. This document covers building release packages for distribution.
 
 ---
 
@@ -78,13 +78,13 @@ cd src-tauri && cargo build --release
 ### .deb (Ubuntu / Debian / Mint)
 
 ```bash
-sudo dpkg -i src-tauri/target/release/bundle/deb/DSHub_0.2.0_amd64.deb
+sudo dpkg -i src-tauri/target/release/bundle/deb/DSHub_0.2.2_amd64.deb
 ```
 
 ### .rpm (Fedora / openSUSE / RHEL)
 
 ```bash
-sudo rpm -i src-tauri/target/release/bundle/rpm/DSHub-0.2.0-1.x86_64.rpm
+sudo rpm -i src-tauri/target/release/bundle/rpm/DSHub-0.2.2-1.x86_64.rpm
 ```
 
 ### Standalone Binary

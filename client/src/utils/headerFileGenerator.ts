@@ -27,6 +27,11 @@ export function generateHeaderFile(
   lines.push(` * Profile: ${profileName}`);
   lines.push(' *');
   lines.push(` * Created: ${new Date().toLocaleDateString('en-GB')}`);
+  lines.push(' *');
+  if (isRegisterMap) {
+    lines.push(' * Note: System registers (cmd 6) are library-managed and are NOT included in this file.');
+    lines.push(' *       For system register definitions, see ds_system_register_names.h in the datastream library.');
+  }
   lines.push(' */');
   lines.push('');
 

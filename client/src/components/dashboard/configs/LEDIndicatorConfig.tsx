@@ -19,9 +19,10 @@ interface LEDIndicatorConfigProps {
   onConfigChange: (updates: Partial<LEDIndicatorWidgetConfig>) => void;
   registers: AddressItem[];
   parameters: AddressItem[];
+  systemRegisters: AddressItem[];
 }
 
-export default function LEDIndicatorConfig({ config, onConfigChange, registers, parameters }: LEDIndicatorConfigProps): React.ReactElement {
+export default function LEDIndicatorConfig({ config, onConfigChange, registers, parameters, systemRegisters }: LEDIndicatorConfigProps): React.ReactElement {
   return (
     <>
       <TextField
@@ -40,6 +41,7 @@ export default function LEDIndicatorConfig({ config, onConfigChange, registers, 
         >
           <MenuItem value="register">Register</MenuItem>
           <MenuItem value="parameter">Parameter</MenuItem>
+          <MenuItem value="sysRegister">System Register</MenuItem>
         </Select>
       </FormControl>
       <AddressSelector
@@ -48,6 +50,7 @@ export default function LEDIndicatorConfig({ config, onConfigChange, registers, 
         onChange={(address) => onConfigChange({ ...config, address })}
         registers={registers}
         parameters={parameters}
+        systemRegisters={systemRegisters}
       />
       <TextField
         fullWidth

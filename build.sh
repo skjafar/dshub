@@ -42,10 +42,11 @@ case "${1:-}" in
         ;;
 
     bin)
+        check_tauri_cli
         build_frontend
-        echo ">> Compiling Rust binary..."
+        echo ">> Compiling Rust binary (no packages)..."
         cd "$ROOT/src-tauri"
-        cargo build --release
+        cargo tauri build --no-bundle
         echo ""
         echo "Done: $BINARY"
         ;;

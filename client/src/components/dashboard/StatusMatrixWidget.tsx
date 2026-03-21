@@ -72,6 +72,8 @@ export default function StatusMatrixWidget({ config, isEditMode, widgetSize }: S
         {config.items.map((item, index) => {
           const data = item.source === 'register'
             ? state.registers.get(item.address)
+            : item.source === 'sysRegister'
+            ? state.systemRegisters.get(item.address)
             : state.parameters.get(item.address);
           const value = data?.value !== undefined ? (data.value as number) : undefined;
           const onValue = item.onValue ?? 1;

@@ -4,6 +4,7 @@ import { MapProfile, DEFAULT_PROFILE_ID } from '../types/settings';
 export class MapManager {
   private registersMap: ParsedMap | null = null;
   private parametersMap: ParsedMap | null = null;
+  private systemRegistersMap: ParsedMap | null = null;
   private boardTypesMap: BoardTypeEntry[] = [];
   private isLoaded = false;
   private isLoading = false;
@@ -11,15 +12,17 @@ export class MapManager {
 
   async initialize(profile?: MapProfile | null): Promise<void> {
     try {
-      if (profile && profile.id !== DEFAULT_PROFILE_ID) {
-        // Use custom profile maps (stored as raw file content)
+      if (profile) {
         console.log(`Loading maps from profile: ${profile.name}`);
 
-        // Parse the maps from profile content
         this.registersMap = parseMapFile(profile.registersMap, true);
         this.parametersMap = parseMapFile(profile.parametersMap, false);
 
-        // Parse board types map if provided, otherwise use defaults
+        // System registers map: use profile content if present, else empty
+        this.systemRegistersMap = profile.systemRegistersMap
+          ? parseMapFile(profile.systemRegistersMap, false)
+          : null;
+
         this.boardTypesMap = profile.boardTypesMap
           ? parseBoardTypesMap(profile.boardTypesMap)
           : getDefaultBoardTypes();
@@ -27,25 +30,7 @@ export class MapManager {
         console.log('Profile maps loaded:', {
           registers: this.registersMap.entries.length,
           parameters: this.parametersMap.entries.length,
-          boardTypes: this.boardTypesMap.length
-        });
-
-        this.currentProfileId = profile.id;
-      } else if (profile && profile.id === DEFAULT_PROFILE_ID) {
-        // Use default profile (already loaded from /maps folder)
-        console.log('Loading default maps from profile');
-
-        this.registersMap = parseMapFile(profile.registersMap, true);
-        this.parametersMap = parseMapFile(profile.parametersMap, false);
-
-        // Parse board types map if provided, otherwise use defaults
-        this.boardTypesMap = profile.boardTypesMap
-          ? parseBoardTypesMap(profile.boardTypesMap)
-          : getDefaultBoardTypes();
-
-        console.log('Default maps loaded:', {
-          registers: this.registersMap.entries.length,
-          parameters: this.parametersMap.entries.length,
+          systemRegisters: this.systemRegistersMap?.entries.length ?? 0,
           boardTypes: this.boardTypesMap.length
         });
 
@@ -62,18 +47,25 @@ export class MapManager {
         this.registersMap = parseMapFile(registersContent, true);
         this.parametersMap = parseMapFile(parametersContent, false);
 
-        // Try to load board types map, fall back to defaults if not found
+        try {
+          const sysContent = await loadMapFile('system_registers.map');
+          this.systemRegistersMap = parseMapFile(sysContent, false);
+        } catch {
+          console.log('system_registers.map not found, system tab will be empty');
+          this.systemRegistersMap = null;
+        }
+
         try {
           const boardTypesContent = await loadMapFile('boardtypes.map');
           this.boardTypesMap = parseBoardTypesMap(boardTypesContent);
-        } catch (error) {
-          console.log('Board types map not found, using defaults');
+        } catch {
           this.boardTypesMap = getDefaultBoardTypes();
         }
 
         console.log('Default maps loaded:', {
           registers: this.registersMap.entries.length,
           parameters: this.parametersMap.entries.length,
+          systemRegisters: this.systemRegistersMap?.entries.length ?? 0,
           boardTypes: this.boardTypesMap.length
         });
 
@@ -157,6 +149,19 @@ export class MapManager {
 
   getCurrentProfileId(): string | null {
     return this.currentProfileId;
+  }
+
+  // System register methods (cmd 6 — library-managed, read-only from protocol)
+  getAllSystemRegisters(): MapEntry[] {
+    return this.systemRegistersMap?.entries ?? [];
+  }
+
+  getSystemRegisterByAddress(address: number): MapEntry | undefined {
+    return this.systemRegistersMap?.entries.find(e => e.address === address);
+  }
+
+  getSystemRegisterByName(name: string): MapEntry | undefined {
+    return this.systemRegistersMap?.entries.find(e => e.name === name);
   }
 
   // Board types methods

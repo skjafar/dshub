@@ -1,11 +1,11 @@
-/*********************/
-/***** read only *****/
-/*********************/
+// User registers - accessed via command byte 1 (READ_REGISTER) / 2 (WRITE_REGISTER).
+// System registers (DS_PACKET_COUNT, DS_ERROR_COUNT, CONTROL_INTERFACE, COUNTER_1HZ)
+// are in system_registers.map and accessed via command byte 6 (READ_SYSTEM_REGISTER).
 
-// The number of packets received, used for debugging and statistics
-uint32_t            DS_PACKET_COUNT;
-uint32_t            DS_ERROR_COUNT;
-
-uint32_t            CONTROL_INTERFACE;
-
-uint32_t            COUNTER_1HZ;
+// Add application registers here.
+// Example:
+// /***** read only *****/
+// uint32_t    MY_SENSOR_VALUE;
+//
+// /***** read/write *****/
+// int32_t     MY_SETPOINT;

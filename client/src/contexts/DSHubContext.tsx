@@ -41,10 +41,12 @@ interface DSHubState {
   connection: DeviceConnection | null;
   registers: Map<number, RegisterData>;
   parameters: Map<number, ParameterData>;
+  /** System registers (cmd 6) — library-managed, read-only from protocol */
+  systemRegisters: Map<number, RegisterData>;
   logs: LogEntry[];
   unreadLogCount: number;
   plotData: Map<string, PlotDataPoint[]>;
-  activePlots: Map<string, { address: number; pollInterval: number }>;
+  activePlots: Map<string, { address: number; pollInterval: number; source: 'register' | 'sysRegister' }>;
   isScanning: boolean;
   maxDataPoints: number;
   plotTimeSpans: Map<string, number>;
@@ -55,6 +57,7 @@ interface DSHubState {
     interval: number;
     activeAddresses: Set<number>;
     activeParameterAddresses: Set<number>;
+    activeSystemAddresses: Set<number>;
   };
 }
 
@@ -65,10 +68,11 @@ type DSHubAction =
   | { type: 'SET_CONNECTION'; payload: DeviceConnection }
   | { type: 'UPDATE_REGISTER'; payload: RegisterData }
   | { type: 'UPDATE_PARAMETER'; payload: ParameterData }
+  | { type: 'UPDATE_SYSTEM_REGISTER'; payload: RegisterData }
   | { type: 'ADD_LOG_ENTRY'; payload: LogEntry }
   | { type: 'ADD_PLOT_DATA'; payload: { series: string; point: PlotDataPoint } }
   | { type: 'CLEAR_PLOT_DATA'; payload: string }
-  | { type: 'ADD_ACTIVE_PLOT'; payload: { registerName: string; address: number; pollInterval: number } }
+  | { type: 'ADD_ACTIVE_PLOT'; payload: { registerName: string; address: number; pollInterval: number; source?: 'register' | 'sysRegister' } }
   | { type: 'REMOVE_ACTIVE_PLOT'; payload: string }
   | { type: 'SET_SCANNING'; payload: boolean }
   | { type: 'SET_MAX_DATA_POINTS'; payload: number }
@@ -78,11 +82,14 @@ type DSHubAction =
   | { type: 'MARK_LOGS_READ' }
   | { type: 'CLEAR_REGISTERS' }
   | { type: 'CLEAR_PARAMETERS' }
+  | { type: 'CLEAR_SYSTEM_REGISTERS' }
   | { type: 'SET_AUTO_REFRESH'; payload: { enabled: boolean; interval?: number } }
   | { type: 'ADD_AUTO_REFRESH_REGISTER'; payload: number }
   | { type: 'REMOVE_AUTO_REFRESH_REGISTER'; payload: number }
   | { type: 'ADD_AUTO_REFRESH_PARAMETER'; payload: number }
   | { type: 'REMOVE_AUTO_REFRESH_PARAMETER'; payload: number }
+  | { type: 'ADD_AUTO_REFRESH_SYSTEM_REGISTER'; payload: number }
+  | { type: 'REMOVE_AUTO_REFRESH_SYSTEM_REGISTER'; payload: number }
   | { type: 'CLEAR_AUTO_REFRESH_ADDRESSES' }
   | { type: 'SET_CONNECTING'; payload: boolean };
 
@@ -93,6 +100,7 @@ const initialState: DSHubState = {
   connection: null,
   registers: new Map(),
   parameters: new Map(),
+  systemRegisters: new Map(),
   logs: [],
   unreadLogCount: 0,
   plotData: new Map(),
@@ -107,6 +115,7 @@ const initialState: DSHubState = {
     interval: 1000,
     activeAddresses: new Set<number>(),
     activeParameterAddresses: new Set<number>(),
+    activeSystemAddresses: new Set<number>(),
   },
 };
 
@@ -135,11 +144,7 @@ function createDSHubReducer(getLogSettings: () => LogSettings) {
       case 'UPDATE_REGISTER': {
         const newRegisters = new Map(state.registers);
         newRegisters.set(action.payload.address, action.payload);
-        let updatedConnection = state.connection;
-        if (action.payload.address === 2 && action.payload.name === 'CONTROL_INTERFACE' && state.connection) {
-          updatedConnection = { ...state.connection, controlState: action.payload.value };
-        }
-        return { ...state, registers: newRegisters, connection: updatedConnection };
+        return { ...state, registers: newRegisters };
       }
 
       case 'UPDATE_PARAMETER': {
@@ -200,7 +205,8 @@ function createDSHubReducer(getLogSettings: () => LogSettings) {
         const newActivePlots = new Map(state.activePlots);
         newActivePlots.set(action.payload.registerName, {
           address: action.payload.address,
-          pollInterval: action.payload.pollInterval
+          pollInterval: action.payload.pollInterval,
+          source: action.payload.source ?? 'register',
         });
         return { ...state, activePlots: newActivePlots };
       }
@@ -238,6 +244,20 @@ function createDSHubReducer(getLogSettings: () => LogSettings) {
       case 'CLEAR_PARAMETERS':
         return { ...state, parameters: new Map() };
 
+      case 'UPDATE_SYSTEM_REGISTER': {
+        const newSysRegs = new Map(state.systemRegisters);
+        newSysRegs.set(action.payload.address, action.payload);
+        // CONTROL_INTERFACE is system register addr 2 — update connection.controlState
+        let updatedConn = state.connection;
+        if (action.payload.address === 2 && state.connection) {
+          updatedConn = { ...state.connection, controlState: action.payload.value };
+        }
+        return { ...state, systemRegisters: newSysRegs, connection: updatedConn };
+      }
+
+      case 'CLEAR_SYSTEM_REGISTERS':
+        return { ...state, systemRegisters: new Map() };
+
       case 'SET_AUTO_REFRESH':
         return {
           ...state,
@@ -272,6 +292,18 @@ function createDSHubReducer(getLogSettings: () => LogSettings) {
         return { ...state, autoRefresh: { ...state.autoRefresh, activeParameterAddresses: filteredParamAddresses } };
       }
 
+      case 'ADD_AUTO_REFRESH_SYSTEM_REGISTER': {
+        const s = new Set(state.autoRefresh.activeSystemAddresses);
+        s.add(action.payload);
+        return { ...state, autoRefresh: { ...state.autoRefresh, activeSystemAddresses: s } };
+      }
+
+      case 'REMOVE_AUTO_REFRESH_SYSTEM_REGISTER': {
+        const s = new Set(state.autoRefresh.activeSystemAddresses);
+        s.delete(action.payload);
+        return { ...state, autoRefresh: { ...state.autoRefresh, activeSystemAddresses: s } };
+      }
+
       case 'CLEAR_AUTO_REFRESH_ADDRESSES':
         return {
           ...state,
@@ -279,6 +311,7 @@ function createDSHubReducer(getLogSettings: () => LogSettings) {
             ...state.autoRefresh,
             activeAddresses: new Set<number>(),
             activeParameterAddresses: new Set<number>(),
+            activeSystemAddresses: new Set<number>(),
           },
         };
 
@@ -300,9 +333,10 @@ interface DSHubContextType {
     readParameter: (address: number, name?: string) => void;
     writeParameter: (address: number, value: number) => void;
     startPlotting: (registerName: string, pollInterval: number, address: number) => void;
+    startPlottingSysRegister: (registerName: string, pollInterval: number, address: number) => void;
     stopPlotting: (registerName: string) => void;
     clearPlotData: (seriesName: string) => void;
-    sendCommand: (command: number, value: number) => void;
+    sendCommand: (command: number, value: number, address?: number) => void;
     setMaxDataPoints: (points: number) => void;
     setPlotTimeSpan: (series: string, timeSpan: number) => void;
     setPlotPaused: (paused: boolean) => void;
@@ -315,6 +349,10 @@ interface DSHubContextType {
     removeAutoRefreshRegister: (address: number) => void;
     addAutoRefreshParameter: (address: number) => void;
     removeAutoRefreshParameter: (address: number) => void;
+    readSystemRegister: (address: number, name?: string) => void;
+    writeSystemRegister: (address: number, value: number) => void;
+    addAutoRefreshSystemRegister: (address: number) => void;
+    removeAutoRefreshSystemRegister: (address: number) => void;
     clearAutoRefreshAddresses: () => void;
   };
 }
@@ -350,10 +388,12 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
   const connectionRef = React.useRef<DeviceConnection | null>(null);
   const registersRef = React.useRef<Map<number, RegisterData>>(new Map());
   const parametersRef = React.useRef<Map<number, ParameterData>>(new Map());
+  const systemRegistersRef = React.useRef<Map<number, RegisterData>>(new Map());
 
   React.useEffect(() => { connectionRef.current = state.connection; }, [state.connection]);
   React.useEffect(() => { registersRef.current = state.registers; }, [state.registers]);
   React.useEffect(() => { parametersRef.current = state.parameters; }, [state.parameters]);
+  React.useEffect(() => { systemRegistersRef.current = state.systemRegisters; }, [state.systemRegisters]);
 
   // ── Tauri event listeners ─────────────────────────────────────────────────
 
@@ -384,9 +424,9 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
           dispatch({ type: 'SET_CONNECTION', payload: status });
           if (status.connected) {
             dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'success', category: 'connection', message: `Connected to device at ${status.ip}:${status.port} via ${status.interface}`, timestamp: Date.now() } });
-            // Read CONTROL_INTERFACE register to update control state display
+            // Read CONTROL_INTERFACE system register (addr 2) to update control state display
             setTimeout(() => {
-              invoke('read_register', { address: 2, name: 'CONTROL_INTERFACE' }).catch(console.error);
+              invoke('read_system_register', { address: 2, name: 'CONTROL_INTERFACE' }).catch(console.error);
             }, 500);
           } else {
             dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'warning', category: 'connection', message: 'Disconnected from device', timestamp: Date.now() } });
@@ -420,6 +460,10 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
         // plotData payload: { seriesName: string, point: PlotDataPoint }
         await listen<{ seriesName: string; point: PlotDataPoint }>('plotData', e => {
           dispatch({ type: 'ADD_PLOT_DATA', payload: { series: e.payload.seriesName, point: e.payload.point } });
+        }),
+
+        await listen<RegisterData>('sysRegisterUpdate', e => {
+          dispatch({ type: 'UPDATE_SYSTEM_REGISTER', payload: e.payload });
         }),
       );
     };
@@ -458,12 +502,19 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
           invoke('read_parameter', { address, name }).catch(console.error);
         });
 
-        const totalAddresses = state.autoRefresh.activeAddresses.size + state.autoRefresh.activeParameterAddresses.size;
+        state.autoRefresh.activeSystemAddresses.forEach(address => {
+          const name = systemRegistersRef.current.get(address)?.name ?? '';
+          invoke('read_system_register', { address, name }).catch(console.error);
+        });
+
+        const totalAddresses = state.autoRefresh.activeAddresses.size
+          + state.autoRefresh.activeParameterAddresses.size
+          + state.autoRefresh.activeSystemAddresses.size;
         if (totalAddresses > 0) {
           dispatch({ type: 'ADD_LOG_ENTRY', payload: {
             level: 'info',
             category: 'autoRefresh',
-            message: `Auto-refresh: updating ${state.autoRefresh.activeAddresses.size} registers and ${state.autoRefresh.activeParameterAddresses.size} parameters`,
+            message: `Auto-refresh: updating ${state.autoRefresh.activeAddresses.size} registers, ${state.autoRefresh.activeParameterAddresses.size} parameters, ${state.autoRefresh.activeSystemAddresses.size} system registers`,
             timestamp: Date.now()
           }});
         }
@@ -476,6 +527,7 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
     state.autoRefresh.interval,
     state.autoRefresh.activeAddresses,
     state.autoRefresh.activeParameterAddresses,
+    state.autoRefresh.activeSystemAddresses,
     state.connection?.connected,
   ]);
 
@@ -540,9 +592,17 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
 
     startPlotting: (registerName: string, pollInterval: number, address: number) => {
       dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'plotting', message: `Starting to plot register '${registerName}' with ${pollInterval}ms interval`, timestamp: Date.now() } });
-      dispatch({ type: 'ADD_ACTIVE_PLOT', payload: { registerName, address, pollInterval } });
+      dispatch({ type: 'ADD_ACTIVE_PLOT', payload: { registerName, address, pollInterval, source: 'register' } });
       invoke('start_plotting', { registerName, pollInterval, address }).catch(err =>
         dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'error', category: 'plotting', message: `Start plotting failed: ${err}`, timestamp: Date.now() } })
+      );
+    },
+
+    startPlottingSysRegister: (registerName: string, pollInterval: number, address: number) => {
+      dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'plotting', message: `Starting to plot system register '${registerName}' with ${pollInterval}ms interval`, timestamp: Date.now() } });
+      dispatch({ type: 'ADD_ACTIVE_PLOT', payload: { registerName, address, pollInterval, source: 'sysRegister' } });
+      invoke('start_plotting_sys_register', { registerName, pollInterval, address }).catch(err =>
+        dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'error', category: 'plotting', message: `Start plotting sys register failed: ${err}`, timestamp: Date.now() } })
       );
     },
 
@@ -556,9 +616,9 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
       dispatch({ type: 'CLEAR_PLOT_DATA', payload: seriesName });
     },
 
-    sendCommand: (command: number, value: number) => {
-      dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: `Sending system command ${command} with value ${value}`, timestamp: Date.now() } });
-      invoke('send_command', { command, value }).catch(err =>
+    sendCommand: (command: number, value: number, address: number = 0) => {
+      dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: `Sending command ${command} (addr=${address}) value=${value}`, timestamp: Date.now() } });
+      invoke('send_command', { command, address, value }).catch(err =>
         dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'error', category: 'connection', message: `Command failed: ${err}`, timestamp: Date.now() } })
       );
     },
@@ -590,6 +650,19 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
     removeAutoRefreshRegister: (address: number) => dispatch({ type: 'REMOVE_AUTO_REFRESH_REGISTER', payload: address }),
     addAutoRefreshParameter: (address: number) => dispatch({ type: 'ADD_AUTO_REFRESH_PARAMETER', payload: address }),
     removeAutoRefreshParameter: (address: number) => dispatch({ type: 'REMOVE_AUTO_REFRESH_PARAMETER', payload: address }),
+
+    readSystemRegister: (address: number, name?: string) => {
+      invoke('read_system_register', { address, name: name ?? '' }).catch(console.error);
+    },
+
+    writeSystemRegister: (address: number, value: number) => {
+      invoke('write_system_register', { address, value }).catch(err =>
+        dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'error', category: 'register', message: `Write system register failed: ${err}`, timestamp: Date.now() } })
+      );
+    },
+
+    addAutoRefreshSystemRegister: (address: number) => dispatch({ type: 'ADD_AUTO_REFRESH_SYSTEM_REGISTER', payload: address }),
+    removeAutoRefreshSystemRegister: (address: number) => dispatch({ type: 'REMOVE_AUTO_REFRESH_SYSTEM_REGISTER', payload: address }),
     clearAutoRefreshAddresses: () => dispatch({ type: 'CLEAR_AUTO_REFRESH_ADDRESSES' }),
   };
 

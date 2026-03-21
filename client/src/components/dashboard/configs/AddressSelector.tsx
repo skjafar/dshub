@@ -21,6 +21,7 @@ interface AddressSelectorProps {
   label?: string;
   registers: AddressItem[];
   parameters: AddressItem[];
+  systemRegisters?: AddressItem[];
   size?: 'small' | 'medium';
 }
 
@@ -31,9 +32,14 @@ export default function AddressSelector({
   label = 'Address',
   registers,
   parameters,
+  systemRegisters = [],
   size = 'medium',
 }: AddressSelectorProps): React.ReactElement {
-  const items = dataSource === 'register' ? registers : parameters;
+  const items = dataSource === 'register'
+    ? registers
+    : dataSource === 'sysRegister'
+    ? systemRegisters
+    : parameters;
   const selectedItem = items.find(item => item.address === currentAddress);
 
   return (
@@ -53,7 +59,7 @@ export default function AddressSelector({
           {...params}
           label={label}
           margin={size === 'small' ? 'none' : 'normal'}
-          helperText={items.length === 0 ? `No ${dataSource}s mapped` : ''}
+          helperText={items.length === 0 ? `No ${dataSource === 'sysRegister' ? 'system register' : dataSource}s mapped` : ''}
         />
       )}
       renderOption={(props, option) => (

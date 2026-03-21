@@ -24,6 +24,8 @@ export function useAutoRefresh({ source, address, refreshInterval, isEditMode }:
 
   const mapEntry = source === 'register'
     ? mapManager.getRegisterByAddress(address)
+    : source === 'sysRegister'
+    ? mapManager.getSystemRegisterByAddress(address)
     : mapManager.getParameterByAddress(address);
   const actualName = mapEntry?.name;
 
@@ -39,6 +41,8 @@ export function useAutoRefresh({ source, address, refreshInterval, isEditMode }:
     const readData = () => {
       if (source === 'register') {
         actionsRef.current.readRegister(address, actualName);
+      } else if (source === 'sysRegister') {
+        actionsRef.current.readSystemRegister(address, actualName);
       } else {
         actionsRef.current.readParameter(address, actualName);
       }
@@ -101,11 +105,15 @@ export function useAutoRefreshMulti({ items, refreshInterval, isEditMode }: UseA
       itemsRef.current.forEach(item => {
         const mapEntry = item.source === 'register'
           ? mapManager.getRegisterByAddress(item.address)
+          : item.source === 'sysRegister'
+          ? mapManager.getSystemRegisterByAddress(item.address)
           : mapManager.getParameterByAddress(item.address);
 
         if (mapEntry) {
           if (item.source === 'register') {
             actionsRef.current.readRegister(item.address, mapEntry.name);
+          } else if (item.source === 'sysRegister') {
+            actionsRef.current.readSystemRegister(item.address, mapEntry.name);
           } else {
             actionsRef.current.readParameter(item.address, mapEntry.name);
           }

@@ -89,6 +89,7 @@ interface PlotSeries {
   visible: boolean;
   pollInterval: number;
   address: number;
+  source: 'register' | 'sysRegister';
 }
 
 interface ZoomPanState {
@@ -150,6 +151,7 @@ export default function PlotPanel() {
   const theme = useTheme();
 
   const [selectedRegister, setSelectedRegister] = useState('');
+  const [selectedSource, setSelectedSource] = useState<'register' | 'sysRegister'>('register');
   const [pollIntervalInput, setPollIntervalInput] = useState(settings.plotDefaults.pollInterval.toString());
   const [selectedPlotId, setSelectedPlotId] = useState('plot-1');
   const [isAutoscaleEnabled, setIsAutoscaleEnabled] = useState(true);
@@ -158,6 +160,7 @@ export default function PlotPanel() {
   const [timeSpan, setTimeSpan] = useState(settings.plotDefaults.timeSpan);
   const [timeSpanInput, setTimeSpanInput] = useState(settings.plotDefaults.timeSpan.toString());
   const [availableRegisters, setAvailableRegisters] = useState<MapEntry[]>([]);
+  const [availableSystemRegisters, setAvailableSystemRegisters] = useState<MapEntry[]>([]);
 
   // Counter for plot numbering - always increments, never reuses numbers
   const nextPlotNumberRef = useRef(2);
@@ -378,7 +381,8 @@ export default function PlotPanel() {
     }
 
     const pollInterval = parseInt(pollIntervalInput);
-    const register = availableRegisters.find(r => r.name === selectedRegister);
+    const sourceList = selectedSource === 'sysRegister' ? availableSystemRegisters : availableRegisters;
+    const register = sourceList.find(r => r.name === selectedRegister);
     if (!register) {
       showError(`Register ${selectedRegister} not found in map`);
       return;
@@ -390,7 +394,8 @@ export default function PlotPanel() {
       color,
       visible: true,
       pollInterval,
-      address: register.address
+      address: register.address,
+      source: selectedSource,
     };
 
     setPlots(prev => prev.map(plot => {
@@ -402,8 +407,11 @@ export default function PlotPanel() {
       return plot;
     }));
 
-    console.log(`[PlotPanel] Starting plotting: ${selectedRegister}, pollInterval: ${pollInterval}ms, address: ${register.address}`);
-    actions.startPlotting(selectedRegister, pollInterval, register.address);
+    if (selectedSource === 'sysRegister') {
+      actions.startPlottingSysRegister(selectedRegister, pollInterval, register.address);
+    } else {
+      actions.startPlotting(selectedRegister, pollInterval, register.address);
+    }
     actions.setPlotTimeSpan(selectedRegister, timeSpan);
     setSelectedRegister('');
 
@@ -539,8 +547,8 @@ export default function PlotPanel() {
     const loadRegisters = async () => {
       const activeProfile = getActiveProfile();
       await mapManager.initialize(activeProfile);
-      const registers = mapManager.getAllRegisters();
-      setAvailableRegisters(registers);
+      setAvailableRegisters(mapManager.getAllRegisters());
+      setAvailableSystemRegisters(mapManager.getAllSystemRegisters());
     };
     loadRegisters();
   }, [settings.activeMapProfileId, getActiveProfile]);
@@ -557,6 +565,7 @@ export default function PlotPanel() {
       restoredSeries.set(registerName, {
         name: registerName,
         color: COLORS[restoredSeries.size % COLORS.length],
+        source: plotInfo.source ?? 'register',
         visible: true,
         pollInterval: plotInfo.pollInterval,
         address: plotInfo.address
@@ -1250,15 +1259,31 @@ export default function PlotPanel() {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Grid container spacing={3} alignItems="center">
-            <Grid size={{ xs: 12, sm: 2 }}>
+            <Grid size={{ xs: 12, sm: 1.5 }}>
               <FormControl fullWidth size="small">
-                <InputLabel>Register</InputLabel>
+                <InputLabel>Source</InputLabel>
+                <Select
+                  value={selectedSource}
+                  onChange={(e) => {
+                    setSelectedSource(e.target.value as 'register' | 'sysRegister');
+                    setSelectedRegister('');
+                  }}
+                  label="Source"
+                >
+                  <MenuItem value="register">Register</MenuItem>
+                  <MenuItem value="sysRegister">System Register</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid size={{ xs: 12, sm: 2.5 }}>
+              <FormControl fullWidth size="small">
+                <InputLabel>{selectedSource === 'sysRegister' ? 'System Register' : 'Register'}</InputLabel>
                 <Select
                   value={selectedRegister}
                   onChange={(e) => setSelectedRegister(e.target.value)}
-                  label="Register"
+                  label={selectedSource === 'sysRegister' ? 'System Register' : 'Register'}
                 >
-                  {availableRegisters.map(register => {
+                  {(selectedSource === 'sysRegister' ? availableSystemRegisters : availableRegisters).map(register => {
                     const existsInAnyPlot = plots.some(plot => plot.series.has(register.name));
                     return (
                       <MenuItem key={register.name} value={register.name} disabled={existsInAnyPlot}>

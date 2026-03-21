@@ -26,9 +26,10 @@ interface StateLEDConfigProps {
   onConfigChange: (updates: Partial<StateLEDWidgetConfig>) => void;
   registers: AddressItem[];
   parameters: AddressItem[];
+  systemRegisters: AddressItem[];
 }
 
-export default function StateLEDConfig({ config, onConfigChange, registers, parameters }: StateLEDConfigProps): React.ReactElement {
+export default function StateLEDConfig({ config, onConfigChange, registers, parameters, systemRegisters }: StateLEDConfigProps): React.ReactElement {
   return (
     <>
       <TextField
@@ -47,6 +48,7 @@ export default function StateLEDConfig({ config, onConfigChange, registers, para
         >
           <MenuItem value="register">Register</MenuItem>
           <MenuItem value="parameter">Parameter</MenuItem>
+          <MenuItem value="sysRegister">System Register</MenuItem>
         </Select>
       </FormControl>
       <AddressSelector
@@ -55,6 +57,7 @@ export default function StateLEDConfig({ config, onConfigChange, registers, para
         onChange={(address) => onConfigChange({ ...config, address })}
         registers={registers}
         parameters={parameters}
+        systemRegisters={systemRegisters}
       />
       <TextField
         fullWidth

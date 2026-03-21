@@ -32,6 +32,8 @@ export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWid
   // Get current data from state
   const currentData = config.source === 'register'
     ? state.registers.get(config.address)
+    : config.source === 'sysRegister'
+    ? state.systemRegisters.get(config.address)
     : state.parameters.get(config.address);
 
   const currentValue = currentData?.value !== undefined ? (currentData.value as number) : 0;

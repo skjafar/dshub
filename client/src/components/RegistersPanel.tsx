@@ -36,7 +36,8 @@ import {
   Lock as LockIcon,
   LockOpen as LockOpenIcon,
   Search as SearchIcon,
-  Clear as ClearIcon
+  Clear as ClearIcon,
+  Memory as SystemIcon
 } from '@mui/icons-material';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -71,6 +72,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   const [readDialog, setReadDialog] = useState(false);
   const [currentTab, setCurrentTab] = useState(0);
   const [mapEntries, setMapEntries] = useState<MapEntry[]>([]);
+  const [systemMapEntries, setSystemMapEntries] = useState<MapEntry[]>([]);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(1000);
   const [editingValues, setEditingValues] = useState<{ [address: number]: string }>({});
@@ -105,8 +107,10 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
 
         // Update local state with current map entries
         const entries = mapManager.getAllRegisters();
-        console.log(`[RegistersPanel] Loaded ${entries.length} register entries from mapManager`);
+        const sysEntries = mapManager.getAllSystemRegisters();
+        console.log(`[RegistersPanel] Loaded ${entries.length} register entries, ${sysEntries.length} system register entries from mapManager`);
         setMapEntries(entries);
+        setSystemMapEntries(sysEntries);
         setIsMapLoaded(true);
       } catch (error) {
         console.error('Failed to load register maps:', error);
@@ -119,7 +123,13 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   const canWrite = canWriteToDevice(state.connection);
 
   const handleRefreshAll = () => {
-    // Read all visible registers in the current tab
+    if (currentTab === 2) {
+      visibleRegisters.forEach(register => {
+        const sysEntry = systemMapEntries.find(e => e.address === register.address);
+        actions.readSystemRegister(register.address, sysEntry?.name ?? register.name);
+      });
+      return;
+    }
     visibleRegisters.forEach((register) => {
       const mapEntry = getMapEntryForRegister(register.address);
       actions.readRegister(register.address, mapEntry?.name || register.name);
@@ -127,7 +137,12 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   };
 
   const handleReadAllMapped = () => {
-    // Read all registers defined in the map for current tab
+    if (currentTab === 2) {
+      systemMapEntries.forEach(entry => {
+        actions.readSystemRegister(entry.address, entry.name);
+      });
+      return;
+    }
     allMappedRegisters.forEach((mapEntry) => {
       actions.readRegister(mapEntry.address, mapEntry.name);
     });
@@ -245,23 +260,86 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
     }
   };
 
+  const toggleSystemRegisterAutoRefresh = (address: number, enabled: boolean) => {
+    if (enabled) {
+      const sysEntry = systemMapEntries.find(e => e.address === address);
+      const existingSysReg = state.systemRegisters.get(address);
+      const name = existingSysReg?.name ?? sysEntry?.name;
+      if (name) {
+        actions.readSystemRegister(address, name);
+      }
+      actions.addAutoRefreshSystemRegister(address);
+      if (!state.autoRefresh.enabled) {
+        actions.setAutoRefresh(true, autoRefreshInterval);
+      }
+    } else {
+      actions.removeAutoRefreshSystemRegister(address);
+      if (
+        state.autoRefresh.activeSystemAddresses.size === 1 &&
+        state.autoRefresh.activeAddresses.size === 0 &&
+        state.autoRefresh.activeParameterAddresses.size === 0
+      ) {
+        actions.setAutoRefresh(false);
+      }
+    }
+  };
+
+  const toggleAllSystemRegistersAutoRefresh = (enabled: boolean) => {
+    systemMapEntries.forEach(entry => {
+      if (enabled) {
+        const existingSysReg = state.systemRegisters.get(entry.address);
+        const name = existingSysReg?.name ?? entry.name;
+        if (name) {
+          actions.readSystemRegister(entry.address, name);
+        }
+        actions.addAutoRefreshSystemRegister(entry.address);
+      } else {
+        actions.removeAutoRefreshSystemRegister(entry.address);
+      }
+    });
+    if (enabled) {
+      actions.setAutoRefresh(true, autoRefreshInterval);
+    } else if (
+      state.autoRefresh.activeAddresses.size === 0 &&
+      state.autoRefresh.activeParameterAddresses.size === 0
+    ) {
+      actions.setAutoRefresh(false);
+    }
+  };
+
   const getMapEntryForRegister = (address: number): MapEntry | undefined => {
     return mapEntries.find(entry => entry.address === address);
   };
 
   const formatRegisterValue = (register: any): string => {
-    const mapEntry = getMapEntryForRegister(register.address);
+    const mapEntry = currentTab === 2
+      ? systemMapEntries.find(e => e.address === register.address)
+      : getMapEntryForRegister(register.address);
     return formatDataValue(register.value, mapEntry);
   };
 
   const getRegistersForCurrentTab = () => {
+    if (currentTab === 2) {
+      // System registers tab
+      return systemMapEntries.map(mapEntry => {
+        const actual = state.systemRegisters.get(mapEntry.address);
+        return actual ?? {
+          address: mapEntry.address,
+          name: mapEntry.name,
+          value: null,
+          valid: false,
+          timestamp: 0
+        };
+      }).sort((a, b) => a.address - b.address);
+    }
+
     if (!isMapLoaded || mapEntries.length === 0) {
       // Fallback to actual registers if no map data
       return Array.from(state.registers.values()).sort((a, b) => a.address - b.address);
     }
 
-    const mappedEntries = currentTab === 0 
-      ? mapManager.getReadOnlyRegisters() 
+    const mappedEntries = currentTab === 0
+      ? mapManager.getReadOnlyRegisters()
       : mapManager.getReadWriteRegisters();
 
     // Create combined list: map entries with actual values where available
@@ -278,11 +356,9 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   };
 
   const getAllMappedRegisters = () => {
-    if (currentTab === 0) {
-      return mapManager.getReadOnlyRegisters();
-    } else {
-      return mapManager.getReadWriteRegisters();
-    }
+    if (currentTab === 2) return systemMapEntries;
+    if (currentTab === 0) return mapManager.getReadOnlyRegisters();
+    return mapManager.getReadWriteRegisters();
   };
 
   const visibleRegisters = getRegistersForCurrentTab();
@@ -291,7 +367,9 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   const filteredRegisters = filterQuery
     ? visibleRegisters.filter(register => {
         const query = filterQuery.toLowerCase();
-        const mapEntry = getMapEntryForRegister(register.address);
+        const mapEntry = currentTab === 2
+          ? systemMapEntries.find(e => e.address === register.address)
+          : getMapEntryForRegister(register.address);
         const name = (register.name || mapEntry?.name || '').toLowerCase();
         const addressDec = register.address.toString();
         const addressHex = '0x' + register.address.toString(16).toLowerCase();
@@ -368,6 +446,11 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
               iconPosition="start"
               label={`Read/Write (${mapManager.getReadWriteRegisters().length})`}
             />
+            <Tab
+              icon={<SystemIcon sx={{ fontSize: 14 }} />}
+              iconPosition="start"
+              label={`System (${systemMapEntries.length})`}
+            />
           </Tabs>
         </Box>
       )}
@@ -389,9 +472,9 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                 Register Data ({filteredRegisters.length}{filterQuery ? ` / ${visibleRegisters.length}` : ''} registers)
                 {isMapLoaded && (
                   <Chip
-                    label={currentTab === 0 ? 'Read Only' : 'Read/Write'}
+                    label={currentTab === 0 ? 'Read Only' : currentTab === 1 ? 'Read/Write' : 'System'}
                     size="small"
-                    color={currentTab === 0 ? 'default' : 'primary'}
+                    color={currentTab === 1 ? 'primary' : currentTab === 2 ? 'secondary' : 'default'}
                     sx={{ ml: 1 }}
                   />
                 )}
@@ -437,13 +520,23 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                     <TableCell sx={{ py: 0.5 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         Auto-Refresh
-                        <Checkbox
-                          size="small"
-                          checked={visibleRegisters.length > 0 && visibleRegisters.every(r => state.autoRefresh.activeAddresses.has(r.address))}
-                          indeterminate={visibleRegisters.some(r => state.autoRefresh.activeAddresses.has(r.address)) && !visibleRegisters.every(r => state.autoRefresh.activeAddresses.has(r.address))}
-                          onChange={(e) => toggleAllRegistersAutoRefresh(e.target.checked)}
-                          disabled={!state.connection?.connected || visibleRegisters.length === 0}
-                        />
+                        {currentTab === 2 ? (
+                          <Checkbox
+                            size="small"
+                            checked={visibleRegisters.length > 0 && visibleRegisters.every(r => state.autoRefresh.activeSystemAddresses.has(r.address))}
+                            indeterminate={visibleRegisters.some(r => state.autoRefresh.activeSystemAddresses.has(r.address)) && !visibleRegisters.every(r => state.autoRefresh.activeSystemAddresses.has(r.address))}
+                            onChange={(e) => toggleAllSystemRegistersAutoRefresh(e.target.checked)}
+                            disabled={!state.connection?.connected || visibleRegisters.length === 0}
+                          />
+                        ) : (
+                          <Checkbox
+                            size="small"
+                            checked={visibleRegisters.length > 0 && visibleRegisters.every(r => state.autoRefresh.activeAddresses.has(r.address))}
+                            indeterminate={visibleRegisters.some(r => state.autoRefresh.activeAddresses.has(r.address)) && !visibleRegisters.every(r => state.autoRefresh.activeAddresses.has(r.address))}
+                            onChange={(e) => toggleAllRegistersAutoRefresh(e.target.checked)}
+                            disabled={!state.connection?.connected || visibleRegisters.length === 0}
+                          />
+                        )}
                       </Box>
                     </TableCell>
                     <TableCell sx={{ py: 0.5 }}>Actions</TableCell>
@@ -451,7 +544,9 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                 </TableHead>
                 <TableBody>
                   {filteredRegisters.map((register) => {
-                    const mapEntry = getMapEntryForRegister(register.address);
+                    const mapEntry = currentTab === 2
+                      ? systemMapEntries.find(e => e.address === register.address)
+                      : getMapEntryForRegister(register.address);
                     // Extract array index from name if it's an array element (e.g., "NAME[5]" -> "5")
                     const arrayIndexMatch = (register.name || mapEntry?.name || '').match(/\[(\d+)\]$/);
                     const arrayIndex = arrayIndexMatch ? arrayIndexMatch[1] : null;
@@ -490,7 +585,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                           </Tooltip>
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
-                          {mapEntry?.accessPermit === DataAccessPermit.READ_WRITE && state.connection?.connected ? (
+                          {currentTab !== 2 && mapEntry?.accessPermit === DataAccessPermit.READ_WRITE && state.connection?.connected ? (
                             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                               <TextField
                                 variant="outlined"
@@ -568,14 +663,25 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                           </Typography>
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
-                          <Tooltip title={state.autoRefresh.activeAddresses.has(register.address) ? 'Remove from auto-refresh' : 'Add to auto-refresh'}>
-                            <Checkbox
-                              size="small"
-                              checked={state.autoRefresh.activeAddresses.has(register.address)}
-                              onChange={(e) => toggleRegisterAutoRefresh(register.address, e.target.checked)}
-                              disabled={!state.connection?.connected}
-                            />
-                          </Tooltip>
+                          {currentTab === 2 ? (
+                            <Tooltip title={state.autoRefresh.activeSystemAddresses.has(register.address) ? 'Remove from auto-refresh' : 'Add to auto-refresh'}>
+                              <Checkbox
+                                size="small"
+                                checked={state.autoRefresh.activeSystemAddresses.has(register.address)}
+                                onChange={(e) => toggleSystemRegisterAutoRefresh(register.address, e.target.checked)}
+                                disabled={!state.connection?.connected}
+                              />
+                            </Tooltip>
+                          ) : (
+                            <Tooltip title={state.autoRefresh.activeAddresses.has(register.address) ? 'Remove from auto-refresh' : 'Add to auto-refresh'}>
+                              <Checkbox
+                                size="small"
+                                checked={state.autoRefresh.activeAddresses.has(register.address)}
+                                onChange={(e) => toggleRegisterAutoRefresh(register.address, e.target.checked)}
+                                disabled={!state.connection?.connected}
+                              />
+                            </Tooltip>
+                          )}
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
                           <Box sx={{ display: 'flex', gap: 0.5 }}>
@@ -583,25 +689,32 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                               <IconButton
                                 size="small"
                                 onClick={() => {
-                                  const mapEntry = getMapEntryForRegister(register.address);
-                                  actions.readRegister(register.address, mapEntry?.name || register.name);
+                                  if (currentTab === 2) {
+                                    const sysEntry = systemMapEntries.find(e => e.address === register.address);
+                                    actions.readSystemRegister(register.address, sysEntry?.name ?? register.name);
+                                  } else {
+                                    const mapEntry = getMapEntryForRegister(register.address);
+                                    actions.readRegister(register.address, mapEntry?.name || register.name);
+                                  }
                                 }}
                                 disabled={!state.connection?.connected}
                               >
                                 <RefreshIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title={currentTab === 0 ? 'Read-only register' : 'Edit register value'}>
-                              <span>
-                                <IconButton
-                                  size="small"
-                                  onClick={() => handleEditRegister(register, mapEntry)}
-                                  disabled={!canWrite || currentTab === 0}
-                                >
-                                  <EditIcon fontSize="small" />
-                                </IconButton>
-                              </span>
-                            </Tooltip>
+                            {currentTab !== 2 && (
+                              <Tooltip title={currentTab === 0 ? 'Read-only register' : 'Edit register value'}>
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleEditRegister(register, mapEntry)}
+                                    disabled={!canWrite || currentTab === 0}
+                                  >
+                                    <EditIcon fontSize="small" />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                            )}
                           </Box>
                         </TableCell>
                       </TableRow>

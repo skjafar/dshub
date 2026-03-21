@@ -26,9 +26,10 @@ interface DataTableConfigProps {
   onConfigChange: (updates: Partial<DataTableWidgetConfig>) => void;
   registers: AddressItem[];
   parameters: AddressItem[];
+  systemRegisters: AddressItem[];
 }
 
-export default function DataTableConfig({ config, onConfigChange, registers, parameters }: DataTableConfigProps): React.ReactElement {
+export default function DataTableConfig({ config, onConfigChange, registers, parameters, systemRegisters }: DataTableConfigProps): React.ReactElement {
   return (
     <>
       <TextField
@@ -169,6 +170,7 @@ export default function DataTableConfig({ config, onConfigChange, registers, par
                 >
                   <MenuItem value="register">Register</MenuItem>
                   <MenuItem value="parameter">Parameter</MenuItem>
+                  <MenuItem value="sysRegister">System Register</MenuItem>
                 </Select>
               </FormControl>
               <Box sx={{ flex: 2 }}>
@@ -182,6 +184,7 @@ export default function DataTableConfig({ config, onConfigChange, registers, par
                   }}
                   registers={registers}
                   parameters={parameters}
+                  systemRegisters={systemRegisters}
                   label="Address"
                   size="small"
                 />

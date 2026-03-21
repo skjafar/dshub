@@ -22,6 +22,8 @@ export default function ValueReadWidget({ config, isEditMode, widgetSize }: Valu
   // Get the current value from state
   const data = config.source === 'register'
     ? state.registers.get(config.address)
+    : config.source === 'sysRegister'
+    ? state.systemRegisters.get(config.address)
     : state.parameters.get(config.address);
 
   // Set up auto-refresh via shared hook

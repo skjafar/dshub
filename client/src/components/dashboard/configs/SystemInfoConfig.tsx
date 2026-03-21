@@ -26,9 +26,10 @@ interface SystemInfoConfigProps {
   onConfigChange: (updates: Partial<SystemInfoWidgetConfig>) => void;
   registers: AddressItem[];
   parameters: AddressItem[];
+  systemRegisters: AddressItem[];
 }
 
-export default function SystemInfoConfig({ config, onConfigChange, registers, parameters }: SystemInfoConfigProps): React.ReactElement {
+export default function SystemInfoConfig({ config, onConfigChange, registers, parameters, systemRegisters }: SystemInfoConfigProps): React.ReactElement {
   return (
     <>
       <TextField
@@ -138,6 +139,7 @@ export default function SystemInfoConfig({ config, onConfigChange, registers, pa
               >
                 <MenuItem value="register">Register</MenuItem>
                 <MenuItem value="parameter">Parameter</MenuItem>
+                <MenuItem value="sysRegister">System Register</MenuItem>
               </Select>
             </FormControl>
             <Box sx={{ flex: 2 }}>
@@ -151,6 +153,7 @@ export default function SystemInfoConfig({ config, onConfigChange, registers, pa
                 }}
                 registers={registers}
                 parameters={parameters}
+                systemRegisters={systemRegisters}
                 label="Address"
                 size="small"
               />

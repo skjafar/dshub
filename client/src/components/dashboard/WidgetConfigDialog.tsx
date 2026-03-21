@@ -82,10 +82,13 @@ export default function WidgetConfigDialog({
   const [config, setConfig] = useState<Partial<WidgetConfig>>({});
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
-  // Get available registers and parameters from the map
+  // Get available registers, parameters and system registers from the map
   const activeProfile = getActiveProfile();
   const registerMapEntries = activeProfile ? parseMapFile(activeProfile.registersMap, true).entries : [];
   const parameterMapEntries = activeProfile ? parseMapFile(activeProfile.parametersMap, false).entries : [];
+  const sysRegMapEntries = activeProfile?.systemRegistersMap
+    ? parseMapFile(activeProfile.systemRegistersMap, false).entries
+    : [];
 
   const registers: AddressItem[] = registerMapEntries.map(entry => ({
     address: entry.address,
@@ -98,6 +101,13 @@ export default function WidgetConfigDialog({
     address: entry.address,
     name: entry.name,
     type: entry.type
+  }));
+
+  const systemRegisters: AddressItem[] = sysRegMapEntries.map(entry => ({
+    address: entry.address,
+    name: entry.name,
+    type: entry.type,
+    isReadOnly: true
   }));
 
   // Update widget type and config when dialog opens or props change
@@ -378,7 +388,7 @@ export default function WidgetConfigDialog({
 
   const renderConfigFields = () => {
     const sysCommands = activeProfile?.sysCommands ?? [];
-    const commonProps = { registers, parameters, sysCommands };
+    const commonProps = { registers, parameters, systemRegisters, sysCommands };
 
     switch (widgetType) {
       case 'button':

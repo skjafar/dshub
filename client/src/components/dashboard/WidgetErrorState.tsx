@@ -19,6 +19,8 @@ export function getWidgetError(source: string, address: number): React.ReactElem
 
   const entry = source === 'register'
     ? mapManager.getRegisterByAddress(address)
+    : source === 'sysRegister'
+    ? mapManager.getSystemRegisterByAddress(address)
     : mapManager.getParameterByAddress(address);
 
   if (!entry) {

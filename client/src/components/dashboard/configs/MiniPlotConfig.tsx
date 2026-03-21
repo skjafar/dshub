@@ -17,9 +17,10 @@ interface MiniPlotConfigProps {
   onConfigChange: (updates: Partial<MiniPlotWidgetConfig>) => void;
   registers: AddressItem[];
   parameters: AddressItem[];
+  systemRegisters: AddressItem[];
 }
 
-export default function MiniPlotConfig({ config, onConfigChange, registers, parameters }: MiniPlotConfigProps): React.ReactElement {
+export default function MiniPlotConfig({ config, onConfigChange, registers, parameters, systemRegisters }: MiniPlotConfigProps): React.ReactElement {
   return (
     <>
       <TextField
@@ -38,15 +39,17 @@ export default function MiniPlotConfig({ config, onConfigChange, registers, para
         >
           <MenuItem value="register">Register</MenuItem>
           <MenuItem value="parameter">Parameter</MenuItem>
+          <MenuItem value="sysRegister">System Register</MenuItem>
         </Select>
       </FormControl>
       <AddressSelector
         dataSource={config.source ?? 'register'}
         currentAddress={config.address}
         onChange={(address) => onConfigChange({ ...config, address })}
-        label={`${config.source === 'parameter' ? 'Parameter' : 'Register'} Address`}
+        label="Address"
         registers={registers}
         parameters={parameters}
+        systemRegisters={systemRegisters}
       />
       <TextField
         fullWidth

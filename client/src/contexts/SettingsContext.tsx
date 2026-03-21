@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { UserSettings, DEFAULT_SETTINGS, MapProfile, DEFAULT_PROFILE_ID, CNC_PROFILE_ID, SysCommand } from '../types/settings';
-import { createModernCNCDashboard, CNC_SYS_COMMANDS } from '../utils/cncDashboardTemplate';
+import { createModernCNCDashboard, CNC_SYS_COMMANDS, CNC_DASHBOARD_VERSION } from '../utils/cncDashboardTemplate';
 import { mapManager } from '../maps/mapManager';
 
 const STORAGE_KEY = 'dshub_settings';
@@ -15,11 +15,11 @@ interface SettingsContextType {
   // Map profile management
   getAllProfiles: () => MapProfile[]; // Returns all profiles including default
   getActiveProfile: () => MapProfile | null;
-  createProfile: (name: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string) => string;
-  updateProfile: (profileId: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string) => boolean;
+  createProfile: (name: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, systemRegistersContent?: string) => string;
+  updateProfile: (profileId: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, systemRegistersContent?: string) => boolean;
   deleteProfile: (profileId: string) => boolean;
   activateProfile: (profileId: string) => boolean;
-  downloadProfileMaps: (profileId: string) => { registers: string; parameters: string; boardTypes?: string } | null;
+  downloadProfileMaps: (profileId: string) => { registers: string; parameters: string; boardTypes?: string; systemRegisters?: string } | null;
   loadDefaultProfile: () => Promise<MapProfile>;
 }
 
@@ -96,16 +96,17 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-create CNC dashboard when CNC profile is loaded and no dashboard exists yet
+  // Auto-create (or reset) CNC dashboard when CNC profile is loaded or template version changes
   useEffect(() => {
     if (!cncProfile) return;
-    if (settings.dashboardLayouts[CNC_PROFILE_ID]) return;
+    if (settings.dashboardLayouts[CNC_PROFILE_ID] && settings.cncDashboardVersion === CNC_DASHBOARD_VERSION) return;
 
     updateSettings({
       dashboardLayouts: {
         ...settings.dashboardLayouts,
         [CNC_PROFILE_ID]: createModernCNCDashboard()
-      }
+      },
+      cncDashboardVersion: CNC_DASHBOARD_VERSION,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cncProfile]);
@@ -186,6 +187,17 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
         console.log('Board types map not found, will use defaults');
       }
 
+      // Try to load system registers map (optional)
+      let systemRegistersMap: string | undefined = undefined;
+      try {
+        const systemRegistersResponse = await fetch('/maps/system_registers.map');
+        if (systemRegistersResponse.ok) {
+          systemRegistersMap = await systemRegistersResponse.text();
+        }
+      } catch {
+        console.log('system_registers.map not found, system tab will be empty');
+      }
+
       return {
         id: DEFAULT_PROFILE_ID,
         name: 'Default Maps',
@@ -193,6 +205,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
         registersMap,
         parametersMap,
         boardTypesMap,
+        systemRegistersMap,
         createdAt: 0,
       };
     } catch (error) {
@@ -215,12 +228,24 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     const registersMap = await registersResponse.text();
     const parametersMap = await parametersResponse.text();
 
+    // Try to load CNC system registers map (optional)
+    let systemRegistersMap: string | undefined = undefined;
+    try {
+      const sysRegResponse = await fetch('/maps/cnc_system_registers.map');
+      if (sysRegResponse.ok) {
+        systemRegistersMap = await sysRegResponse.text();
+      }
+    } catch {
+      console.log('cnc_system_registers.map not found');
+    }
+
     return {
       id: CNC_PROFILE_ID,
       name: 'CNC Motor Controller',
       isDefault: true,
       registersMap,
       parametersMap,
+      systemRegistersMap,
       sysCommands: CNC_SYS_COMMANDS,
       createdAt: 0,
     };
@@ -251,7 +276,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   }, [settings.activeMapProfileId, settings.mapProfiles, defaultProfile, cncProfile]);
 
   // Create a new profile
-  const createProfile = useCallback((name: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string): string => {
+  const createProfile = useCallback((name: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, systemRegistersContent?: string): string => {
     const profileId = `profile_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const newProfile: MapProfile = {
       id: profileId,
@@ -260,6 +285,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
       registersMap: registersContent,
       parametersMap: parametersContent,
       boardTypesMap: boardTypesContent,
+      systemRegistersMap: systemRegistersContent,
       sysCommands,
       createdAt: Date.now(),
     };
@@ -273,7 +299,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   }, []);
 
   // Update an existing profile (cannot update default or CNC)
-  const updateProfile = useCallback((profileId: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string): boolean => {
+  const updateProfile = useCallback((profileId: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, systemRegistersContent?: string): boolean => {
     if (profileId === DEFAULT_PROFILE_ID || profileId === CNC_PROFILE_ID) {
       console.error('Cannot update built-in profile');
       return false;
@@ -289,6 +315,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
         registersMap: registersContent,
         parametersMap: parametersContent,
         boardTypesMap: boardTypesContent,
+        systemRegistersMap: systemRegistersContent,
         sysCommands,
       };
 
@@ -350,14 +377,15 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   }, [defaultProfile, cncProfile, settings.mapProfiles]);
 
   // Download profile maps
-  const downloadProfileMaps = useCallback((profileId: string): { registers: string; parameters: string; boardTypes?: string } | null => {
+  const downloadProfileMaps = useCallback((profileId: string): { registers: string; parameters: string; boardTypes?: string; systemRegisters?: string } | null => {
     const profile = getAllProfiles().find(p => p.id === profileId);
     if (!profile) return null;
 
     return {
       registers: profile.registersMap,
       parameters: profile.parametersMap,
-      boardTypes: profile.boardTypesMap
+      boardTypes: profile.boardTypesMap,
+      systemRegisters: profile.systemRegistersMap
     };
   }, [getAllProfiles]);
 

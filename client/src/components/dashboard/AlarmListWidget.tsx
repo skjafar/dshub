@@ -62,6 +62,8 @@ export default function AlarmListWidget({ config, isEditMode, widgetSize }: Alar
   const evaluatedAlarms: EvaluatedAlarm[] = config.alarms.map(rule => {
     const data = rule.source === 'register'
       ? state.registers.get(rule.address)
+      : rule.source === 'sysRegister'
+      ? state.systemRegisters.get(rule.address)
       : state.parameters.get(rule.address);
     const value = data?.value !== undefined ? (data.value as number) : undefined;
 

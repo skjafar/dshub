@@ -43,6 +43,8 @@ export default function MiniPlotWidget({ config, isEditMode, widgetSize }: MiniP
   // Get current data from state
   const currentData = config.source === 'register'
     ? state.registers.get(config.address)
+    : config.source === 'sysRegister'
+    ? state.systemRegisters.get(config.address)
     : state.parameters.get(config.address);
 
   // Collect data points - triggers on every new read (timestamp change), even if value stays the same

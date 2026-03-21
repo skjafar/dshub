@@ -17,9 +17,10 @@ interface EncoderDisplayConfigProps {
   onConfigChange: (updates: Partial<EncoderDisplayWidgetConfig>) => void;
   registers: AddressItem[];
   parameters: AddressItem[];
+  systemRegisters: AddressItem[];
 }
 
-export default function EncoderDisplayConfig({ config, onConfigChange, registers, parameters }: EncoderDisplayConfigProps): React.ReactElement {
+export default function EncoderDisplayConfig({ config, onConfigChange, registers, parameters, systemRegisters }: EncoderDisplayConfigProps): React.ReactElement {
   return (
     <>
       <TextField
@@ -38,6 +39,7 @@ export default function EncoderDisplayConfig({ config, onConfigChange, registers
         >
           <MenuItem value="register">Register</MenuItem>
           <MenuItem value="parameter">Parameter</MenuItem>
+          <MenuItem value="sysRegister">System Register</MenuItem>
         </Select>
       </FormControl>
       <AddressSelector
@@ -46,6 +48,7 @@ export default function EncoderDisplayConfig({ config, onConfigChange, registers
         onChange={(address) => onConfigChange({ ...config, address })}
         registers={registers}
         parameters={parameters}
+        systemRegisters={systemRegisters}
       />
       <FormControl fullWidth margin="normal">
         <InputLabel>Conversion Source</InputLabel>

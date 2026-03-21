@@ -62,9 +62,11 @@ export default function MapProfilesPanel() {
   const [registersFile, setRegistersFile] = useState<File | null>(null);
   const [parametersFile, setParametersFile] = useState<File | null>(null);
   const [boardTypesFile, setBoardTypesFile] = useState<File | null>(null);
+  const [systemRegistersFile, setSystemRegistersFile] = useState<File | null>(null);
   const registersInputRef = useRef<HTMLInputElement>(null);
   const parametersInputRef = useRef<HTMLInputElement>(null);
   const boardTypesInputRef = useRef<HTMLInputElement>(null);
+  const systemRegistersInputRef = useRef<HTMLInputElement>(null);
 
   const profiles = getAllProfiles();
 
@@ -93,12 +95,17 @@ export default function MapProfilesPanel() {
         showError(`Board types map file is too large (${(boardTypesFile.size / 1024 / 1024).toFixed(2)}MB). Maximum size is 10MB.`);
         return;
       }
+      if (systemRegistersFile && systemRegistersFile.size > MAX_FILE_SIZE) {
+        showError(`System registers map file is too large (${(systemRegistersFile.size / 1024 / 1024).toFixed(2)}MB). Maximum size is 10MB.`);
+        return;
+      }
 
       const registersContent = await registersFile.text();
       const parametersContent = await parametersFile.text();
       const boardTypesContent = boardTypesFile ? await boardTypesFile.text() : undefined;
+      const systemRegistersContent = systemRegistersFile ? await systemRegistersFile.text() : undefined;
 
-      const profileId = createProfile(profileName, registersContent, parametersContent, undefined, boardTypesContent);
+      const profileId = createProfile(profileName, registersContent, parametersContent, undefined, boardTypesContent, systemRegistersContent);
       showSuccess(`Profile "${profileName}" created successfully`);
 
       setCreateDialogOpen(false);
@@ -106,6 +113,7 @@ export default function MapProfilesPanel() {
       setRegistersFile(null);
       setParametersFile(null);
       setBoardTypesFile(null);
+      setSystemRegistersFile(null);
 
       // Activate the newly created profile
       handleActivateProfile(profileId);
@@ -136,12 +144,17 @@ export default function MapProfilesPanel() {
         showError(`Board types map file is too large (${(boardTypesFile.size / 1024 / 1024).toFixed(2)}MB). Maximum size is 10MB.`);
         return;
       }
+      if (systemRegistersFile && systemRegistersFile.size > MAX_FILE_SIZE) {
+        showError(`System registers map file is too large (${(systemRegistersFile.size / 1024 / 1024).toFixed(2)}MB). Maximum size is 10MB.`);
+        return;
+      }
 
       const registersContent = await registersFile.text();
       const parametersContent = await parametersFile.text();
       const boardTypesContent = boardTypesFile ? await boardTypesFile.text() : undefined;
+      const systemRegistersContent = systemRegistersFile ? await systemRegistersFile.text() : undefined;
 
-      const success = updateProfile(selectedProfileId, registersContent, parametersContent, undefined, boardTypesContent);
+      const success = updateProfile(selectedProfileId, registersContent, parametersContent, undefined, boardTypesContent, systemRegistersContent);
 
       if (success) {
         showSuccess('Profile updated successfully');
@@ -149,6 +162,7 @@ export default function MapProfilesPanel() {
         setRegistersFile(null);
         setParametersFile(null);
         setBoardTypesFile(null);
+        setSystemRegistersFile(null);
 
         // If updating the active profile, re-activate it to refresh maps
         if (selectedProfileId === settings.activeMapProfileId) {
@@ -237,8 +251,21 @@ export default function MapProfilesPanel() {
       URL.revokeObjectURL(boardTypesUrl);
     }
 
-    const downloadedFiles = maps.boardTypes ? '3 files' : '2 files';
-    showSuccess(`Maps downloaded (${downloadedFiles})`);
+    // Download system registers map if available
+    if (maps.systemRegisters) {
+      const sysRegBlob = new Blob([maps.systemRegisters], { type: 'text/plain' });
+      const sysRegUrl = URL.createObjectURL(sysRegBlob);
+      const sysRegLink = document.createElement('a');
+      sysRegLink.href = sysRegUrl;
+      sysRegLink.download = `${baseName}_system_registers.map`;
+      document.body.appendChild(sysRegLink);
+      sysRegLink.click();
+      document.body.removeChild(sysRegLink);
+      URL.revokeObjectURL(sysRegUrl);
+    }
+
+    const fileCount = 2 + (maps.boardTypes ? 1 : 0) + (maps.systemRegisters ? 1 : 0);
+    showSuccess(`Maps downloaded (${fileCount} files)`);
     setAnchorEl(null);
   };
 
@@ -447,12 +474,32 @@ export default function MapProfilesPanel() {
               startIcon={<UploadIcon />}
               onClick={() => boardTypesInputRef.current?.click()}
               fullWidth
+              sx={{ mb: 2 }}
             >
               {boardTypesFile ? boardTypesFile.name : 'Upload Board Types Map (Optional)'}
             </Button>
 
+            <Typography variant="subtitle2" gutterBottom>
+              System Registers Map File (Optional)
+            </Typography>
+            <input
+              type="file"
+              accept=".map"
+              ref={systemRegistersInputRef}
+              onChange={(e) => setSystemRegistersFile(e.target.files?.[0] || null)}
+              style={{ display: 'none' }}
+            />
+            <Button
+              variant="outlined"
+              startIcon={<UploadIcon />}
+              onClick={() => systemRegistersInputRef.current?.click()}
+              fullWidth
+            >
+              {systemRegistersFile ? systemRegistersFile.name : 'Upload System Registers Map (Optional)'}
+            </Button>
+
             <Alert severity="info" sx={{ mt: 2 }}>
-              Upload register and parameter map files (.map format) to create a new profile. Board types map is optional.
+              Upload register and parameter map files (.map format) to create a new profile. Board types and system registers maps are optional.
             </Alert>
           </DialogContent>
           <DialogActions>
@@ -531,13 +578,35 @@ export default function MapProfilesPanel() {
                 component="span"
                 startIcon={<UploadIcon />}
                 fullWidth
+                sx={{ mb: 2 }}
               >
                 {boardTypesFile ? boardTypesFile.name : 'Upload Board Types Map (Optional)'}
               </Button>
             </label>
 
+            <Typography variant="subtitle2" gutterBottom>
+              System Registers Map File (Optional)
+            </Typography>
+            <input
+              type="file"
+              accept=".map"
+              onChange={(e) => setSystemRegistersFile(e.target.files?.[0] || null)}
+              style={{ display: 'none' }}
+              id="edit-systemregisters-input"
+            />
+            <label htmlFor="edit-systemregisters-input">
+              <Button
+                variant="outlined"
+                component="span"
+                startIcon={<UploadIcon />}
+                fullWidth
+              >
+                {systemRegistersFile ? systemRegistersFile.name : 'Upload System Registers Map (Optional)'}
+              </Button>
+            </label>
+
             <Alert severity="warning" sx={{ mt: 2 }}>
-              Register and parameter map files are required. Board types map is optional.
+              Register and parameter map files are required. Board types and system registers maps are optional.
             </Alert>
           </DialogContent>
           <DialogActions>
