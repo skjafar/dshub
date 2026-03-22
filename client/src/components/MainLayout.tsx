@@ -47,6 +47,7 @@ import { DEFAULT_GRID_CONFIG } from '../types/dashboard';
 import { FONT_MONO } from '../theme';
 import { mapManager } from '../maps/mapManager';
 import DeviceScannerPanel from './DeviceScannerPanel';
+import StatusBar, { STATUS_BAR_HEIGHT } from './StatusBar';
 import type { DashboardPanelRef } from './DashboardPanel';
 import type { RegistersPanelRef } from './RegistersPanel';
 import type { ParametersPanelRef } from './ParametersPanel';
@@ -261,17 +262,80 @@ export default function MainLayout() {
     }
   };
 
-  // Group nav items with separators
+  // Group nav items with separators (settings/about go to bottom)
   const navGroups: ViewType[][] = [
     ['scanner', 'status'],
     ['dashboard', 'plot'],
     ['syscommand', 'registers', 'parameters'],
     ['logs', 'mapeditor'],
-    ['settings', 'about'],
   ];
+  const bottomNavItems: ViewType[] = ['settings', 'about'];
+
+  const renderNavItem = (viewKey: ViewType) => {
+    const view = views.find(v => v.key === viewKey)!;
+    const isLogs = view.key === 'logs';
+    const logCount = isLogs ? state.unreadLogCount : 0;
+
+    const listItemButton = (
+      <ListItemButton
+        selected={currentView === view.key}
+        onClick={() => setCurrentView(view.key)}
+        sx={{
+          minHeight: 40,
+          justifyContent: drawerCollapsed ? 'center' : 'initial',
+          px: 2,
+          py: 0.5,
+          borderLeft: '3px solid transparent',
+          '&.Mui-selected': {
+            borderLeftColor: 'primary.main',
+          },
+        }}
+      >
+        <ListItemIcon
+          sx={{
+            minWidth: 0,
+            mr: drawerCollapsed ? 'auto' : 2,
+            justifyContent: 'center',
+            color: currentView === view.key ? 'primary.main' : 'text.secondary',
+            '& .MuiSvgIcon-root': { fontSize: '1.2rem' },
+          }}
+        >
+          {isLogs && logCount > 0 ? (
+            <Badge badgeContent={logCount} color="secondary" max={99} sx={{ '& .MuiBadge-badge': { fontSize: '0.55rem', minWidth: 16, height: 16 } }}>
+              {view.icon}
+            </Badge>
+          ) : (
+            view.icon
+          )}
+        </ListItemIcon>
+        {!drawerCollapsed && (
+          <ListItemText
+            primary={view.label}
+            primaryTypographyProps={{
+              fontSize: '1rem',
+              fontWeight: currentView === view.key ? 600 : 400,
+              color: currentView === view.key ? 'text.primary' : 'text.secondary',
+            }}
+          />
+        )}
+      </ListItemButton>
+    );
+
+    return (
+      <ListItem key={view.key} disablePadding sx={{ display: 'block' }}>
+        {drawerCollapsed ? (
+          <Tooltip title={view.label} placement="right">
+            {listItemButton}
+          </Tooltip>
+        ) : (
+          listItemButton
+        )}
+      </ListItem>
+    );
+  };
 
   const drawer = (
-    <div>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Toolbar sx={{ display: 'flex', justifyContent: drawerCollapsed ? 'center' : 'space-between', minHeight: '48px !important' }}>
         {!drawerCollapsed && (
           <Typography
@@ -295,78 +359,27 @@ export default function MainLayout() {
           </IconButton>
         </Tooltip>
       </Toolbar>
-      <List sx={{ pt: 0 }}>
+
+      {/* Main nav — grows to fill available space */}
+      <List sx={{ pt: 0, flexGrow: 1 }}>
         {navGroups.map((group, groupIndex) => (
           <React.Fragment key={groupIndex}>
             {groupIndex > 0 && (
               <Box sx={{ mx: drawerCollapsed ? 1 : 2, my: 0.5, borderTop: '1px solid', borderColor: 'divider' }} />
             )}
-            {group.map((viewKey) => {
-              const view = views.find(v => v.key === viewKey)!;
-              const isLogs = view.key === 'logs';
-              const logCount = isLogs ? state.unreadLogCount : 0;
-
-              const listItemButton = (
-                <ListItemButton
-                  selected={currentView === view.key}
-                  onClick={() => setCurrentView(view.key)}
-                  sx={{
-                    minHeight: 40,
-                    justifyContent: drawerCollapsed ? 'center' : 'initial',
-                    px: 2,
-                    py: 0.5,
-                    borderLeft: '3px solid transparent',
-                    '&.Mui-selected': {
-                      borderLeftColor: 'primary.main',
-                    },
-                  }}
-                >
-                  <ListItemIcon
-                    sx={{
-                      minWidth: 0,
-                      mr: drawerCollapsed ? 'auto' : 2,
-                      justifyContent: 'center',
-                      color: currentView === view.key ? 'primary.main' : 'text.secondary',
-                      '& .MuiSvgIcon-root': { fontSize: '1.2rem' },
-                    }}
-                  >
-                    {isLogs && logCount > 0 ? (
-                      <Badge badgeContent={logCount} color="secondary" max={99} sx={{ '& .MuiBadge-badge': { fontSize: '0.55rem', minWidth: 16, height: 16 } }}>
-                        {view.icon}
-                      </Badge>
-                    ) : (
-                      view.icon
-                    )}
-                  </ListItemIcon>
-                  {!drawerCollapsed && (
-                    <ListItemText
-                      primary={view.label}
-                      primaryTypographyProps={{
-                        fontSize: '1rem',
-                        fontWeight: currentView === view.key ? 600 : 400,
-                        color: currentView === view.key ? 'text.primary' : 'text.secondary',
-                      }}
-                    />
-                  )}
-                </ListItemButton>
-              );
-
-              return (
-                <ListItem key={view.key} disablePadding sx={{ display: 'block' }}>
-                  {drawerCollapsed ? (
-                    <Tooltip title={view.label} placement="right">
-                      {listItemButton}
-                    </Tooltip>
-                  ) : (
-                    listItemButton
-                  )}
-                </ListItem>
-              );
-            })}
+            {group.map(renderNavItem)}
           </React.Fragment>
         ))}
       </List>
-    </div>
+
+      {/* Bottom nav — settings & about */}
+      <Box>
+        <Box sx={{ mx: drawerCollapsed ? 1 : 2, my: 0.5, borderTop: '1px solid', borderColor: 'divider' }} />
+        <List sx={{ pt: 0, pb: `${STATUS_BAR_HEIGHT}px` }}>
+          {bottomNavItems.map(renderNavItem)}
+        </List>
+      </Box>
+    </Box>
   );
 
   const connectionStatus = state.connection?.connected ? 'Connected' : 'Disconnected';
@@ -812,6 +825,7 @@ export default function MainLayout() {
             '& .MuiDrawer-paper': {
               boxSizing: 'border-box',
               width: currentDrawerWidth,
+              height: '100%',
               transition: theme.transitions.create('width', {
                 easing: theme.transitions.easing.sharp,
                 duration: theme.transitions.duration.enteringScreen,
@@ -831,6 +845,7 @@ export default function MainLayout() {
         sx={{
           flexGrow: 1,
           p: 3,
+          pb: `${STATUS_BAR_HEIGHT + 24}px`,
           width: { sm: `calc(100% - ${currentDrawerWidth}px)` },
           transition: theme.transitions.create(['margin', 'width'], {
             easing: theme.transitions.easing.sharp,
@@ -843,6 +858,8 @@ export default function MainLayout() {
           {renderCurrentView()}
         </Suspense>
       </Box>
+
+      <StatusBar />
     </Box>
   );
 }

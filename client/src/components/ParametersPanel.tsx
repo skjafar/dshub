@@ -35,8 +35,10 @@ import {
   Upload as UploadIcon,
   Send as SendIcon,
   Search as SearchIcon,
-  Clear as ClearIcon
+  Clear as ClearIcon,
+  InfoOutlined as InfoIcon,
 } from '@mui/icons-material';
+import RegisterInspector from './RegisterInspector';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { mapManager } from '../maps/mapManager';
@@ -102,6 +104,14 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
   const debouncedSetFilter = useDebouncedCallback((query: string) => {
     setFilterQuery(query);
   }, 300);
+  const [selectedAddress, setSelectedAddress] = useState<number | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(() =>
+    localStorage.getItem('dshub-param-inspector-open') === 'true'
+  );
+
+  useEffect(() => {
+    localStorage.setItem('dshub-param-inspector-open', String(inspectorOpen));
+  }, [inspectorOpen]);
 
   useEffect(() => {
     const initializeMaps = async () => {
@@ -508,6 +518,29 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
     return formatDataValue(parameter.value, mapEntry);
   };
 
+  // ─── Inspector derived state ──────────────────────────────────────────────
+  const selectedMapEntry = selectedAddress !== null
+    ? getMapEntryForParameter(selectedAddress)
+    : undefined;
+
+  const selectedParamData = selectedAddress !== null
+    ? state.parameters.get(selectedAddress)
+    : undefined;
+
+  const isAutoRefreshing = selectedAddress !== null
+    ? state.autoRefresh.activeParameterAddresses.has(selectedAddress)
+    : false;
+
+  const handleInspectorRead = () => {
+    if (selectedAddress === null || !selectedMapEntry) return;
+    actions.readParameter(selectedAddress, selectedMapEntry.name);
+  };
+
+  const handleInspectorToggleAutoRefresh = (enabled: boolean) => {
+    if (selectedAddress === null) return;
+    toggleParameterAutoRefresh(selectedAddress, enabled);
+  };
+
   // Expose methods to parent component
   useImperativeHandle(ref, () => ({
     openReadDialog: () => setReadDialog(true),
@@ -519,7 +552,8 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
   }));
 
   return (
-    <Box>
+    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0 }}>
+      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
       {/* Auto-refresh interval selector and Load/Save buttons */}
       <Card sx={{ mb: 2 }}>
         <CardContent>
@@ -628,6 +662,7 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                   />
                 )}
               </Typography>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
               <TextField
                 size="small"
                 placeholder="Search by name or address..."
@@ -654,6 +689,23 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                   }
                 }}
               />
+              <Tooltip title={inspectorOpen ? 'Close inspector' : 'Open inspector'}>
+                <IconButton
+                  size="small"
+                  onClick={() => setInspectorOpen(v => !v)}
+                  sx={{
+                    borderRadius: '4px',
+                    border: '1px solid',
+                    borderColor: inspectorOpen ? 'rgba(0,229,255,0.25)' : 'rgba(59,73,76,0.2)',
+                    backgroundColor: inspectorOpen ? 'rgba(0,229,255,0.08)' : 'transparent',
+                    color: inspectorOpen ? 'primary.main' : 'text.secondary',
+                    '&:hover': { backgroundColor: 'rgba(0,218,243,0.06)', color: 'primary.main' },
+                  }}
+                >
+                  <InfoIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              </Box>
             </Box>
             <TableContainer component={Paper}>
               <Table size="small">
@@ -690,7 +742,17 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                     const arrayIndex = arrayIndexMatch ? arrayIndexMatch[1] : null;
 
                     return (
-                      <TableRow key={mapEntry.address} hover>
+                      <TableRow
+                        key={mapEntry.address}
+                        hover
+                        selected={selectedAddress === mapEntry.address && inspectorOpen}
+                        onClick={() => { setSelectedAddress(mapEntry.address); setInspectorOpen(true); }}
+                        sx={{
+                          cursor: 'pointer',
+                          '&.Mui-selected': { backgroundColor: 'rgba(0,229,255,0.05)' },
+                          '&.Mui-selected:hover': { backgroundColor: 'rgba(0,229,255,0.08)' },
+                        }}
+                      >
                         <TableCell sx={{ py: 0.5 }}>
                           <Typography variant="body2" fontFamily={FONT_MONO}>
                             0x{mapEntry.address.toString(16).toUpperCase().padStart(2, '0')} ({mapEntry.address})
@@ -852,6 +914,21 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
         onClose={() => setReadDialog(false)}
         onRead={handleReadParameter}
         helperText="Enter the parameter address in decimal format. Parameters typically start at address 1000+"
+      />
+      </Box>
+      <RegisterInspector
+        open={inspectorOpen}
+        onClose={() => setInspectorOpen(false)}
+        mapEntry={selectedMapEntry}
+        value={selectedParamData?.value ?? null}
+        valid={selectedParamData?.valid ?? false}
+        timestamp={selectedParamData?.timestamp ?? 0}
+        dataType="parameter"
+        isAutoRefresh={isAutoRefreshing}
+        canRead={!!state.connection?.connected}
+        canToggleAutoRefresh={!!state.connection?.connected}
+        onRead={handleInspectorRead}
+        onToggleAutoRefresh={handleInspectorToggleAutoRefresh}
       />
     </Box>
   );

@@ -37,8 +37,10 @@ import {
   LockOpen as LockOpenIcon,
   Search as SearchIcon,
   Clear as ClearIcon,
-  Memory as SystemIcon
+  Memory as SystemIcon,
+  InfoOutlined as InfoIcon,
 } from '@mui/icons-material';
+import RegisterInspector from './RegisterInspector';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
@@ -81,6 +83,15 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   const debouncedSetFilter = useDebouncedCallback((query: string) => {
     setFilterQuery(query);
   }, 300);
+  const [selectedAddress, setSelectedAddress] = useState<number | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(() =>
+    localStorage.getItem('dshub-reg-inspector-open') === 'true'
+  );
+
+  // Persist inspector open state
+  useEffect(() => {
+    localStorage.setItem('dshub-reg-inspector-open', String(inspectorOpen));
+  }, [inspectorOpen]);
 
   useEffect(() => {
     const initializeMaps = async () => {
@@ -377,6 +388,45 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
       })
     : visibleRegisters;
 
+  // ─── Inspector derived state ──────────────────────────────────────────────
+  const selectedMapEntry = selectedAddress !== null
+    ? (currentTab === 2
+        ? systemMapEntries.find(e => e.address === selectedAddress)
+        : getMapEntryForRegister(selectedAddress))
+    : undefined;
+
+  const selectedRegisterData = selectedAddress !== null
+    ? (currentTab === 2
+        ? state.systemRegisters.get(selectedAddress)
+        : state.registers.get(selectedAddress))
+    : undefined;
+
+  const isAutoRefreshing = selectedAddress !== null
+    ? (currentTab === 2
+        ? state.autoRefresh.activeSystemAddresses.has(selectedAddress)
+        : state.autoRefresh.activeAddresses.has(selectedAddress))
+    : false;
+
+  const handleInspectorRead = () => {
+    if (selectedAddress === null) return;
+    if (currentTab === 2) {
+      const sysEntry = systemMapEntries.find(e => e.address === selectedAddress);
+      actions.readSystemRegister(selectedAddress, sysEntry?.name ?? selectedRegisterData?.name);
+    } else {
+      const me = getMapEntryForRegister(selectedAddress);
+      actions.readRegister(selectedAddress, me?.name || selectedRegisterData?.name);
+    }
+  };
+
+  const handleInspectorToggleAutoRefresh = (enabled: boolean) => {
+    if (selectedAddress === null) return;
+    if (currentTab === 2) {
+      toggleSystemRegisterAutoRefresh(selectedAddress, enabled);
+    } else {
+      toggleRegisterAutoRefresh(selectedAddress, enabled);
+    }
+  };
+
   // Expose methods to parent component
   useImperativeHandle(ref, () => ({
     openReadDialog: () => setReadDialog(true),
@@ -388,7 +438,8 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   }));
 
   return (
-    <Box>
+    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0 }}>
+      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
       {/* Auto-refresh interval selector */}
       <Card sx={{ mb: 2 }}>
         <CardContent>
@@ -479,6 +530,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                   />
                 )}
               </Typography>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
               <TextField
                 size="small"
                 placeholder="Search by name or address..."
@@ -505,6 +557,23 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                   }
                 }}
               />
+              <Tooltip title={inspectorOpen ? 'Close inspector' : 'Open inspector'}>
+                <IconButton
+                  size="small"
+                  onClick={() => setInspectorOpen(v => !v)}
+                  sx={{
+                    borderRadius: '4px',
+                    border: '1px solid',
+                    borderColor: inspectorOpen ? 'rgba(0,229,255,0.25)' : 'rgba(59,73,76,0.2)',
+                    backgroundColor: inspectorOpen ? 'rgba(0,229,255,0.08)' : 'transparent',
+                    color: inspectorOpen ? 'primary.main' : 'text.secondary',
+                    '&:hover': { backgroundColor: 'rgba(0,218,243,0.06)', color: 'primary.main' },
+                  }}
+                >
+                  <InfoIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              </Box>
             </Box>
             <TableContainer component={Paper}>
               <Table size="small">
@@ -552,7 +621,17 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                     const arrayIndex = arrayIndexMatch ? arrayIndexMatch[1] : null;
 
                     return (
-                      <TableRow key={register.address} hover>
+                      <TableRow
+                        key={register.address}
+                        hover
+                        selected={selectedAddress === register.address && inspectorOpen}
+                        onClick={() => { setSelectedAddress(register.address); setInspectorOpen(true); }}
+                        sx={{
+                          cursor: 'pointer',
+                          '&.Mui-selected': { backgroundColor: 'rgba(0,229,255,0.05)' },
+                          '&.Mui-selected:hover': { backgroundColor: 'rgba(0,229,255,0.08)' },
+                        }}
+                      >
                         <TableCell sx={{ py: 0.5 }}>
                           <Typography variant="body2" fontFamily={FONT_MONO}>
                             0x{register.address.toString(16).toUpperCase().padStart(2, '0')} ({register.address})
@@ -741,6 +820,22 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
         dataType="Register"
         onClose={() => setReadDialog(false)}
         onRead={handleReadRegister}
+      />
+      </Box>
+
+      <RegisterInspector
+        open={inspectorOpen}
+        onClose={() => setInspectorOpen(false)}
+        mapEntry={selectedMapEntry}
+        value={selectedRegisterData?.value ?? null}
+        valid={selectedRegisterData?.valid ?? false}
+        timestamp={selectedRegisterData?.timestamp ?? 0}
+        dataType={currentTab === 2 ? 'sysRegister' : 'register'}
+        isAutoRefresh={isAutoRefreshing}
+        canRead={!!state.connection?.connected}
+        canToggleAutoRefresh={!!state.connection?.connected}
+        onRead={handleInspectorRead}
+        onToggleAutoRefresh={handleInspectorToggleAutoRefresh}
       />
     </Box>
   );

@@ -23,13 +23,15 @@ import {
   Download as DownloadIcon,
   RestartAlt as ResetIcon,
   Warning as WarningIcon,
-  Error as ErrorIcon
+  Error as ErrorIcon,
+  Check as CheckIcon,
 } from '@mui/icons-material';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import { useDSHub } from '../contexts/DSHubContext';
 import MapProfilesPanel from './MapProfilesPanel';
-import { FONT_MONO } from '../theme';
+import { FONT_MONO, FONT_BODY } from '../theme';
+import { APP_THEMES } from '../appThemes';
 
 export default function SettingsPanel() {
   const { settings, updateSettings, resetSettings, exportSettings, importSettings } = useSettings();
@@ -72,9 +74,9 @@ export default function SettingsPanel() {
     return { valid: true };
   };
 
-  const handleThemeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    updateSettings({ theme: event.target.value as 'light' | 'dark' | 'auto' });
-    showSuccess('Theme preference updated');
+  const handleColorThemeChange = (id: string) => {
+    updateSettings({ colorThemeId: id });
+    showSuccess('Theme updated');
   };
 
   const handleLastIPChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -249,21 +251,86 @@ export default function SettingsPanel() {
   return (
     <Box>
       <Stack spacing={2}>
-        {/* Theme + Connection side-by-side */}
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, alignItems: 'start' }}>
+        {/* Theme full-width, then Connection below */}
         <Card>
           <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
             <Typography variant="overline" sx={{ color: 'text.secondary', mb: 1.5, display: 'block', letterSpacing: '0.08em' }}>
               Theme
             </Typography>
 
-            <FormControl component="fieldset">
-              <RadioGroup value={settings.theme} onChange={handleThemeChange} row>
-                <FormControlLabel value="light" control={<Radio size="small" />} label={<Typography variant="body2">Light</Typography>} />
-                <FormControlLabel value="dark" control={<Radio size="small" />} label={<Typography variant="body2">Dark</Typography>} />
-                <FormControlLabel value="auto" control={<Radio size="small" />} label={<Typography variant="body2">Auto (System)</Typography>} />
-              </RadioGroup>
-            </FormControl>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 1 }}>
+              {APP_THEMES.map((t) => {
+                const isSelected = (settings.colorThemeId ?? 'kinetic-monolith') === t.id;
+                return (
+                  <Box
+                    key={t.id}
+                    onClick={() => handleColorThemeChange(t.id)}
+                    sx={{
+                      position: 'relative',
+                      borderRadius: '6px',
+                      border: isSelected ? `2px solid ${t.preview[0]}` : '2px solid transparent',
+                      outline: isSelected ? `1px solid ${t.preview[0]}` : '1px solid rgba(128,128,128,0.18)',
+                      cursor: 'pointer',
+                      overflow: 'hidden',
+                      transition: 'border-color 0.15s, outline-color 0.15s',
+                      '&:hover': { outline: `1px solid ${t.preview[0]}` },
+                    }}
+                  >
+                    {/* Color swatch row */}
+                    <Box sx={{ display: 'flex', height: 36 }}>
+                      {t.preview.map((color, i) => (
+                        <Box key={i} sx={{ flex: 1, backgroundColor: color }} />
+                      ))}
+                    </Box>
+
+                    {/* Name + description + mode badge */}
+                    <Box sx={{
+                      px: 1,
+                      pt: 0.75,
+                      pb: 0.75,
+                      backgroundColor: t.mode === 'dark' ? '#111' : '#f8f8f8',
+                    }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.25 }}>
+                        <Typography sx={{
+                          fontFamily: FONT_BODY,
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          color: t.mode === 'dark' ? '#e8e8e8' : '#1a1a1a',
+                          lineHeight: 1.3,
+                        }}>
+                          {t.name}
+                        </Typography>
+                        {isSelected && (
+                          <CheckIcon sx={{ fontSize: 14, color: t.preview[0], flexShrink: 0 }} />
+                        )}
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 0.5 }}>
+                        <Typography sx={{
+                          fontFamily: FONT_BODY,
+                          fontSize: '0.625rem',
+                          color: t.mode === 'dark' ? 'rgba(200,200,200,0.6)' : 'rgba(60,60,60,0.6)',
+                          lineHeight: 1.4,
+                          flexGrow: 1,
+                        }}>
+                          {t.description}
+                        </Typography>
+                        <Typography sx={{
+                          fontFamily: FONT_MONO,
+                          fontSize: '0.5625rem',
+                          fontWeight: 700,
+                          letterSpacing: '0.06em',
+                          color: t.mode === 'dark' ? 'rgba(160,160,160,0.7)' : 'rgba(80,80,80,0.7)',
+                          flexShrink: 0,
+                          textTransform: 'uppercase',
+                        }}>
+                          {t.mode}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </Box>
+                );
+              })}
+            </Box>
           </CardContent>
         </Card>
 
@@ -352,7 +419,6 @@ export default function SettingsPanel() {
             </Stack>
           </CardContent>
         </Card>
-        </Box>
 
         {/* Map Profiles */}
         <MapProfilesPanel />

@@ -1,4 +1,4 @@
-import { ThemeProvider, CssBaseline, useMediaQuery } from '@mui/material';
+import { ThemeProvider, CssBaseline } from '@mui/material';
 import { useMemo, useEffect } from 'react';
 import { DSHubProvider } from './contexts/DSHubContext';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
@@ -6,12 +6,11 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastProvider, useToast } from './components/ToastNotification';
 import MainLayout from './components/MainLayout';
 import AutoScanManager from './components/AutoScanManager';
-import { dsHubTheme, dsHubDarkTheme } from './theme';
+import { buildMuiTheme, getThemeById, hexCh, DEFAULT_THEME_ID } from './appThemes';
 
 function ThemedApp() {
   const { settings, storageError } = useSettings();
   const { showWarning } = useToast();
-  const prefersDarkMode = useMediaQuery('(prefers-color-scheme: dark)');
 
   // Notify user once if localStorage is full and settings can no longer be persisted
   useEffect(() => {
@@ -21,23 +20,16 @@ function ThemedApp() {
   }, [storageError, showWarning]);
 
   const theme = useMemo(() => {
-    if (settings.theme === 'dark') {
-      return dsHubDarkTheme;
-    } else if (settings.theme === 'light') {
-      return dsHubTheme;
-    } else {
-      // Auto mode - follow system preference
-      return prefersDarkMode ? dsHubDarkTheme : dsHubTheme;
-    }
-  }, [settings.theme, prefersDarkMode]);
+    return buildMuiTheme(getThemeById(settings.colorThemeId ?? DEFAULT_THEME_ID));
+  }, [settings.colorThemeId]);
 
   // Sync CSS custom properties for scrollbar & selection styling
   useEffect(() => {
     const root = document.documentElement;
-    const isDark = theme.palette.mode === 'dark';
-    root.style.setProperty('--scrollbar-thumb', isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.15)');
-    root.style.setProperty('--scrollbar-thumb-hover', isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.25)');
-    root.style.setProperty('--selection-bg', isDark ? 'rgba(0,212,255,0.25)' : 'rgba(0,119,182,0.2)');
+    const c = theme.palette.custom;
+    root.style.setProperty('--scrollbar-thumb', c.surfaceHigh);
+    root.style.setProperty('--scrollbar-thumb-hover', c.primaryFixed);
+    root.style.setProperty('--selection-bg', `rgba(${hexCh(c.primary)},0.22)`);
   }, [theme]);
 
   return (

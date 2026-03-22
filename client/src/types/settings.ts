@@ -65,6 +65,7 @@ export interface LogSettings {
 
 export interface UserSettings {
   theme: ThemeMode;
+  colorThemeId: string; // ID of the selected app theme (see appThemes.ts)
   lastDeviceIP: string;
   lastDeviceName?: string; // Board name of last connected device
   lastInterfaceType: 'TCP' | 'UDP';
@@ -91,6 +92,7 @@ export const CNC_PROFILE_ID = 'cnc_motor_controller';
 
 export const DEFAULT_SETTINGS: UserSettings = {
   theme: 'auto',
+  colorThemeId: 'kinetic-monolith',
   lastDeviceIP: '',
   lastInterfaceType: 'TCP',
   autoScan: true, // Enabled by default for better UX
