@@ -5,8 +5,8 @@ import { createTheme } from '@mui/material/styles';
 // Surface hierarchy via tonal shifts, no 100%-opacity structural lines.
 // Ambient shadows tinted with primary-fixed-dim (cyan).
 
-export const FONT_MONO     = '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace';
 export const FONT_BODY     = '"Inter", -apple-system, BlinkMacSystemFont, sans-serif';
+export const FONT_MONO     = FONT_BODY;
 export const FONT_HEADLINE = '"Space Grotesk", "Inter", sans-serif';
 const        FONT_DISPLAY  = FONT_HEADLINE;
 

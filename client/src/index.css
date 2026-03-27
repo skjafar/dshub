@@ -88,7 +88,7 @@ body {
 }
 
 code {
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', source-code-pro, monospace;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 /* ─── Scrollbar — 4px, tinted hover ──────────────────────────────────────── */
@@ -194,7 +194,7 @@ input[type="number"] {
 }
 
 .font-mono {
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 /* ─── Caption label style (uppercase, spaced) ─────────────────────────────── */
