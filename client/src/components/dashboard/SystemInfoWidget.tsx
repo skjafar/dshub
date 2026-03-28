@@ -75,9 +75,11 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
         key={`${item.source}-${item.address}`}
         sx={{
           display: 'flex',
-          flexDirection: 'column',
-          gap: 0.5,
-          minWidth: 0, // Allow flex items to shrink
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'baseline',
+          gap: 1,
+          minWidth: 0,
         }}
       >
         <Typography
@@ -87,11 +89,12 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
             fontSize: widgetSize ? scaledRem(0.7, widgetSize.scale) : '0.7rem',
             textTransform: 'uppercase',
             letterSpacing: '0.05em',
+            flexShrink: 0,
           }}
         >
           {item.label}
         </Typography>
-        <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5, minWidth: 0 }}>
           <Typography
             sx={{
               fontFamily: FONT_MONO,
@@ -110,6 +113,7 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
               sx={{
                 color: 'text.secondary',
                 fontSize: widgetSize ? scaledRem(0.7, widgetSize.scale) : '0.7rem',
+                flexShrink: 0,
               }}
             >
               {item.unit}
@@ -141,9 +145,7 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
         flexDirection: 'column',
         height: '100%',
         gap: config.compact ? 0.5 : 1,
-        p: config.compact ? 1 : 2,
-        backgroundColor: 'action.hover',
-        borderRadius: 1,
+        p: 0,
       }}
     >
       {/* Widget Label */}

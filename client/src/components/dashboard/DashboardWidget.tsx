@@ -148,7 +148,7 @@ function DashboardWidgetInner({ widget, isEditMode, roundedCorners, onEdit, onDe
       )}
 
       {/* Widget content */}
-      <Box ref={contentRef} sx={{ flex: 1, p: widget.type === 'button' ? 0 : 1.5, overflow: 'auto' }}>
+      <Box ref={contentRef} sx={{ flex: 1, p: widget.type === 'button' ? 0 : 1, overflow: 'auto' }}>
         {renderWidget(widgetSize)}
       </Box>
     </Paper>

@@ -142,7 +142,6 @@ export default function DirectionalControlWidget({ config, isEditMode, widgetSiz
         justifyContent: 'center',
         alignItems: 'center',
         gap: 1,
-        p: 2,
       }}
     >
       {/* Widget Label */}

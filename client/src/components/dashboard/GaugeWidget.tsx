@@ -94,14 +94,8 @@ export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWid
         justifyContent: 'center',
         alignItems: 'center',
         gap: 0.5,
-        p: 2,
       }}
     >
-      {/* Widget Label */}
-      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.1em' }}>
-        {config.label}
-      </Typography>
-
       {/* SVG Arc Gauge */}
       <Box
         sx={{
@@ -170,6 +164,20 @@ export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWid
             {config.unit && (
               <Typography sx={{ fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(0.625, widgetSize.scale) : '0.625rem', color: 'text.secondary', fontWeight: 500, mt: 0.5 }}>
                 {config.unit}
+              </Typography>
+            )}
+            {config.label && (
+              <Typography
+                sx={{
+                  fontFamily: FONT_MONO,
+                  fontSize: widgetSize ? scaledRem(0.5625, widgetSize.scale) : '0.5625rem',
+                  color: 'text.secondary',
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                  mt: 0.5,
+                }}
+              >
+                {config.label}
               </Typography>
             )}
           </Box>

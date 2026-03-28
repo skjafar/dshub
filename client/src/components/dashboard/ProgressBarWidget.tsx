@@ -82,7 +82,6 @@ export default function ProgressBarWidget({ config, isEditMode, widgetSize }: Pr
         height: '100%',
         justifyContent: 'center',
         gap: compact ? 0.5 : 1,
-        p: compact ? 1 : 2,
       }}
     >
       {/* Header: Label and Value/Percentage */}
@@ -128,7 +127,7 @@ export default function ProgressBarWidget({ config, isEditMode, widgetSize }: Pr
         variant="determinate"
         value={clampedPercentage}
         sx={{
-          height: widgetSize ? scaledPx(12, widgetSize.scale) : 12,
+          height: widgetSize ? scaledPx(6, widgetSize.scale) : 6,
           borderRadius: 2,
           backgroundColor: (theme) => alpha(theme.palette.text.primary, 0.1),
           '& .MuiLinearProgress-bar': {
