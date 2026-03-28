@@ -6,7 +6,7 @@ import { WidgetSizeInfo, scaledRem, isCompactSize } from '../../utils/widgetScal
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
-import { FONT_MONO } from '../../theme';
+import { FONT_MONO, FONT_HEADLINE } from '../../theme';
 
 interface ValueReadWidgetProps {
   config: ValueReadWidgetConfig;
@@ -87,7 +87,7 @@ export default function ValueReadWidget({ config, isEditMode, widgetSize }: Valu
     >
       <Typography
         variant="overline"
-        sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em' }}
+        sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.1em' }}
       >
         {config.label}
       </Typography>
@@ -96,10 +96,11 @@ export default function ValueReadWidget({ config, isEditMode, widgetSize }: Valu
         <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75 }}>
           <Typography
             sx={{
-              fontFamily: FONT_MONO,
-              fontWeight: 700,
+              fontFamily: FONT_HEADLINE,
+              fontWeight: 600,
               fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 1.75, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '1.75rem'),
               lineHeight: 1,
+              fontVariantNumeric: 'tabular-nums',
               color: data?.valid === false ? 'error.main' : 'text.primary',
             }}
           >

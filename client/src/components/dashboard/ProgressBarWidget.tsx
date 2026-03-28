@@ -6,7 +6,7 @@ import { WidgetSizeInfo, scaledRem, scaledPx, isCompactSize } from '../../utils/
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
-import { FONT_MONO } from '../../theme';
+import { FONT_MONO, FONT_HEADLINE } from '../../theme';
 
 interface ProgressBarWidgetProps {
   config: ProgressBarWidgetConfig;
@@ -93,17 +93,18 @@ export default function ProgressBarWidget({ config, isEditMode, widgetSize }: Pr
           alignItems: 'center',
         }}
       >
-        <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em' }}>
+        <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.1em' }}>
           {config.label}
         </Typography>
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'baseline' }}>
           {config.showValue !== false && (
             <Typography
               sx={{
-                fontFamily: FONT_MONO,
+                fontFamily: FONT_HEADLINE,
                 color: barColor,
-                fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 0.875, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '0.875rem'),
+                fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 0.9375, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '0.9375rem'),
                 fontWeight: 600,
+                fontVariantNumeric: 'tabular-nums',
               }}
             >
               {currentValue.toFixed(0)}{config.unit || ''}

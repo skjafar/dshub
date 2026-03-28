@@ -95,7 +95,7 @@ export default function ValueWriteWidget({ config, isEditMode, widgetSize }: Val
           gap: 1.5
         }}
       >
-        <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em', flexShrink: 0 }}>
+        <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.1em', flexShrink: 0 }}>
           {config.label}
         </Typography>
 

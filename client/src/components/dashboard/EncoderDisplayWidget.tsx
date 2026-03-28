@@ -6,7 +6,7 @@ import { useDSHub } from '../../contexts/DSHubContext';
 import { mapManager } from '../../maps/mapManager';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
-import { FONT_MONO } from '../../theme';
+import { FONT_MONO, FONT_HEADLINE } from '../../theme';
 
 interface EncoderDisplayWidgetProps {
   config: EncoderDisplayWidgetConfig;
@@ -106,7 +106,7 @@ export default function EncoderDisplayWidget({ config, isEditMode, widgetSize }:
       }}
     >
       {/* Widget Label */}
-      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em' }}>
+      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.1em' }}>
         {config.label}
       </Typography>
 
@@ -122,13 +122,12 @@ export default function EncoderDisplayWidget({ config, isEditMode, widgetSize }:
           >
             <Typography
               sx={{
-                fontFamily: FONT_MONO,
+                fontFamily: FONT_HEADLINE,
                 fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 1.5, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '1.5rem'),
                 fontWeight: 600,
                 color: displayColor,
                 lineHeight: 1,
-                letterSpacing: '0.05em',
-                textShadow: state.connection?.connected ? `0 0 10px ${displayColor}` : 'none',
+                fontVariantNumeric: 'tabular-nums',
               }}
             >
               {formatValue(convertedValue)}
@@ -165,12 +164,6 @@ export default function EncoderDisplayWidget({ config, isEditMode, widgetSize }:
         )}
       </Box>
 
-      {/* Connection Status */}
-      {!compact && !state.connection?.connected && (
-        <Typography variant="caption" color="error">
-          Not connected
-        </Typography>
-      )}
     </Box>
   );
 }

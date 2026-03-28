@@ -146,7 +146,7 @@ export default function DirectionalControlWidget({ config, isEditMode, widgetSiz
       }}
     >
       {/* Widget Label */}
-      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em' }}>
+      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.1em' }}>
         {config.label}
       </Typography>
 

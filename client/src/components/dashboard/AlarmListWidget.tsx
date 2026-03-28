@@ -5,7 +5,7 @@ import { WidgetSizeInfo, scaledRem, scaledPx, isCompactSize } from '../../utils/
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefreshMulti } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
-import { FONT_MONO } from '../../theme';
+import { FONT_MONO, FONT_HEADLINE } from '../../theme';
 
 interface AlarmListWidgetProps {
   config: AlarmListWidgetConfig;
@@ -102,16 +102,17 @@ export default function AlarmListWidget({ config, isEditMode, widgetSize }: Alar
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <Typography
           variant="overline"
-          sx={{ color: 'text.secondary', fontSize: scaledRem(0.6, scale), letterSpacing: '0.08em' }}
+          sx={{ color: 'text.secondary', fontSize: scaledRem(0.6, scale), letterSpacing: '0.1em' }}
         >
           {config.label}
         </Typography>
         <Typography
           sx={{
-            fontFamily: FONT_MONO,
-            fontSize: scaledRem(0.6, scale),
+            fontFamily: FONT_HEADLINE,
+            fontSize: scaledRem(0.7, scale),
             color: activeCount > 0 ? '#FF3D71' : '#00E676',
             fontWeight: 600,
+            letterSpacing: '0.04em',
           }}
         >
           {activeCount > 0 ? `${activeCount} ACTIVE` : 'OK'}

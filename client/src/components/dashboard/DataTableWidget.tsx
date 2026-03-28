@@ -147,7 +147,7 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
           sx={{
             color: 'text.secondary',
             fontSize: scaledRem(0.6, scale),
-            letterSpacing: '0.08em',
+            letterSpacing: '0.1em',
             flexShrink: 0,
           }}
         >

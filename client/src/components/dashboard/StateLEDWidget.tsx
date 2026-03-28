@@ -76,7 +76,7 @@ export default function StateLEDWidget({ config, isEditMode, widgetSize }: State
       }}
     >
       {/* Widget Label */}
-      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em', flexShrink: 0 }}>
+      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.1em', flexShrink: 0 }}>
         {config.label}
       </Typography>
 

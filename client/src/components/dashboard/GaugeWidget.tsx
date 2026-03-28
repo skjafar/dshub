@@ -5,7 +5,7 @@ import { WidgetSizeInfo, scaledRem, isCompactSize } from '../../utils/widgetScal
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
-import { FONT_MONO } from '../../theme';
+import { FONT_MONO, FONT_HEADLINE } from '../../theme';
 
 interface GaugeWidgetProps {
   config: GaugeWidgetConfig;
@@ -98,7 +98,7 @@ export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWid
       }}
     >
       {/* Widget Label */}
-      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.08em' }}>
+      <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem', letterSpacing: '0.1em' }}>
         {config.label}
       </Typography>
 
@@ -157,11 +157,12 @@ export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWid
           >
             <Typography
               sx={{
-                fontFamily: FONT_MONO,
+                fontFamily: FONT_HEADLINE,
                 fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 1.75, widgetSize.scale) : (config.valueFontSize ? `${config.valueFontSize}rem` : '1.75rem'),
-                fontWeight: 700,
+                fontWeight: 600,
                 color: valueColor,
                 lineHeight: 1,
+                fontVariantNumeric: 'tabular-nums',
               }}
             >
               {formatValue(currentValue)}

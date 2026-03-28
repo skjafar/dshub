@@ -152,7 +152,7 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
         sx={{
           color: 'text.secondary',
           fontSize: widgetSize ? scaledRem(0.6, widgetSize.scale) : '0.6rem',
-          letterSpacing: '0.08em',
+          letterSpacing: '0.1em',
           borderBottom: '1px solid',
           borderColor: 'divider',
           pb: 0.5,
