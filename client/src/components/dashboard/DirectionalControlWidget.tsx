@@ -13,6 +13,8 @@ import {
 import { DirectionalControlWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
+import { useTheme } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 
 interface DirectionalControlWidgetProps {
   config: DirectionalControlWidgetConfig;
@@ -33,6 +35,7 @@ interface DirectionalControlWidgetProps {
  * - Game controller emulation
  */
 export default function DirectionalControlWidget({ config, isEditMode, widgetSize }: DirectionalControlWidgetProps) {
+  const { palette: { custom: c } } = useTheme();
   const { state, actions } = useDSHub();
   const [activeDirection, setActiveDirection] = useState<string | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -97,17 +100,15 @@ export default function DirectionalControlWidget({ config, isEditMode, widgetSiz
     width: buttonSize,
     height: buttonSize,
     '& .MuiSvgIcon-root': { fontSize: iconSize },
-    backgroundColor: activeDirection === direction ? color : 'rgba(255, 255, 255, 0.04)',
-    border: activeDirection === direction ? `1.5px solid ${color}` : `1.5px solid ${color}40`,
-    color: activeDirection === direction ? '#000' : color,
+    backgroundColor: activeDirection === direction ? alpha(color, 0.18) : c.ghost,
+    border: `1.5px solid ${activeDirection === direction ? color : `${color}40`}`,
+    color: color,
     borderRadius: 1,
-    transition: 'all 0.15s ease',
-    boxShadow: activeDirection === direction ? `0 0 15px ${color}` : 'none',
+    transition: 'background-color 0.1s ease, border-color 0.1s ease',
     '&:hover': {
-      backgroundColor: color,
-      color: '#000',
+      backgroundColor: alpha(color, 0.12),
+      color: color,
       border: `1.5px solid ${color}`,
-      boxShadow: `0 0 10px ${color}`,
     },
     '&:active': {
       transform: 'scale(0.95)',
@@ -187,11 +188,16 @@ export default function DirectionalControlWidget({ config, isEditMode, widgetSiz
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              border: '1px solid',
-              borderColor: 'divider',
-              borderRadius: 1,
             }}
-          />
+          >
+            <Box sx={{
+              width: Math.round(buttonSize * 0.3),
+              height: Math.round(buttonSize * 0.3),
+              borderRadius: '50%',
+              border: `1px solid ${color}30`,
+              backgroundColor: `${color}08`,
+            }} />
+          </Box>
           {rightConfig && (
             <IconButton
               disabled={!isConnected || isEditMode}
@@ -271,11 +277,16 @@ export default function DirectionalControlWidget({ config, isEditMode, widgetSiz
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              border: '1px solid',
-              borderColor: 'divider',
-              borderRadius: 1,
             }}
-          />
+          >
+            <Box sx={{
+              width: Math.round(buttonSize * 0.3),
+              height: Math.round(buttonSize * 0.3),
+              borderRadius: '50%',
+              border: `1px solid ${color}30`,
+              backgroundColor: `${color}08`,
+            }} />
+          </Box>
           {rightConfig && (
             <IconButton
               disabled={!isConnected || isEditMode}
@@ -317,12 +328,6 @@ export default function DirectionalControlWidget({ config, isEditMode, widgetSiz
         </Box>
       )}
 
-      {/* Connection Status */}
-      {!isConnected && (
-        <Typography variant="caption" color="error">
-          Not connected
-        </Typography>
-      )}
     </Box>
   );
 }

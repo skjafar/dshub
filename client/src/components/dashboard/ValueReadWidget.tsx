@@ -120,12 +120,6 @@ export default function ValueReadWidget({ config, isEditMode, widgetSize }: Valu
         )}
       </Box>
 
-      {!compact && !state.connection?.connected && (
-        <Typography variant="caption" color="error">
-          Not connected
-        </Typography>
-      )}
-
       {!compact && data?.valid === false && (
         <Typography variant="caption" color="error">
           Invalid data

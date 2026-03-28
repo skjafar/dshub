@@ -139,7 +139,6 @@ export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWid
             strokeLinecap="round"
             style={{
               transition: 'stroke-dashoffset 0.3s ease, stroke 0.3s ease',
-              filter: state.connection?.connected ? `drop-shadow(0 0 4px ${valueColor}80)` : 'none',
             }}
           />
         </svg>
@@ -188,12 +187,6 @@ export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWid
         </Box>
       )}
 
-      {/* Connection Status */}
-      {!compact && !state.connection?.connected && (
-        <Typography variant="caption" color="error">
-          Not connected
-        </Typography>
-      )}
     </Box>
   );
 }

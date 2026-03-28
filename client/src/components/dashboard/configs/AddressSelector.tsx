@@ -59,7 +59,7 @@ export default function AddressSelector({
           {...params}
           label={label}
           margin={size === 'small' ? 'none' : 'normal'}
-          helperText={items.length === 0 ? `No ${dataSource === 'sysRegister' ? 'system register' : dataSource}s mapped` : ''}
+          helperText={items.length === 0 ? `No ${dataSource === 'sysRegister' ? 'system registers' : `${dataSource}s`} loaded — add a map file in Settings` : ''}
         />
       )}
       renderOption={(props, option) => (

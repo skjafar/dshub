@@ -133,7 +133,6 @@ export default function ProgressBarWidget({ config, isEditMode, widgetSize }: Pr
           '& .MuiLinearProgress-bar': {
             backgroundColor: barColor,
             borderRadius: 2,
-            boxShadow: state.connection?.connected ? `0 0 10px ${barColor}` : 'none',
           },
         }}
       />
@@ -155,12 +154,6 @@ export default function ProgressBarWidget({ config, isEditMode, widgetSize }: Pr
         </Box>
       )}
 
-      {/* Connection Status */}
-      {!compact && !state.connection?.connected && (
-        <Typography variant="caption" color="error" sx={{ textAlign: 'center' }}>
-          Not connected
-        </Typography>
-      )}
     </Box>
   );
 }

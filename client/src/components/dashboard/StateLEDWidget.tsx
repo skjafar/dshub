@@ -112,12 +112,6 @@ export default function StateLEDWidget({ config, isEditMode, widgetSize }: State
         )}
       </Box>
 
-      {/* Connection Status */}
-      {!state.connection?.connected && (
-        <Typography variant="caption" color="error">
-          Not connected
-        </Typography>
-      )}
     </Box>
   );
 }

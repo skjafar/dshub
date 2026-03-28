@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, Typography, useTheme } from '@mui/material';
 import {
   Chart as ChartJS,
   LinearScale,
@@ -29,6 +29,7 @@ interface MiniPlotWidgetProps {
 }
 
 export default function MiniPlotWidget({ config, isEditMode, widgetSize }: MiniPlotWidgetProps) {
+  const { palette: { custom: c } } = useTheme();
   const { state } = useDSHub();
   const [dataPoints, setDataPoints] = useState<DataPoint[]>([]);
 
@@ -119,7 +120,7 @@ export default function MiniPlotWidget({ config, isEditMode, widgetSize }: MiniP
           }
         },
         grid: {
-          color: 'rgba(128, 128, 128, 0.1)'
+          color: c.ghost
         }
       }
     },
@@ -173,7 +174,7 @@ export default function MiniPlotWidget({ config, isEditMode, widgetSize }: MiniP
             }}
           >
             <Typography variant="caption" color="text.secondary">
-              {state.connection?.connected ? 'Collecting data...' : 'Not connected'}
+              {state.connection?.connected ? `Collecting… ${config.pollInterval}ms poll` : 'Not connected'}
             </Typography>
           </Box>
         )}

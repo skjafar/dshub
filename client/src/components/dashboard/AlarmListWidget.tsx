@@ -196,12 +196,6 @@ export default function AlarmListWidget({ config, isEditMode, widgetSize }: Alar
         })}
       </Box>
 
-      {/* Connection Status */}
-      {!state.connection?.connected && (
-        <Typography variant="caption" color="error" sx={{ textAlign: 'center', flexShrink: 0 }}>
-          Not connected
-        </Typography>
-      )}
     </Box>
   );
 }

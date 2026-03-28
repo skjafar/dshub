@@ -9,7 +9,9 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Alert
+  Alert,
+  Divider,
+  Typography
 } from '@mui/material';
 import {
   WidgetType,
@@ -458,6 +460,12 @@ export default function WidgetConfigDialog({
             </Select>
           </FormControl>
         )}
+
+        <Divider sx={{ my: 1.5 }}>
+          <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.65rem', letterSpacing: '0.1em' }}>
+            Configuration
+          </Typography>
+        </Divider>
 
         {renderConfigFields()}
       </DialogContent>

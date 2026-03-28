@@ -73,7 +73,6 @@ import {
   FullscreenExit,
   Remove,
   Block,
-  Done,
   DoneAll,
   Error,
   HelpOutline,
@@ -116,10 +115,7 @@ import {
   FluorescentOutlined,
   Flag,
   Bookmark,
-  LocalOffer,
   Label,
-  ShoppingCart,
-  AttachMoney,
   BarChart,
   PieChart,
   ShowChart,
@@ -135,7 +131,6 @@ import {
   CloudDownload,
   Sync,
   SyncDisabled,
-  CachedOutlined,
   Loop,
   Autorenew,
   Update,
@@ -157,7 +152,7 @@ import {
   Add as AddIcon,
   Delete as DeleteIcon
 } from '@mui/icons-material';
-import { alpha } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import { ButtonWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
@@ -323,6 +318,7 @@ interface ButtonWidgetProps {
 }
 
 export default function ButtonWidget({ config, isEditMode, widgetSize }: ButtonWidgetProps) {
+  const { palette: { custom: c } } = useTheme();
   const { state, actions } = useDSHub();
   const { showSuccess, showError } = useToast();
   const [confirmDialog, setConfirmDialog] = useState(false);
@@ -389,7 +385,7 @@ export default function ButtonWidget({ config, isEditMode, widgetSize }: ButtonW
             height: '100%',
             width: '100%',
             minWidth: 0,
-            backgroundColor: 'rgba(255, 255, 255, 0.04)',
+            backgroundColor: c.ghost,
             border: `1.5px solid ${config.color || '#00D4FF'}`,
             color: config.color || '#00D4FF',
             display: 'flex',
@@ -400,10 +396,9 @@ export default function ButtonWidget({ config, isEditMode, widgetSize }: ButtonW
             position: 'relative',
             transition: 'all 0.15s ease',
             '&:hover:not(:disabled)': {
-              backgroundColor: config.color || '#00D4FF',
+              backgroundColor: alpha(config.color || '#00D4FF', 0.12),
               border: `1.5px solid ${config.color || '#00D4FF'}`,
-              color: '#000',
-              boxShadow: `0 0 10px ${config.color || '#00D4FF'}`,
+              color: config.color || '#00D4FF',
             },
             '&:active:not(:disabled)': {
               transform: 'scale(0.98)'
@@ -417,25 +412,6 @@ export default function ButtonWidget({ config, isEditMode, widgetSize }: ButtonW
           {hasLabel ? config.label : (IconComponent ? <IconComponent /> : config.label)}
         </Button>
 
-        {!state.connection?.connected && (
-          <Box
-            sx={{
-              position: 'absolute',
-              bottom: '4px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              backgroundColor: (theme) => alpha(theme.palette.background.default, 0.8),
-              px: 1,
-              py: 0.5,
-              borderRadius: 1,
-              pointerEvents: 'none'
-            }}
-          >
-            <Typography variant="caption" sx={{ color: 'text.primary', fontSize: widgetSize ? scaledRem(0.65, widgetSize.scale) : '0.65rem' }}>
-              Not connected
-            </Typography>
-          </Box>
-        )}
       </Box>
 
       {/* Confirmation Dialog */}
