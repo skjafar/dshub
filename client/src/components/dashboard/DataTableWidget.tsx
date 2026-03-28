@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Typography, Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material';
+import { Box, Typography, Dialog, DialogTitle, DialogContent, DialogActions, Button, useTheme } from '@mui/material';
 import { Send as SendIcon } from '@mui/icons-material';
 import { DataTableWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
@@ -39,6 +39,7 @@ function isItemWritable(source: string, address: number): boolean {
  * - Registers marked READ_ONLY display only the current value
  */
 export default function DataTableWidget({ config, isEditMode, widgetSize }: DataTableWidgetProps): React.ReactElement {
+  const { palette: { custom: c } } = useTheme();
   const { state, actions } = useDSHub();
   const { showSuccess, showError } = useToast();
   const scale = widgetSize?.scale ?? 1;
@@ -158,25 +159,25 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                <th style={{ padding: cellPadding, textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                <th style={{ padding: cellPadding, textAlign: 'left', borderBottom: `1px solid ${c.ghost20}` }}>
                   <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: headerFontSize, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                     Name
                   </Typography>
                 </th>
-                <th style={{ padding: cellPadding, textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                <th style={{ padding: cellPadding, textAlign: 'right', borderBottom: `1px solid ${c.ghost20}` }}>
                   <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: headerFontSize, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                     Value
                   </Typography>
                 </th>
                 {showUnitColumn && (
-                  <th style={{ padding: cellPadding, textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                  <th style={{ padding: cellPadding, textAlign: 'left', borderBottom: `1px solid ${c.ghost20}` }}>
                     <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: headerFontSize, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                       Unit
                     </Typography>
                   </th>
                 )}
                 {showWriteColumn && (
-                  <th style={{ padding: cellPadding, textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                  <th style={{ padding: cellPadding, textAlign: 'right', borderBottom: `1px solid ${c.ghost20}` }}>
                     <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: headerFontSize, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                       Write
                     </Typography>
@@ -197,7 +198,7 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
                 const striped = config.striped && index % 2 === 1;
 
                 return (
-                  <tr key={`${item.source}-${item.address}-${index}`} style={{ backgroundColor: striped ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
+                  <tr key={`${item.source}-${item.address}-${index}`} style={{ backgroundColor: striped ? c.ghost : 'transparent' }}>
                     {/* Name */}
                     <td style={{ padding: cellPadding }}>
                       <Typography sx={{ fontSize, color: 'text.secondary', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 120 }}>
@@ -241,7 +242,7 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
                                 value !== undefined ? String(value) : '0'
                               }
                               onFocus={e => { e.currentTarget.style.borderColor = 'var(--mui-palette-primary-main, #00D4FF)'; }}
-                              onBlur={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; }}
+                              onBlur={e => { e.currentTarget.style.borderColor = c.ghost20; }}
                               style={{
                                 fontFamily: FONT_MONO,
                                 fontSize: 'inherit',
@@ -250,7 +251,7 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
                                 width: '6em',
                                 padding: '0 0.3em',
                                 textAlign: 'right',
-                                border: '1px solid rgba(255,255,255,0.12)',
+                                border: `1px solid ${c.ghost20}`,
                                 borderRadius: '3px',
                                 background: 'transparent',
                                 color: 'inherit',

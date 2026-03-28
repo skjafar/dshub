@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { UserSettings, DEFAULT_SETTINGS, MapProfile, DEFAULT_PROFILE_ID, CNC_PROFILE_ID, SysCommand } from '../types/settings';
 import { createModernCNCDashboard, CNC_SYS_COMMANDS, CNC_DASHBOARD_VERSION } from '../utils/cncDashboardTemplate';
 import { mapManager } from '../maps/mapManager';
+import { logger } from '../utils/logger';
 
 const STORAGE_KEY = 'dshub_settings';
 
@@ -90,7 +91,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     loadCNCProfile()
       .then(profile => setCncProfile(profile))
       .catch(error => {
-        console.log('CNC profile not available:', error);
+        logger.log('CNC profile not available:', error);
       });
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -184,7 +185,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
           boardTypesMap = await boardTypesResponse.text();
         }
       } catch (error) {
-        console.log('Board types map not found, will use defaults');
+        logger.log('Board types map not found, will use defaults');
       }
 
       // Try to load system registers map (optional)
@@ -195,7 +196,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
           systemRegistersMap = await systemRegistersResponse.text();
         }
       } catch {
-        console.log('system_registers.map not found, system tab will be empty');
+        logger.log('system_registers.map not found, system tab will be empty');
       }
 
       return {
@@ -236,7 +237,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
         systemRegistersMap = await sysRegResponse.text();
       }
     } catch {
-      console.log('cnc_system_registers.map not found');
+      logger.log('cnc_system_registers.map not found');
     }
 
     return {

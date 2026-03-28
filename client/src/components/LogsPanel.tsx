@@ -13,7 +13,8 @@ import {
   Switch,
   FormControlLabel,
   Paper,
-  Chip
+  Chip,
+  useTheme
 } from '@mui/material';
 import {
   Clear as ClearIcon,
@@ -69,6 +70,7 @@ function getRowHeight(log: LogEntry): number {
 
 // Virtualized log row component
 function LogRow({ log, style }: { log: LogEntry; style: React.CSSProperties }) {
+  const { palette: { custom: c } } = useTheme();
   const timeStr = new Date(log.timestamp).toLocaleTimeString('en-US', {
     hour12: false,
     hour: '2-digit',
@@ -91,7 +93,7 @@ function LogRow({ log, style }: { log: LogEntry; style: React.CSSProperties }) {
         borderColor: 'divider',
         fontFamily: FONT_MONO,
         fontSize: '0.875rem',
-        '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)' },
+        '&:hover': { backgroundColor: c.ghost },
         overflow: 'hidden',
       }}
     >
@@ -119,8 +121,8 @@ function LogRow({ log, style }: { log: LogEntry; style: React.CSSProperties }) {
       >
         {log.level.toUpperCase()}:
       </Typography>
-      <Box sx={{ color: '#E8E8EC', flex: 1, overflow: 'hidden' }}>
-        <Typography variant="body2" component="span" sx={{ color: '#E8E8EC' }}>
+      <Box sx={{ color: 'text.primary', flex: 1, overflow: 'hidden' }}>
+        <Typography variant="body2" component="span" sx={{ color: 'text.primary' }}>
           {log.message}
         </Typography>
         {log.level === 'packet' && log.packetData && (
@@ -164,6 +166,7 @@ function LogRow({ log, style }: { log: LogEntry; style: React.CSSProperties }) {
 }
 
 export default function LogsPanel() {
+  const { palette: { custom: c } } = useTheme();
   const { state, actions } = useDSHub();
   const { settings } = useSettings();
   const [levelFilter, setLevelFilter] = useState<LogEntry['level'] | 'all'>('all');
@@ -378,9 +381,9 @@ export default function LogsPanel() {
       <Paper sx={{
         height: CONTAINER_HEIGHT,
         overflow: 'hidden',
-        backgroundColor: '#0A0A0F',
-        color: '#E8E8EC',
-        border: '1px solid rgba(255,255,255,0.06)',
+        backgroundColor: c.surfaceLowest,
+        color: 'text.primary',
+        border: `1px solid ${c.ghost}`,
       }}>
         {filteredLogs.length === 0 ? (
           <EmptyState

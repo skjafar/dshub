@@ -67,3 +67,33 @@ const { chromium } = require('/home/sofian/.npm/_npx/e41f203b7505f1fb/node_modul
 
 If the Chromium binary is missing, reinstall with: `npx -y playwright install chromium`
 Firefox is also installed at: `/home/sofian/.cache/ms-playwright/firefox-1509/`
+
+## Design Context
+
+### Users
+DSHub serves two overlapping personas with equal weight:
+
+1. **The Engineer** — Embedded or firmware developer at a workstation. Uses DSHub during active hardware development to read/write registers, inspect parameters, and debug live device behavior. Wants precise control, raw data access, and zero friction.
+
+2. **The Operator** — Industrial technician or engineer monitoring live equipment. Uses DSHub as a primary interface to watch system health, react to states, and execute commands. Needs clarity at a glance and trustworthy status feedback.
+
+Both need the UI to get out of the way and surface what matters.
+
+### Brand Personality
+**Three words:** Calm. Precise. Capable.
+
+DSHub is an expert co-pilot — smart, composed, always showing you what matters. Emotional goals: **confidence, clarity, focus**.
+
+### Aesthetic Direction
+Dark-first. Industrial precision with editorial restraint. Minimal surface, maximum information density.
+
+**Existing system:** 5-level surface hierarchy (tonal, not shadow-based), cyan/lime/gold accents, ghost borders at 15–40% opacity, 2–4px radius, Inter + Space Grotesk, tabular numerics.
+
+**Avoid:** Generic enterprise SaaS, consumer/app-store roundness, retro terminal pastiche, gamer RGB neon excess.
+
+### Design Principles
+1. **Information first** — Every element must carry information or guide attention. Remove decoration that doesn't communicate.
+2. **Hierarchy through tone, not noise** — Surface levels and ghost borders create depth. Avoid heavy shadows and competing visual weights.
+3. **Precision at every scale** — Exact spacing, consistent geometry, tabular alignment on numeric data.
+4. **Calm confidence** — No excessive animations, no status ambiguity, no cluttered panels. Communicate changes clearly and once.
+5. **Serve both modes** — Detail-rich for debugging, scannable at a glance for monitoring.

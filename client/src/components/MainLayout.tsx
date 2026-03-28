@@ -14,6 +14,7 @@ import {
   Typography,
   Badge,
   useTheme,
+  useMediaQuery,
   Tooltip,
   Button,
   Slider,
@@ -41,11 +42,13 @@ import {
 } from '@mui/icons-material';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { NavigationContext } from '../contexts/NavigationContext';
 import { useToast } from './ToastNotification';
 import { InterfaceType, ControlInterfaceState } from '../types/shared';
 import { DEFAULT_GRID_CONFIG } from '../types/dashboard';
 import { FONT_MONO } from '../theme';
 import { mapManager } from '../maps/mapManager';
+import { logger } from '../utils/logger';
 import DeviceScannerPanel from './DeviceScannerPanel';
 import StatusBar, { STATUS_BAR_HEIGHT } from './StatusBar';
 import type { DashboardPanelRef } from './DashboardPanel';
@@ -85,11 +88,13 @@ const views: Array<{ key: ViewType; label: string; icon: React.ReactNode }> = [
 
 export default function MainLayout() {
   const theme = useTheme();
+  const isNarrow = useMediaQuery(theme.breakpoints.down('md'));
   const { state, actions } = useDSHub();
   const { settings } = useSettings();
   const { showWarning, showInfo, showError } = useToast();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [drawerCollapsed, setDrawerCollapsed] = useState(false);
+  const effectiveDrawerCollapsed = drawerCollapsed || isNarrow;
   const [currentView, setCurrentView] = useState<ViewType>(() => {
     const saved = localStorage.getItem('dshub-last-view');
     if (saved && views.some(v => v.key === saved)) {
@@ -174,14 +179,14 @@ export default function MainLayout() {
       const delay = isFirstAttempt ? 0 : settings.autoConnectRetryDelay;
 
       setTimeout(() => {
-        console.log(`Auto-connect attempt ${attemptNumber}/${settings.autoConnectRetries}`);
+        logger.log(`Auto-connect attempt ${attemptNumber}/${settings.autoConnectRetries}`);
 
         // Look up device name from discovered devices if available, otherwise use saved name
         const discoveredDevice = state.discoveredDevices.find(d => d.ip_address === settings.lastDeviceIP);
         const deviceName = discoveredDevice?.board_name || settings.lastDeviceName;
 
         if (deviceName) {
-          console.log(`Using device name for connection: ${deviceName}`);
+          logger.log(`Using device name for connection: ${deviceName}`);
         }
 
         actions.connectDevice(settings.lastDeviceIP, interfaceType, deviceName);
@@ -282,7 +287,7 @@ export default function MainLayout() {
         onClick={() => setCurrentView(view.key)}
         sx={{
           minHeight: 40,
-          justifyContent: drawerCollapsed ? 'center' : 'initial',
+          justifyContent: effectiveDrawerCollapsed ? 'center' : 'initial',
           px: 2,
           py: 0.5,
           borderLeft: '3px solid transparent',
@@ -294,7 +299,7 @@ export default function MainLayout() {
         <ListItemIcon
           sx={{
             minWidth: 0,
-            mr: drawerCollapsed ? 'auto' : 2,
+            mr: effectiveDrawerCollapsed ? 'auto' : 2,
             justifyContent: 'center',
             color: currentView === view.key ? 'primary.main' : 'text.secondary',
             '& .MuiSvgIcon-root': { fontSize: '1.2rem' },
@@ -308,7 +313,7 @@ export default function MainLayout() {
             view.icon
           )}
         </ListItemIcon>
-        {!drawerCollapsed && (
+        {!effectiveDrawerCollapsed && (
           <ListItemText
             primary={view.label}
             primaryTypographyProps={{
@@ -323,7 +328,7 @@ export default function MainLayout() {
 
     return (
       <ListItem key={view.key} disablePadding sx={{ display: 'block' }}>
-        {drawerCollapsed ? (
+        {effectiveDrawerCollapsed ? (
           <Tooltip title={view.label} placement="right">
             {listItemButton}
           </Tooltip>
@@ -336,8 +341,8 @@ export default function MainLayout() {
 
   const drawer = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Toolbar sx={{ display: 'flex', justifyContent: drawerCollapsed ? 'center' : 'space-between', minHeight: '48px !important' }}>
-        {!drawerCollapsed && (
+      <Toolbar sx={{ display: 'flex', justifyContent: effectiveDrawerCollapsed ? 'center' : 'space-between', minHeight: '48px !important' }}>
+        {!effectiveDrawerCollapsed && (
           <Typography
             noWrap
             component="div"
@@ -353,9 +358,14 @@ export default function MainLayout() {
             DSHub
           </Typography>
         )}
-        <Tooltip title={drawerCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} placement="right">
-          <IconButton onClick={handleDrawerCollapse} size="small" sx={{ color: 'text.secondary' }}>
-            {drawerCollapsed ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
+        <Tooltip title={effectiveDrawerCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} placement="right">
+          <IconButton
+            onClick={handleDrawerCollapse}
+            size="small"
+            aria-label={effectiveDrawerCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            sx={{ color: 'text.secondary' }}
+          >
+            {effectiveDrawerCollapsed ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
           </IconButton>
         </Tooltip>
       </Toolbar>
@@ -365,7 +375,7 @@ export default function MainLayout() {
         {navGroups.map((group, groupIndex) => (
           <React.Fragment key={groupIndex}>
             {groupIndex > 0 && (
-              <Box sx={{ mx: drawerCollapsed ? 1 : 2, my: 0.5, borderTop: '1px solid', borderColor: 'divider' }} />
+              <Box sx={{ mx: effectiveDrawerCollapsed ? 1 : 2, my: 0.5, borderTop: '1px solid', borderColor: 'divider' }} />
             )}
             {group.map(renderNavItem)}
           </React.Fragment>
@@ -374,7 +384,7 @@ export default function MainLayout() {
 
       {/* Bottom nav — settings & about */}
       <Box>
-        <Box sx={{ mx: drawerCollapsed ? 1 : 2, my: 0.5, borderTop: '1px solid', borderColor: 'divider' }} />
+        <Box sx={{ mx: effectiveDrawerCollapsed ? 1 : 2, my: 0.5, borderTop: '1px solid', borderColor: 'divider' }} />
         <List sx={{ pt: 0, pb: `${STATUS_BAR_HEIGHT}px` }}>
           {bottomNavItems.map(renderNavItem)}
         </List>
@@ -465,7 +475,7 @@ export default function MainLayout() {
     }
   };
 
-  const currentDrawerWidth = drawerCollapsed ? drawerWidthCollapsed : drawerWidth;
+  const currentDrawerWidth = effectiveDrawerCollapsed ? drawerWidthCollapsed : drawerWidth;
 
   return (
     <Box sx={{ display: 'flex' }}>
@@ -549,7 +559,7 @@ export default function MainLayout() {
                       valueLabelFormat={(value) => `${value}px`}
                       sx={{
                         width: 120,
-                        color: 'rgba(255, 255, 255, 0.9)',
+                        color: 'inherit',
                         '& .MuiSlider-thumb': {
                           width: 16,
                           height: 16,
@@ -577,7 +587,7 @@ export default function MainLayout() {
                       valueLabelFormat={(value) => `${value}px`}
                       sx={{
                         width: 100,
-                        color: 'rgba(255, 255, 255, 0.9)',
+                        color: 'inherit',
                         '& .MuiSlider-thumb': {
                           width: 16,
                           height: 16,
@@ -831,7 +841,7 @@ export default function MainLayout() {
                 duration: theme.transitions.duration.enteringScreen,
               }),
               overflowX: 'hidden',
-              backgroundColor: theme.palette.mode === 'dark' ? '#0A0A0F' : '#F5F6FA',
+              backgroundColor: theme.palette.custom.surfaceLowest,
               borderRight: `1px solid ${theme.palette.divider}`,
             },
           }}
@@ -844,19 +854,17 @@ export default function MainLayout() {
         component="main"
         sx={{
           flexGrow: 1,
+          minWidth: 0,
           p: 3,
           pb: `${STATUS_BAR_HEIGHT + 24}px`,
-          width: { sm: `calc(100% - ${currentDrawerWidth}px)` },
-          transition: theme.transitions.create(['margin', 'width'], {
-            easing: theme.transitions.easing.sharp,
-            duration: theme.transitions.duration.leavingScreen,
-          }),
         }}
       >
         <Toolbar />
-        <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', pt: 8 }}><CircularProgress /></Box>}>
-          {renderCurrentView()}
-        </Suspense>
+        <NavigationContext.Provider value={{ navigate: (v) => setCurrentView(v as ViewType) }}>
+          <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', pt: 8 }}><CircularProgress /></Box>}>
+            {renderCurrentView()}
+          </Suspense>
+        </NavigationContext.Provider>
       </Box>
 
       <StatusBar />

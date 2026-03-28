@@ -38,6 +38,7 @@ import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { MapEntry, DataAccessPermit, DataForm } from '../../maps/mapParser';
 import { consolidateArrayEntries } from '../../utils/mapFileGenerator';
 import { FONT_MONO } from '../../theme';
+import { logger } from '../../utils/logger';
 
 interface MapEntriesListProps {
   entries: MapEntry[];
@@ -128,7 +129,7 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
   const handleArrayToggle = (checked: boolean) => {
     setEditIsArray(checked);
     const parsedSize = checked ? parseInt(editArraySize, 10) : undefined;
-    console.log(`[MapEditor] Array toggle - editArraySize: "${editArraySize}", parsed: ${parsedSize}`);
+    logger.log(`[MapEditor] Array toggle - editArraySize: "${editArraySize}", parsed: ${parsedSize}`);
     onUpdate({
       name: baseName,
       type: editType,
@@ -145,10 +146,10 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
     const cleanedInput = editArraySize.replace(/^0x/i, '').replace(/^0+/, '') || '0';
     const size = parseInt(cleanedInput, 10);
 
-    console.log(`[MapEditor] Array size input: "${editArraySize}" -> cleaned: "${cleanedInput}" -> parsed as: ${size}`);
+    logger.log(`[MapEditor] Array size input: "${editArraySize}" -> cleaned: "${cleanedInput}" -> parsed as: ${size}`);
 
     if (!isNaN(size) && size >= 1 && size <= 1000) {
-      console.log(`[MapEditor] Creating array with ${size} elements for ${baseName}`);
+      logger.log(`[MapEditor] Creating array with ${size} elements for ${baseName}`);
       // Store as number and update the field to show the clean decimal value
       setEditArraySize(size.toString());
       onUpdate({
@@ -160,7 +161,7 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
         showAsHex: editType === DataForm.HEX
       });
     } else {
-      console.warn(`[MapEditor] Invalid array size: "${editArraySize}"`);
+      logger.warn(`[MapEditor] Invalid array size: "${editArraySize}"`);
       setEditArraySize(entry.arraySize?.toString() || '1'); // Revert if invalid
     }
   };

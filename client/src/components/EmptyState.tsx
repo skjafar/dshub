@@ -1,6 +1,6 @@
 import { Box, Typography, Button } from '@mui/material';
 import { SvgIconProps } from '@mui/material/SvgIcon';
-import { FONT_MONO } from '../theme';
+import { FONT_HEADLINE } from '../theme';
 
 interface EmptyStateProps {
   icon: React.ReactElement<SvgIconProps>;
@@ -11,9 +11,10 @@ interface EmptyStateProps {
     onClick: () => void;
     icon?: React.ReactElement;
   };
+  hint?: React.ReactNode;
 }
 
-export default function EmptyState({ icon, title, subtitle, action }: EmptyStateProps) {
+export default function EmptyState({ icon, title, subtitle, action, hint }: EmptyStateProps) {
   return (
     <Box
       sx={{
@@ -30,12 +31,10 @@ export default function EmptyState({ icon, title, subtitle, action }: EmptyState
       </Box>
       <Typography
         sx={{
-          fontFamily: FONT_MONO,
-          fontSize: '0.875rem',
+          fontFamily: FONT_HEADLINE,
+          fontSize: '0.9375rem',
           fontWeight: 600,
-          letterSpacing: '0.05em',
           color: 'text.secondary',
-          textTransform: 'uppercase',
         }}
       >
         {title}
@@ -56,6 +55,7 @@ export default function EmptyState({ icon, title, subtitle, action }: EmptyState
           {action.label}
         </Button>
       )}
+      {hint}
     </Box>
   );
 }

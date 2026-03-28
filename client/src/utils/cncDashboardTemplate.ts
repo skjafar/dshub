@@ -35,7 +35,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
       label: 'Machine State',
       source: 'register',
       address: 0,
-      refreshInterval: 100,
+      refreshInterval: 200,
       states: [
         { value: 0, label: 'IDLE', color: '#6B7280' },
         { value: 1, label: 'HOMING', color: '#FACC15' },
@@ -119,7 +119,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
     id: 'modern-cnc-6',
     type: 'encoderDisplay',
     config: {
-      label: 'X Position', source: 'register', address: 1, refreshInterval: 50,
+      label: 'X Position', source: 'register', address: 1, refreshInterval: 200,
       conversionSource: 'constant', conversionFactor: 1000,
       primaryUnit: 'mm', secondaryUnit: 'steps', showRawValue: true, decimals: 3,
       color: '#00F2FF', valueFontSize: 1.8,
@@ -132,7 +132,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
     id: 'modern-cnc-7',
     type: 'encoderDisplay',
     config: {
-      label: 'Y Position', source: 'register', address: 2, refreshInterval: 50,
+      label: 'Y Position', source: 'register', address: 2, refreshInterval: 200,
       conversionSource: 'constant', conversionFactor: 1000,
       primaryUnit: 'mm', secondaryUnit: 'steps', showRawValue: true, decimals: 3,
       color: '#4ADE80', valueFontSize: 1.8,
@@ -145,7 +145,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
     id: 'modern-cnc-8',
     type: 'encoderDisplay',
     config: {
-      label: 'Z Position', source: 'register', address: 3, refreshInterval: 50,
+      label: 'Z Position', source: 'register', address: 3, refreshInterval: 200,
       conversionSource: 'constant', conversionFactor: 1000,
       primaryUnit: 'mm', secondaryUnit: 'steps', showRawValue: true, decimals: 3,
       color: '#FF8C42', valueFontSize: 1.8,
@@ -236,7 +236,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
     id: 'modern-cnc-16',
     type: 'gauge',
     config: {
-      label: 'Spindle RPM', source: 'register', address: 4, refreshInterval: 100,
+      label: 'Spindle RPM', source: 'register', address: 4, refreshInterval: 200,
       min: 0, max: 10000, unit: 'RPM', decimals: 0, showValue: true, valueFontSize: 1.8,
       colorRanges: [
         { from: 0, to: 3000, color: '#4ADE80' },
@@ -252,7 +252,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
     id: 'modern-cnc-17',
     type: 'ledIndicator',
     config: {
-      label: 'Spindle', source: 'register', address: 9, refreshInterval: 100,
+      label: 'Spindle', source: 'register', address: 9, refreshInterval: 200,
       onValue: 1, offValue: 0, onColor: '#00F2FF', offColor: '#6B7280',
       onLabel: 'RUNNING', offLabel: 'STOPPED', pulseWhenOn: true,
     },
@@ -296,7 +296,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
     id: 'modern-cnc-21',
     type: 'progressBar',
     config: {
-      label: 'Spindle Load', source: 'register', address: 5, refreshInterval: 100,
+      label: 'Spindle Load', source: 'register', address: 5, refreshInterval: 200,
       min: 0, max: 100, unit: '%', orientation: 'horizontal', showPercentage: true, showValue: true,
       colorRanges: [
         { from: 0, to: 50, color: '#4ADE80' },
@@ -329,7 +329,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
   {
     id: 'modern-cnc-23',
     type: 'ledIndicator',
-    config: { label: 'Motor X', source: 'register', address: 6, refreshInterval: 100, onValue: 1, offValue: 0, onColor: '#00F2FF', offColor: '#6B7280', onLabel: 'ON', offLabel: 'OFF', pulseWhenOn: false },
+    config: { label: 'Motor X', source: 'register', address: 6, refreshInterval: 200, onValue: 1, offValue: 0, onColor: '#00F2FF', offColor: '#6B7280', onLabel: 'ON', offLabel: 'OFF', pulseWhenOn: false },
     layout: { w: 2, h: 1, x: 6, y: 8, i: 'modern-cnc-23', moved: false, static: false },
   },
 
@@ -353,7 +353,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
   {
     id: 'modern-cnc-26',
     type: 'ledIndicator',
-    config: { label: 'Motor Y', source: 'register', address: 7, refreshInterval: 100, onValue: 1, offValue: 0, onColor: '#4ADE80', offColor: '#6B7280', onLabel: 'ON', offLabel: 'OFF', pulseWhenOn: false },
+    config: { label: 'Motor Y', source: 'register', address: 7, refreshInterval: 200, onValue: 1, offValue: 0, onColor: '#4ADE80', offColor: '#6B7280', onLabel: 'ON', offLabel: 'OFF', pulseWhenOn: false },
     layout: { w: 2, h: 1, x: 6, y: 9, i: 'modern-cnc-26', moved: false, static: false },
   },
 
@@ -377,7 +377,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
   {
     id: 'modern-cnc-29',
     type: 'ledIndicator',
-    config: { label: 'Motor Z', source: 'register', address: 8, refreshInterval: 100, onValue: 1, offValue: 0, onColor: '#FF8C42', offColor: '#6B7280', onLabel: 'ON', offLabel: 'OFF', pulseWhenOn: false },
+    config: { label: 'Motor Z', source: 'register', address: 8, refreshInterval: 200, onValue: 1, offValue: 0, onColor: '#FF8C42', offColor: '#6B7280', onLabel: 'ON', offLabel: 'OFF', pulseWhenOn: false },
     layout: { w: 2, h: 1, x: 6, y: 10, i: 'modern-cnc-29', moved: false, static: false },
   },
 
@@ -468,7 +468,7 @@ const CNC_MONITORING_WIDGETS: DashboardWidget[] = [
     type: 'alarmList',
     config: {
       label: 'CNC Alarms',
-      refreshInterval: 100,
+      refreshInterval: 200,
       alarms: [
         {
           label: 'Machine Error',
@@ -531,7 +531,7 @@ const CNC_MONITORING_WIDGETS: DashboardWidget[] = [
     type: 'statusMatrix',
     config: {
       label: 'I/O Status',
-      refreshInterval: 100,
+      refreshInterval: 200,
       items: [
         { label: 'Motor X', source: 'register' as const, address: 6, onValue: 1, onColor: '#00F2FF', offColor: '#6B7280' },
         { label: 'Motor Y', source: 'register' as const, address: 7, onValue: 1, onColor: '#4ADE80', offColor: '#6B7280' },

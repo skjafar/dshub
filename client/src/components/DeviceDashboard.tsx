@@ -7,6 +7,7 @@ import {
 } from '@mui/icons-material';
 import { useDSHub } from '../contexts/DSHubContext';
 import EmptyState from './EmptyState';
+import { useNavigation } from '../contexts/NavigationContext';
 import { ControlInterfaceState, InterfaceType, LogEntry } from '../types/shared';
 import { FONT_MONO, FONT_BODY, FONT_HEADLINE } from '../theme';
 import { hexCh } from '../appThemes';
@@ -155,6 +156,7 @@ function LogRow({ entry }: { entry: LogEntry }) {
 export default function DeviceDashboard() {
   const { palette: { custom: c } } = useTheme();
   const { state, actions } = useDSHub();
+  const { navigate } = useNavigation();
 
   // Uptime counter — mirrors StatusBar pattern
   const connectedAtRef = useRef<number | null>(null);
@@ -188,8 +190,12 @@ export default function DeviceDashboard() {
     return (
       <EmptyState
         icon={<LinkOffIcon />}
-        title="No Device Connected"
-        subtitle="Use the Device Scanner to discover and connect to a device on your network."
+        title="No device connected"
+        subtitle="Connect to a device to see status, uptime, register counts, and live activity."
+        action={{
+          label: 'Go to Device Scanner',
+          onClick: () => navigate('scanner'),
+        }}
       />
     );
   }

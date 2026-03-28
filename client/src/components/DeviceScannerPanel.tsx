@@ -29,6 +29,7 @@ import { useToast } from './ToastNotification';
 import { InterfaceType, DEFAULT_TCP_PORT, DEFAULT_UDP_PORT } from '../types/shared';
 import { mapManager } from '../maps/mapManager';
 import { FONT_MONO } from '../theme';
+import { logger } from '../utils/logger';
 
 const formatMacAddress = (mac: string): string => {
   return mac.toUpperCase();
@@ -56,7 +57,7 @@ export default function DeviceScannerPanel() {
         const activeProfile = getActiveProfile();
         await mapManager.initialize(activeProfile);
       } catch (error) {
-        console.error('Failed to load board types map:', error);
+        logger.error('Failed to load board types map:', error);
       }
     };
 
@@ -243,8 +244,8 @@ export default function DeviceScannerPanel() {
       {state.discoveredDevices.length === 0 && !state.isScanning && (
         <EmptyState
           icon={<RadarIcon />}
-          title="No Devices Found"
-          subtitle='Click "Scan Network" to search for devices on your network.'
+          title="No devices discovered yet"
+          subtitle='Click "Scan Network" above to search the local network, or enter an IP address manually.'
         />
       )}
 

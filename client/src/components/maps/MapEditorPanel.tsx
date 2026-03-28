@@ -37,6 +37,7 @@ import { DataForm, DataAccessPermit } from '../../maps/mapParser';
 import MapEntriesList from './MapEntriesList';
 import MapExportDialog from './MapExportDialog';
 import SysCommandsTab from './SysCommandsTab';
+import { logger } from '../../utils/logger';
 import { FONT_MONO } from '../../theme';
 
 type MapType = 'registers' | 'parameters' | 'sysCommands';
@@ -314,8 +315,8 @@ export default function MapEditorPanel() {
 
     if (data.isArray && data.arraySize) {
       // Create array entries
-      console.log(`[MapEditor] Creating array "${data.name}" with ${data.arraySize} (type: ${typeof data.arraySize}) elements starting at address ${startAddress}`);
-      console.log(`[MapEditor] Full data object:`, JSON.stringify(data));
+      logger.log(`[MapEditor] Creating array "${data.name}" with ${data.arraySize} (type: ${typeof data.arraySize}) elements starting at address ${startAddress}`);
+      logger.log(`[MapEditor] Full data object:`, JSON.stringify(data));
       for (let i = 0; i < data.arraySize; i++) {
         entries.push({
           address: startAddress + i,
@@ -327,7 +328,7 @@ export default function MapEditorPanel() {
           showAsHex: data.showAsHex || false
         });
       }
-      console.log(`[MapEditor] Created ${entries.length} array entries for "${data.name}"`);
+      logger.log(`[MapEditor] Created ${entries.length} array entries for "${data.name}"`);
     } else {
       // Create single entry
       entries.push({

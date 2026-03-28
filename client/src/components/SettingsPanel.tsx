@@ -16,7 +16,8 @@ import {
   InputAdornment,
   Checkbox,
   FormGroup,
-  Tooltip
+  Tooltip,
+  useTheme
 } from '@mui/material';
 import {
   Upload as UploadIcon,
@@ -34,6 +35,7 @@ import { FONT_MONO, FONT_BODY } from '../theme';
 import { APP_THEMES } from '../appThemes';
 
 export default function SettingsPanel() {
+  const { palette: { custom: c } } = useTheme();
   const { settings, updateSettings, resetSettings, exportSettings, importSettings } = useSettings();
   const { showSuccess, showError, showWarning } = useToast();
   const { actions } = useDSHub();
@@ -269,7 +271,7 @@ export default function SettingsPanel() {
                       position: 'relative',
                       borderRadius: '6px',
                       border: isSelected ? `2px solid ${t.preview[0]}` : '2px solid transparent',
-                      outline: isSelected ? `1px solid ${t.preview[0]}` : '1px solid rgba(128,128,128,0.18)',
+                      outline: isSelected ? `1px solid ${t.preview[0]}` : `1px solid ${c.ghost20}`,
                       cursor: 'pointer',
                       overflow: 'hidden',
                       transition: 'border-color 0.15s, outline-color 0.15s',

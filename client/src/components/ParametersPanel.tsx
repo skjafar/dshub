@@ -49,6 +49,7 @@ import { canWriteToDevice, formatDataValue, filterWriteValueFromMap, parseWriteV
 import { useDebouncedCallback } from '../hooks/useDebounce';
 import { DataEditDialog, DataReadDialog } from './DataEditDialog';
 import { FONT_MONO } from '../theme';
+import { logger } from '../utils/logger';
 
 // Constants
 const WRITE_VERIFICATION_DELAY_MS = 100;
@@ -123,22 +124,22 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
         const needsReload = loadedProfileId !== settings.activeMapProfileId;
 
         if (needsReload) {
-          console.log(`[ParametersPanel] Profile mismatch - MapManager has '${loadedProfileId}', settings has '${settings.activeMapProfileId}'`);
+          logger.log(`[ParametersPanel] Profile mismatch - MapManager has '${loadedProfileId}', settings has '${settings.activeMapProfileId}'`);
           // Clear parameter data when profile changes
           actions.clearParameters();
 
           // Force reload maps with new profile
           await mapManager.reload(activeProfile);
-          console.log(`[ParametersPanel] MapManager reloaded with ${activeProfile?.name || 'default'} profile`);
+          logger.log(`[ParametersPanel] MapManager reloaded with ${activeProfile?.name || 'default'} profile`);
         } else if (!mapManager.isInitialized()) {
           // First time initialization
           await mapManager.initialize(activeProfile);
-          console.log(`[ParametersPanel] MapManager initialized for first time`);
+          logger.log(`[ParametersPanel] MapManager initialized for first time`);
         }
 
         // Update local state with current map entries
         const entries = mapManager.getAllParameters();
-        console.log(`[ParametersPanel] Loaded ${entries.length} parameter entries from mapManager`);
+        logger.log(`[ParametersPanel] Loaded ${entries.length} parameter entries from mapManager`);
         setMapEntries(entries);
 
         // Create fast lookup map
@@ -372,9 +373,9 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
         const text = await file.text();
         const lines = text.split('\n').map(line => line.trim()).filter(line => line);
 
-        console.log(`[CSV Load] File has ${lines.length} lines (including header)`);
-        console.log(`[CSV Load] Map has ${mapLookup.size} entries loaded`);
-        console.log(`[CSV Load] isMapLoaded: ${isMapLoaded}`);
+        logger.log(`[CSV Load] File has ${lines.length} lines (including header)`);
+        logger.log(`[CSV Load] Map has ${mapLookup.size} entries loaded`);
+        logger.log(`[CSV Load] isMapLoaded: ${isMapLoaded}`);
 
         // Validate header
         if (lines.length < 2) {
@@ -436,9 +437,9 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
           const trimmedValue = valueStr?.trim();
           if (trimmedValue && trimmedValue !== '') {
             newEditingValues[address] = trimmedValue;
-            console.log(`[CSV Load] Loaded address ${address} (${name}): "${trimmedValue}"`);
+            logger.log(`[CSV Load] Loaded address ${address} (${name}): "${trimmedValue}"`);
           } else {
-            console.log(`[CSV Load] Skipped address ${address} (${name}): empty value`);
+            logger.log(`[CSV Load] Skipped address ${address} (${name}): empty value`);
           }
         }
 

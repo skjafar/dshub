@@ -212,6 +212,7 @@ function ActionButton({
       <Box
         component="button"
         onClick={disabled ? undefined : onClick}
+        aria-disabled={disabled}
         sx={{
           display: 'flex',
           alignItems: 'center',
@@ -316,9 +317,8 @@ export default function RegisterInspector({
     <Box
       sx={{
         width: open ? INSPECTOR_WIDTH : 0,
-        minWidth: open ? INSPECTOR_WIDTH : 0,
         overflow: 'hidden',
-        transition: 'width 0.2s ease, min-width 0.2s ease',
+        transition: 'width 0.2s ease',
         flexShrink: 0,
         alignSelf: 'flex-start',
         position: 'sticky',

@@ -42,6 +42,8 @@ import {
 } from '@mui/icons-material';
 import RegisterInspector from './RegisterInspector';
 import { useDSHub } from '../contexts/DSHubContext';
+import { useNavigation } from '../contexts/NavigationContext';
+import { logger } from '../utils/logger';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import { mapManager } from '../maps/mapManager';
@@ -50,6 +52,7 @@ import { int32ToFloat, formatFloat } from '../utils/floatConversion';
 import { canWriteToDevice, formatDataValue, filterWriteValueFromMap, parseWriteValue } from '../utils/dataTableUtils';
 import { useDebouncedCallback } from '../hooks/useDebounce';
 import { DataEditDialog, DataReadDialog } from './DataEditDialog';
+import { RegisterData } from '../types/shared';
 import { FONT_MONO } from '../theme';
 
 export interface RegistersPanelRef {
@@ -67,7 +70,8 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   const { state, actions } = useDSHub();
   const { settings, getActiveProfile } = useSettings();
   const { showError } = useToast();
-  const [editDialog, setEditDialog] = useState<{ open: boolean; register: any; mapEntry?: MapEntry }>({
+  const { navigate } = useNavigation();
+  const [editDialog, setEditDialog] = useState<{ open: boolean; register: RegisterData | null; mapEntry?: MapEntry }>({
     open: false,
     register: null
   });
@@ -103,28 +107,28 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
         const needsReload = loadedProfileId !== settings.activeMapProfileId;
 
         if (needsReload) {
-          console.log(`[RegistersPanel] Profile mismatch - MapManager has '${loadedProfileId}', settings has '${settings.activeMapProfileId}'`);
+          logger.log(`[RegistersPanel] Profile mismatch - MapManager has '${loadedProfileId}', settings has '${settings.activeMapProfileId}'`);
           // Clear register data when profile changes
           actions.clearRegisters();
 
           // Force reload maps with new profile
           await mapManager.reload(activeProfile);
-          console.log(`[RegistersPanel] MapManager reloaded with ${activeProfile?.name || 'default'} profile`);
+          logger.log(`[RegistersPanel] MapManager reloaded with ${activeProfile?.name || 'default'} profile`);
         } else if (!mapManager.isInitialized()) {
           // First time initialization
           await mapManager.initialize(activeProfile);
-          console.log(`[RegistersPanel] MapManager initialized for first time`);
+          logger.log(`[RegistersPanel] MapManager initialized for first time`);
         }
 
         // Update local state with current map entries
         const entries = mapManager.getAllRegisters();
         const sysEntries = mapManager.getAllSystemRegisters();
-        console.log(`[RegistersPanel] Loaded ${entries.length} register entries, ${sysEntries.length} system register entries from mapManager`);
+        logger.log(`[RegistersPanel] Loaded ${entries.length} register entries, ${sysEntries.length} system register entries from mapManager`);
         setMapEntries(entries);
         setSystemMapEntries(sysEntries);
         setIsMapLoaded(true);
       } catch (error) {
-        console.error('Failed to load register maps:', error);
+        logger.error('Failed to load register maps:', error);
       }
     };
 
@@ -159,7 +163,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
     });
   };
 
-  const handleEditRegister = (register: any, mapEntry?: MapEntry) => {
+  const handleEditRegister = (register: RegisterData, mapEntry?: MapEntry) => {
     setEditDialog({ open: true, register, mapEntry });
   };
 
@@ -175,7 +179,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
     setEditingValues(prev => ({ ...prev, [address]: filterWriteValueFromMap(value, mapEntry) }));
   };
 
-  const handleInlineValueWrite = (address: number, register: any, mapEntry: MapEntry | undefined) => {
+  const handleInlineValueWrite = (address: number, register: RegisterData, mapEntry: MapEntry | undefined) => {
     const valueStr = editingValues[address];
     if (valueStr !== undefined && valueStr !== '') {
       const result = parseWriteValue(valueStr, mapEntry);
@@ -200,7 +204,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
     }
   };
 
-  const handleInlineValueKeyPress = (e: React.KeyboardEvent, address: number, register: any, mapEntry: MapEntry | undefined) => {
+  const handleInlineValueKeyPress = (e: React.KeyboardEvent, address: number, register: RegisterData, mapEntry: MapEntry | undefined) => {
     if (e.key === 'Enter') {
       handleInlineValueWrite(address, register, mapEntry);
       // Select all text so user can immediately type a new value
@@ -322,7 +326,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
     return mapEntries.find(entry => entry.address === address);
   };
 
-  const formatRegisterValue = (register: any): string => {
+  const formatRegisterValue = (register: RegisterData): string => {
     const mapEntry = currentTab === 2
       ? systemMapEntries.find(e => e.address === register.address)
       : getMapEntryForRegister(register.address);
@@ -470,7 +474,15 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
       </Card>
 
       {!state.connection?.connected && (
-        <Alert severity="warning" sx={{ mb: 3 }}>
+        <Alert
+          severity="warning"
+          sx={{ mb: 3 }}
+          action={
+            <Button size="small" color="inherit" onClick={() => navigate('scanner')}>
+              Go to Scanner
+            </Button>
+          }
+        >
           Device not connected. Please connect to a device to view registers.
         </Alert>
       )}
