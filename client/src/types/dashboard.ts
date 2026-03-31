@@ -16,7 +16,8 @@ export type WidgetType =
   | 'systemInfo'
   | 'dataTable'
   | 'alarmList'
-  | 'statusMatrix';
+  | 'statusMatrix'
+  | 'container';
 
 // Data source types
 export type DataSource = 'register' | 'parameter' | 'sysCommand' | 'sysRegister';
@@ -267,6 +268,15 @@ export interface StatusMatrixWidgetConfig {
   compact?: boolean;
 }
 
+// Container widget configuration - groups other widgets in a resizable region with its own grid
+export interface ContainerWidgetConfig {
+  label?: string;               // optional display label for the container group
+  backgroundColor?: string;    // hex color or undefined (transparent)
+  padding: number;              // px inset from container edges, default 8
+  spacing: number;              // px gap between widgets inside, default 4
+  childWidgets: DashboardWidget[];
+}
+
 // Union type for all widget configurations
 export type WidgetConfig =
   | ButtonWidgetConfig
@@ -283,7 +293,8 @@ export type WidgetConfig =
   | SystemInfoWidgetConfig
   | DataTableWidgetConfig
   | AlarmListWidgetConfig
-  | StatusMatrixWidgetConfig;
+  | StatusMatrixWidgetConfig
+  | ContainerWidgetConfig;
 
 // Widget instance
 export interface DashboardWidget {
@@ -337,6 +348,7 @@ export const DEFAULT_WIDGET_SIZES: Record<WidgetType, { w: number; h: number; mi
   dataTable: { w: 5, h: 4, minW: 3, minH: 2 },
   alarmList: { w: 4, h: 4, minW: 3, minH: 2 },
   statusMatrix: { w: 4, h: 3, minW: 2, minH: 2 },
+  container: { w: 6, h: 4, minW: 2, minH: 2 },
 };
 
 // Helper function to create empty dashboard

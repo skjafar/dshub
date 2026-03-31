@@ -14,7 +14,9 @@ import {
   Menu,
   MenuItem,
   Slider,
-  Divider
+  Divider,
+  Snackbar,
+  Typography,
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -31,6 +33,7 @@ import {
   DashboardTab,
   WidgetType,
   WidgetConfig,
+  ContainerWidgetConfig,
   DEFAULT_GRID_CONFIG,
   DEFAULT_WIDGET_SIZES,
   createNewTab,
@@ -105,6 +108,24 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
   // Version counters to prevent infinite loop between load and save effects
   const loadVersionRef = useRef(0);
   const savedVersionRef = useRef(0);
+  const undoDeleteTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const [deleteWidgetConfirm, setDeleteWidgetConfirm] = useState<{
+    open: boolean;
+    widgetId: string | null;
+    childCount: number;
+  }>({ open: false, widgetId: null, childCount: 0 });
+  const [undoDeleteState, setUndoDeleteState] = useState<{
+    open: boolean;
+    deletedWidget: DashboardWidgetType | null;
+    tabId: string | null;
+  }>({ open: false, deletedWidget: null, tabId: null });
+
+  useEffect(() => {
+    return () => {
+      if (undoDeleteTimerRef.current) clearTimeout(undoDeleteTimerRef.current);
+    };
+  }, []);
 
   // Load dashboard from settings when profile changes
   useEffect(() => {
@@ -305,12 +326,62 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
 
   const handleDeleteWidget = (widgetId: string) => {
     if (isLockedTab(activeTabId)) return;
+    const widget = activeTab.widgets.find(w => w.id === widgetId);
+    if (!widget) return;
+
+    // Container with children needs a confirmation — too destructive to undo silently
+    if (widget.type === 'container') {
+      const childCount = (widget.config as ContainerWidgetConfig).childWidgets.length;
+      if (childCount > 0) {
+        setDeleteWidgetConfirm({ open: true, widgetId, childCount });
+        return;
+      }
+    }
+
+    // All other widgets (and empty containers): optimistic delete + undo snackbar
+    setTabs(tabs.map(tab =>
+      tab.id === activeTabId
+        ? { ...tab, widgets: tab.widgets.filter(w => w.id !== widgetId) }
+        : tab
+    ));
+    if (undoDeleteTimerRef.current) clearTimeout(undoDeleteTimerRef.current);
+    setUndoDeleteState({ open: true, deletedWidget: widget, tabId: activeTabId });
+    undoDeleteTimerRef.current = setTimeout(() => {
+      setUndoDeleteState({ open: false, deletedWidget: null, tabId: null });
+    }, 4000);
+  };
+
+  const handleConfirmWidgetDelete = () => {
+    if (!deleteWidgetConfirm.widgetId) return;
+    const { widgetId } = deleteWidgetConfirm;
+    setDeleteWidgetConfirm({ open: false, widgetId: null, childCount: 0 });
     setTabs(tabs.map(tab =>
       tab.id === activeTabId
         ? { ...tab, widgets: tab.widgets.filter(w => w.id !== widgetId) }
         : tab
     ));
   };
+
+  const handleUndoWidgetDelete = () => {
+    if (!undoDeleteState.deletedWidget || !undoDeleteState.tabId) return;
+    if (undoDeleteTimerRef.current) clearTimeout(undoDeleteTimerRef.current);
+    const { deletedWidget, tabId } = undoDeleteState;
+    setTabs(prev => prev.map(tab =>
+      tab.id === tabId
+        ? { ...tab, widgets: [...tab.widgets, deletedWidget] }
+        : tab
+    ));
+    setUndoDeleteState({ open: false, deletedWidget: null, tabId: null });
+  };
+
+  const handleUpdateWidgetConfig = useCallback((widgetId: string, newConfig: WidgetConfig) => {
+    if (isLockedTab(activeTabId)) return;
+    setTabs(prev => prev.map(tab =>
+      tab.id === activeTabId
+        ? { ...tab, widgets: tab.widgets.map(w => w.id === widgetId ? { ...w, config: newConfig } : w) }
+        : tab
+    ));
+  }, [activeTabId]);
 
   const handleSaveWidget = (type: WidgetType, config: WidgetConfig) => {
     if (isLockedTab(activeTabId)) return;
@@ -451,8 +522,10 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
                   widget={widget}
                   isEditMode={isEditMode}
                   roundedCorners={roundedCorners}
+                  cellSize={cellSize}
                   onEdit={handleEditWidget}
                   onDelete={handleDeleteWidget}
+                  onUpdateConfig={handleUpdateWidgetConfig}
                 />
               </div>
             ))}
@@ -517,6 +590,46 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Delete container confirmation */}
+      <Dialog
+        open={deleteWidgetConfirm.open}
+        onClose={() => setDeleteWidgetConfirm({ open: false, widgetId: null, childCount: 0 })}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ pb: 1 }}>Delete Container</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            This will also remove {deleteWidgetConfirm.childCount} child widget{deleteWidgetConfirm.childCount !== 1 ? 's' : ''}. This cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button size="small" onClick={() => setDeleteWidgetConfirm({ open: false, widgetId: null, childCount: 0 })}>
+            Cancel
+          </Button>
+          <Button size="small" color="error" onClick={handleConfirmWidgetDelete}>
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Undo snackbar for widget deletion */}
+      <Snackbar
+        open={undoDeleteState.open}
+        message="Widget removed"
+        action={
+          <Button color="primary" size="small" onClick={handleUndoWidgetDelete}>
+            UNDO
+          </Button>
+        }
+        onClose={(_, reason) => {
+          if (reason === 'clickaway') return;
+          setUndoDeleteState({ open: false, deletedWidget: null, tabId: null });
+        }}
+        autoHideDuration={4000}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
     </Box>
   );
 });

@@ -20,7 +20,8 @@ import {
   ValueReadWidgetConfig,
   ValueWriteWidgetConfig,
   MiniPlotWidgetConfig,
-  DropdownWidgetConfig
+  DropdownWidgetConfig,
+  ContainerWidgetConfig
 } from '../../types/dashboard';
 import { useSettings } from '../../contexts/SettingsContext';
 import { parseMapFile } from '../../maps/mapParser';
@@ -42,6 +43,7 @@ import SystemInfoConfig from './configs/SystemInfoConfig';
 import DataTableConfig from './configs/DataTableConfig';
 import AlarmListConfig from './configs/AlarmListConfig';
 import StatusMatrixConfig from './configs/StatusMatrixConfig';
+import ContainerConfig from './configs/ContainerConfig';
 
 interface WidgetConfigDialogProps {
   open: boolean;
@@ -50,6 +52,7 @@ interface WidgetConfigDialogProps {
   initialType?: WidgetType;
   initialConfig?: WidgetConfig;
   mode: 'add' | 'edit';
+  excludeTypes?: WidgetType[];
 }
 
 const WIDGET_TYPE_LABELS: Record<WidgetType, string> = {
@@ -68,7 +71,7 @@ const WIDGET_TYPE_LABELS: Record<WidgetType, string> = {
   dataTable: 'Data Table',
   alarmList: 'Alarm List',
   statusMatrix: 'Status Matrix',
-
+  container: 'Container',
 };
 
 export default function WidgetConfigDialog({
@@ -77,7 +80,8 @@ export default function WidgetConfigDialog({
   onSave,
   initialType,
   initialConfig,
-  mode
+  mode,
+  excludeTypes,
 }: WidgetConfigDialogProps) {
   const { getActiveProfile } = useSettings();
   const [widgetType, setWidgetType] = useState<WidgetType>(initialType || 'button');
@@ -297,7 +301,15 @@ export default function WidgetConfigDialog({
           dotSize: 12
         });
         break;
-
+      case 'container':
+        setConfig({
+          label: undefined,
+          backgroundColor: undefined,
+          padding: 8,
+          spacing: 4,
+          childWidgets: []
+        } as ContainerWidgetConfig);
+        break;
     }
   };
 
@@ -423,6 +435,8 @@ export default function WidgetConfigDialog({
         return <AlarmListConfig config={config as any} onConfigChange={handleConfigChange as any} {...commonProps} />;
       case 'statusMatrix':
         return <StatusMatrixConfig config={config as any} onConfigChange={handleConfigChange as any} {...commonProps} />;
+      case 'container':
+        return <ContainerConfig config={config as any} onConfigChange={handleConfigChange as any} />;
     }
   };
 
@@ -457,6 +471,7 @@ export default function WidgetConfigDialog({
               <MenuItem value="dataTable">Data Table</MenuItem>
               <MenuItem value="alarmList">Alarm List</MenuItem>
               <MenuItem value="statusMatrix">Status Matrix</MenuItem>
+              {!excludeTypes?.includes('container') && <MenuItem value="container">Container</MenuItem>}
             </Select>
           </FormControl>
         )}

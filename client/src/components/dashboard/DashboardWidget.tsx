@@ -19,6 +19,8 @@ import {
   DataTableWidgetConfig,
   AlarmListWidgetConfig,
   StatusMatrixWidgetConfig,
+  ContainerWidgetConfig,
+  WidgetConfig,
 } from '../../types/dashboard';
 import { useWidgetSize } from '../../hooks/useWidgetSize';
 import { getWidgetScale, WidgetSizeInfo } from '../../utils/widgetScaling';
@@ -37,19 +39,38 @@ import SystemInfoWidget from './SystemInfoWidget';
 import DataTableWidget from './DataTableWidget';
 import AlarmListWidget from './AlarmListWidget';
 import StatusMatrixWidget from './StatusMatrixWidget';
+import ContainerWidget from './ContainerWidget';
 
 interface DashboardWidgetProps {
   widget: DashboardWidgetType;
   isEditMode: boolean;
   roundedCorners: boolean;
+  cellSize: number;
   onEdit: (widgetId: string) => void;
   onDelete: (widgetId: string) => void;
+  onUpdateConfig?: (widgetId: string, newConfig: WidgetConfig) => void;
 }
 
-function DashboardWidgetInner({ widget, isEditMode, roundedCorners, onEdit, onDelete }: DashboardWidgetProps) {
+function DashboardWidgetInner({ widget, isEditMode, roundedCorners, cellSize, onEdit, onDelete, onUpdateConfig }: DashboardWidgetProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const { width, height } = useWidgetSize(contentRef);
   const widgetSize = getWidgetScale(widget.type, width, height);
+
+  // Container widgets render their own surface — skip the Paper wrapper
+  if (widget.type === 'container') {
+    return (
+      <ContainerWidget
+        widget={widget}
+        config={widget.config as ContainerWidgetConfig}
+        isEditMode={isEditMode}
+        roundedCorners={roundedCorners}
+        cellSize={cellSize}
+        onUpdateConfig={onUpdateConfig}
+        onEditSelf={onEdit}
+        onDeleteSelf={onDelete}
+      />
+    );
+  }
 
   const renderWidget = (ws: WidgetSizeInfo) => {
     switch (widget.type) {
@@ -113,8 +134,7 @@ function DashboardWidgetInner({ widget, isEditMode, roundedCorners, onEdit, onDe
             zIndex: 1000,
             display: 'flex',
             gap: 0.25,
-            backgroundColor: (theme) => alpha(theme.palette.background.paper, 0.9),
-            backdropFilter: 'blur(8px)',
+            backgroundColor: (theme) => alpha(theme.palette.background.paper, 0.95),
             borderRadius: '4px',
             padding: '2px',
             border: '1px solid',
