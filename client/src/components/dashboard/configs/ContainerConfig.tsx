@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Button, Slider, TextField, Typography } from '@mui/material';
+import { Box, Button, FormControlLabel, Slider, Switch, TextField, Typography } from '@mui/material';
 import { ContainerWidgetConfig } from '../../../types/dashboard';
 import ColorPickerField from './ColorPickerField';
 
@@ -21,17 +21,28 @@ export default function ContainerConfig({ config, onConfigChange }: ContainerCon
         placeholder="e.g. Motor Control"
         helperText="Optional — displayed in the corner of the container"
       />
-      <Box sx={{ mt: 1, display: 'flex', alignItems: 'flex-end', gap: 1 }}>
-        <Box sx={{ flex: 1 }}>
-          <ColorPickerField
-            label="Background Color"
-            value={config.backgroundColor ?? ''}
-            onChange={(color) => onConfigChange({ ...config, backgroundColor: color || undefined })}
-            fullWidth
-            margin="normal"
+      <FormControlLabel
+        sx={{ mt: 1 }}
+        control={
+          <Switch
+            size="small"
+            checked={config.backgroundColor === undefined}
+            onChange={(e) => onConfigChange({ ...config, backgroundColor: e.target.checked ? undefined : '#0f1628' })}
           />
-        </Box>
-        {config.backgroundColor && (
+        }
+        label={<Typography variant="body2" color="text.secondary">Transparent Background</Typography>}
+      />
+      {config.backgroundColor !== undefined && (
+        <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
+          <Box sx={{ flex: 1 }}>
+            <ColorPickerField
+              label="Background Color"
+              value={config.backgroundColor ?? ''}
+              onChange={(color) => onConfigChange({ ...config, backgroundColor: color || undefined })}
+              fullWidth
+              margin="normal"
+            />
+          </Box>
           <Button
             size="small"
             sx={{ mb: 1, whiteSpace: 'nowrap' }}
@@ -39,8 +50,8 @@ export default function ContainerConfig({ config, onConfigChange }: ContainerCon
           >
             Clear
           </Button>
-        )}
-      </Box>
+        </Box>
+      )}
       <Box sx={{ mt: 2 }}>
         <Typography variant="body2" color="text.secondary" gutterBottom>
           Inner Padding: {config.padding ?? 8}px

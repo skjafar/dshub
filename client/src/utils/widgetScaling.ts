@@ -27,6 +27,7 @@ const WIDGET_REFERENCE_SIZES: Record<WidgetType, { width: number; height: number
   dataTable:          { width: 276, height: 216 },
   alarmList:          { width: 216, height: 216 },
   statusMatrix:       { width: 216, height: 156 },
+  container:          { width: 360, height: 240 },
 };
 
 /**

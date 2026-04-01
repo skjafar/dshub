@@ -372,6 +372,7 @@ export default function ButtonWidget({ config, isEditMode, widgetSize }: ButtonW
           width: '100%',
           p: '2px',
           boxSizing: 'border-box',
+          borderRadius: 'inherit',
         }}
       >
         <Button
@@ -387,6 +388,7 @@ export default function ButtonWidget({ config, isEditMode, widgetSize }: ButtonW
             minWidth: 0,
             backgroundColor: c.ghost,
             border: `1.5px solid ${config.color || '#00D4FF'}`,
+            borderRadius: 'inherit',
             color: config.color || '#00D4FF',
             display: 'flex',
             alignItems: 'center',

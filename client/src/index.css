@@ -34,16 +34,16 @@
   --on-tertiary-container:     #705500;
 
   /* Surface Hierarchy (Level 0 → 3) */
-  --background:                #131313;  /* Level 0 base */
-  --surface:                   #131313;
-  --surface-dim:               #131313;
-  --surface-container-lowest:  #0e0e0e;
-  --surface-container-low:     #1c1b1b;
-  --surface-container:         #201f1f;  /* Level 1 sections */
-  --surface-container-high:    #2a2a2a;  /* Level 2 active cards */
-  --surface-container-highest: #353534;  /* Level 3 interactions */
-  --surface-variant:           #353534;
-  --surface-bright:            #393939;
+  --background:                #0b0d1a;  /* Level 0 base */
+  --surface:                   #0b0d1a;
+  --surface-dim:               #0b0d1a;
+  --surface-container-lowest:  #060911;
+  --surface-container-low:     #0d1220;
+  --surface-container:         #0f1628;  /* Level 1 sections */
+  --surface-container-high:    #141d32;  /* Level 2 active cards */
+  --surface-container-highest: #1a243c;  /* Level 3 interactions */
+  --surface-variant:           #1a243c;
+  --surface-bright:            #1e2940;
   --surface-tint:              #00daf3;
   --inverse-surface:           #e5e2e1;
   --inverse-on-surface:        #313030;
@@ -61,7 +61,7 @@
 
   /* Outline */
   --outline:                   #849396;
-  --outline-variant:           #3b494c;
+  --outline-variant:           #1e3048;
 
   /* Spacing scale (1 unit = 0.25rem / 4px) */
   --spacing-2:  0.4rem;    /* internal card padding */
@@ -70,9 +70,9 @@
 
   /* Border radius */
   --radius:      0.125rem;  /* 2px  — machined default */
-  --radius-lg:   0.25rem;   /* 4px  — buttons, inputs, cards */
-  --radius-xl:   0.5rem;    /* 8px  — modals, dialogs */
-  --radius-full: 0.75rem;   /* 12px — pills */
+  --radius-lg:   0.5rem;    /* 8px  — buttons, inputs, cards */
+  --radius-xl:   0.75rem;   /* 12px — modals, dialogs */
+  --radius-full: 1rem;      /* 16px — pills */
 }
 
 /* ─── Base ────────────────────────────────────────────────────────────────── */
@@ -181,10 +181,10 @@ input[type="number"] {
 /* ─── Glassmorphism HUD overlay ───────────────────────────────────────────── */
 
 .hud-overlay {
-  background: rgba(53, 53, 52, 0.6);
+  background: rgba(15, 22, 40, 0.6);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(59, 73, 76, 0.15);
+  border: 1px solid rgba(30, 48, 72, 0.28);
 }
 
 /* ─── Font helpers ────────────────────────────────────────────────────────── */

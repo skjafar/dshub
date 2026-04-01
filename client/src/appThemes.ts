@@ -64,15 +64,15 @@ const KINETIC_MONOLITH: AppTheme = {
     onSurface:      '#e5e2e1',
     onSurfaceVar:   '#bac9cc',
     outline:        '#849396',
-    outlineVar:     '#3b494c',
-    surfaceLowest:  '#0e0e0e',
-    surface:        '#131313',
-    surfaceContainer: '#201f1f',
-    surfaceHigh:    '#2a2a2a',
-    surfaceHighest: '#353534',
-    ghost:    'rgba(59,73,76,0.15)',
-    ghost20:  'rgba(59,73,76,0.20)',
-    ghostSep: 'rgba(59,73,76,0.40)',
+    outlineVar:     '#1e3048',
+    surfaceLowest:  '#060911',
+    surface:        '#0b0d1a',
+    surfaceContainer: '#0f1628',
+    surfaceHigh:    '#141d32',
+    surfaceHighest: '#1a243c',
+    ghost:    'rgba(30,48,72,0.20)',
+    ghost20:  'rgba(30,48,72,0.28)',
+    ghostSep: 'rgba(30,48,72,0.45)',
   },
 };
 
@@ -387,7 +387,7 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
       overline:{ fontFamily: FONT_MONO, fontSize: '0.625rem', fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase' },
     },
 
-    shape: { borderRadius: 4 },
+    shape: { borderRadius: 8 },
 
     components: {
       MuiCssBaseline: {
@@ -434,9 +434,9 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
       MuiCard: {
         styleOverrides: {
           root: {
-            borderRadius: 4,
+            borderRadius: 8,
             boxShadow: 'none',
-            border: `1px solid ${c.ghost}`,
+            border: `1px solid ${c.ghost20}`,
             backgroundColor: c.surfaceContainer,
             backgroundImage: 'none',
           },
@@ -528,7 +528,7 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
         styleOverrides: {
           root: {
             fontFamily: FONT_BODY, fontSize: '0.75rem', fontWeight: 500,
-            letterSpacing: '0.02em', textTransform: 'none' as const, minHeight: 36, padding: '6px 16px',
+            letterSpacing: '0.02em', textTransform: 'none' as const, minHeight: 40, padding: '8px 16px',
             color: c.outline,
             '&.Mui-selected': { color: c.primary },
             '&:hover': { color: c.primary, opacity: 1 },

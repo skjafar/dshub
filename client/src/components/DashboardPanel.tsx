@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useCallback, forwardRef, useImperat
 import {
   Box,
   Button,
-  Card,
   IconButton,
   Tabs,
   Tab,
@@ -453,8 +452,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
   return (
     <Box>
       {/* Tabs */}
-      <Card sx={{ mb: 2 }}>
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center' }}>
+      <Box sx={{ mb: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center' }}>
           <Tabs value={activeTabId} onChange={handleTabChange} sx={{ flex: 1 }}>
             {tabs.map(tab => (
               <Tab
@@ -483,8 +481,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
               <AddIcon />
             </IconButton>
           )}
-        </Box>
-      </Card>
+      </Box>
 
       {/* Dashboard Grid */}
       <Box ref={containerRef} sx={{ minHeight: '500px', width: '100%' }}>
@@ -507,7 +504,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
             layout={activeTab.widgets.map(w => w.layout)}
             cols={cols}
             rowHeight={cellSize}
-            width={cellSize * cols + (spacing) * (cols - 1)}
+            width={containerWidth}
             margin={[spacing, spacing]}
             isDraggable={isEditMode}
             isResizable={isEditMode}

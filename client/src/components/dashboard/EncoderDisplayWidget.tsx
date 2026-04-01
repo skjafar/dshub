@@ -100,9 +100,6 @@ export default function EncoderDisplayWidget({ config, isEditMode, widgetSize }:
         justifyContent: 'center',
         alignItems: 'center',
         gap: 1,
-        p: 2,
-        backgroundColor: 'action.hover',
-        borderRadius: 1,
       }}
     >
       {/* Widget Label */}

@@ -167,35 +167,32 @@ function ContainerWidgetInner({
         border: isEditMode ? '1.5px dashed' : '1px solid',
         borderColor: isEditMode ? 'primary.main' : 'divider',
         borderRadius: roundedCorners ? 1 : 0,
-        overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
       }}
     >
-      {/* Container label — top-left, view and edit mode */}
+      {/* Container label — straddles the top border (fieldset legend style) */}
       {config.label && (
-        <Box
+        <Typography
           sx={{
             position: 'absolute',
-            top: 4,
-            left: 6,
+            top: 0,
+            left: 10,
+            transform: 'translateY(-50%)',
             zIndex: 900,
             pointerEvents: 'none',
+            fontSize: '0.6rem',
+            fontWeight: 600,
+            letterSpacing: '0.09em',
+            textTransform: 'uppercase',
+            color: 'text.disabled',
+            lineHeight: 1,
+            px: '4px',
+            backgroundColor: 'transparent',
           }}
         >
-          <Typography
-            sx={{
-              fontSize: '0.6rem',
-              fontWeight: 600,
-              letterSpacing: '0.09em',
-              textTransform: 'uppercase',
-              color: 'text.disabled',
-              lineHeight: 1,
-            }}
-          >
-            {config.label}
-          </Typography>
-        </Box>
+          {config.label}
+        </Typography>
       )}
 
       {/* Container edit/delete controls — top-right */}
@@ -276,7 +273,7 @@ function ContainerWidgetInner({
       )}
 
       {/* Inner grid area */}
-      <Box sx={{ flex: 1, p: `${config.padding}px`, overflow: 'visible', position: 'relative' }}>
+      <Box sx={{ flex: 1, p: `${config.padding}px`, overflow: 'hidden', position: 'relative' }}>
         {/* Empty state */}
         {isEditMode && config.childWidgets.length === 0 && (
           <Box

@@ -116,7 +116,7 @@ function DashboardWidgetInner({ widget, isEditMode, roundedCorners, cellSize, on
         position: 'relative',
         border: isEditMode ? '1.5px dashed' : '1px solid',
         borderColor: isEditMode ? 'primary.main' : 'divider',
-        borderRadius: roundedCorners ? 1 : 0,
+        borderRadius: roundedCorners ? 2 : 0,
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
@@ -168,7 +168,7 @@ function DashboardWidgetInner({ widget, isEditMode, roundedCorners, cellSize, on
       )}
 
       {/* Widget content */}
-      <Box ref={contentRef} sx={{ flex: 1, p: widget.type === 'button' ? 0 : 1, overflow: 'auto' }}>
+      <Box ref={contentRef} sx={{ flex: 1, p: widget.type === 'button' ? 0 : 1.5, overflow: 'auto', borderRadius: 'inherit' }}>
         {renderWidget(widgetSize)}
       </Box>
     </Paper>

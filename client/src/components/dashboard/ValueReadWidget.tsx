@@ -76,6 +76,7 @@ export default function ValueReadWidget({ config, isEditMode, widgetSize }: Valu
         height: '100%',
         justifyContent: 'center',
         gap: 1,
+        position: 'relative',
         border: '2px solid',
         borderColor: 'transparent',
         borderRadius: 1,
@@ -83,6 +84,16 @@ export default function ValueReadWidget({ config, isEditMode, widgetSize }: Valu
         ...(isLoading && {
           borderColor: (theme) => alpha(theme.palette.primary.main, 0.3),
         }),
+        '&::after': {
+          content: '""',
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: '2px',
+          backgroundColor: (theme) => alpha(theme.palette.primary.main, 0.4),
+          borderRadius: '0 0 2px 2px',
+        },
       }}
     >
       <Typography
