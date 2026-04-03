@@ -19,6 +19,7 @@ import {
   Button,
   Slider,
   Switch,
+  TextField,
   CircularProgress
 } from '@mui/material';
 import {
@@ -124,6 +125,21 @@ export default function MainLayout() {
       showError(`${name} is already connected in another session`);
     }
   }, [state.connection]);
+
+  // Plot control state
+  const [plotTimeSpan, setPlotTimeSpan] = useState(settings.plotDefaults.timeSpan);
+  const [plotTimeSpanInput, setPlotTimeSpanInput] = useState(settings.plotDefaults.timeSpan.toString());
+  const [plotAutoscale, setPlotAutoscale] = useState(true);
+  const [plotShowStats, setPlotShowStats] = useState(false);
+
+  const handlePlotTimeSpanChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setPlotTimeSpanInput(value);
+    const num = parseInt(value);
+    if (!isNaN(num) && num >= 5 && num <= settings.plotDefaults.maxTimeSpan) {
+      setPlotTimeSpan(num);
+    }
+  };
 
   // Dashboard control state
   const [isDashboardEditMode, setIsDashboardEditMode] = useState(false);
@@ -247,7 +263,13 @@ export default function MainLayout() {
           />
         );
       case 'plot':
-        return <PlotPanel />;
+        return (
+          <PlotPanel
+            timeSpan={plotTimeSpan}
+            isAutoscaleEnabled={plotAutoscale}
+            showStatistics={plotShowStats}
+          />
+        );
       case 'syscommand':
         return <SysCommandPanel />;
       case 'registers':
@@ -696,8 +718,44 @@ export default function MainLayout() {
             </Box>
           )}
 
+          {/* Plot Controls */}
+          {currentView === 'plot' && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mr: 'auto' }}>
+              <TextField
+                size="small"
+                label="Time Span (s)"
+                type="number"
+                value={plotTimeSpanInput}
+                onChange={handlePlotTimeSpanChange}
+                error={parseInt(plotTimeSpanInput) < 5 || parseInt(plotTimeSpanInput) > settings.plotDefaults.maxTimeSpan || isNaN(parseInt(plotTimeSpanInput))}
+                sx={{ width: 130 }}
+                slotProps={{ htmlInput: { style: { fontSize: '0.875rem' } } }}
+              />
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Typography variant="body2" sx={{ whiteSpace: 'nowrap', fontSize: '0.875rem', mr: 0.5 }}>
+                  Autoscale
+                </Typography>
+                <Switch
+                  checked={plotAutoscale}
+                  onChange={(e) => setPlotAutoscale(e.target.checked)}
+                  size="small"
+                />
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Typography variant="body2" sx={{ whiteSpace: 'nowrap', fontSize: '0.875rem', mr: 0.5 }}>
+                  Statistics
+                </Typography>
+                <Switch
+                  checked={plotShowStats}
+                  onChange={(e) => setPlotShowStats(e.target.checked)}
+                  size="small"
+                />
+              </Box>
+            </Box>
+          )}
+
           {/* Connection Status - always on the right */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: (currentView === 'dashboard' || currentView === 'scanner' || currentView === 'registers' || currentView === 'parameters') ? 0 : 'auto' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: (currentView === 'dashboard' || currentView === 'scanner' || currentView === 'registers' || currentView === 'parameters' || currentView === 'plot') ? 0 : 'auto' }}>
             {state.connection && (
               <>
                 {state.connection.deviceName && (

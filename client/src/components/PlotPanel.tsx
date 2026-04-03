@@ -11,8 +11,6 @@ import {
   TextField,
   Typography,
   Grid,
-  Switch,
-  FormControlLabel,
   Chip,
   IconButton,
   Paper,
@@ -45,6 +43,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import 'chartjs-adapter-date-fns';
+import { invoke } from '@tauri-apps/api/core';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
@@ -144,7 +143,13 @@ const createEmptyPlot = (id: string, plotNumber: number): PlotPanel => ({
   height: DEFAULT_PLOT_HEIGHT
 });
 
-export default function PlotPanel() {
+interface PlotPanelProps {
+  timeSpan: number;
+  isAutoscaleEnabled: boolean;
+  showStatistics: boolean;
+}
+
+export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics }: PlotPanelProps) {
   const { state, actions } = useDSHub();
   const { settings, getActiveProfile } = useSettings();
   const { showSuccess, showError } = useToast();
@@ -154,16 +159,15 @@ export default function PlotPanel() {
   const [selectedSource, setSelectedSource] = useState<'register' | 'sysRegister'>('register');
   const [pollIntervalInput, setPollIntervalInput] = useState(settings.plotDefaults.pollInterval.toString());
   const [selectedPlotId, setSelectedPlotId] = useState('plot-1');
-  const [isAutoscaleEnabled, setIsAutoscaleEnabled] = useState(true);
-  const [showStatistics, setShowStatistics] = useState(false);
   const [plots, setPlots] = useState<PlotPanel[]>([createEmptyPlot('plot-1', 1)]);
-  const [timeSpan, setTimeSpan] = useState(settings.plotDefaults.timeSpan);
-  const [timeSpanInput, setTimeSpanInput] = useState(settings.plotDefaults.timeSpan.toString());
   const [availableRegisters, setAvailableRegisters] = useState<MapEntry[]>([]);
   const [availableSystemRegisters, setAvailableSystemRegisters] = useState<MapEntry[]>([]);
 
   // Counter for plot numbering - always increments, never reuses numbers
   const nextPlotNumberRef = useRef(2);
+
+  // Guard: don't persist layout until the mount-restore has run
+  const hasRestoredRef = useRef(false);
 
   // Force re-render for real-time updates
   const [, forceUpdate] = useState(0);
@@ -229,16 +233,6 @@ export default function PlotPanel() {
     if (isNaN(num)) return { valid: false, error: 'Must be a number' };
     if (num < 50) return { valid: false, error: 'Must be at least 50 ms' };
     if (num > 10000) return { valid: false, error: 'Must be at most 10000 ms' };
-    return { valid: true };
-  };
-
-  const validateTimeSpan = (value: string): { valid: boolean; error?: string } => {
-    const num = parseInt(value);
-    if (isNaN(num)) return { valid: false, error: 'Must be a number' };
-    if (num < 5) return { valid: false, error: 'Must be at least 5 seconds' };
-    if (num > settings.plotDefaults.maxTimeSpan) {
-      return { valid: false, error: `Must be at most ${settings.plotDefaults.maxTimeSpan} seconds` };
-    }
     return { valid: true };
   };
 
@@ -489,32 +483,23 @@ export default function PlotPanel() {
     document.body.style.userSelect = 'none';
   };
 
-  // Handler for time span changes
-  const handleTimeSpanChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setTimeSpanInput(value);
-
-    const validation = validateTimeSpan(value);
-    if (validation.valid) {
-      const newTimeSpan = parseInt(value);
-      setTimeSpan(newTimeSpan);
-
-      plots.forEach(plot => {
-        plot.series.forEach((_, seriesName) => {
-          actions.setPlotTimeSpan(seriesName, newTimeSpan);
-        });
+  // Apply time span prop to all active series
+  useEffect(() => {
+    plots.forEach(plot => {
+      plot.series.forEach((_, seriesName) => {
+        actions.setPlotTimeSpan(seriesName, timeSpan);
       });
-    }
-  };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeSpan]);
 
-  // Autoscale toggle
-  const handleAutoscaleToggle = () => {
-    const newAutoscaleState = !isAutoscaleEnabled;
-    setIsAutoscaleEnabled(newAutoscaleState);
-    if (newAutoscaleState) {
+  // Reset zoom when autoscale is re-enabled
+  useEffect(() => {
+    if (isAutoscaleEnabled) {
       resetZoom();
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAutoscaleEnabled]);
 
   // Save data
   const handleSaveData = () => {
@@ -525,21 +510,49 @@ export default function PlotPanel() {
       });
     });
 
-    const csv = allSeriesNames
-      .map(seriesName => {
-        const data = state.plotData.get(seriesName) || [];
-        return data.map(point => `${seriesName},${new Date(point.x * 1000).toISOString()},${point.y}`);
-      })
-      .flat()
-      .join('\n');
+    const seriesData = allSeriesNames.map(name => state.plotData.get(name) ?? []);
+    const maxRows = Math.max(0, ...seriesData.map(d => d.length));
 
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `dshub-plot-data-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const pad = (n: number, len = 2) => String(n).padStart(len, '0');
+    const localDate = (d: Date) =>
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const localTime = (d: Date) =>
+      `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+    const localDateTime = (d: Date) => `${localDate(d)} ${localTime(d)}`;
+
+    const headerRow1 = allSeriesNames.map(name => `${name},,`).join(',');
+    const headerRow2 = allSeriesNames.map(() => 'Date,Time,Value').join(',');
+
+    const dataRows = Array.from({ length: maxRows }, (_, i) =>
+      seriesData.map(data => {
+        const point = data[i];
+        if (!point) return ',,';
+        const d = new Date(point.x * 1000);
+        return `${localDate(d)},${localTime(d)},${point.y}`;
+      }).join(',')
+    );
+
+    const allPoints = seriesData.flat();
+    const earliestX = allPoints.length > 0 ? Math.min(...allPoints.map(p => p.x)) : Date.now() / 1000;
+    const latestX = allPoints.length > 0 ? Math.max(...allPoints.map(p => p.x)) : earliestX;
+    const earliestDate = new Date(earliestX * 1000);
+    const earliestStr = `${localDate(earliestDate)}_${pad(earliestDate.getHours())}-${pad(earliestDate.getMinutes())}-${pad(earliestDate.getSeconds())}`;
+    const suggestedName = `dshub-plot-data-${earliestStr}.csv`;
+
+    const metaBlock = [
+      `Filename,${suggestedName}`,
+      `Exported,${localDateTime(new Date())}`,
+      `Data Start,${localDateTime(earliestDate)}`,
+      `Data End,${localDateTime(new Date(latestX * 1000))}`,
+      `Max Samples,${maxRows}`,
+      '',
+    ].join('\n');
+
+    const csv = [metaBlock, headerRow1, headerRow2, ...dataRows].join('\n');
+
+    invoke('save_csv', { content: csv, suggestedName }).catch(() => {
+      showError('Failed to save data');
+    });
   };
 
   // Load available registers from map
@@ -553,15 +566,76 @@ export default function PlotPanel() {
     loadRegisters();
   }, [settings.activeMapProfileId, getActiveProfile]);
 
+  // Persist plot layout to localStorage whenever plots change (skip initial mount)
+  useEffect(() => {
+    if (!hasRestoredRef.current) return;
+    const layout = plots.map(plot => ({
+      id: plot.id,
+      title: plot.title,
+      height: plot.height,
+      series: Array.from(plot.series.values()),
+    }));
+    localStorage.setItem('dshub-plot-layout', JSON.stringify(layout));
+  }, [plots]);
+
   // Restore active plots from global state when component mounts
   useEffect(() => {
+    const activeNonDashboard = new Map(
+      Array.from(state.activePlots.entries()).filter(([k]) => !k.startsWith('dashboard:'))
+    );
+    if (activeNonDashboard.size === 0) {
+      hasRestoredRef.current = true;
+      return;
+    }
 
-    const restoredSeries = new Map<string, PlotSeries>();
-    state.activePlots.forEach((plotInfo, registerName) => {
-      // Skip dashboard plots (they have 'dashboard:' prefix)
-      if (registerName.startsWith('dashboard:')) {
-        return;
+    // Try to restore the multi-plot layout from localStorage
+    const savedLayout = localStorage.getItem('dshub-plot-layout');
+    if (savedLayout) {
+      try {
+        type SavedSeries = { name: string; color: string; visible: boolean; pollInterval: number; address: number; source: 'register' | 'sysRegister' };
+        type SavedPlot = { id: string; title: string; height: number; series: SavedSeries[] };
+        const layout: SavedPlot[] = JSON.parse(savedLayout);
+
+        // Filter each saved plot to only include series that are still active
+        const restoredPlots = layout
+          .map(saved => ({
+            id: saved.id,
+            title: saved.title,
+            height: saved.height,
+            series: new Map(
+              saved.series
+                .filter(s => activeNonDashboard.has(s.name))
+                .map(s => [s.name, s])
+            ),
+            zoomPan: { yMin: null, yMax: null, isZoomed: false },
+            mouseState: {
+              isDrawing: false, isPanning: false,
+              startX: 0, startY: 0, currentX: 0, currentY: 0,
+              startPixelX: 0, startPixelY: 0, currentPixelX: 0, currentPixelY: 0,
+            },
+          }))
+          .filter(plot => plot.series.size > 0);
+
+        if (restoredPlots.length > 0) {
+          // Determine the next plot number from restored layout
+          const maxNum = Math.max(...restoredPlots.map(p => {
+            const m = p.id.match(/^plot-(\d+)$/);
+            return m ? parseInt(m[1]) : 0;
+          }));
+          nextPlotNumberRef.current = maxNum + 1;
+          setPlots(restoredPlots);
+          setSelectedPlotId(restoredPlots[0].id);
+          hasRestoredRef.current = true;
+          return;
+        }
+      } catch {
+        // Fall through to single-plot restore
       }
+    }
+
+    // Fallback: collapse all active series into the first plot
+    const restoredSeries = new Map<string, PlotSeries>();
+    activeNonDashboard.forEach((plotInfo, registerName) => {
       restoredSeries.set(registerName, {
         name: registerName,
         color: COLORS[restoredSeries.size % COLORS.length],
@@ -571,15 +645,11 @@ export default function PlotPanel() {
         address: plotInfo.address
       });
     });
-    if (restoredSeries.size > 0) {
-      setPlots(prev => {
-        const firstPlot = prev[0];
-        return [{
-          ...firstPlot,
-          series: restoredSeries
-        }];
-      });
-    }
+    setPlots(prev => {
+      const firstPlot = prev[0];
+      return [{ ...firstPlot, series: restoredSeries }];
+    });
+    hasRestoredRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -670,15 +740,66 @@ export default function PlotPanel() {
     const textColor = theme.palette.mode === 'dark' ? '#FFFFFF' : '#000000';
     const gridColor = theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
 
+    // Compute y-axis domain from currently visible data with a 10% margin.
+    // Explicit min/max (not suggestedMin/Max) ensures Chart.js rescales on every sample.
+    // Tick positions are still chosen by Chart.js at nice intervals — only the extent is ours.
+    let yMin: number | undefined;
+    let yMax: number | undefined;
+    let yPrecision = 2;
+
+    if (plot.zoomPan.yMin !== null && plot.zoomPan.yMax !== null) {
+      yMin = plot.zoomPan.yMin;
+      yMax = plot.zoomPan.yMax;
+      const range = yMax - yMin;
+      yPrecision = range > 0 ? Math.max(0, Math.ceil(-Math.log10(range / 10))) : 2;
+    } else {
+      const allValues = getChartDataForPlot(plot).datasets
+        .flatMap(ds => (ds.data as Array<{ y: number }>).map(pt => pt.y))
+        .filter(v => isFinite(v));
+      if (allValues.length > 0) {
+        const dataMin = Math.min(...allValues);
+        const dataMax = Math.max(...allValues);
+        const range = dataMax - dataMin;
+        const margin = range > 0 ? range * 0.1 : Math.max(Math.abs(dataMax) * 0.1, 1);
+        yMin = dataMin - margin;
+        yMax = dataMax + margin;
+        yPrecision = Math.max(0, Math.ceil(-Math.log10(range > 0 ? range / 10 : 0.1)));
+      }
+    }
+
+    // Shared y-axis pixel width across ALL plots so left edges stay perfectly aligned.
+    const sharedYAxisWidth = (() => {
+      let maxWidth = 50;
+      plots.forEach(p => {
+        const vals = getChartDataForPlot(p).datasets
+          .flatMap(ds => (ds.data as Array<{ y: number }>).map(pt => pt.y))
+          .filter(v => isFinite(v));
+        if (vals.length === 0) return;
+        const pMin = Math.min(...vals);
+        const pMax = Math.max(...vals);
+        const pRange = pMax - pMin;
+        const pPrec = pRange > 0 ? Math.max(0, Math.ceil(-Math.log10(pRange / 10))) : 2;
+        const absExtreme = Math.max(Math.abs(pMin), Math.abs(pMax));
+        const label = absExtreme.toLocaleString(undefined, {
+          minimumFractionDigits: pPrec,
+          maximumFractionDigits: pPrec,
+        });
+        // ~8px/char at 12px font + 1 extra char for potential minus + tick marks + title + padding
+        const estimated = (label.length + 1) * 8 + 50;
+        maxWidth = Math.max(maxWidth, estimated);
+      });
+      return maxWidth;
+    })();
+
     return {
       responsive: true,
       maintainAspectRatio: false,
       layout: {
         padding: {
-          left: 10,
-          right: 10,
-          top: 10,
-          bottom: 10
+          left: 4,
+          right: 4,
+          top: plot.series.size > 0 ? 28 : 4,
+          bottom: 4
         }
       },
       interaction: {
@@ -725,13 +846,7 @@ export default function PlotPanel() {
             }
           },
           title: {
-            display: true,
-            text: 'Time',
-            color: textColor,
-            font: {
-              size: 14,
-              weight: 'bold' as const
-            }
+            display: false,
           },
           ticks: {
             maxRotation: 0,
@@ -753,6 +868,11 @@ export default function PlotPanel() {
             }
             scale.ticks = ticks;
           },
+          afterFit: (scale: any) => {
+            // Lock right padding so Chart.js never dynamically adjusts layout when
+            // a new tick label's right half enters the chart edge, preventing x-axis jitter.
+            scale.paddingRight = Math.max(scale.paddingRight ?? 0, 52);
+          },
           grid: {
             display: true,
             drawTicks: true,
@@ -763,27 +883,26 @@ export default function PlotPanel() {
         y: {
           type: 'linear' as const,
           title: {
-            display: true,
-            text: 'Value',
-            color: textColor,
-            font: {
-              size: 14,
-              weight: 'bold' as const
-            }
+            display: false,
           },
           ticks: {
             color: textColor,
             font: {
               size: 12
-            }
+            },
+            callback: (value: any) => Number(value).toLocaleString(undefined, {
+              minimumFractionDigits: yPrecision,
+              maximumFractionDigits: yPrecision,
+            }),
           },
           grid: {
             color: gridColor
           },
-          min: plot.zoomPan.yMin ?? undefined,
-          max: plot.zoomPan.yMax ?? undefined,
-          beginAtZero: false,
-          grace: plot.zoomPan.yMin !== null ? undefined : '5%',
+          min: yMin,
+          max: yMax,
+          afterFit: (scale: any) => {
+            scale.width = sharedYAxisWidth;
+          },
         },
       },
       animation: {
@@ -1256,9 +1375,9 @@ export default function PlotPanel() {
   return (
     <Box>
       {/* Controls */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Grid container spacing={3} alignItems="center">
+      <Card sx={{ mb: 1 }}>
+        <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+          <Grid container spacing={1} alignItems="center">
             <Grid size={{ xs: 12, sm: 1.5 }}>
               <FormControl fullWidth size="small">
                 <InputLabel>Source</InputLabel>
@@ -1333,52 +1452,16 @@ export default function PlotPanel() {
                 Add Series
               </Button>
             </Grid>
-            <Grid size={{ xs: 12, sm: 1.5 }}>
-              <TextField
-                fullWidth
+            <Grid size={{ xs: 12, sm: 'auto' }}>
+              <IconButton
+                color="secondary"
+                onClick={handleSaveData}
+                title="Save Data"
+                disabled={plots.every(plot => plot.series.size === 0)}
                 size="small"
-                label="Time Span (s)"
-                type="number"
-                value={timeSpanInput}
-                onChange={handleTimeSpanChange}
-                error={!validateTimeSpan(timeSpanInput).valid}
-                helperText={validateTimeSpan(timeSpanInput).error}
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 2.5 }}>
-              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', justifyContent: 'flex-start' }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={isAutoscaleEnabled}
-                      onChange={handleAutoscaleToggle}
-                      color="primary"
-                    />
-                  }
-                  label="Autoscale"
-                  sx={{ mr: 0 }}
-                />
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={showStatistics}
-                      onChange={(e) => setShowStatistics(e.target.checked)}
-                      color="primary"
-                    />
-                  }
-                  label="Statistics"
-                  sx={{ mr: 0 }}
-                />
-                <IconButton
-                  color="secondary"
-                  onClick={handleSaveData}
-                  title="Save Data"
-                  disabled={plots.every(plot => plot.series.size === 0)}
-                  size="small"
-                >
-                  <SaveIcon />
-                </IconButton>
-              </Box>
+              >
+                <SaveIcon />
+              </IconButton>
             </Grid>
           </Grid>
         </CardContent>
@@ -1386,31 +1469,14 @@ export default function PlotPanel() {
 
       {/* Plots */}
       {plots.map((plot, plotIndex) => (
-        <Card key={`${plot.id}-${showStatistics}`} sx={{ mb: 2 }}>
-          <CardContent>
+        <Card key={`${plot.id}-${showStatistics}`} sx={{ mb: 1 }}>
+          <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
             {/* Plot Header */}
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
               <Typography variant="h6">
                 {plot.title}
               </Typography>
-              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-                {/* Active series chips for THIS plot */}
-                {Array.from(plot.series.entries()).map(([name, series]) => (
-                  <Chip
-                    key={name}
-                    label={name}
-                    size="small"
-                    style={{
-                      backgroundColor: series.visible ? series.color : 'transparent',
-                      color: series.visible ? 'white' : 'inherit',
-                      border: `1px solid ${series.color}`
-                    }}
-                    onClick={() => handleSeriesVisibilityToggle(plot.id, name)}
-                    onDelete={() => handleRemoveSeries(plot.id, name)}
-                    deleteIcon={<RemoveIcon />}
-                  />
-                ))}
-
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                 {/* Remove plot button (only if more than 1 plot) */}
                 {plots.length > 1 && (
                   <IconButton
@@ -1430,7 +1496,7 @@ export default function PlotPanel() {
               <Paper
                 ref={chartContainerRefs.current.get(plot.id)}
                 sx={{
-                  p: 2,
+                  p: 1,
                   height: plot.height,
                   position: 'relative',
                   overflow: 'hidden',
@@ -1444,6 +1510,38 @@ export default function PlotPanel() {
                 onDoubleClick={() => handleDoubleClick(plot.id)}
                 onContextMenu={(e) => e.preventDefault()}
               >
+                {/* Trace legend — absolute overlay at top of chart */}
+                {plot.series.size > 0 && (
+                  <Box sx={{
+                    position: 'absolute',
+                    top: 6,
+                    left: 8,
+                    right: 8,
+                    zIndex: 2,
+                    display: 'flex',
+                    gap: 0.5,
+                    flexWrap: 'wrap',
+                    pointerEvents: 'auto',
+                  }}>
+                    {Array.from(plot.series.entries()).map(([name, series]) => (
+                      <Chip
+                        key={name}
+                        label={name}
+                        size="small"
+                        style={{
+                          backgroundColor: series.visible ? series.color : 'transparent',
+                          color: series.visible ? 'white' : 'inherit',
+                          border: `1px solid ${series.color}`,
+                          height: 20,
+                          fontSize: 11,
+                        }}
+                        onClick={() => handleSeriesVisibilityToggle(plot.id, name)}
+                        onDelete={() => handleRemoveSeries(plot.id, name)}
+                        deleteIcon={<RemoveIcon style={{ fontSize: 14 }} />}
+                      />
+                    ))}
+                  </Box>
+                )}
                 {plot.series.size > 0 ? (
                   <>
                     <Box sx={{ width: `${(1 + overscanRatio) * 100}%`, height: '100%' }}>

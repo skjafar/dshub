@@ -36,6 +36,7 @@ pub fn run() {
             commands::update_log_settings,
             commands::read_system_register,
             commands::write_system_register,
+            commands::save_csv,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

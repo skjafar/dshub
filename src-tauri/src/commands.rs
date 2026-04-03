@@ -25,6 +25,8 @@ pub struct AppState {
     pub log_settings: tokio::sync::Mutex<LogSettings>,
     /// Prevents concurrent scans (shared as Arc for spawned tasks)
     pub is_scanning: Arc<tokio::sync::Mutex<bool>>,
+    /// Last directory used for saving files
+    pub last_save_dir: tokio::sync::Mutex<Option<std::path::PathBuf>>,
 }
 
 impl AppState {
@@ -35,6 +37,7 @@ impl AppState {
             connection: tokio::sync::Mutex::new(None),
             log_settings: tokio::sync::Mutex::new(LogSettings::default()),
             is_scanning: Arc::new(tokio::sync::Mutex::new(false)),
+            last_save_dir: tokio::sync::Mutex::new(None),
         }
     }
 }
@@ -475,4 +478,31 @@ pub async fn write_system_register(
         },
     )
     .await
+}
+
+/// Opens a native save dialog and writes CSV data to the chosen file.
+/// Remembers the last used directory and reopens it on subsequent calls.
+#[tauri::command]
+pub async fn save_csv(content: String, suggested_name: String, state: State<'_, AppState>) -> Result<bool, String> {
+    let last_dir = state.last_save_dir.lock().await.clone();
+
+    let mut dialog = rfd::AsyncFileDialog::new()
+        .set_file_name(&suggested_name)
+        .add_filter("CSV", &["csv"]);
+
+    if let Some(dir) = last_dir {
+        dialog = dialog.set_directory(dir);
+    }
+
+    match dialog.save_file().await {
+        Some(path) => {
+            if let Some(parent) = path.path().parent() {
+                *state.last_save_dir.lock().await = Some(parent.to_path_buf());
+            }
+            std::fs::write(path.path(), content.as_bytes())
+                .map(|_| true)
+                .map_err(|e| e.to_string())
+        }
+        None => Ok(false), // User cancelled
+    }
 }
