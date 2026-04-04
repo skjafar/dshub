@@ -66,31 +66,31 @@ CMD_SYS_READ_FLASH          = 65000
 CMD_SYS_WRITE_FLASH         = 65001
 CMD_SYS_RESET_FIRMWARE      = 65002
 
-# CNC Motor Controller Commands (user-defined types, sent as the type field, u16)
-# Range 100+ is user-defined; CNC commands start at 200 for clarity.
-CMD_ENABLE_ALL_MOTORS       = 200
-CMD_DISABLE_ALL_MOTORS      = 201
-CMD_ENABLE_MOTOR_X          = 202
-CMD_ENABLE_MOTOR_Y          = 203
-CMD_ENABLE_MOTOR_Z          = 204
-CMD_DISABLE_MOTOR_X         = 205
-CMD_DISABLE_MOTOR_Y         = 206
-CMD_DISABLE_MOTOR_Z         = 207
-CMD_ENABLE_SPINDLE          = 208
-CMD_DISABLE_SPINDLE         = 209
-CMD_HOME_ALL                = 210
-CMD_HOME_X                  = 211
-CMD_HOME_Y                  = 212
-CMD_HOME_Z                  = 213
-CMD_E_STOP                  = 214
-CMD_RESET_E_STOP            = 215
-CMD_CLEAR_ERRORS            = 216
-CMD_JOG_X_POSITIVE          = 220
-CMD_JOG_X_NEGATIVE          = 221
-CMD_JOG_Y_POSITIVE          = 222
-CMD_JOG_Y_NEGATIVE          = 223
-CMD_JOG_Z_POSITIVE          = 224
-CMD_JOG_Z_NEGATIVE          = 225
+# CNC Motor Controller Commands (SYS_COMMAND address field, u16)
+# Sent as type=CMD_SYS_COMMAND (0) with the command code in the address field.
+CMD_ENABLE_ALL_MOTORS       = 0
+CMD_DISABLE_ALL_MOTORS      = 1
+CMD_ENABLE_MOTOR_X          = 2
+CMD_ENABLE_MOTOR_Y          = 3
+CMD_ENABLE_MOTOR_Z          = 4
+CMD_DISABLE_MOTOR_X         = 5
+CMD_DISABLE_MOTOR_Y         = 6
+CMD_DISABLE_MOTOR_Z         = 7
+CMD_ENABLE_SPINDLE          = 8
+CMD_DISABLE_SPINDLE         = 9
+CMD_HOME_ALL                = 10
+CMD_HOME_X                  = 11
+CMD_HOME_Y                  = 12
+CMD_HOME_Z                  = 13
+CMD_E_STOP                  = 14
+CMD_RESET_E_STOP            = 15
+CMD_CLEAR_ERRORS            = 16
+CMD_JOG_X_POSITIVE          = 20
+CMD_JOG_X_NEGATIVE          = 21
+CMD_JOG_Y_POSITIVE          = 22
+CMD_JOG_Y_NEGATIVE          = 23
+CMD_JOG_Z_POSITIVE          = 24
+CMD_JOG_Z_NEGATIVE          = 25
 
 # Controller States
 STATE_IDLE   = 0
@@ -673,15 +673,52 @@ class DSHubEmulator:
 
             if command == CMD_SYS_COMMAND:
                 # Library system commands (address=65000–65002)
-                sys_cmd_names = {
+                lib_cmd_names = {
                     CMD_SYS_READ_FLASH:     "READ_FLASH",
                     CMD_SYS_WRITE_FLASH:    "WRITE_FLASH",
                     CMD_SYS_RESET_FIRMWARE: "RESET_FIRMWARE",
                 }
-                cmd_name = sys_cmd_names.get(address, f"UNKNOWN_SYS({address})")
-                print(f"[{interface}] {ts} SYS_COMMAND: {cmd_name} (value={value})")
-                if address in sys_cmd_names:
+                # CNC user commands (address=0–25)
+                cnc_cmd_names = {
+                    CMD_ENABLE_ALL_MOTORS:  "ENABLE_ALL_MOTORS",
+                    CMD_DISABLE_ALL_MOTORS: "DISABLE_ALL_MOTORS",
+                    CMD_ENABLE_MOTOR_X:     "ENABLE_MOTOR_X",
+                    CMD_ENABLE_MOTOR_Y:     "ENABLE_MOTOR_Y",
+                    CMD_ENABLE_MOTOR_Z:     "ENABLE_MOTOR_Z",
+                    CMD_DISABLE_MOTOR_X:    "DISABLE_MOTOR_X",
+                    CMD_DISABLE_MOTOR_Y:    "DISABLE_MOTOR_Y",
+                    CMD_DISABLE_MOTOR_Z:    "DISABLE_MOTOR_Z",
+                    CMD_ENABLE_SPINDLE:     "ENABLE_SPINDLE",
+                    CMD_DISABLE_SPINDLE:    "DISABLE_SPINDLE",
+                    CMD_HOME_ALL:           "HOME_ALL",
+                    CMD_HOME_X:             "HOME_X",
+                    CMD_HOME_Y:             "HOME_Y",
+                    CMD_HOME_Z:             "HOME_Z",
+                    CMD_E_STOP:             "E_STOP",
+                    CMD_RESET_E_STOP:       "RESET_E_STOP",
+                    CMD_CLEAR_ERRORS:       "CLEAR_ERRORS",
+                    CMD_JOG_X_POSITIVE:     "JOG_X+",
+                    CMD_JOG_X_NEGATIVE:     "JOG_X-",
+                    CMD_JOG_Y_POSITIVE:     "JOG_Y+",
+                    CMD_JOG_Y_NEGATIVE:     "JOG_Y-",
+                    CMD_JOG_Z_POSITIVE:     "JOG_Z+",
+                    CMD_JOG_Z_NEGATIVE:     "JOG_Z-",
+                }
+                if address in lib_cmd_names:
+                    cmd_name = lib_cmd_names[address]
+                    print(f"[{interface}] {ts} SYS_COMMAND: {cmd_name} (value={value})")
                     response = _pack_response(STATUS_SYS_COMMAND_OK, address, 0)
+                elif address in cnc_cmd_names:
+                    cmd_name = cnc_cmd_names[address]
+                    print(f"[{interface}] {ts} SYS_COMMAND: {cmd_name} (value={value})")
+                    with self.lock:
+                        result = self.cnc_controller.handle_sys_command(address, value)
+                    if result == 0:
+                        response = _pack_response(STATUS_SYS_COMMAND_OK, address, 0)
+                    else:
+                        print(f"[{interface}] {ts} SYS_COMMAND {cmd_name} FAILED")
+                        self.system_registers.increment_error_count()
+                        response = _pack_response(-1, address, 0)
                 else:
                     print(f"[{interface}] {ts} Unknown sys command address: {address}")
                     self.system_registers.increment_error_count()
@@ -745,44 +782,6 @@ class DSHubEmulator:
                 print(f"[{interface}] {ts} Write SysReg[{address}] REJECTED (PERMISSION_ERROR)")
                 self.system_registers.increment_error_count()
                 response = _pack_response(STATUS_PERMISSION_ERROR, address, 0)
-
-            elif command >= 100:
-                # User-defined command types (CNC motor commands: 200+)
-                cmd_names = {
-                    CMD_ENABLE_ALL_MOTORS:  "ENABLE_ALL_MOTORS",
-                    CMD_DISABLE_ALL_MOTORS: "DISABLE_ALL_MOTORS",
-                    CMD_ENABLE_MOTOR_X:     "ENABLE_MOTOR_X",
-                    CMD_ENABLE_MOTOR_Y:     "ENABLE_MOTOR_Y",
-                    CMD_ENABLE_MOTOR_Z:     "ENABLE_MOTOR_Z",
-                    CMD_DISABLE_MOTOR_X:    "DISABLE_MOTOR_X",
-                    CMD_DISABLE_MOTOR_Y:    "DISABLE_MOTOR_Y",
-                    CMD_DISABLE_MOTOR_Z:    "DISABLE_MOTOR_Z",
-                    CMD_ENABLE_SPINDLE:     "ENABLE_SPINDLE",
-                    CMD_DISABLE_SPINDLE:    "DISABLE_SPINDLE",
-                    CMD_HOME_ALL:           "HOME_ALL",
-                    CMD_HOME_X:             "HOME_X",
-                    CMD_HOME_Y:             "HOME_Y",
-                    CMD_HOME_Z:             "HOME_Z",
-                    CMD_E_STOP:             "E_STOP",
-                    CMD_RESET_E_STOP:       "RESET_E_STOP",
-                    CMD_CLEAR_ERRORS:       "CLEAR_ERRORS",
-                    CMD_JOG_X_POSITIVE:     "JOG_X+",
-                    CMD_JOG_X_NEGATIVE:     "JOG_X-",
-                    CMD_JOG_Y_POSITIVE:     "JOG_Y+",
-                    CMD_JOG_Y_NEGATIVE:     "JOG_Y-",
-                    CMD_JOG_Z_POSITIVE:     "JOG_Z+",
-                    CMD_JOG_Z_NEGATIVE:     "JOG_Z-",
-                }
-                cmd_name = cmd_names.get(command, f"USER_CMD({command})")
-                print(f"[{interface}] {ts} User Command: {cmd_name} (addr={address}, value={value})")
-                with self.lock:
-                    result = self.cnc_controller.handle_sys_command(command, value)
-                if result == 0:
-                    response = _pack_response(STATUS_SYS_COMMAND_OK, 0, 0)
-                else:
-                    print(f"[{interface}] {ts} User Command {cmd_name} FAILED")
-                    self.system_registers.increment_error_count()
-                    response = _pack_response(-1, 0, 0)
 
             else:
                 print(f"[{interface}] {ts} Unknown command type: {command}")

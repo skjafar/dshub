@@ -13,12 +13,17 @@ import {
 } from '@mui/material';
 import {
   Send as SendIcon,
-  Info as InfoIcon
+  Info as InfoIcon,
+  Search as SearchIcon,
+  Clear as ClearIcon
 } from '@mui/icons-material';
+import InputAdornment from '@mui/material/InputAdornment';
+import IconButton from '@mui/material/IconButton';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import { filterWriteInput } from '../utils/writeInputParse';
+import { DS_SYS_COMMANDS } from '../utils/sysCommandFileGenerator';
 
 export default function SysCommandPanel() {
   const { state, actions } = useDSHub();
@@ -33,6 +38,15 @@ export default function SysCommandPanel() {
   const [commandCode, setCommandCode] = useState<string>(String(profileCommands.length > 0 ? profileCommands[0].code : 0));
   const [commandValue, setCommandValue] = useState<string>('0');
   const [lastResponse, setLastResponse] = useState<{ command: number; result: number; success: boolean } | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const lowerSearch = searchQuery.toLowerCase();
+  const filteredProfileCommands = profileCommands.filter(
+    cmd => cmd.name.toLowerCase().includes(lowerSearch) || String(cmd.code).includes(lowerSearch)
+  );
+  const filteredLibraryCommands = DS_SYS_COMMANDS.filter(
+    cmd => cmd.name.toLowerCase().includes(lowerSearch) || String(cmd.code).includes(lowerSearch)
+  );
 
   const canSend = state.connection?.connected && (
     (state.connection.interface === 'TCP' && state.connection.controlState === 1) ||
@@ -53,7 +67,7 @@ export default function SysCommandPanel() {
     }
 
     try {
-      actions.sendCommand(code, value);
+      actions.sendCommand(0, value, code);
       showSuccess(`Sent SYS_COMMAND ${code} with value ${value}`);
 
       // Store the sent command for display
@@ -79,7 +93,8 @@ export default function SysCommandPanel() {
 
   const getCommandInfo = (code: string) => {
     const n = parseInt(code, 10);
-    return isNaN(n) ? undefined : profileCommands.find(cmd => cmd.code === n);
+    if (isNaN(n)) return undefined;
+    return profileCommands.find(cmd => cmd.code === n) ?? DS_SYS_COMMANDS.find(cmd => cmd.code === n);
   };
 
   const currentCommandInfo = getCommandInfo(commandCode);
@@ -157,23 +172,45 @@ export default function SysCommandPanel() {
               <Typography variant="h6" gutterBottom>
                 Quick Commands
               </Typography>
+              <TextField
+                size="small"
+                fullWidth
+                placeholder="Search by name or code..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                sx={{ mb: 1.5 }}
+                slotProps={{
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon fontSize="small" />
+                      </InputAdornment>
+                    ),
+                    endAdornment: searchQuery ? (
+                      <InputAdornment position="end">
+                        <IconButton size="small" onClick={() => setSearchQuery('')}>
+                          <ClearIcon fontSize="small" />
+                        </IconButton>
+                      </InputAdornment>
+                    ) : null,
+                  },
+                }}
+              />
               <Divider sx={{ mb: 2 }} />
 
-              {profileCommands.length === 0 ? (
-                <Alert severity="info">
-                  No SYS_COMMANDs defined in this profile. Go to Map Editor to add commands.
-                </Alert>
-              ) : (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, maxHeight: '400px', overflowY: 'auto' }}>
-                  {profileCommands.map((cmd) => (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, maxHeight: '400px', overflowY: 'auto' }}>
+                {profileCommands.length === 0 ? (
+                  <Alert severity="info">
+                    No SYS_COMMANDs defined in this profile. Go to Map Editor to add commands.
+                  </Alert>
+                ) : filteredProfileCommands.length === 0 ? null : (
+                  filteredProfileCommands.map((cmd) => (
                     <Paper
                       key={cmd.code}
                       sx={{
                         p: 1.5,
                         cursor: 'pointer',
-                        '&:hover': {
-                          bgcolor: 'action.hover'
-                        },
+                        '&:hover': { bgcolor: 'action.hover' },
                         border: parseInt(commandCode, 10) === cmd.code ? '2px solid' : '1px solid',
                         borderColor: parseInt(commandCode, 10) === cmd.code ? 'primary.main' : 'divider'
                       }}
@@ -181,19 +218,42 @@ export default function SysCommandPanel() {
                     >
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Box>
-                          <Typography variant="body2" fontWeight="medium">
-                            {cmd.name}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {cmd.description}
-                          </Typography>
+                          <Typography variant="body2" fontWeight="medium">{cmd.name}</Typography>
+                          <Typography variant="caption" color="text.secondary">{cmd.description}</Typography>
                         </Box>
                         <Chip label={cmd.code} size="small" variant="outlined" />
                       </Box>
                     </Paper>
-                  ))}
-                </Box>
-              )}
+                  ))
+                )}
+
+                <Divider sx={{ my: 0.5 }}>
+                  <Typography variant="caption" color="text.secondary">Library</Typography>
+                </Divider>
+
+                {filteredLibraryCommands.map((cmd) => (
+                  <Paper
+                    key={cmd.code}
+                    sx={{
+                      p: 1.5,
+                      cursor: 'pointer',
+                      '&:hover': { bgcolor: 'action.hover' },
+                      border: parseInt(commandCode, 10) === cmd.code ? '2px solid' : '1px solid',
+                      borderColor: parseInt(commandCode, 10) === cmd.code ? 'primary.main' : 'divider',
+                      opacity: 0.85,
+                    }}
+                    onClick={() => handleQuickCommand(cmd.code)}
+                  >
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Box>
+                        <Typography variant="body2" fontWeight="medium" sx={{ fontFamily: 'monospace' }}>{cmd.name}</Typography>
+                        <Typography variant="caption" color="text.secondary">{cmd.description}</Typography>
+                      </Box>
+                      <Chip label={cmd.code} size="small" variant="outlined" color="secondary" />
+                    </Box>
+                  </Paper>
+                ))}
+              </Box>
             </CardContent>
           </Card>
         </Box>

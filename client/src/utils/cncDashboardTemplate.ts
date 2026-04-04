@@ -5,7 +5,7 @@ const CNC_TAB_ID = 'cnc-demo-tab';
 const CNC_MONITORING_TAB_ID = 'cnc-monitoring-tab';
 
 /** Bump this when the template changes so existing stored layouts are regenerated. */
-export const CNC_DASHBOARD_VERSION = 4;
+export const CNC_DASHBOARD_VERSION = 5;
 
 // ──────────────────────────────────────────────────────────────
 // Grid layout (12 cols × 11 rows):
@@ -33,7 +33,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
     config: {
       label: 'E-STOP',
       target: 'sysCommand',
-      address: 214,
+      address: 14,
       valueToWrite: 0,
       color: '#FF3B30',
       confirmationRequired: true,
@@ -116,19 +116,19 @@ const CNC_WIDGETS: DashboardWidget[] = [
         {
           id: 'cnc-c-reset-estop',
           type: 'button',
-          config: { label: 'Reset E-Stop', target: 'sysCommand', address: 215, valueToWrite: 0, color: '#FACC15', icon: 'RestartAlt', fontSize: 0.7 },
+          config: { label: 'Reset E-Stop', target: 'sysCommand', address: 15, valueToWrite: 0, color: '#FACC15', icon: 'RestartAlt', fontSize: 0.7 },
           layout: { i: 'cnc-c-reset-estop', x: 9, y: 0, w: 3, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-clear-errors',
           type: 'button',
-          config: { label: 'Clear Errors', target: 'sysCommand', address: 216, valueToWrite: 0, color: '#6B7280', icon: 'RestartAlt', fontSize: 0.7 },
+          config: { label: 'Clear Errors', target: 'sysCommand', address: 16, valueToWrite: 0, color: '#6B7280', icon: 'RestartAlt', fontSize: 0.7 },
           layout: { i: 'cnc-c-clear-errors', x: 0, y: 1, w: 4, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-home-all',
           type: 'button',
-          config: { label: 'Home All', target: 'sysCommand', address: 210, valueToWrite: 0, color: '#2196F3', icon: 'Home', fontSize: 0.7 },
+          config: { label: 'Home All', target: 'sysCommand', address: 10, valueToWrite: 0, color: '#2196F3', icon: 'Home', fontSize: 0.7 },
           layout: { i: 'cnc-c-home-all', x: 9, y: 1, w: 3, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
       ],
@@ -204,19 +204,19 @@ const CNC_WIDGETS: DashboardWidget[] = [
         {
           id: 'cnc-c-hx',
           type: 'button',
-          config: { label: 'Home X', target: 'sysCommand', address: 211, valueToWrite: 0, color: '#00F2FF', icon: 'Home', fontSize: 0.7 },
+          config: { label: 'Home X', target: 'sysCommand', address: 11, valueToWrite: 0, color: '#00F2FF', icon: 'Home', fontSize: 0.7 },
           layout: { i: 'cnc-c-hx', x: 0, y: 0, w: 4, h: 2, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-hy',
           type: 'button',
-          config: { label: 'Home Y', target: 'sysCommand', address: 212, valueToWrite: 0, color: '#4ADE80', icon: 'Home', fontSize: 0.7 },
+          config: { label: 'Home Y', target: 'sysCommand', address: 12, valueToWrite: 0, color: '#4ADE80', icon: 'Home', fontSize: 0.7 },
           layout: { i: 'cnc-c-hy', x: 4, y: 0, w: 4, h: 2, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-hz',
           type: 'button',
-          config: { label: 'Home Z', target: 'sysCommand', address: 213, valueToWrite: 0, color: '#FF8C42', icon: 'Home', fontSize: 0.7 },
+          config: { label: 'Home Z', target: 'sysCommand', address: 13, valueToWrite: 0, color: '#FF8C42', icon: 'Home', fontSize: 0.7 },
           layout: { i: 'cnc-c-hz', x: 8, y: 0, w: 4, h: 2, minW: 1, minH: 1, moved: false, static: false },
         },
       ],
@@ -246,10 +246,10 @@ const CNC_WIDGETS: DashboardWidget[] = [
           config: {
             label: 'XY Jog', layout: '4way',
             directions: [
-              { direction: 'up',    command: 222 },
-              { direction: 'down',  command: 223 },
-              { direction: 'left',  command: 221 },
-              { direction: 'right', command: 220 },
+              { direction: 'up',    command: 22 },
+              { direction: 'down',  command: 23 },
+              { direction: 'left',  command: 21 },
+              { direction: 'right', command: 20 },
             ],
             buttonSize: 40, color: '#00F2FF',
           },
@@ -258,13 +258,13 @@ const CNC_WIDGETS: DashboardWidget[] = [
         {
           id: 'cnc-c-zplus',
           type: 'button',
-          config: { label: 'Z+', target: 'sysCommand', address: 224, valueToWrite: 0, color: '#FF8C42', icon: 'ArrowUpward', fontSize: 1.1 },
+          config: { label: 'Z+', target: 'sysCommand', address: 24, valueToWrite: 0, color: '#FF8C42', icon: 'ArrowUpward', fontSize: 1.1 },
           layout: { i: 'cnc-c-zplus', x: 7, y: 0, w: 5, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-zminus',
           type: 'button',
-          config: { label: 'Z-', target: 'sysCommand', address: 225, valueToWrite: 0, color: '#FF8C42', icon: 'ArrowDownward', fontSize: 1.1 },
+          config: { label: 'Z-', target: 'sysCommand', address: 25, valueToWrite: 0, color: '#FF8C42', icon: 'ArrowDownward', fontSize: 1.1 },
           layout: { i: 'cnc-c-zminus', x: 7, y: 1, w: 5, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
@@ -346,13 +346,13 @@ const CNC_WIDGETS: DashboardWidget[] = [
         {
           id: 'cnc-c-en-spindle',
           type: 'button',
-          config: { label: 'Enable', target: 'sysCommand', address: 208, valueToWrite: 0, color: '#4ADE80', icon: 'Power', fontSize: 0.7 },
+          config: { label: 'Enable', target: 'sysCommand', address: 8, valueToWrite: 0, color: '#4ADE80', icon: 'Power', fontSize: 0.7 },
           layout: { i: 'cnc-c-en-spindle', x: 8, y: 0, w: 4, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-dis-spindle',
           type: 'button',
-          config: { label: 'Disable', target: 'sysCommand', address: 209, valueToWrite: 0, color: '#FF3B30', icon: 'PowerOff', fontSize: 0.7 },
+          config: { label: 'Disable', target: 'sysCommand', address: 9, valueToWrite: 0, color: '#FF3B30', icon: 'PowerOff', fontSize: 0.7 },
           layout: { i: 'cnc-c-dis-spindle', x: 8, y: 1, w: 4, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
@@ -398,19 +398,19 @@ const CNC_WIDGETS: DashboardWidget[] = [
         {
           id: 'cnc-c-en-x',
           type: 'button',
-          config: { label: 'Enable', target: 'sysCommand', address: 202, valueToWrite: 0, color: '#4ADE80', icon: 'Power', fontSize: 0.7 },
+          config: { label: 'Enable', target: 'sysCommand', address: 2, valueToWrite: 0, color: '#4ADE80', icon: 'Power', fontSize: 0.7 },
           layout: { i: 'cnc-c-en-x', x: 5, y: 0, w: 3, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-dis-x',
           type: 'button',
-          config: { label: 'Disable', target: 'sysCommand', address: 205, valueToWrite: 0, color: '#FF9800', icon: 'PowerOff', fontSize: 0.7 },
+          config: { label: 'Disable', target: 'sysCommand', address: 5, valueToWrite: 0, color: '#FF9800', icon: 'PowerOff', fontSize: 0.7 },
           layout: { i: 'cnc-c-dis-x', x: 8, y: 0, w: 2, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-all-on',
           type: 'button',
-          config: { label: 'All On', target: 'sysCommand', address: 200, valueToWrite: 0, color: '#4ADE80', icon: 'Power', fontSize: 0.7 },
+          config: { label: 'All On', target: 'sysCommand', address: 0, valueToWrite: 0, color: '#4ADE80', icon: 'Power', fontSize: 0.7 },
           layout: { i: 'cnc-c-all-on', x: 10, y: 0, w: 2, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
@@ -422,19 +422,19 @@ const CNC_WIDGETS: DashboardWidget[] = [
         {
           id: 'cnc-c-en-y',
           type: 'button',
-          config: { label: 'Enable', target: 'sysCommand', address: 203, valueToWrite: 0, color: '#4ADE80', icon: 'Power', fontSize: 0.7 },
+          config: { label: 'Enable', target: 'sysCommand', address: 3, valueToWrite: 0, color: '#4ADE80', icon: 'Power', fontSize: 0.7 },
           layout: { i: 'cnc-c-en-y', x: 5, y: 1, w: 3, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-dis-y',
           type: 'button',
-          config: { label: 'Disable', target: 'sysCommand', address: 206, valueToWrite: 0, color: '#FF9800', icon: 'PowerOff', fontSize: 0.7 },
+          config: { label: 'Disable', target: 'sysCommand', address: 6, valueToWrite: 0, color: '#FF9800', icon: 'PowerOff', fontSize: 0.7 },
           layout: { i: 'cnc-c-dis-y', x: 8, y: 1, w: 2, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-all-off',
           type: 'button',
-          config: { label: 'All Off', target: 'sysCommand', address: 201, valueToWrite: 0, color: '#FF9800', icon: 'PowerOff', fontSize: 0.7 },
+          config: { label: 'All Off', target: 'sysCommand', address: 1, valueToWrite: 0, color: '#FF9800', icon: 'PowerOff', fontSize: 0.7 },
           layout: { i: 'cnc-c-all-off', x: 10, y: 1, w: 2, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
@@ -446,13 +446,13 @@ const CNC_WIDGETS: DashboardWidget[] = [
         {
           id: 'cnc-c-en-z',
           type: 'button',
-          config: { label: 'Enable', target: 'sysCommand', address: 204, valueToWrite: 0, color: '#4ADE80', icon: 'Power', fontSize: 0.7 },
+          config: { label: 'Enable', target: 'sysCommand', address: 4, valueToWrite: 0, color: '#4ADE80', icon: 'Power', fontSize: 0.7 },
           layout: { i: 'cnc-c-en-z', x: 5, y: 2, w: 3, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-dis-z',
           type: 'button',
-          config: { label: 'Disable', target: 'sysCommand', address: 207, valueToWrite: 0, color: '#FF9800', icon: 'PowerOff', fontSize: 0.7 },
+          config: { label: 'Disable', target: 'sysCommand', address: 7, valueToWrite: 0, color: '#FF9800', icon: 'PowerOff', fontSize: 0.7 },
           layout: { i: 'cnc-c-dis-z', x: 8, y: 2, w: 4, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
       ],
@@ -590,29 +590,29 @@ const CNC_MONITORING_WIDGETS: DashboardWidget[] = [
 
 /** CNC system commands for the emulator */
 export const CNC_SYS_COMMANDS: SysCommand[] = [
-  { code: 200, name: 'ENABLE_ALL_MOTORS',  description: 'Enable all motor axes' },
-  { code: 201, name: 'DISABLE_ALL_MOTORS', description: 'Disable all motor axes' },
-  { code: 202, name: 'ENABLE_MOTOR_X',     description: 'Enable X-axis motor' },
-  { code: 203, name: 'ENABLE_MOTOR_Y',     description: 'Enable Y-axis motor' },
-  { code: 204, name: 'ENABLE_MOTOR_Z',     description: 'Enable Z-axis motor' },
-  { code: 205, name: 'DISABLE_MOTOR_X',    description: 'Disable X-axis motor' },
-  { code: 206, name: 'DISABLE_MOTOR_Y',    description: 'Disable Y-axis motor' },
-  { code: 207, name: 'DISABLE_MOTOR_Z',    description: 'Disable Z-axis motor' },
-  { code: 208, name: 'ENABLE_SPINDLE',     description: 'Enable spindle motor' },
-  { code: 209, name: 'DISABLE_SPINDLE',    description: 'Disable spindle motor' },
-  { code: 210, name: 'HOME_ALL',           description: 'Home all axes' },
-  { code: 211, name: 'HOME_X',             description: 'Home X-axis' },
-  { code: 212, name: 'HOME_Y',             description: 'Home Y-axis' },
-  { code: 213, name: 'HOME_Z',             description: 'Home Z-axis' },
-  { code: 214, name: 'E_STOP',             description: 'Emergency stop' },
-  { code: 215, name: 'RESET_E_STOP',       description: 'Reset emergency stop' },
-  { code: 216, name: 'CLEAR_ERRORS',       description: 'Clear error state' },
-  { code: 220, name: 'JOG_X_POSITIVE',     description: 'Jog X-axis positive' },
-  { code: 221, name: 'JOG_X_NEGATIVE',     description: 'Jog X-axis negative' },
-  { code: 222, name: 'JOG_Y_POSITIVE',     description: 'Jog Y-axis positive' },
-  { code: 223, name: 'JOG_Y_NEGATIVE',     description: 'Jog Y-axis negative' },
-  { code: 224, name: 'JOG_Z_POSITIVE',     description: 'Jog Z-axis positive' },
-  { code: 225, name: 'JOG_Z_NEGATIVE',     description: 'Jog Z-axis negative' },
+  { code:  0, name: 'ENABLE_ALL_MOTORS',  description: 'Enable all motor axes' },
+  { code:  1, name: 'DISABLE_ALL_MOTORS', description: 'Disable all motor axes' },
+  { code:  2, name: 'ENABLE_MOTOR_X',     description: 'Enable X-axis motor' },
+  { code:  3, name: 'ENABLE_MOTOR_Y',     description: 'Enable Y-axis motor' },
+  { code:  4, name: 'ENABLE_MOTOR_Z',     description: 'Enable Z-axis motor' },
+  { code:  5, name: 'DISABLE_MOTOR_X',    description: 'Disable X-axis motor' },
+  { code:  6, name: 'DISABLE_MOTOR_Y',    description: 'Disable Y-axis motor' },
+  { code:  7, name: 'DISABLE_MOTOR_Z',    description: 'Disable Z-axis motor' },
+  { code:  8, name: 'ENABLE_SPINDLE',     description: 'Enable spindle motor' },
+  { code:  9, name: 'DISABLE_SPINDLE',    description: 'Disable spindle motor' },
+  { code: 10, name: 'HOME_ALL',           description: 'Home all axes' },
+  { code: 11, name: 'HOME_X',             description: 'Home X-axis' },
+  { code: 12, name: 'HOME_Y',             description: 'Home Y-axis' },
+  { code: 13, name: 'HOME_Z',             description: 'Home Z-axis' },
+  { code: 14, name: 'E_STOP',             description: 'Emergency stop' },
+  { code: 15, name: 'RESET_E_STOP',       description: 'Reset emergency stop' },
+  { code: 16, name: 'CLEAR_ERRORS',       description: 'Clear error state' },
+  { code: 20, name: 'JOG_X_POSITIVE',     description: 'Jog X-axis positive' },
+  { code: 21, name: 'JOG_X_NEGATIVE',     description: 'Jog X-axis negative' },
+  { code: 22, name: 'JOG_Y_POSITIVE',     description: 'Jog Y-axis positive' },
+  { code: 23, name: 'JOG_Y_NEGATIVE',     description: 'Jog Y-axis negative' },
+  { code: 24, name: 'JOG_Z_POSITIVE',     description: 'Jog Z-axis positive' },
+  { code: 25, name: 'JOG_Z_NEGATIVE',     description: 'Jog Z-axis negative' },
 ];
 
 /** Creates the CNC demo dashboard layout */

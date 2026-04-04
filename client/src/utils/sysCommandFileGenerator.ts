@@ -1,6 +1,16 @@
 import { SysCommand } from '../types/settings';
 
 /**
+ * Built-in library system commands from ds_sys_command_t.
+ * These are always available in every profile and are never exported.
+ */
+export const DS_SYS_COMMANDS: SysCommand[] = [
+  { code: 65000, name: 'ds_sys_command_READ_FLASH',     description: 'Read parameters from flash' },
+  { code: 65001, name: 'ds_sys_command_WRITE_FLASH',    description: 'Write parameters to flash' },
+  { code: 65002, name: 'ds_sys_command_RESET_FIRMWARE', description: 'Reset the firmware' },
+];
+
+/**
  * Generate .map file content for SYS_COMMANDs
  * @param commands Array of SysCommand entries
  * @returns Generated .map file content as string

@@ -174,6 +174,7 @@ aur/dshub/
 !aur/*.desktop
 !aur/*.install
 !aur/config.env
+
 .claude/ScreenHome.png
 .claude/ScreenHome2.png
 .claude/ScreenHome3.png

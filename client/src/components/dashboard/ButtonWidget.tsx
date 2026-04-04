@@ -329,11 +329,21 @@ export default function ButtonWidget({ config, isEditMode, widgetSize }: ButtonW
   // Check if label is empty or just whitespace
   const hasLabel = config.label && config.label.trim().length > 0;
 
+  const canControl = state.connection?.connected && (
+    (state.connection.interface === 'TCP' && state.connection.controlState === 1) ||
+    (state.connection.interface === 'UDP' && state.connection.controlState === 2)
+  );
+
   const handleClick = () => {
     if (isEditMode) return; // Don't trigger actions in edit mode
 
     if (!state.connection?.connected) {
       showError('Not connected to device');
+      return;
+    }
+
+    if (config.target === 'sysCommand' && !canControl) {
+      showError('Take control of the device before sending commands');
       return;
     }
 
@@ -355,7 +365,7 @@ export default function ButtonWidget({ config, isEditMode, widgetSize }: ButtonW
         actions.writeParameter(config.address, config.valueToWrite);
         showSuccess(`Wrote ${config.valueToWrite} to parameter ${config.address}`);
       } else if (config.target === 'sysCommand') {
-        actions.sendCommand(config.address, config.valueToWrite);
+        actions.sendCommand(0, config.valueToWrite, config.address);
         showSuccess(`Sent SYS_COMMAND ${config.address} with value ${config.valueToWrite}`);
       }
     } catch (error) {

@@ -13,6 +13,7 @@ import {
 import { DirectionalControlWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
+import { useToast } from '../ToastNotification';
 import { useTheme } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 
@@ -37,10 +38,15 @@ interface DirectionalControlWidgetProps {
 export default function DirectionalControlWidget({ config, isEditMode, widgetSize }: DirectionalControlWidgetProps) {
   const { palette: { custom: c } } = useTheme();
   const { state, actions } = useDSHub();
+  const { showError } = useToast();
   const [activeDirection, setActiveDirection] = useState<string | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isConnected = state.connection?.connected ?? false;
+  const canControl = isConnected && (
+    (state.connection?.interface === 'TCP' && state.connection.controlState === 1) ||
+    (state.connection?.interface === 'UDP' && state.connection.controlState === 2)
+  );
   const layout = config.layout || '4way';
   const baseButtonSize = config.buttonSize || 48;
   const buttonSize = widgetSize ? scaledPx(baseButtonSize, widgetSize.scale) : baseButtonSize;
@@ -61,6 +67,11 @@ export default function DirectionalControlWidget({ config, isEditMode, widgetSiz
   const sendDirectionCommand = (command: number, direction: string) => {
     if (!isConnected || isEditMode) return;
 
+    if (!canControl) {
+      showError('Take control of the device before sending commands');
+      return;
+    }
+
     // Clear any existing timeout
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
@@ -71,7 +82,7 @@ export default function DirectionalControlWidget({ config, isEditMode, widgetSiz
     timeoutRef.current = setTimeout(() => setActiveDirection(null), 150);
 
     // Send system command through the DSHub actions API
-    actions.sendCommand(command, 0);
+    actions.sendCommand(0, 0, command);
   };
 
   /**

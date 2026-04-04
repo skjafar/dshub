@@ -415,6 +415,10 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
                 ? `linear-gradient(135deg, ${c.primaryFixed} 0%, ${c.primary} 100%)`
                 : c.primaryFixed,
             },
+            '&.Mui-disabled': {
+              background: c.surfaceHigh,
+              color: c.outline,
+            },
           },
           outlined: {
             borderColor: c.ghost20,
