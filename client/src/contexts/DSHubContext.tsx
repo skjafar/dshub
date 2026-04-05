@@ -375,9 +375,7 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
   const { settings } = useSettings();
 
   const logSettingsRef = React.useRef(settings.logSettings);
-  React.useEffect(() => {
-    logSettingsRef.current = settings.logSettings;
-  }, [settings.logSettings]);
+  logSettingsRef.current = settings.logSettings; // Keep current synchronously so the reducer never reads stale settings
 
   const dsHubReducer = useMemo(
     () => createDSHubReducer(() => logSettingsRef.current),

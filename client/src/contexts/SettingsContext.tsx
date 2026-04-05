@@ -39,8 +39,13 @@ function loadSettingsFromStorage(): UserSettings {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
-      // Merge with defaults to ensure new settings are added
-      return { ...DEFAULT_SETTINGS, ...parsed };
+      // Deep merge nested objects so new fields added to defaults are not lost
+      return {
+        ...DEFAULT_SETTINGS,
+        ...parsed,
+        logSettings: { ...DEFAULT_SETTINGS.logSettings, ...parsed.logSettings },
+        plotDefaults: { ...DEFAULT_SETTINGS.plotDefaults, ...parsed.plotDefaults },
+      };
     }
   } catch (error) {
     console.error('Failed to load settings from localStorage:', error);
