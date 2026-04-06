@@ -1,6 +1,6 @@
 [package]
 name = "dshub"
-version = "0.2.2"
+version = "0.2.3"
 description = "DSHub Device Monitor"
 authors = ["Sofian Jafar <skjafar@gmail.com>"]
 license = "MIT"

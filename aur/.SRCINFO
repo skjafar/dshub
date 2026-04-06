@@ -1,6 +1,6 @@
 pkgbase = dshub
 	pkgdesc = Desktop application for monitoring and controlling industrial devices via TCP/UDP
-	pkgver = 0.2.2
+	pkgver = 0.2.3
 	pkgrel = 1
 	url = https://github.com/skjafar/dshub
 	arch = x86_64
@@ -14,7 +14,7 @@ pkgbase = dshub
 	depends = openssl
 	depends = libsoup3
 	depends = xdg-utils
-	source = git+https://github.com/skjafar/dshub.git#tag=v0.2.2
+	source = git+https://github.com/skjafar/dshub.git#tag=v0.2.3
 	sha256sums = SKIP
 
 pkgname = dshub

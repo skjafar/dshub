@@ -25,7 +25,7 @@ export default function AboutPanel(): React.ReactElement {
               DSHub
             </Typography>
             <Typography variant="caption" sx={{ fontFamily: FONT_MONO, color: 'text.secondary' }}>
-              v0.2.2
+              v0.2.3
             </Typography>
           </Box>
 
