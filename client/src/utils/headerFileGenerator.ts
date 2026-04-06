@@ -123,11 +123,27 @@ function formatHeaderEntry(entry: MapEntry): string {
   // Add padding for alignment (common C style)
   const typePadding = ' '.repeat(Math.max(1, 16 - type.length));
 
+  let line: string;
   if (entry.isArray && entry.arraySize) {
-    return `    ${type}${typePadding}${name}[${entry.arraySize}];`;
+    line = `    ${type}${typePadding}${name}[${entry.arraySize}];`;
   } else {
-    return `    ${type}${typePadding}${name};`;
+    line = `    ${type}${typePadding}${name};`;
   }
+
+  if (entry.unit) {
+    line += `    /* ${entry.unit} */`;
+  }
+
+  const commentParts: string[] = [];
+  if (entry.description) commentParts.push(entry.description);
+  if (entry.valueList?.length) {
+    commentParts.push('Values: ' + entry.valueList.map(v => `${v.value}=${v.label}`).join(', '));
+  }
+  if (commentParts.length > 0) {
+    return `    /** ${commentParts.join(' | ')} */\n${line}`;
+  }
+
+  return line;
 }
 
 /**
@@ -162,7 +178,7 @@ function getConsolidatedEntries(entries: MapEntry[]): MapEntry[] {
       // Calculate array size
       const arraySize = arrayEntries.length;
 
-      // Create consolidated entry
+      // Create consolidated entry — preserve metadata from first element
       consolidated.push({
         address: entry.address,
         name: baseName,
@@ -170,7 +186,10 @@ function getConsolidatedEntries(entries: MapEntry[]): MapEntry[] {
         isArray: true,
         arraySize: arraySize,
         accessPermit: entry.accessPermit,
-        showAsHex: entry.showAsHex
+        showAsHex: entry.showAsHex,
+        unit: entry.unit,
+        description: entry.description,
+        valueList: entry.valueList,
       });
 
       processedArrays.add(baseName);

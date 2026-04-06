@@ -36,6 +36,13 @@ export interface SysCommand {
   description?: string;
 }
 
+// Metadata stored per register/parameter entry (keyed by entry base name)
+export interface EntryMetadata {
+  description?: string;
+  unit?: string;
+  valueList?: Array<{ value: string; label: string }>;
+}
+
 // Map profile with separate register and parameter map files
 export interface MapProfile {
   id: string;
@@ -48,6 +55,8 @@ export interface MapProfile {
   systemRegistersMap?: string;
   boardTypesMap?: string; // Optional board types map content
   sysCommands?: SysCommand[]; // Optional list of system commands
+  registersMetadata?: Record<string, EntryMetadata>; // keyed by entry base name
+  parametersMetadata?: Record<string, EntryMetadata>; // keyed by entry base name
   createdAt: number;
   lastUsed?: number;
 }

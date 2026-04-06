@@ -5,7 +5,7 @@ import { FONT_MONO } from '../theme';
 export default function AboutPanel(): React.ReactElement {
   const { state } = useDSHub();
 
-  const techStack = ['React 19', 'TypeScript', 'MUI 7', 'Vite 6', 'Socket.IO', 'Chart.js'];
+  const techStack = ['React 19', 'TypeScript 5', 'MUI 7', 'Vite 6', 'Tauri 2', 'Socket.IO 4', 'Chart.js 4'];
 
   return (
     <Box sx={{ maxWidth: 600 }}>
@@ -25,7 +25,7 @@ export default function AboutPanel(): React.ReactElement {
               DSHub
             </Typography>
             <Typography variant="caption" sx={{ fontFamily: FONT_MONO, color: 'text.secondary' }}>
-              v1.0.0
+              v0.2.2
             </Typography>
           </Box>
 

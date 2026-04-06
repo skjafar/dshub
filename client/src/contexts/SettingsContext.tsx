@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { UserSettings, DEFAULT_SETTINGS, MapProfile, DEFAULT_PROFILE_ID, CNC_PROFILE_ID, SysCommand } from '../types/settings';
-import { createModernCNCDashboard, CNC_SYS_COMMANDS, CNC_DASHBOARD_VERSION } from '../utils/cncDashboardTemplate';
+import { UserSettings, DEFAULT_SETTINGS, MapProfile, DEFAULT_PROFILE_ID, CNC_PROFILE_ID, SysCommand, EntryMetadata } from '../types/settings';
+import { createModernCNCDashboard, CNC_SYS_COMMANDS, CNC_DASHBOARD_VERSION, CNC_REGISTERS_METADATA, CNC_PARAMETERS_METADATA } from '../utils/cncDashboardTemplate';
+import { serializeProfile, parseProfileFile, ProfileImportResult } from '../utils/profileFileFormat';
 import { mapManager } from '../maps/mapManager';
 import { logger } from '../utils/logger';
 
@@ -16,12 +17,15 @@ interface SettingsContextType {
   // Map profile management
   getAllProfiles: () => MapProfile[]; // Returns all profiles including default
   getActiveProfile: () => MapProfile | null;
-  createProfile: (name: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, systemRegistersContent?: string) => string;
-  updateProfile: (profileId: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, systemRegistersContent?: string) => boolean;
+  createProfile: (name: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, systemRegistersContent?: string, registersMetadata?: Record<string, EntryMetadata>, parametersMetadata?: Record<string, EntryMetadata>) => string;
+  updateProfile: (profileId: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, systemRegistersContent?: string, registersMetadata?: Record<string, EntryMetadata>, parametersMetadata?: Record<string, EntryMetadata>) => boolean;
   deleteProfile: (profileId: string) => boolean;
   activateProfile: (profileId: string) => boolean;
   downloadProfileMaps: (profileId: string) => { registers: string; parameters: string; boardTypes?: string; systemRegisters?: string } | null;
   loadDefaultProfile: () => Promise<MapProfile>;
+  // Profile file import/export
+  exportProfile: (profileId: string) => string | null;
+  importProfile: (json: string) => ProfileImportResult & { profileId?: string };
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -253,6 +257,8 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
       parametersMap,
       systemRegistersMap,
       sysCommands: CNC_SYS_COMMANDS,
+      registersMetadata: CNC_REGISTERS_METADATA,
+      parametersMetadata: CNC_PARAMETERS_METADATA,
       createdAt: 0,
     };
   }, []);
@@ -282,7 +288,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   }, [settings.activeMapProfileId, settings.mapProfiles, defaultProfile, cncProfile]);
 
   // Create a new profile
-  const createProfile = useCallback((name: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, systemRegistersContent?: string): string => {
+  const createProfile = useCallback((name: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, systemRegistersContent?: string, registersMetadata?: Record<string, EntryMetadata>, parametersMetadata?: Record<string, EntryMetadata>): string => {
     const profileId = `profile_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const newProfile: MapProfile = {
       id: profileId,
@@ -293,6 +299,8 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
       boardTypesMap: boardTypesContent,
       systemRegistersMap: systemRegistersContent,
       sysCommands,
+      registersMetadata,
+      parametersMetadata,
       createdAt: Date.now(),
     };
 
@@ -305,7 +313,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   }, []);
 
   // Update an existing profile (cannot update default or CNC)
-  const updateProfile = useCallback((profileId: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, systemRegistersContent?: string): boolean => {
+  const updateProfile = useCallback((profileId: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, systemRegistersContent?: string, registersMetadata?: Record<string, EntryMetadata>, parametersMetadata?: Record<string, EntryMetadata>): boolean => {
     if (profileId === DEFAULT_PROFILE_ID || profileId === CNC_PROFILE_ID) {
       console.error('Cannot update built-in profile');
       return false;
@@ -323,6 +331,8 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
         boardTypesMap: boardTypesContent,
         systemRegistersMap: systemRegistersContent,
         sysCommands,
+        registersMetadata,
+        parametersMetadata,
       };
 
       return {
@@ -395,6 +405,53 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     };
   }, [getAllProfiles]);
 
+  // Serialize a complete profile (maps + metadata + dashboard) to a .dshub JSON string
+  const exportProfile = useCallback((profileId: string): string | null => {
+    const profile = getAllProfiles().find(p => p.id === profileId);
+    if (!profile) return null;
+    const dashboard = settings.dashboardLayouts[profileId];
+    return serializeProfile(profile, dashboard);
+  }, [getAllProfiles, settings.dashboardLayouts]);
+
+  // Parse a .dshub JSON string and, if valid, create a new profile
+  const importProfile = useCallback((json: string): ProfileImportResult & { profileId?: string } => {
+    const result = parseProfileFile(json);
+
+    if (!result.file || result.errors.some(e => e.fatal)) {
+      return result;
+    }
+
+    const { file } = result;
+    const profileId = `profile_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const newProfile: MapProfile = {
+      id: profileId,
+      name: file.name,
+      isDefault: false,
+      registersMap: file.maps.registers,
+      parametersMap: file.maps.parameters,
+      systemRegistersMap: file.maps.systemRegisters,
+      boardTypesMap: file.maps.boardTypes,
+      sysCommands: file.maps.sysCommands,
+      registersMetadata: file.metadata.registers,
+      parametersMetadata: file.metadata.parameters,
+      createdAt: Date.now(),
+    };
+
+    setSettings(prev => {
+      const nextLayouts = file.dashboard
+        ? { ...prev.dashboardLayouts, [profileId]: file.dashboard! }
+        : prev.dashboardLayouts;
+      return {
+        ...prev,
+        mapProfiles: [...prev.mapProfiles, newProfile],
+        activeMapProfileId: profileId,
+        dashboardLayouts: nextLayouts,
+      };
+    });
+
+    return { ...result, profileId };
+  }, []);
+
   const value: SettingsContextType = {
     settings,
     storageError,
@@ -409,7 +466,9 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     deleteProfile,
     activateProfile,
     downloadProfileMaps,
-    loadDefaultProfile
+    loadDefaultProfile,
+    exportProfile,
+    importProfile,
   };
 
   return (

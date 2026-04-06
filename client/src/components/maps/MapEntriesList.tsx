@@ -18,6 +18,7 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import MenuIcon from '@mui/icons-material/Menu';
+import NotesIcon from '@mui/icons-material/Notes';
 import {
   DndContext,
   closestCorners,
@@ -35,10 +36,11 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
-import { MapEntry, DataAccessPermit, DataForm } from '../../maps/mapParser';
+import { MapEntry, DataAccessPermit, DataForm, ValueDescriptor } from '../../maps/mapParser';
 import { consolidateArrayEntries } from '../../utils/mapFileGenerator';
 import { FONT_MONO } from '../../theme';
 import { logger } from '../../utils/logger';
+import EntryDescriptionDialog from './EntryDescriptionDialog';
 
 interface MapEntriesListProps {
   entries: MapEntry[];
@@ -53,9 +55,10 @@ interface SortableRowProps {
   isRegisterMap: boolean;
   onUpdate: (newData: Partial<MapEntry>) => void;
   onDelete: (entry: MapEntry) => void;
+  onDescriptionEdit: () => void;
 }
 
-function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowProps) {
+function SortableRow({ entry, isRegisterMap, onUpdate, onDelete, onDescriptionEdit }: SortableRowProps) {
   const stableId = entry.name.replace(/\[\d+\]$/, '');
 
   const {
@@ -88,6 +91,7 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
   const [editIsArray, setEditIsArray] = useState(entry.isArray);
   const [editArraySize, setEditArraySize] = useState(entry.arraySize?.toString() || '1');
   const [editAccessPermit, setEditAccessPermit] = useState<DataAccessPermit>(entry.accessPermit);
+  const [editUnit, setEditUnit] = useState(entry.unit ?? '');
 
   // Update local state when entry changes (e.g., from external updates)
   React.useEffect(() => {
@@ -96,7 +100,8 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
     setEditIsArray(entry.isArray);
     setEditArraySize(entry.arraySize?.toString() || '1');
     setEditAccessPermit(entry.accessPermit);
-  }, [baseName, entry.type, entry.isArray, entry.arraySize, entry.accessPermit]);
+    setEditUnit(entry.unit ?? '');
+  }, [baseName, entry.type, entry.isArray, entry.arraySize, entry.accessPermit, entry.unit]);
 
   const handleNameBlur = () => {
     const trimmedName = editName.trim().toUpperCase();
@@ -107,7 +112,8 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
         isArray: editIsArray,
         arraySize: editIsArray ? parseInt(editArraySize, 10) : undefined,
         accessPermit: editAccessPermit,
-        showAsHex: editType === DataForm.HEX
+        showAsHex: editType === DataForm.HEX,
+        unit: editUnit.trim() || undefined
       });
     } else {
       setEditName(baseName); // Revert if invalid
@@ -122,7 +128,8 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
       isArray: editIsArray,
       arraySize: editIsArray ? parseInt(editArraySize, 10) : undefined,
       accessPermit: editAccessPermit,
-      showAsHex: newType === DataForm.HEX
+      showAsHex: newType === DataForm.HEX,
+      unit: editUnit.trim() || undefined
     });
   };
 
@@ -136,7 +143,8 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
       isArray: checked,
       arraySize: parsedSize,
       accessPermit: editAccessPermit,
-      showAsHex: editType === DataForm.HEX
+      showAsHex: editType === DataForm.HEX,
+      unit: editUnit.trim() || undefined
     });
   };
 
@@ -150,15 +158,15 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
 
     if (!isNaN(size) && size >= 1 && size <= 1000) {
       logger.log(`[MapEditor] Creating array with ${size} elements for ${baseName}`);
-      // Store as number and update the field to show the clean decimal value
       setEditArraySize(size.toString());
       onUpdate({
         name: baseName,
         type: editType,
         isArray: editIsArray,
-        arraySize: size, // ALWAYS a number in base 10
+        arraySize: size,
         accessPermit: editAccessPermit,
-        showAsHex: editType === DataForm.HEX
+        showAsHex: editType === DataForm.HEX,
+        unit: editUnit.trim() || undefined
       });
     } else {
       logger.warn(`[MapEditor] Invalid array size: "${editArraySize}"`);
@@ -174,9 +182,25 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
       isArray: editIsArray,
       arraySize: editIsArray ? parseInt(editArraySize, 10) : undefined,
       accessPermit: newAccess,
-      showAsHex: editType === DataForm.HEX
+      showAsHex: editType === DataForm.HEX,
+      unit: editUnit.trim() || undefined
     });
   };
+
+  const handleUnitBlur = () => {
+    const trimmed = editUnit.trim();
+    onUpdate({
+      name: baseName,
+      type: editType,
+      isArray: editIsArray,
+      arraySize: editIsArray ? parseInt(editArraySize, 10) : undefined,
+      accessPermit: editAccessPermit,
+      showAsHex: editType === DataForm.HEX,
+      unit: trimmed || undefined
+    });
+  };
+
+  const hasDescription = !!(entry.description || (entry.valueList && entry.valueList.length > 0));
 
   return (
     <TableRow
@@ -272,6 +296,19 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
         </Box>
       </TableCell>
 
+      {/* Unit */}
+      <TableCell sx={{ width: 100, py: 0.5 }}>
+        <TextField
+          value={editUnit}
+          onChange={(e) => setEditUnit(e.target.value)}
+          onBlur={handleUnitBlur}
+          size="small"
+          fullWidth
+          placeholder="unit"
+          sx={{ '& .MuiInputBase-input': { fontFamily: FONT_MONO, fontSize: '0.8125rem' } }}
+        />
+      </TableCell>
+
       {/* Access Permission */}
       <TableCell sx={{ width: 150, py: 0.5 }}>
         {isRegisterMap ? (
@@ -290,7 +327,16 @@ function SortableRow({ entry, isRegisterMap, onUpdate, onDelete }: SortableRowPr
       </TableCell>
 
       {/* Actions */}
-      <TableCell align="right" sx={{ py: 0.5 }}>
+      <TableCell align="right" sx={{ py: 0.5, whiteSpace: 'nowrap' }}>
+        <Tooltip title={hasDescription ? 'Edit description / values' : 'Add description / values'}>
+          <IconButton
+            size="small"
+            onClick={onDescriptionEdit}
+            sx={{ color: hasDescription ? 'primary.main' : 'text.disabled' }}
+          >
+            <NotesIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
         <Tooltip title="Delete">
           <IconButton
             size="small"
@@ -313,6 +359,8 @@ export default function MapEntriesList({
   onReorder
 }: MapEntriesListProps) {
   const consolidatedEntries = consolidateArrayEntries(entries);
+
+  const [descDialogEntry, setDescDialogEntry] = useState<MapEntry | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -344,6 +392,16 @@ export default function MapEntriesList({
     }
   };
 
+  const handleDescriptionSave = (description: string, valueList: ValueDescriptor[]) => {
+    if (descDialogEntry) {
+      onUpdate(descDialogEntry, {
+        description: description || undefined,
+        valueList: valueList.length > 0 ? valueList : undefined
+      });
+    }
+    setDescDialogEntry(null);
+  };
+
   if (consolidatedEntries.length === 0) {
     return (
       <Box
@@ -366,69 +424,84 @@ export default function MapEntriesList({
   }
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCorners}
-      onDragEnd={handleDragEnd}
-      modifiers={[restrictToVerticalAxis]}
-    >
-      <SortableContext
-        items={consolidatedEntries.map(e => e.name.replace(/\[\d+\]$/, ''))}
-        strategy={verticalListSortingStrategy}
+    <>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragEnd={handleDragEnd}
+        modifiers={[restrictToVerticalAxis]}
       >
-        <TableContainer component={Paper} sx={{ maxHeight: 600 }}>
-          <Table stickyHeader size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 'bold', width: 48, py: 0.5 }}></TableCell>
-                <TableCell sx={{ fontWeight: 'bold', py: 0.5 }}>Address</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', py: 0.5 }}>Name</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', py: 0.5 }}>Type</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', py: 0.5 }}>Array</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', width: 150, py: 0.5 }}>
-                  {isRegisterMap ? 'Access' : ''}
-                </TableCell>
-                <TableCell sx={{ fontWeight: 'bold', py: 0.5 }} align="right">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {consolidatedEntries.map((entry, index) => {
-                const baseName = entry.name.replace(/\[\d+\]$/, '');
-                const isLastReadOnly = isRegisterMap &&
-                  entry.accessPermit === DataAccessPermit.READ_ONLY &&
-                  index < consolidatedEntries.length - 1 &&
-                  consolidatedEntries[index + 1].accessPermit === DataAccessPermit.READ_WRITE;
+        <SortableContext
+          items={consolidatedEntries.map(e => e.name.replace(/\[\d+\]$/, ''))}
+          strategy={verticalListSortingStrategy}
+        >
+          <TableContainer component={Paper} sx={{ maxHeight: 600 }}>
+            <Table stickyHeader size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 'bold', width: 48, py: 0.5 }}></TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', py: 0.5 }}>Address</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', py: 0.5 }}>Name</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', py: 0.5 }}>Type</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', py: 0.5 }}>Array</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', width: 100, py: 0.5 }}>Unit</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', width: 150, py: 0.5 }}>
+                    {isRegisterMap ? 'Access' : ''}
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', py: 0.5 }} align="right">Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {consolidatedEntries.map((entry, index) => {
+                  const baseName = entry.name.replace(/\[\d+\]$/, '');
+                  const isLastReadOnly = isRegisterMap &&
+                    entry.accessPermit === DataAccessPermit.READ_ONLY &&
+                    index < consolidatedEntries.length - 1 &&
+                    consolidatedEntries[index + 1].accessPermit === DataAccessPermit.READ_WRITE;
 
-                return (
-                  <React.Fragment key={baseName}>
-                    <SortableRow
-                      entry={entry}
-                      isRegisterMap={isRegisterMap}
-                      onUpdate={(data) => onUpdate(entry, data)}
-                      onDelete={onDelete}
-                    />
-                    {isLastReadOnly && (
-                      <TableRow>
-                        <TableCell colSpan={7} sx={{ p: 0 }}>
-                          <Box
-                            sx={{
-                              borderTop: 2,
-                              borderColor: 'primary.main',
-                              bgcolor: 'primary.light',
-                              opacity: 0.3,
-                              height: 4
-                            }}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </SortableContext>
-    </DndContext>
+                  return (
+                    <React.Fragment key={baseName}>
+                      <SortableRow
+                        entry={entry}
+                        isRegisterMap={isRegisterMap}
+                        onUpdate={(data) => onUpdate(entry, data)}
+                        onDelete={onDelete}
+                        onDescriptionEdit={() => setDescDialogEntry(entry)}
+                      />
+                      {isLastReadOnly && (
+                        <TableRow>
+                          <TableCell colSpan={8} sx={{ p: 0 }}>
+                            <Box
+                              sx={{
+                                borderTop: 2,
+                                borderColor: 'primary.main',
+                                bgcolor: 'primary.light',
+                                opacity: 0.3,
+                                height: 4
+                              }}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </SortableContext>
+      </DndContext>
+
+      {descDialogEntry && (
+        <EntryDescriptionDialog
+          open={true}
+          entryName={descDialogEntry.name.replace(/\[\d+\]$/, '')}
+          initialDescription={descDialogEntry.description ?? ''}
+          initialValueList={descDialogEntry.valueList ?? []}
+          onSave={handleDescriptionSave}
+          onClose={() => setDescDialogEntry(null)}
+        />
+      )}
+    </>
   );
 }

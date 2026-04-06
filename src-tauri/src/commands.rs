@@ -480,6 +480,76 @@ pub async fn write_system_register(
     .await
 }
 
+/// Opens a native save dialog and writes text content to the chosen file.
+/// `filter_name` and `filter_ext` control the file-type filter shown in the dialog (e.g. "Map File", "map").
+#[tauri::command]
+pub async fn save_text_file(
+    content: String,
+    suggested_name: String,
+    filter_name: String,
+    filter_ext: String,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let last_dir = state.last_save_dir.lock().await.clone();
+
+    let mut dialog = rfd::AsyncFileDialog::new()
+        .set_file_name(&suggested_name)
+        .add_filter(&filter_name, &[filter_ext.as_str()]);
+
+    if let Some(dir) = last_dir {
+        dialog = dialog.set_directory(dir);
+    }
+
+    match dialog.save_file().await {
+        Some(path) => {
+            if let Some(parent) = path.path().parent() {
+                *state.last_save_dir.lock().await = Some(parent.to_path_buf());
+            }
+            std::fs::write(path.path(), content.as_bytes())
+                .map(|_| true)
+                .map_err(|e| e.to_string())
+        }
+        None => Ok(false),
+    }
+}
+
+/// Opens a native save dialog and writes binary (PDF) content to the chosen file.
+/// `data_base64` is the file content encoded as a standard Base64 string.
+#[tauri::command]
+pub async fn save_pdf_file(
+    data_base64: String,
+    suggested_name: String,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    use base64::{Engine as _, engine::general_purpose};
+
+    let data = general_purpose::STANDARD
+        .decode(&data_base64)
+        .map_err(|e| format!("Base64 decode error: {e}"))?;
+
+    let last_dir = state.last_save_dir.lock().await.clone();
+
+    let mut dialog = rfd::AsyncFileDialog::new()
+        .set_file_name(&suggested_name)
+        .add_filter("PDF Document", &["pdf"]);
+
+    if let Some(dir) = last_dir {
+        dialog = dialog.set_directory(dir);
+    }
+
+    match dialog.save_file().await {
+        Some(path) => {
+            if let Some(parent) = path.path().parent() {
+                *state.last_save_dir.lock().await = Some(parent.to_path_buf());
+            }
+            std::fs::write(path.path(), data)
+                .map(|_| true)
+                .map_err(|e| e.to_string())
+        }
+        None => Ok(false),
+    }
+}
+
 /// Opens a native save dialog and writes CSV data to the chosen file.
 /// Remembers the last used directory and reopens it on subsequent calls.
 #[tauri::command]

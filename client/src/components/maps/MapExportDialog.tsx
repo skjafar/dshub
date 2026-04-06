@@ -15,6 +15,7 @@ import {
 } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
+import { invoke } from '@tauri-apps/api/core';
 import { MapEntry } from '../../maps/mapParser';
 import { generateMapFile } from '../../utils/mapFileGenerator';
 import { generateHeaderFile } from '../../utils/headerFileGenerator';
@@ -57,17 +58,15 @@ export default function MapExportDialog({
     showSuccess(`${fileType} content copied to clipboard`);
   };
 
-  const handleDownload = (content: string, fileName: string) => {
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    showSuccess(`${fileName} downloaded successfully`);
+  const handleDownload = (content: string, fileName: string, filterName: string, filterExt: string) => {
+    invoke<boolean>('save_text_file', {
+      content,
+      suggestedName: fileName,
+      filterName,
+      filterExt,
+    }).then(saved => {
+      if (saved) showSuccess(`${fileName} saved successfully`);
+    }).catch(() => showSuccess(`Failed to save ${fileName}`));
   };
 
   return (
@@ -98,7 +97,7 @@ export default function MapExportDialog({
               <Button
                 variant="contained"
                 startIcon={<DownloadIcon />}
-                onClick={() => handleDownload(mapFileContent, mapFileName)}
+                onClick={() => handleDownload(mapFileContent, mapFileName, 'Map File', 'map')}
                 size="small"
               >
                 Download {mapFileName}
@@ -134,7 +133,7 @@ export default function MapExportDialog({
               <Button
                 variant="contained"
                 startIcon={<DownloadIcon />}
-                onClick={() => handleDownload(headerFileContent, headerFileName)}
+                onClick={() => handleDownload(headerFileContent, headerFileName, 'C Header', 'h')}
                 size="small"
               >
                 Download {headerFileName}

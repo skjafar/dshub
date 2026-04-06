@@ -1,5 +1,5 @@
 import type { DashboardLayout, DashboardWidget, AlarmRule } from '../types/dashboard';
-import type { SysCommand } from '../types/settings';
+import type { SysCommand, EntryMetadata } from '../types/settings';
 
 const CNC_TAB_ID = 'cnc-demo-tab';
 const CNC_MONITORING_TAB_ID = 'cnc-monitoring-tab';
@@ -614,6 +614,190 @@ export const CNC_SYS_COMMANDS: SysCommand[] = [
   { code: 24, name: 'JOG_Z_POSITIVE',     description: 'Jog Z-axis positive' },
   { code: 25, name: 'JOG_Z_NEGATIVE',     description: 'Jog Z-axis negative' },
 ];
+
+export const CNC_REGISTERS_METADATA: Record<string, EntryMetadata> = {
+  CONTROLLER_STATE: {
+    description: 'Current state of the CNC controller state machine. Updated internally by firmware; read-only.',
+    valueList: [
+      { value: '0', label: 'IDLE — Powered on, motors enabled, awaiting commands' },
+      { value: '1', label: 'HOMING — Homing sequence in progress' },
+      { value: '2', label: 'READY — Homed and ready to execute motion' },
+      { value: '3', label: 'RUNNING — Actively executing a motion command' },
+      { value: '4', label: 'PAUSED — Motion paused, resumable' },
+      { value: '5', label: 'ERROR — Fault condition; clear with CLEAR_ERRORS' },
+      { value: '6', label: 'E_STOP — Emergency stop active; reset with RESET_E_STOP' },
+    ],
+  },
+  MOTOR_X_ENCODER: {
+    unit: 'counts',
+    description: 'X-axis motor encoder feedback position in raw encoder counts. Divide by MOTOR_X_STEPS_PER_MM to convert to mm.',
+  },
+  MOTOR_Y_ENCODER: {
+    unit: 'counts',
+    description: 'Y-axis motor encoder feedback position in raw encoder counts. Divide by MOTOR_Y_STEPS_PER_MM to convert to mm.',
+  },
+  MOTOR_Z_ENCODER: {
+    unit: 'counts',
+    description: 'Z-axis motor encoder feedback position in raw encoder counts. Divide by MOTOR_Z_STEPS_PER_MM to convert to mm.',
+  },
+  SPINDLE_RPM: {
+    unit: 'RPM',
+    description: 'Current spindle speed as measured by the feedback sensor. Updated every control cycle.',
+  },
+  SPINDLE_LOAD: {
+    unit: '%',
+    description: 'Spindle motor load as a percentage of maximum rated torque. Values above 80% indicate heavy cutting load.',
+  },
+  MOTOR_X_ENABLED: {
+    description: 'X-axis motor driver enable state.',
+    valueList: [
+      { value: '0', label: 'Disabled — driver de-energised, axis free to move' },
+      { value: '1', label: 'Enabled — driver energised, axis under closed-loop control' },
+    ],
+  },
+  MOTOR_Y_ENABLED: {
+    description: 'Y-axis motor driver enable state.',
+    valueList: [
+      { value: '0', label: 'Disabled — driver de-energised, axis free to move' },
+      { value: '1', label: 'Enabled — driver energised, axis under closed-loop control' },
+    ],
+  },
+  MOTOR_Z_ENABLED: {
+    description: 'Z-axis motor driver enable state.',
+    valueList: [
+      { value: '0', label: 'Disabled — driver de-energised, axis free to move' },
+      { value: '1', label: 'Enabled — driver energised, axis under closed-loop control' },
+    ],
+  },
+  SPINDLE_ENABLED: {
+    description: 'Spindle motor enable state.',
+    valueList: [
+      { value: '0', label: 'Disabled — spindle motor off' },
+      { value: '1', label: 'Enabled — spindle motor running at SPINDLE_SPEED_SETPOINT' },
+    ],
+  },
+  MOTOR_X_SETPOINT: {
+    unit: 'counts',
+    description: 'Target position setpoint for the X-axis closed-loop controller. Write to command motion; the firmware ramps to this position at up to MOTOR_X_MAX_VEL.',
+  },
+  MOTOR_Y_SETPOINT: {
+    unit: 'counts',
+    description: 'Target position setpoint for the Y-axis closed-loop controller. Write to command motion; the firmware ramps to this position at up to MOTOR_Y_MAX_VEL.',
+  },
+  MOTOR_Z_SETPOINT: {
+    unit: 'counts',
+    description: 'Target position setpoint for the Z-axis closed-loop controller. Write to command motion; the firmware ramps to this position at up to MOTOR_Z_MAX_VEL.',
+  },
+  SPINDLE_SPEED_SETPOINT: {
+    unit: 'RPM',
+    description: 'Commanded spindle speed. Takes effect immediately when the spindle is enabled. Clamped to SPINDLE_MAX_RPM by firmware.',
+  },
+  JOG_DISTANCE: {
+    unit: 'counts',
+    description: 'Distance moved per jog step command (encoder counts). Each JOG_* SYS_COMMAND moves the corresponding axis by this amount.',
+    valueList: [
+      { value: '1',   label: 'Fine jog (1 count)' },
+      { value: '10',  label: 'Small jog (10 counts)' },
+      { value: '50',  label: 'Medium jog (50 counts)' },
+      { value: '100', label: 'Standard jog (100 counts)' },
+      { value: '500', label: 'Coarse jog (500 counts)' },
+    ],
+  },
+};
+
+export const CNC_PARAMETERS_METADATA: Record<string, EntryMetadata> = {
+  MOTOR_X_MAX_VEL: {
+    unit: 'counts/s',
+    description: 'Maximum allowed velocity for the X-axis motor. The firmware clamps all X motion profiles to this speed.',
+  },
+  MOTOR_Y_MAX_VEL: {
+    unit: 'counts/s',
+    description: 'Maximum allowed velocity for the Y-axis motor. The firmware clamps all Y motion profiles to this speed.',
+  },
+  MOTOR_Z_MAX_VEL: {
+    unit: 'counts/s',
+    description: 'Maximum allowed velocity for the Z-axis motor. The firmware clamps all Z motion profiles to this speed.',
+  },
+  MOTOR_X_MAX_ACCEL: {
+    unit: 'counts/s²',
+    description: 'Maximum acceleration ramp rate for the X-axis. Higher values give faster response but may cause missed steps or mechanical shock.',
+  },
+  MOTOR_Y_MAX_ACCEL: {
+    unit: 'counts/s²',
+    description: 'Maximum acceleration ramp rate for the Y-axis. Higher values give faster response but may cause missed steps or mechanical shock.',
+  },
+  MOTOR_Z_MAX_ACCEL: {
+    unit: 'counts/s²',
+    description: 'Maximum acceleration ramp rate for the Z-axis. Higher values give faster response but may cause missed steps or mechanical shock.',
+  },
+  MOTOR_X_KP: {
+    description: 'Proportional gain for the X-axis PID position controller. Increase to improve stiffness; too high causes oscillation.',
+  },
+  MOTOR_X_KI: {
+    description: 'Integral gain for the X-axis PID position controller. Eliminates steady-state position error; too high causes windup and instability.',
+  },
+  MOTOR_X_KD: {
+    description: 'Derivative gain for the X-axis PID position controller. Dampens overshoot; too high amplifies noise.',
+  },
+  MOTOR_Y_KP: {
+    description: 'Proportional gain for the Y-axis PID position controller. Increase to improve stiffness; too high causes oscillation.',
+  },
+  MOTOR_Y_KI: {
+    description: 'Integral gain for the Y-axis PID position controller. Eliminates steady-state position error; too high causes windup and instability.',
+  },
+  MOTOR_Y_KD: {
+    description: 'Derivative gain for the Y-axis PID position controller. Dampens overshoot; too high amplifies noise.',
+  },
+  MOTOR_Z_KP: {
+    description: 'Proportional gain for the Z-axis PID position controller. Increase to improve stiffness; too high causes oscillation.',
+  },
+  MOTOR_Z_KI: {
+    description: 'Integral gain for the Z-axis PID position controller. Eliminates steady-state position error; too high causes windup and instability.',
+  },
+  MOTOR_Z_KD: {
+    description: 'Derivative gain for the Z-axis PID position controller. Dampens overshoot; too high amplifies noise.',
+  },
+  MOTOR_X_STEPS_PER_MM: {
+    unit: 'counts/mm',
+    description: 'Encoder counts per millimeter of linear travel on the X-axis. Used to convert between encoder counts and physical position in mm. Determined by leadscrew pitch × encoder resolution.',
+  },
+  MOTOR_Y_STEPS_PER_MM: {
+    unit: 'counts/mm',
+    description: 'Encoder counts per millimeter of linear travel on the Y-axis. Used to convert between encoder counts and physical position in mm. Determined by leadscrew pitch × encoder resolution.',
+  },
+  MOTOR_Z_STEPS_PER_MM: {
+    unit: 'counts/mm',
+    description: 'Encoder counts per millimeter of linear travel on the Z-axis. Used to convert between encoder counts and physical position in mm. Determined by leadscrew pitch × encoder resolution.',
+  },
+  SPINDLE_MAX_RPM: {
+    unit: 'RPM',
+    description: 'Maximum rated spindle speed. The firmware clamps SPINDLE_SPEED_SETPOINT to this value to protect the spindle motor.',
+  },
+  SPINDLE_ACCEL_RPM_PER_SEC: {
+    unit: 'RPM/s',
+    description: 'Spindle speed ramp rate on enable or setpoint change. Higher values reach target RPM faster but increase mechanical stress on the spindle drive.',
+  },
+  E_STOP_DECEL: {
+    unit: 'counts/s²',
+    description: 'Deceleration rate applied to all axes during an emergency stop. High values stop faster but may cause position loss on open-loop sections. Set lower than MOTOR_*_MAX_ACCEL for a controlled stop.',
+  },
+  HOMING_SPEED: {
+    unit: 'counts/s',
+    description: 'Motor velocity used during the homing sequence for all axes. Lower values improve repeatability and reduce impact force on endstops.',
+  },
+  HOME_X_POSITION: {
+    unit: 'counts',
+    description: 'Encoder count value assigned as the X-axis logical zero after homing is complete. Typically 0; adjust if the home switch is offset from the mechanical zero point.',
+  },
+  HOME_Y_POSITION: {
+    unit: 'counts',
+    description: 'Encoder count value assigned as the Y-axis logical zero after homing is complete. Typically 0; adjust if the home switch is offset from the mechanical zero point.',
+  },
+  HOME_Z_POSITION: {
+    unit: 'counts',
+    description: 'Encoder count value assigned as the Z-axis logical zero after homing is complete. Typically 0; adjust if the home switch is offset from the mechanical zero point.',
+  },
+};
 
 /** Creates the CNC demo dashboard layout */
 export function createModernCNCDashboard(): DashboardLayout {

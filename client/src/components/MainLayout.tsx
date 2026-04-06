@@ -3,13 +3,18 @@ import {
   AppBar,
   Box,
   Chip,
+  Divider,
   Drawer,
+  FormControl,
   IconButton,
+  InputLabel,
   List,
   ListItem,
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  MenuItem,
+  Select,
   Toolbar,
   Typography,
   Badge,
@@ -39,7 +44,13 @@ import {
   Add as AddIcon,
   Refresh as RefreshIcon,
   Description as MapEditorIcon,
-  Send as SysCommandIcon
+  Send as SysCommandIcon,
+  PictureAsPdf as PictureAsPdfIcon,
+  Save as SaveIcon,
+  SaveAs as SaveAsIcon,
+  RestartAlt as RestartAltIcon,
+  LibraryBooks as ProfilesIcon,
+  Upload as ImportIcon,
 } from '@mui/icons-material';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -55,6 +66,10 @@ import StatusBar, { STATUS_BAR_HEIGHT } from './StatusBar';
 import type { DashboardPanelRef } from './DashboardPanel';
 import type { RegistersPanelRef } from './RegistersPanel';
 import type { ParametersPanelRef } from './ParametersPanel';
+import type { MapEditorPanelRef, MapEditorBarState } from './maps/MapEditorPanel';
+import type { MapProfilesPanelRef } from './MapProfilesPanel';
+
+const EMPTY_PROFILE_ID = '__empty__';
 
 // Lazy-load heavy panels for code splitting
 const DeviceDashboard = lazy(() => import('./DeviceDashboard'));
@@ -66,12 +81,13 @@ const ParametersPanel = lazy(() => import('./ParametersPanel'));
 const LogsPanel = lazy(() => import('./LogsPanel'));
 const SettingsPanel = lazy(() => import('./SettingsPanel'));
 const MapEditorPanel = lazy(() => import('./maps/MapEditorPanel'));
+const MapProfilesPanelLazy = lazy(() => import('./MapProfilesPanel'));
 const AboutPanel = lazy(() => import('./AboutPanel'));
 
 const drawerWidth = 240;
 const drawerWidthCollapsed = 64;
 
-type ViewType = 'scanner' | 'status' | 'dashboard' | 'plot' | 'syscommand' | 'registers' | 'parameters' | 'logs' | 'mapeditor' | 'settings' | 'about';
+type ViewType = 'scanner' | 'status' | 'dashboard' | 'plot' | 'syscommand' | 'registers' | 'parameters' | 'logs' | 'mapeditor' | 'profiles' | 'settings' | 'about';
 
 const views: Array<{ key: ViewType; label: string; icon: React.ReactNode }> = [
   { key: 'scanner', label: 'Device Scanner', icon: <SearchIcon /> },
@@ -83,6 +99,7 @@ const views: Array<{ key: ViewType; label: string; icon: React.ReactNode }> = [
   { key: 'parameters', label: 'Parameters', icon: <ParametersIcon /> },
   { key: 'logs', label: 'Activity Logs', icon: <LogsIcon /> },
   { key: 'mapeditor', label: 'Map Editor', icon: <MapEditorIcon /> },
+  { key: 'profiles', label: 'Profiles', icon: <ProfilesIcon /> },
   { key: 'settings', label: 'Settings', icon: <SettingsIcon /> },
   { key: 'about', label: 'About', icon: <AboutIcon /> },
 ];
@@ -153,6 +170,14 @@ export default function MainLayout() {
   const registersPanelRef = useRef<RegistersPanelRef>(null);
   const parametersPanelRef = useRef<ParametersPanelRef>(null);
   const dashboardPanelRef = useRef<DashboardPanelRef>(null);
+  const mapEditorRef = useRef<MapEditorPanelRef>(null);
+  const mapProfilesRef = useRef<MapProfilesPanelRef>(null);
+  const [mapEditorBarState, setMapEditorBarState] = useState<MapEditorBarState>({
+    hasUnsavedChanges: false,
+    canSave: false,
+    selectedProfileId: EMPTY_PROFILE_ID,
+    allProfiles: [],
+  });
 
   // Calculate dashboard columns based on container width and cell size
   const dashboardCols = Math.floor(dashboardContainerWidth / dashboardCellSize) || DEFAULT_GRID_CONFIG.cols;
@@ -279,7 +304,9 @@ export default function MainLayout() {
       case 'logs':
         return <LogsPanel />;
       case 'mapeditor':
-        return <MapEditorPanel />;
+        return <MapEditorPanel ref={mapEditorRef} onBarStateChange={setMapEditorBarState} />;
+      case 'profiles':
+        return <MapProfilesPanelLazy ref={mapProfilesRef} />;
       case 'settings':
         return <SettingsPanel />;
       case 'about':
@@ -294,9 +321,10 @@ export default function MainLayout() {
     ['scanner', 'status'],
     ['dashboard', 'plot'],
     ['syscommand', 'registers', 'parameters'],
-    ['logs', 'mapeditor'],
+    ['profiles'],
+    ['mapeditor'],
   ];
-  const bottomNavItems: ViewType[] = ['settings', 'about'];
+  const bottomNavItems: ViewType[] = ['settings', 'logs', 'about'];
 
   const renderNavItem = (viewKey: ViewType) => {
     const view = views.find(v => v.key === viewKey)!;
@@ -754,8 +782,100 @@ export default function MainLayout() {
             </Box>
           )}
 
+          {/* Map Editor Controls - shown when on mapeditor view */}
+          {currentView === 'mapeditor' && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: 'auto' }}>
+              <Button
+                variant="outlined"
+                startIcon={<PictureAsPdfIcon />}
+                onClick={() => mapEditorRef.current?.exportPdf()}
+                size="small"
+                color="inherit"
+                disabled={mapEditorBarState.selectedProfileId === EMPTY_PROFILE_ID}
+              >
+                Export PDF
+              </Button>
+              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+              <FormControl size="small" sx={{ minWidth: 160 }}>
+                <InputLabel sx={{ fontSize: '0.8125rem' }}>Profile</InputLabel>
+                <Select
+                  value={mapEditorBarState.selectedProfileId}
+                  label="Profile"
+                  onChange={(e) => mapEditorRef.current?.changeProfile(e.target.value)}
+                  sx={{ fontSize: '0.8125rem' }}
+                >
+                  <MenuItem value={EMPTY_PROFILE_ID} sx={{ fontSize: '0.8125rem' }}>
+                    <em>No profile</em>
+                  </MenuItem>
+                  {mapEditorBarState.allProfiles.map(p => (
+                    <MenuItem key={p.id} value={p.id} sx={{ fontSize: '0.8125rem' }}>{p.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              {mapEditorBarState.hasUnsavedChanges && (
+                <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: 'warning.main', flexShrink: 0 }} title="Unsaved changes" />
+              )}
+              <Tooltip title="Reset changes">
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={() => mapEditorRef.current?.reset()}
+                    disabled={!mapEditorBarState.hasUnsavedChanges}
+                    color="inherit"
+                  >
+                    <RestartAltIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Button
+                variant="contained"
+                startIcon={<SaveIcon />}
+                onClick={() => mapEditorRef.current?.save()}
+                disabled={!mapEditorBarState.canSave}
+                size="small"
+                color="primary"
+              >
+                Save
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<SaveAsIcon />}
+                onClick={() => mapEditorRef.current?.saveAs()}
+                disabled={mapEditorBarState.selectedProfileId === EMPTY_PROFILE_ID}
+                size="small"
+                color="inherit"
+              >
+                Save As
+              </Button>
+            </Box>
+          )}
+
+          {/* Profiles Controls - shown when on profiles view */}
+          {currentView === 'profiles' && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: 'auto' }}>
+              <Button
+                variant="outlined"
+                startIcon={<ImportIcon />}
+                onClick={() => mapProfilesRef.current?.openImport()}
+                size="small"
+                color="inherit"
+              >
+                Import
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => mapProfilesRef.current?.openCreate()}
+                size="small"
+                color="primary"
+              >
+                New Profile
+              </Button>
+            </Box>
+          )}
+
           {/* Connection Status - always on the right */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: (currentView === 'dashboard' || currentView === 'scanner' || currentView === 'registers' || currentView === 'parameters' || currentView === 'plot') ? 0 : 'auto' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: (currentView === 'dashboard' || currentView === 'scanner' || currentView === 'registers' || currentView === 'parameters' || currentView === 'plot' || currentView === 'mapeditor' || currentView === 'profiles') ? 0 : 'auto' }}>
             {state.connection && (
               <>
                 {state.connection.deviceName && (

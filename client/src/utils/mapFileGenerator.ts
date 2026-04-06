@@ -62,11 +62,18 @@ function formatMapEntry(entry: MapEntry): string {
   // Add padding for alignment (common .map file style)
   const typePadding = ' '.repeat(Math.max(1, 12 - type.length));
 
+  let line: string;
   if (entry.isArray && entry.arraySize) {
-    return `${type}${typePadding}${name}[${entry.arraySize}];`;
+    line = `${type}${typePadding}${name}[${entry.arraySize}];`;
   } else {
-    return `${type}${typePadding}${name};`;
+    line = `${type}${typePadding}${name};`;
   }
+
+  if (entry.unit) {
+    line += `    // [${entry.unit}]`;
+  }
+
+  return line;
 }
 
 /**
@@ -106,7 +113,7 @@ export function consolidateArrayEntries(entries: MapEntry[]): MapEntry[] {
 
       console.log(`[MapFileGenerator] Consolidating array "${baseName}" with ${arraySize} elements`);
 
-      // Create consolidated entry
+      // Create consolidated entry — preserve metadata from first element
       consolidated.push({
         address: entry.address, // Use first element's address
         name: baseName,
@@ -114,7 +121,10 @@ export function consolidateArrayEntries(entries: MapEntry[]): MapEntry[] {
         isArray: true,
         arraySize: arraySize,
         accessPermit: entry.accessPermit,
-        showAsHex: entry.showAsHex
+        showAsHex: entry.showAsHex,
+        unit: entry.unit,
+        description: entry.description,
+        valueList: entry.valueList,
       });
 
       processedArrays.add(baseName);

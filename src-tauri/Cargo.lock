@@ -976,6 +976,7 @@ dependencies = [
 name = "dshub"
 version = "0.2.2"
 dependencies = [
+ "base64 0.22.1",
  "if-addrs",
  "log",
  "rfd",

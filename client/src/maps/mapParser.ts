@@ -10,6 +10,11 @@ export enum DataAccessPermit {
   READ_WRITE = 'READ_WRITE'
 }
 
+export interface ValueDescriptor {
+  value: string;  // e.g. "0", "1", "0xFF"
+  label: string;  // Human-readable label
+}
+
 export interface MapEntry {
   address: number;
   name: string;
@@ -18,26 +23,39 @@ export interface MapEntry {
   arraySize?: number;
   accessPermit: DataAccessPermit;
   showAsHex: boolean;
+  unit?: string;
+  description?: string;
+  valueList?: ValueDescriptor[];
+}
+
+export interface MapParseError {
+  line: number;   // 1-based line number in the source file
+  message: string;
 }
 
 export interface ParsedMap {
   entries: MapEntry[];
   readOnlyMaxIndex: number;
+  errors: MapParseError[];
 }
+
+const VALID_TYPES = new Set<string>(['int32_t', 'uint32_t', 'float', 'hex']);
+const VALID_C_IDENTIFIER = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 export function parseMapFile(content: string, isRegisterMap: boolean = false): ParsedMap {
   const lines = content.split('\n');
   const entries: MapEntry[] = [];
+  const errors: MapParseError[] = [];
+  const seenNames = new Set<string>();
   let address = 0;
   let accessPermit = isRegisterMap ? DataAccessPermit.READ_ONLY : DataAccessPermit.READ_WRITE;
   let readOnlyMaxIndex = -1;
-  
-  for (const line of lines) {
-    const trimmedLine = line.trim();
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const lineNum = lineIndex + 1;
+    const trimmedLine = lines[lineIndex].trim();
 
     // Check for read/write boundary in registers BEFORE skipping comments
-    // This allows detecting the boundary even if it's in a comment like /***** read/write registers *****/
-    // Accept both "read/write" and "read write" (with space) as boundary markers
     const lower = trimmedLine.toLowerCase();
     if (isRegisterMap && (lower.includes('read/write') || lower.includes('read write')) && !lower.includes('read only')) {
       readOnlyMaxIndex = address - 1;
@@ -60,16 +78,32 @@ export function parseMapFile(content: string, isRegisterMap: boolean = false): P
     if (commentIndex > 0) {
       workingLine = workingLine.substring(0, commentIndex).trim();
     }
-    
+
     // Parse data declarations using regex to handle various formats
     const arrayMatch = workingLine.match(/(\w+)\s+(\w+)\[(\d+)\]/);
     const simpleMatch = workingLine.match(/(\w+)\s+(\w+);?\s*$/);
-    
+
     if (arrayMatch) {
-      // Array type: uint32_t ARRAY_NAME[size]
       const [, type, name, sizeStr] = arrayMatch;
+
+      if (!VALID_TYPES.has(type)) {
+        errors.push({ line: lineNum, message: `Unknown type '${type}' — expected int32_t, uint32_t, float, or hex` });
+        continue;
+      }
+      if (!VALID_C_IDENTIFIER.test(name)) {
+        errors.push({ line: lineNum, message: `Invalid identifier '${name}'` });
+        continue;
+      }
       const arraySize = parseInt(sizeStr, 10);
-      
+      if (isNaN(arraySize) || arraySize <= 0) {
+        errors.push({ line: lineNum, message: `Invalid array size '${sizeStr}' for '${name}'` });
+        continue;
+      }
+      if (seenNames.has(name)) {
+        errors.push({ line: lineNum, message: `Duplicate entry name '${name}'` });
+      }
+      seenNames.add(name);
+
       for (let i = 0; i < arraySize; i++) {
         entries.push({
           address: address++,
@@ -82,9 +116,21 @@ export function parseMapFile(content: string, isRegisterMap: boolean = false): P
         });
       }
     } else if (simpleMatch) {
-      // Simple type: uint32_t VARIABLE_NAME;
       const [, type, name] = simpleMatch;
-      
+
+      if (!VALID_TYPES.has(type)) {
+        errors.push({ line: lineNum, message: `Unknown type '${type}' — expected int32_t, uint32_t, float, or hex` });
+        continue;
+      }
+      if (!VALID_C_IDENTIFIER.test(name)) {
+        errors.push({ line: lineNum, message: `Invalid identifier '${name}'` });
+        continue;
+      }
+      if (seenNames.has(name)) {
+        errors.push({ line: lineNum, message: `Duplicate entry name '${name}'` });
+      }
+      seenNames.add(name);
+
       entries.push({
         address: address++,
         name,
@@ -95,11 +141,8 @@ export function parseMapFile(content: string, isRegisterMap: boolean = false): P
       });
     }
   }
-  
-  return {
-    entries,
-    readOnlyMaxIndex
-  };
+
+  return { entries, readOnlyMaxIndex, errors };
 }
 
 export async function loadMapFile(filename: string): Promise<string> {

@@ -30,7 +30,6 @@ import {
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import { useDSHub } from '../contexts/DSHubContext';
-import MapProfilesPanel from './MapProfilesPanel';
 import { FONT_MONO, FONT_BODY } from '../theme';
 import { APP_THEMES } from '../appThemes';
 
@@ -421,9 +420,6 @@ export default function SettingsPanel() {
             </Stack>
           </CardContent>
         </Card>
-
-        {/* Map Profiles */}
-        <MapProfilesPanel />
 
         {/* Plot Defaults */}
         <Card>
