@@ -148,8 +148,8 @@ export function parseSysCommandMapFile(content: string): SysCommand[] {
         description = description.slice(1, -1);
       }
 
-      // Validate code range
-      if (code >= 0 && code <= 255) {
+      // Validate code range (0–64999; 65000–65535 reserved for library)
+      if (code >= 0 && code <= 64999) {
         commands.push({
           code,
           name,

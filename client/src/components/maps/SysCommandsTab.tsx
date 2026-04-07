@@ -19,13 +19,10 @@ import {
   Alert,
   Tooltip
 } from '@mui/material';
-import {
-  Add as AddIcon,
-  Delete as DeleteIcon,
-  FileDownload as FileDownloadIcon
-} from '@mui/icons-material';
+import { Delete as DeleteIcon } from '@mui/icons-material';
 import { SysCommand } from '../../types/settings';
 import SysCommandExportDialog from './SysCommandExportDialog';
+import { DS_SYS_COMMANDS } from '../../utils/sysCommandFileGenerator';
 import { FONT_MONO } from '../../theme';
 
 interface SysCommandsTabProps {
@@ -64,7 +61,7 @@ function CommandRow({ command, index, commands, onUpdate, onDelete, readOnly }: 
   const handleCodeBlur = () => {
     const code = parseInt(editCode);
 
-    if (isNaN(code) || code < 0 || code > 255) {
+    if (isNaN(code) || code < 0 || code > 64999) {
       setEditCode(command.code.toString()); // Revert if invalid
       return;
     }
@@ -195,7 +192,7 @@ export default function SysCommandsTab({
   const handleAddCommand = () => {
     const code = parseInt(newCommandData.code);
 
-    if (isNaN(code) || code < 0 || code > 255) {
+    if (isNaN(code) || code < 0 || code > 64999) {
       return; // Invalid code
     }
 
@@ -203,8 +200,8 @@ export default function SysCommandsTab({
       return; // Empty name
     }
 
-    // Check for duplicate code
-    if (commands.some(cmd => cmd.code === code)) {
+    // Check for duplicate code (user commands and built-ins)
+    if (commands.some(cmd => cmd.code === code) || DS_SYS_COMMANDS.some(cmd => cmd.code === code)) {
       return; // Duplicate code
     }
 
@@ -240,42 +237,73 @@ export default function SysCommandsTab({
 
   return (
     <Box>
-      {commands.length === 0 ? (
-        <Paper sx={{ p: 3, textAlign: 'center' }}>
-          <Typography color="text.secondary">
-            No SYS_COMMANDs defined. Click "Add Entry" to create one.
-          </Typography>
-        </Paper>
-      ) : (
-        <TableContainer component={Paper}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell width="120px" sx={{ fontWeight: 'bold' }}>Code</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Name</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Description</TableCell>
-                <TableCell width="80px" align="right" sx={{ fontWeight: 'bold' }}>Actions</TableCell>
+      <TableContainer component={Paper}>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell width="120px" sx={{ fontWeight: 'bold' }}>Code</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>Name</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>Description</TableCell>
+              <TableCell width="80px" align="right" sx={{ fontWeight: 'bold' }}>Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {/* Built-in library commands (ds_sys_command_t) — always shown, locked */}
+            {DS_SYS_COMMANDS.map((command) => (
+              <TableRow key={`ds-${command.code}`} sx={{ opacity: 0.7 }}>
+                <TableCell>
+                  <Typography variant="body2" sx={{ fontFamily: FONT_MONO }}>
+                    {command.code}
+                  </Typography>
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2" sx={{ fontFamily: FONT_MONO }}>
+                    {command.name}
+                  </Typography>
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2" color="text.secondary">
+                    {command.description}
+                  </Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Tooltip title="Library built-in — cannot be modified">
+                    <span>
+                      <IconButton size="small" disabled>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </TableCell>
               </TableRow>
-            </TableHead>
-            <TableBody>
-              {sortedCommands.map((command, originalIdx) => {
-                const actualIndex = commands.indexOf(command);
-                return (
-                  <CommandRow
-                    key={actualIndex}
-                    command={command}
-                    index={actualIndex}
-                    commands={commands}
-                    onUpdate={handleUpdate}
-                    onDelete={handleDelete}
-                    readOnly={readOnly}
-                  />
-                );
-              })}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      )}
+            ))}
+            {/* User-defined commands */}
+            {sortedCommands.map((command) => {
+              const actualIndex = commands.indexOf(command);
+              return (
+                <CommandRow
+                  key={actualIndex}
+                  command={command}
+                  index={actualIndex}
+                  commands={commands}
+                  onUpdate={handleUpdate}
+                  onDelete={handleDelete}
+                  readOnly={readOnly}
+                />
+              );
+            })}
+            {sortedCommands.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={4} align="center" sx={{ py: 2 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    No user-defined SYS_COMMANDs. Click "Add Entry" to create one.
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
 
       {/* Add Command Dialog */}
       <Dialog
@@ -293,8 +321,8 @@ export default function SysCommandsTab({
               fullWidth
               value={newCommandData.code}
               onChange={(e) => setNewCommandData({ ...newCommandData, code: e.target.value })}
-              helperText="Enter a value between 0-255"
-              slotProps={{ htmlInput: { min: 0, max: 255 } }}
+              helperText="Enter a value between 0–64999 (65000–65535 reserved for library)"
+              slotProps={{ htmlInput: { min: 0, max: 64999 } }}
             />
             <TextField
               label="Command Name"
@@ -326,8 +354,9 @@ export default function SysCommandsTab({
               !newCommandData.name.trim() ||
               isNaN(parseInt(newCommandData.code)) ||
               parseInt(newCommandData.code) < 0 ||
-              parseInt(newCommandData.code) > 255 ||
-              commands.some(cmd => cmd.code === parseInt(newCommandData.code))
+              parseInt(newCommandData.code) > 64999 ||
+              commands.some(cmd => cmd.code === parseInt(newCommandData.code)) ||
+              DS_SYS_COMMANDS.some(cmd => cmd.code === parseInt(newCommandData.code))
             }
           >
             Add

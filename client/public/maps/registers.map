@@ -1,11 +1,7 @@
 // User registers - accessed via command byte 1 (READ_REGISTER) / 2 (WRITE_REGISTER).
-// System registers (DS_PACKET_COUNT, DS_ERROR_COUNT, CONTROL_INTERFACE, COUNTER_1HZ)
-// are in system_registers.map and accessed via command byte 6 (READ_SYSTEM_REGISTER).
+// Matches ds_minimal_register_names.h (DS_REGISTERS_READ_ONLY_COUNT = 0).
+// System registers are in system_registers.map (command byte 6).
+// Replace PLACEHOLDER with your own registers for production use.
 
-// Add application registers here.
-// Example:
-// /***** read only *****/
-// uint32_t    MY_SENSOR_VALUE;
-//
-// /***** read/write *****/
-// int32_t     MY_SETPOINT;
+/***** read/write *****/
+uint32_t    PLACEHOLDER;
