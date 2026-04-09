@@ -81,7 +81,9 @@ pub fn emit_log(app: &AppHandle, level: LogLevel, category: LogCategory, message
         timestamp: now_ms(),
         packet_data: None,
     };
-    let _ = app.emit("logEntry", &entry);
+    if let Err(e) = app.emit("logEntry", &entry) {
+        log::warn!("Failed to emit logEntry event: {}", e);
+    }
 }
 
 fn hex_dump(data: &[u8]) -> String {
@@ -322,159 +324,194 @@ fn process_response(data: &[u8], req: &DeviceRequest, app: &AppHandle) {
 
 // ── TCP background task ───────────────────────────────────────────────────────
 
+/// Runs the TCP communicator loop.
+/// Returns `true` if the exit was caused by a device error or timeout (caller should reconnect),
+/// or `false` if the channel was closed intentionally (user disconnect).
 pub async fn run_tcp_communicator(
     mut stream: TcpStream,
     mut rx: mpsc::Receiver<DeviceRequest>,
     app: AppHandle,
-    mut connection: DeviceConnection,
-) {
+    connection: DeviceConnection,
+) -> bool {
     const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+    /// Number of consecutive timeouts before declaring the device lost.
+    const TIMEOUT_THRESHOLD: u32 = 3;
+
     let destination = format!("{}:{}", connection.ip, connection.port);
+    let mut consecutive_timeouts: u32 = 0;
+    let mut should_reconnect = false;
 
-    while let Some(req) = rx.recv().await {
-        let send_time = std::time::Instant::now();
+    loop {
+        match rx.recv().await {
+            None => break, // channel closed — intentional disconnect
+            Some(req) => {
+                let send_time = std::time::Instant::now();
 
-        // Send the packet
-        if let Err(e) = stream.write_all(&req.packet).await {
-            emit_log(
-                &app,
-                LogLevel::Error,
-                LogCategory::Connection,
-                format!("TCP write error: {}", e),
-            );
-            break;
-        }
-        emit_packet_log(&app, "TX", &req.packet, "TCP", &destination, None);
+                if let Err(e) = stream.write_all(&req.packet).await {
+                    emit_log(
+                        &app,
+                        LogLevel::Error,
+                        LogCategory::Connection,
+                        format!("TCP write error: {}", e),
+                    );
+                    should_reconnect = true;
+                    break;
+                }
+                emit_packet_log(&app, "TX", &req.packet, "TCP", &destination, None);
 
-        // Read exactly 8-byte response (protocol v0.2.2; handles TCP stream fragmentation)
-        let mut buf = [0u8; 8];
-        match timeout(REQUEST_TIMEOUT, stream.read_exact(&mut buf)).await {
-            Ok(Ok(_)) => {
-                let response_time = send_time.elapsed().as_millis() as u64;
-                emit_packet_log(&app, "RX", &buf, "TCP", &destination, Some(response_time));
-                process_response(&buf, &req, &app);
-            }
-            Ok(Err(e)) => {
-                emit_log(
-                    &app,
-                    LogLevel::Error,
-                    LogCategory::Connection,
-                    format!("TCP read error: {}", e),
-                );
-                break;
-            }
-            Err(_) => {
-                emit_log(
-                    &app,
-                    LogLevel::Error,
-                    LogCategory::Register,
-                    format!(
-                        "Request timeout (addr={}, cmd={})",
-                        req.address, req.command
-                    ),
-                );
-                // Continue processing the queue after a timeout
+                // Read exactly 8-byte response (protocol v0.2.2; handles TCP stream fragmentation)
+                let mut buf = [0u8; 8];
+                match timeout(REQUEST_TIMEOUT, stream.read_exact(&mut buf)).await {
+                    Ok(Ok(_)) => {
+                        consecutive_timeouts = 0;
+                        let response_time = send_time.elapsed().as_millis() as u64;
+                        emit_packet_log(&app, "RX", &buf, "TCP", &destination, Some(response_time));
+                        process_response(&buf, &req, &app);
+                    }
+                    Ok(Err(e)) => {
+                        emit_log(
+                            &app,
+                            LogLevel::Error,
+                            LogCategory::Connection,
+                            format!("TCP read error: {}", e),
+                        );
+                        should_reconnect = true;
+                        break;
+                    }
+                    Err(_) => {
+                        consecutive_timeouts += 1;
+                        emit_log(
+                            &app,
+                            LogLevel::Error,
+                            LogCategory::Register,
+                            format!(
+                                "Request timeout (addr={}, cmd={}) [{}/{}]",
+                                req.address, req.command, consecutive_timeouts, TIMEOUT_THRESHOLD
+                            ),
+                        );
+                        if consecutive_timeouts >= TIMEOUT_THRESHOLD {
+                            emit_log(
+                                &app,
+                                LogLevel::Error,
+                                LogCategory::Connection,
+                                "Device unresponsive — connection lost".to_string(),
+                            );
+                            should_reconnect = true;
+                            break;
+                        }
+                    }
+                }
             }
         }
     }
 
-    // Connection lost — notify frontend
-    connection.connected = false;
-    let _ = app.emit("connectionStatus", &connection);
-    emit_log(
-        &app,
-        LogLevel::Info,
-        LogCategory::Connection,
-        "TCP connection closed".to_string(),
-    );
+    should_reconnect
 }
 
 // ── UDP background task ───────────────────────────────────────────────────────
 
+/// Runs the UDP communicator loop.
+/// Returns `true` if the exit was caused by a device error or timeout (caller should reconnect),
+/// or `false` if the channel was closed intentionally (user disconnect).
 pub async fn run_udp_communicator(
     socket: UdpSocket,
     mut rx: mpsc::Receiver<DeviceRequest>,
     app: AppHandle,
-    mut connection: DeviceConnection,
+    _connection: DeviceConnection,
     remote_ip: String,
     remote_port: u16,
-) {
+) -> bool {
     const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+    /// Number of consecutive timeouts before declaring the device lost.
+    const TIMEOUT_THRESHOLD: u32 = 3;
+
     let remote_addr = format!("{}:{}", remote_ip, remote_port);
+    let mut consecutive_timeouts: u32 = 0;
+    let mut should_reconnect = false;
 
-    while let Some(req) = rx.recv().await {
-        let send_time = std::time::Instant::now();
+    loop {
+        match rx.recv().await {
+            None => break, // channel closed — intentional disconnect
+            Some(req) => {
+                let send_time = std::time::Instant::now();
 
-        // Send packet
-        if let Err(e) = socket.send_to(&req.packet, &remote_addr).await {
-            emit_log(
-                &app,
-                LogLevel::Error,
-                LogCategory::Connection,
-                format!("UDP send error: {}", e),
-            );
-            break;
-        }
-        emit_packet_log(&app, "TX", &req.packet, "UDP", &remote_addr, None);
-
-        // Wait for a response from the correct source within the timeout
-        let recv_future = async {
-            let mut buf = [0u8; 64];
-            loop {
-                match socket.recv_from(&mut buf).await {
-                    Ok((n, src)) => {
-                        if src.ip().to_string() == remote_ip && src.port() == remote_port {
-                            if n >= 8 {
-                                let mut out = [0u8; 8];
-                                out.copy_from_slice(&buf[..8]);
-                                return Ok::<[u8; 8], String>(out);
-                            } else {
-                                return Err(format!("Short UDP response: {} bytes", n));
-                            }
-                        }
-                        // Packet from wrong source — ignore and keep waiting
-                    }
-                    Err(e) => return Err(e.to_string()),
+                if let Err(e) = socket.send_to(&req.packet, &remote_addr).await {
+                    emit_log(
+                        &app,
+                        LogLevel::Error,
+                        LogCategory::Connection,
+                        format!("UDP send error: {}", e),
+                    );
+                    should_reconnect = true;
+                    break;
                 }
-            }
-        };
+                emit_packet_log(&app, "TX", &req.packet, "UDP", &remote_addr, None);
 
-        match timeout(REQUEST_TIMEOUT, recv_future).await {
-            Ok(Ok(response_buf)) => {
-                let response_time = send_time.elapsed().as_millis() as u64;
-                emit_packet_log(&app, "RX", &response_buf, "UDP", &remote_addr, Some(response_time));
-                process_response(&response_buf, &req, &app);
-            }
-            Ok(Err(e)) => {
-                emit_log(
-                    &app,
-                    LogLevel::Error,
-                    LogCategory::Connection,
-                    format!("UDP error: {}", e),
-                );
-                break;
-            }
-            Err(_) => {
-                emit_log(
-                    &app,
-                    LogLevel::Error,
-                    LogCategory::Register,
-                    format!(
-                        "Request timeout (addr={}, cmd={})",
-                        req.address, req.command
-                    ),
-                );
-                // Continue processing the queue after a timeout
+                // Wait for a response from the correct source within the timeout
+                let recv_future = async {
+                    let mut buf = [0u8; 64];
+                    loop {
+                        match socket.recv_from(&mut buf).await {
+                            Ok((n, src)) => {
+                                if src.ip().to_string() == remote_ip && src.port() == remote_port {
+                                    if n >= 8 {
+                                        let mut out = [0u8; 8];
+                                        out.copy_from_slice(&buf[..8]);
+                                        return Ok::<[u8; 8], String>(out);
+                                    } else {
+                                        return Err(format!("Short UDP response: {} bytes", n));
+                                    }
+                                }
+                                // Packet from wrong source — ignore and keep waiting
+                            }
+                            Err(e) => return Err(e.to_string()),
+                        }
+                    }
+                };
+
+                match timeout(REQUEST_TIMEOUT, recv_future).await {
+                    Ok(Ok(response_buf)) => {
+                        consecutive_timeouts = 0;
+                        let response_time = send_time.elapsed().as_millis() as u64;
+                        emit_packet_log(&app, "RX", &response_buf, "UDP", &remote_addr, Some(response_time));
+                        process_response(&response_buf, &req, &app);
+                    }
+                    Ok(Err(e)) => {
+                        emit_log(
+                            &app,
+                            LogLevel::Error,
+                            LogCategory::Connection,
+                            format!("UDP error: {}", e),
+                        );
+                        should_reconnect = true;
+                        break;
+                    }
+                    Err(_) => {
+                        consecutive_timeouts += 1;
+                        emit_log(
+                            &app,
+                            LogLevel::Error,
+                            LogCategory::Register,
+                            format!(
+                                "Request timeout (addr={}, cmd={}) [{}/{}]",
+                                req.address, req.command, consecutive_timeouts, TIMEOUT_THRESHOLD
+                            ),
+                        );
+                        if consecutive_timeouts >= TIMEOUT_THRESHOLD {
+                            emit_log(
+                                &app,
+                                LogLevel::Error,
+                                LogCategory::Connection,
+                                "Device unresponsive — connection lost".to_string(),
+                            );
+                            should_reconnect = true;
+                            break;
+                        }
+                    }
+                }
             }
         }
     }
 
-    connection.connected = false;
-    let _ = app.emit("connectionStatus", &connection);
-    emit_log(
-        &app,
-        LogLevel::Info,
-        LogCategory::Connection,
-        "UDP communicator stopped".to_string(),
-    );
+    should_reconnect
 }

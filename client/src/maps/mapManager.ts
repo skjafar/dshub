@@ -1,5 +1,18 @@
 import { MapEntry, ParsedMap, parseMapFile, loadMapFile, BoardTypeEntry, parseBoardTypesMap, getDefaultBoardTypes } from './mapParser';
-import { MapProfile, DEFAULT_PROFILE_ID } from '../types/settings';
+import { MapProfile, DEFAULT_PROFILE_ID, EntryMetadata } from '../types/settings';
+
+/** Apply profile metadata (description, unit, valueList) to parsed entries in-place.
+ *  Metadata is keyed by base name, so array entries like NAME[3] match key "NAME". */
+function applyMetadata(entries: MapEntry[], metadata: Record<string, EntryMetadata>): void {
+  for (const entry of entries) {
+    const baseName = entry.isArray ? entry.name.replace(/\[\d+\]$/, '') : entry.name;
+    const meta = metadata[baseName];
+    if (!meta) continue;
+    if (meta.description !== undefined) entry.description = meta.description;
+    if (meta.unit       !== undefined) entry.unit        = meta.unit;
+    if (meta.valueList  !== undefined) entry.valueList   = meta.valueList;
+  }
+}
 
 export class MapManager {
   private registersMap: ParsedMap | null = null;
@@ -16,7 +29,10 @@ export class MapManager {
         console.log(`Loading maps from profile: ${profile.name}`);
 
         this.registersMap = parseMapFile(profile.registersMap, true);
+        if (profile.registersMetadata) applyMetadata(this.registersMap.entries, profile.registersMetadata);
+
         this.parametersMap = parseMapFile(profile.parametersMap, false);
+        if (profile.parametersMetadata) applyMetadata(this.parametersMap.entries, profile.parametersMetadata);
 
         // System registers map: use profile content if present, else empty
         this.systemRegistersMap = profile.systemRegistersMap

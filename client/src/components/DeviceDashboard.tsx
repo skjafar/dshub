@@ -553,8 +553,8 @@ export default function DeviceDashboard() {
             </Typography>
           ) : (
             <Box sx={{ maxHeight: 320, overflowY: 'auto' }}>
-              {recentLogs.map((entry, i) => (
-                <LogRow key={i} entry={entry} />
+              {recentLogs.map((entry) => (
+                <LogRow key={entry.timestamp + '-' + entry.category} entry={entry} />
               ))}
             </Box>
           )}

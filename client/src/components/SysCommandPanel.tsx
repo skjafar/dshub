@@ -108,7 +108,7 @@ export default function SysCommandPanel() {
       )}
 
       {!canSend && state.connection?.connected && (
-        <Alert severity="info" sx={{ mb: 3 }}>
+        <Alert severity="warning" sx={{ mb: 3 }}>
           Take control of the device to send SYS_COMMANDs.
         </Alert>
       )}

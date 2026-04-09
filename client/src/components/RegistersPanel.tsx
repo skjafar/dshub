@@ -21,10 +21,6 @@ import {
   Tab,
   Switch,
   FormControlLabel,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   Checkbox,
   InputAdornment
 } from '@mui/material';
@@ -32,7 +28,6 @@ import {
   Refresh as RefreshIcon,
   Edit as EditIcon,
   Add as AddIcon,
-  Timer as TimerIcon,
   Lock as LockIcon,
   LockOpen as LockOpenIcon,
   Search as SearchIcon,
@@ -57,11 +52,12 @@ import { FONT_MONO } from '../theme';
 
 export interface RegistersPanelRef {
   openReadDialog: () => void;
-  readAllMapped: () => void;
-  refreshAll: () => void;
-  canReadAll: () => boolean;
-  canRefreshAll: () => boolean;
+  refresh: () => void;
+  canRefresh: () => boolean;
   isMapLoaded: boolean;
+  autoRefreshInterval: number;
+  setAutoRefreshInterval: (interval: number) => void;
+  activeCount: number;
 }
 
 interface RegistersPanelProps {}
@@ -434,45 +430,17 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   // Expose methods to parent component
   useImperativeHandle(ref, () => ({
     openReadDialog: () => setReadDialog(true),
-    readAllMapped: handleReadAllMapped,
-    refreshAll: handleRefreshAll,
-    canReadAll: () => state.connection?.connected && isMapLoaded,
-    canRefreshAll: () => state.connection?.connected && isMapLoaded,
-    isMapLoaded
+    refresh: () => isMapLoaded ? handleReadAllMapped() : handleRefreshAll(),
+    canRefresh: () => !!state.connection?.connected,
+    isMapLoaded,
+    autoRefreshInterval,
+    setAutoRefreshInterval: handleAutoRefreshIntervalChange,
+    activeCount: state.autoRefresh.activeAddresses.size,
   }));
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0 }}>
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-      {/* Auto-refresh interval selector */}
-      <Card sx={{ mb: 2 }}>
-        <CardContent>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <FormControl size="small" sx={{ minWidth: 120 }}>
-                <InputLabel>Refresh Interval</InputLabel>
-                <Select
-                  value={autoRefreshInterval}
-                  onChange={(e) => handleAutoRefreshIntervalChange(e.target.value as number)}
-                  label="Refresh Interval"
-                  disabled={!state.connection?.connected}
-                >
-                  <MenuItem value={500}>500ms</MenuItem>
-                  <MenuItem value={1000}>1s</MenuItem>
-                  <MenuItem value={2000}>2s</MenuItem>
-                  <MenuItem value={5000}>5s</MenuItem>
-                  <MenuItem value={10000}>10s</MenuItem>
-                </Select>
-              </FormControl>
-
-              <Typography variant="body2" color="text.secondary">
-                Active: {state.autoRefresh.activeAddresses.size} registers
-              </Typography>
-            </Box>
-          </Box>
-        </CardContent>
-      </Card>
-
       {!state.connection?.connected && (
         <Alert
           severity="warning"
@@ -488,7 +456,7 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
       )}
 
       {!canWrite && state.connection?.connected && (
-        <Alert severity="info" sx={{ mb: 3 }}>
+        <Alert severity="warning" sx={{ mb: 3 }}>
           Write operations disabled. Take control of the device to enable register writes.
         </Alert>
       )}
@@ -657,13 +625,15 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                           )}
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
-                          <Typography
-                            variant="body2"
-                            fontWeight="medium"
-                            color={(!register.name && !mapEntry?.name) ? 'error' : 'inherit'}
-                          >
-                            {register.name || mapEntry?.name || <em>Missing name in map</em>}
-                          </Typography>
+                          <Tooltip title={mapEntry?.description} enterDelay={1000} disableInteractive>
+                            <Typography
+                              variant="body2"
+                              fontWeight="medium"
+                              color={(!register.name && !mapEntry?.name) ? 'error' : 'inherit'}
+                            >
+                              {register.name || mapEntry?.name || <em>Missing name in map</em>}
+                            </Typography>
+                          </Tooltip>
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
                           <Tooltip title={mapEntry ? `Data type: ${mapEntry.type}` : 'Unknown type'}>

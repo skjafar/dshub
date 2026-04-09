@@ -19,10 +19,6 @@ import {
   Tooltip,
   Switch,
   FormControlLabel,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   Checkbox,
   InputAdornment
 } from '@mui/material';
@@ -30,10 +26,6 @@ import {
   Refresh as RefreshIcon,
   Edit as EditIcon,
   Add as AddIcon,
-  Timer as TimerIcon,
-  Save as SaveIcon,
-  Upload as UploadIcon,
-  Send as SendIcon,
   Search as SearchIcon,
   Clear as ClearIcon,
   InfoOutlined as InfoIcon,
@@ -67,11 +59,17 @@ interface Parameter {
 
 export interface ParametersPanelRef {
   openReadDialog: () => void;
-  readAllMapped: () => void;
-  refreshAll: () => void;
-  canReadAll: () => boolean;
-  canRefreshAll: () => boolean;
+  refresh: () => void;
+  canRefresh: () => boolean;
   isMapLoaded: boolean;
+  autoRefreshInterval: number;
+  setAutoRefreshInterval: (interval: number) => void;
+  activeCount: number;
+  saveValues: () => void;
+  loadValues: () => void;
+  writeAll: () => void;
+  pendingWriteCount: number;
+  canWrite: boolean;
 }
 
 interface ParametersPanelProps {}
@@ -545,82 +543,22 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
   // Expose methods to parent component
   useImperativeHandle(ref, () => ({
     openReadDialog: () => setReadDialog(true),
-    readAllMapped: handleReadAllMapped,
-    refreshAll: handleRefreshAll,
-    canReadAll: () => state.connection?.connected && isMapLoaded,
-    canRefreshAll: () => state.connection?.connected && isMapLoaded,
-    isMapLoaded
+    refresh: () => isMapLoaded ? handleReadAllMapped() : handleRefreshAll(),
+    canRefresh: () => !!state.connection?.connected,
+    isMapLoaded,
+    autoRefreshInterval,
+    setAutoRefreshInterval: handleAutoRefreshIntervalChange,
+    activeCount: state.autoRefresh.activeParameterAddresses.size,
+    saveValues: handleSaveValues,
+    loadValues: handleLoadValues,
+    writeAll: handleWriteAll,
+    pendingWriteCount: Object.keys(editingValues).length,
+    canWrite,
   }));
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0 }}>
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-      {/* Auto-refresh interval selector and Load/Save buttons */}
-      <Card sx={{ mb: 2 }}>
-        <CardContent>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <FormControl size="small" sx={{ minWidth: 120 }}>
-                <InputLabel>Refresh Interval</InputLabel>
-                <Select
-                  value={autoRefreshInterval}
-                  onChange={(e) => handleAutoRefreshIntervalChange(e.target.value as number)}
-                  label="Refresh Interval"
-                  disabled={!state.connection?.connected}
-                >
-                  <MenuItem value={1000}>1s</MenuItem>
-                  <MenuItem value={2000}>2s</MenuItem>
-                  <MenuItem value={5000}>5s</MenuItem>
-                  <MenuItem value={10000}>10s</MenuItem>
-                  <MenuItem value={30000}>30s</MenuItem>
-                </Select>
-              </FormControl>
-
-              <Typography variant="body2" color="text.secondary">
-                Active: {state.autoRefresh.activeParameterAddresses.size} parameters
-              </Typography>
-            </Box>
-
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Tooltip title="Save all parameter values to CSV file">
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={<SaveIcon />}
-                  onClick={handleSaveValues}
-                  disabled={state.parameters.size === 0}
-                >
-                  Save
-                </Button>
-              </Tooltip>
-              <Tooltip title="Load parameter values from CSV file">
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={<UploadIcon />}
-                  onClick={handleLoadValues}
-                  disabled={!isMapLoaded}
-                >
-                  Load
-                </Button>
-              </Tooltip>
-              <Tooltip title="Write all pending values to board">
-                <Button
-                  variant="contained"
-                  size="small"
-                  startIcon={<SendIcon />}
-                  onClick={handleWriteAll}
-                  disabled={!canWrite || Object.keys(editingValues).length === 0}
-                  color="primary"
-                >
-                  Write All ({Object.keys(editingValues).length})
-                </Button>
-              </Tooltip>
-            </Box>
-          </Box>
-        </CardContent>
-      </Card>
-
       <Alert severity="info" sx={{ mb: 3 }}>
         Parameters are configuration values that typically persist across device resets. 
         Changing parameter values may require a device restart to take effect.
@@ -767,12 +705,14 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                           )}
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
-                          <Typography
-                            variant="body2"
-                            fontWeight="medium"
-                          >
-                            {mapEntry.name}
-                          </Typography>
+                          <Tooltip title={mapEntry.description} enterDelay={1000} disableInteractive>
+                            <Typography
+                              variant="body2"
+                              fontWeight="medium"
+                            >
+                              {mapEntry.name}
+                            </Typography>
+                          </Tooltip>
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
                           <Tooltip title={`Data type: ${mapEntry.type}`}>

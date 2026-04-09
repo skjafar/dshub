@@ -1,6 +1,7 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::mpsc;
 use tauri::async_runtime::JoinHandle;
@@ -11,6 +12,16 @@ use crate::communicator::{
     run_tcp_communicator, run_udp_communicator, DeviceRequest,
 };
 use crate::types::*;
+
+// ── Reconnect parameters ──────────────────────────────────────────────────────
+
+#[derive(Clone)]
+pub struct ReconnectParams {
+    pub ip: String,
+    pub port: u16,
+    pub interface_type: InterfaceType,
+    pub device_name: Option<String>,
+}
 
 // ── Managed application state ─────────────────────────────────────────────────
 
@@ -27,6 +38,10 @@ pub struct AppState {
     pub is_scanning: Arc<tokio::sync::Mutex<bool>>,
     /// Last directory used for saving files
     pub last_save_dir: tokio::sync::Mutex<Option<std::path::PathBuf>>,
+    /// Set to true when the user explicitly disconnects; stops the reconnect loop
+    pub disconnect_requested: Arc<AtomicBool>,
+    /// Parameters of the last successful connection, used by the reconnect loop
+    pub reconnect_params: tokio::sync::Mutex<Option<ReconnectParams>>,
 }
 
 impl AppState {
@@ -38,6 +53,8 @@ impl AppState {
             log_settings: tokio::sync::Mutex::new(LogSettings::default()),
             is_scanning: Arc::new(tokio::sync::Mutex::new(false)),
             last_save_dir: tokio::sync::Mutex::new(None),
+            disconnect_requested: Arc::new(AtomicBool::new(false)),
+            reconnect_params: tokio::sync::Mutex::new(None),
         }
     }
 }
@@ -55,6 +72,195 @@ async fn disconnect_internal(state: &State<'_, AppState>) {
     // Drop the main sender → background task's rx will return None → task exits
     let mut tx = state.communicator_tx.lock().await;
     *tx = None;
+}
+
+/// Emits a `connectionStatus` event and logs the disconnect/reconnect state.
+fn emit_connection_status(app: &AppHandle, mut conn: DeviceConnection, reconnecting: bool) {
+    conn.connected = false;
+    conn.reconnecting = reconnecting;
+    if let Err(e) = app.emit("connectionStatus", &conn) {
+        log::warn!("Failed to emit connectionStatus event: {}", e);
+    }
+}
+
+/// Background reconnect loop: retries the connection every few seconds until the device
+/// responds or the user explicitly disconnects (sets `stop` to true).
+async fn reconnect_loop(app: AppHandle, params: ReconnectParams, stop: Arc<AtomicBool>) {
+    const RETRY_DELAY: tokio::time::Duration = tokio::time::Duration::from_secs(3);
+
+    loop {
+        if stop.load(Ordering::Relaxed) { break; }
+
+        tokio::time::sleep(RETRY_DELAY).await;
+
+        if stop.load(Ordering::Relaxed) { break; }
+
+        emit_log(
+            &app,
+            LogLevel::Info,
+            LogCategory::Connection,
+            format!("Reconnecting to {}:{}…", params.ip, params.port),
+        );
+
+        let (tx, rx) = mpsc::channel::<DeviceRequest>(100);
+
+        let should_reconnect = match params.interface_type {
+            InterfaceType::Tcp => {
+                match TcpStream::connect(format!("{}:{}", params.ip, params.port)).await {
+                    Err(e) => {
+                        emit_log(
+                            &app,
+                            LogLevel::Warning,
+                            LogCategory::Connection,
+                            format!("Reconnect failed: {}", e),
+                        );
+                        continue; // retry
+                    }
+                    Ok(stream) => {
+                        let connection = DeviceConnection {
+                            ip: params.ip.clone(),
+                            port: params.port,
+                            interface_type: InterfaceType::Tcp,
+                            connected: true,
+                            reconnecting: false,
+                            control_state: 0,
+                            device_name: params.device_name.clone(),
+                        };
+
+                        // Update AppState before signalling the frontend
+                        let state = app.state::<AppState>();
+                        let heartbeat_tx = tx.clone();
+                        *state.communicator_tx.lock().await = Some(tx);
+                        *state.connection.lock().await = Some(connection.clone());
+                        let heartbeat = spawn_heartbeat(heartbeat_tx);
+                        state.plot_tasks.lock().await.insert("__heartbeat__".into(), heartbeat);
+
+                        if let Err(e) = app.emit("connectionStatus", &connection) {
+                            log::warn!("Failed to emit connectionStatus event: {}", e);
+                        }
+                        emit_log(
+                            &app,
+                            LogLevel::Info,
+                            LogCategory::Connection,
+                            format!("Reconnected via TCP to {}:{}", params.ip, params.port),
+                        );
+
+                        run_tcp_communicator(stream, rx, app.clone(), connection).await
+                    }
+                }
+            }
+            InterfaceType::Udp => {
+                match UdpSocket::bind("0.0.0.0:0").await {
+                    Err(e) => {
+                        emit_log(
+                            &app,
+                            LogLevel::Warning,
+                            LogCategory::Connection,
+                            format!("Reconnect failed (UDP bind): {}", e),
+                        );
+                        continue; // retry
+                    }
+                    Ok(socket) => {
+                        let connection = DeviceConnection {
+                            ip: params.ip.clone(),
+                            port: params.port,
+                            interface_type: InterfaceType::Udp,
+                            connected: true,
+                            reconnecting: false,
+                            control_state: 0,
+                            device_name: params.device_name.clone(),
+                        };
+
+                        let state = app.state::<AppState>();
+                        let heartbeat_tx = tx.clone();
+                        *state.communicator_tx.lock().await = Some(tx);
+                        *state.connection.lock().await = Some(connection.clone());
+                        let heartbeat = spawn_heartbeat(heartbeat_tx);
+                        state.plot_tasks.lock().await.insert("__heartbeat__".into(), heartbeat);
+
+                        if let Err(e) = app.emit("connectionStatus", &connection) {
+                            log::warn!("Failed to emit connectionStatus event: {}", e);
+                        }
+                        emit_log(
+                            &app,
+                            LogLevel::Info,
+                            LogCategory::Connection,
+                            format!("Reconnected via UDP to {}:{}", params.ip, params.port),
+                        );
+
+                        let ip = params.ip.clone();
+                        let port = params.port;
+                        run_udp_communicator(socket, rx, app.clone(), connection, ip, port).await
+                    }
+                }
+            }
+        };
+
+        // Communicator exited — clear state and decide what to do next
+        {
+            let state = app.state::<AppState>();
+            *state.communicator_tx.lock().await = None;
+            *state.connection.lock().await = None;
+        }
+
+        if should_reconnect && !stop.load(Ordering::Relaxed) {
+            // Emit reconnecting state and loop again
+            let conn = DeviceConnection {
+                ip: params.ip.clone(),
+                port: params.port,
+                interface_type: params.interface_type.clone(),
+                connected: false,
+                reconnecting: true,
+                control_state: 0,
+                device_name: params.device_name.clone(),
+            };
+            if let Err(e) = app.emit("connectionStatus", &conn) {
+                log::warn!("Failed to emit connectionStatus event: {}", e);
+            }
+        } else {
+            // Intentional disconnect — emit final disconnected state and exit
+            let conn = DeviceConnection {
+                ip: params.ip.clone(),
+                port: params.port,
+                interface_type: params.interface_type.clone(),
+                connected: false,
+                reconnecting: false,
+                control_state: 0,
+                device_name: params.device_name.clone(),
+            };
+            if let Err(e) = app.emit("connectionStatus", &conn) {
+                log::warn!("Failed to emit connectionStatus event: {}", e);
+            }
+            break;
+        }
+    }
+}
+
+/// Spawn a heartbeat task that reads CONTROL_INTERFACE (sys reg addr 2) every
+/// `HEARTBEAT_INTERVAL` seconds. This keeps the communicator's consecutive-timeout counter
+/// ticking even when no panel is actively polling, so a device disconnect is detected promptly.
+/// The task exits silently when the channel is closed.
+/// The returned handle should be stored in `plot_tasks` under `"__heartbeat__"` so that
+/// `disconnect_internal` aborts it automatically.
+fn spawn_heartbeat(tx: mpsc::Sender<DeviceRequest>) -> JoinHandle<()> {
+    const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+    tauri::async_runtime::spawn(async move {
+        let mut ticker = tokio::time::interval(HEARTBEAT_INTERVAL);
+        ticker.tick().await; // skip the immediate first tick
+        loop {
+            ticker.tick().await;
+            let req = DeviceRequest {
+                packet: crate::communicator::make_read_packet(CMD_READ_SYS_REG, 2),
+                command: CMD_READ_SYS_REG,
+                address: 2,
+                name: Some("CONTROL_INTERFACE".into()),
+                emit_plot: false,
+            };
+            if tx.send(req).await.is_err() {
+                break; // channel closed — exit silently
+            }
+        }
+    })
 }
 
 /// Enqueue a request; awaits if the channel is at capacity (backpressure).
@@ -100,7 +306,8 @@ pub async fn connect_device(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    // Clean up any existing connection
+    // Signal any running reconnect loop to stop, then clean up the existing connection
+    state.disconnect_requested.store(true, Ordering::Relaxed);
     disconnect_internal(&state).await;
 
     let port = match interface_type {
@@ -108,19 +315,39 @@ pub async fn connect_device(
         InterfaceType::Udp => DEFAULT_UDP_PORT,
     };
 
-    let base_connection = DeviceConnection {
+    // Store params so the reconnect loop can reuse them
+    *state.reconnect_params.lock().await = Some(ReconnectParams {
         ip: ip.clone(),
         port,
         interface_type: interface_type.clone(),
-        connected: false,
-        control_state: 0,
         device_name: device_name.clone(),
-    };
+    });
+
+    // Clear the stop flag — reconnect loop is now allowed to run
+    state.disconnect_requested.store(false, Ordering::Relaxed);
+    let stop = Arc::clone(&state.disconnect_requested);
 
     // Channel with capacity 100 (matches original MAX_QUEUE_SIZE)
     let (tx, rx) = mpsc::channel::<DeviceRequest>(100);
 
     let app_clone = app.clone();
+
+    let connection = DeviceConnection {
+        ip: ip.clone(),
+        port,
+        interface_type: interface_type.clone(),
+        connected: true,
+        reconnecting: false,
+        control_state: 0,
+        device_name: device_name.clone(),
+    };
+
+    let params = ReconnectParams {
+        ip: ip.clone(),
+        port,
+        interface_type: interface_type.clone(),
+        device_name: device_name.clone(),
+    };
 
     match interface_type {
         InterfaceType::Tcp => {
@@ -128,9 +355,7 @@ pub async fn connect_device(
                 .await
                 .map_err(|e| format!("TCP connect failed: {}", e))?;
 
-            let mut connected = base_connection.clone();
-            connected.connected = true;
-            let _ = app.emit("connectionStatus", &connected);
+            let _ = app.emit("connectionStatus", &connection);
             emit_log(
                 &app,
                 LogLevel::Info,
@@ -138,8 +363,24 @@ pub async fn connect_device(
                 format!("TCP connected to {}:{}", ip, port),
             );
 
+            let conn_clone = connection.clone();
             tauri::async_runtime::spawn(async move {
-                run_tcp_communicator(stream, rx, app_clone, connected).await;
+                let should_reconnect =
+                    run_tcp_communicator(stream, rx, app_clone.clone(), conn_clone.clone()).await;
+
+                // Communicator exited — clear state
+                {
+                    let s = app_clone.state::<AppState>();
+                    *s.communicator_tx.lock().await = None;
+                    *s.connection.lock().await = None;
+                }
+
+                let reconnecting = should_reconnect && !stop.load(Ordering::Relaxed);
+                emit_connection_status(&app_clone, conn_clone, reconnecting);
+
+                if reconnecting {
+                    reconnect_loop(app_clone, params, stop).await;
+                }
             });
         }
         InterfaceType::Udp => {
@@ -147,9 +388,7 @@ pub async fn connect_device(
                 .await
                 .map_err(|e| format!("UDP bind failed: {}", e))?;
 
-            let mut connected = base_connection.clone();
-            connected.connected = true;
-            let _ = app.emit("connectionStatus", &connected);
+            let _ = app.emit("connectionStatus", &connection);
             emit_log(
                 &app,
                 LogLevel::Info,
@@ -158,20 +397,52 @@ pub async fn connect_device(
             );
 
             let ip_clone = ip.clone();
+            let conn_clone = connection.clone();
             tauri::async_runtime::spawn(async move {
-                run_udp_communicator(socket, rx, app_clone, connected, ip_clone, port).await;
+                let should_reconnect = run_udp_communicator(
+                    socket,
+                    rx,
+                    app_clone.clone(),
+                    conn_clone.clone(),
+                    ip_clone,
+                    port,
+                )
+                .await;
+
+                // Communicator exited — clear state
+                {
+                    let s = app_clone.state::<AppState>();
+                    *s.communicator_tx.lock().await = None;
+                    *s.connection.lock().await = None;
+                }
+
+                let reconnecting = should_reconnect && !stop.load(Ordering::Relaxed);
+                emit_connection_status(&app_clone, conn_clone, reconnecting);
+
+                if reconnecting {
+                    reconnect_loop(app_clone, params, stop).await;
+                }
             });
         }
     }
 
-    *state.connection.lock().await = Some(base_connection);
+    // Set communicator_tx before connection so any concurrent command that
+    // reads connection then communicator_tx never sees one without the other.
+    let heartbeat_tx = tx.clone();
     *state.communicator_tx.lock().await = Some(tx);
+    *state.connection.lock().await = Some(connection);
+
+    // Heartbeat: detect device loss even when no panel is actively reading
+    let heartbeat = spawn_heartbeat(heartbeat_tx);
+    state.plot_tasks.lock().await.insert("__heartbeat__".into(), heartbeat);
 
     Ok(())
 }
 
 #[tauri::command]
 pub async fn disconnect_device(state: State<'_, AppState>) -> Result<(), String> {
+    // Stop any running reconnect loop before dropping the channel
+    state.disconnect_requested.store(true, Ordering::Relaxed);
     disconnect_internal(&state).await;
     *state.connection.lock().await = None;
     Ok(())

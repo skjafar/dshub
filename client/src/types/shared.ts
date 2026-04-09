@@ -53,6 +53,8 @@ export interface DeviceConnection {
   port: number;
   interface: InterfaceType;
   connected: boolean;
+  /** True while an automatic reconnect loop is running after an unexpected disconnect. */
+  reconnecting: boolean;
   controlState: ControlInterfaceState;
   deviceName?: string; // Board name from device discovery
 }

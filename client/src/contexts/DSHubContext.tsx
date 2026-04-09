@@ -426,6 +426,8 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
             setTimeout(() => {
               invoke('read_system_register', { address: 2, name: 'CONTROL_INTERFACE' }).catch(console.error);
             }, 500);
+          } else if (status.reconnecting) {
+            dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'warning', category: 'connection', message: `Device unresponsive — reconnecting to ${status.ip}:${status.port}…`, timestamp: Date.now() } });
           } else {
             dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'warning', category: 'connection', message: 'Disconnected from device', timestamp: Date.now() } });
           }

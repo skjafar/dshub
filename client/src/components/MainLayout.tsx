@@ -51,6 +51,9 @@ import {
   RestartAlt as RestartAltIcon,
   LibraryBooks as ProfilesIcon,
   Upload as ImportIcon,
+  Timer as TimerIcon,
+  Send as SendIcon,
+  Upload as UploadIcon,
 } from '@mui/icons-material';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -442,8 +445,16 @@ export default function MainLayout() {
     </Box>
   );
 
-  const connectionStatus = state.connection?.connected ? 'Connected' : 'Disconnected';
-  const connectionColor = state.connection?.connected ? theme.palette.success.main : theme.palette.error.main;
+  const connectionStatus = state.connection?.connected
+    ? 'Connected'
+    : state.connection?.reconnecting
+      ? 'Reconnecting…'
+      : 'Disconnected';
+  const connectionColor = state.connection?.connected
+    ? theme.palette.success.main
+    : state.connection?.reconnecting
+      ? theme.palette.warning.main
+      : theme.palette.error.main;
 
   // Determine control state label and color
   const getControlStateInfo = () => {
@@ -676,7 +687,7 @@ export default function MainLayout() {
 
           {/* Registers Controls - shown when on registers view */}
           {currentView === 'registers' && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mr: 'auto' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mr: 'auto' }}>
               <Button
                 variant="contained"
                 startIcon={<AddIcon />}
@@ -690,29 +701,41 @@ export default function MainLayout() {
               <Button
                 variant="outlined"
                 startIcon={<RefreshIcon />}
-                onClick={() => registersPanelRef.current?.readAllMapped()}
-                disabled={!state.connection?.connected || !mapManager.isInitialized()}
-                size="small"
-                color="inherit"
-              >
-                Read All Mapped
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={<RefreshIcon />}
-                onClick={() => registersPanelRef.current?.refreshAll()}
-                disabled={!state.connection?.connected || !mapManager.isInitialized()}
+                onClick={() => registersPanelRef.current?.refresh()}
+                disabled={!state.connection?.connected}
                 size="small"
                 color="inherit"
               >
                 Refresh All
               </Button>
+              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+              <Tooltip title="Auto-refresh interval">
+                <FormControl size="small" sx={{ minWidth: 90 }} disabled={!state.connection?.connected}>
+                  <InputLabel sx={{ fontSize: '0.75rem' }}>Interval</InputLabel>
+                  <Select
+                    value={state.autoRefresh.interval}
+                    onChange={(e) => registersPanelRef.current?.setAutoRefreshInterval(e.target.value as number)}
+                    label="Interval"
+                    startAdornment={<TimerIcon sx={{ fontSize: 14, mr: 0.5, color: 'text.secondary' }} />}
+                    sx={{ fontSize: '0.8125rem' }}
+                  >
+                    <MenuItem value={500}>500ms</MenuItem>
+                    <MenuItem value={1000}>1s</MenuItem>
+                    <MenuItem value={2000}>2s</MenuItem>
+                    <MenuItem value={5000}>5s</MenuItem>
+                    <MenuItem value={10000}>10s</MenuItem>
+                  </Select>
+                </FormControl>
+              </Tooltip>
+              <Typography variant="body2" sx={{ fontSize: '0.8125rem', color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                {state.autoRefresh.activeAddresses.size} active
+              </Typography>
             </Box>
           )}
 
           {/* Parameters Controls - shown when on parameters view */}
           {currentView === 'parameters' && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mr: 'auto' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mr: 'auto' }}>
               <Button
                 variant="contained"
                 startIcon={<AddIcon />}
@@ -726,23 +749,84 @@ export default function MainLayout() {
               <Button
                 variant="outlined"
                 startIcon={<RefreshIcon />}
-                onClick={() => parametersPanelRef.current?.readAllMapped()}
-                disabled={!state.connection?.connected || !mapManager.isInitialized()}
-                size="small"
-                color="inherit"
-              >
-                Read All Mapped
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={<RefreshIcon />}
-                onClick={() => parametersPanelRef.current?.refreshAll()}
-                disabled={!state.connection?.connected || !mapManager.isInitialized()}
+                onClick={() => parametersPanelRef.current?.refresh()}
+                disabled={!state.connection?.connected}
                 size="small"
                 color="inherit"
               >
                 Refresh All
               </Button>
+              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+              <Tooltip title="Auto-refresh interval">
+                <FormControl size="small" sx={{ minWidth: 90 }} disabled={!state.connection?.connected}>
+                  <InputLabel sx={{ fontSize: '0.75rem' }}>Interval</InputLabel>
+                  <Select
+                    value={state.autoRefresh.interval}
+                    onChange={(e) => parametersPanelRef.current?.setAutoRefreshInterval(e.target.value as number)}
+                    label="Interval"
+                    startAdornment={<TimerIcon sx={{ fontSize: 14, mr: 0.5, color: 'text.secondary' }} />}
+                    sx={{ fontSize: '0.8125rem' }}
+                  >
+                    <MenuItem value={1000}>1s</MenuItem>
+                    <MenuItem value={2000}>2s</MenuItem>
+                    <MenuItem value={5000}>5s</MenuItem>
+                    <MenuItem value={10000}>10s</MenuItem>
+                    <MenuItem value={30000}>30s</MenuItem>
+                  </Select>
+                </FormControl>
+              </Tooltip>
+              <Typography variant="body2" sx={{ fontSize: '0.8125rem', color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                {state.autoRefresh.activeParameterAddresses.size} active
+              </Typography>
+              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+              <Tooltip title="Save parameter values to CSV">
+                <span>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<SaveIcon />}
+                    onClick={() => parametersPanelRef.current?.saveValues()}
+                    disabled={state.parameters.size === 0}
+                    color="inherit"
+                  >
+                    Save
+                  </Button>
+                </span>
+              </Tooltip>
+              <Tooltip title="Load parameter values from CSV">
+                <span>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<UploadIcon />}
+                    onClick={() => parametersPanelRef.current?.loadValues()}
+                    disabled={!mapManager.isInitialized()}
+                    color="inherit"
+                  >
+                    Load
+                  </Button>
+                </span>
+              </Tooltip>
+              {(() => {
+                const pendingCount = parametersPanelRef.current?.pendingWriteCount ?? 0;
+                const canWrite = parametersPanelRef.current?.canWrite ?? false;
+                return (
+                  <Tooltip title="Write all pending values to board">
+                    <span>
+                      <Button
+                        variant="contained"
+                        size="small"
+                        startIcon={<SendIcon />}
+                        onClick={() => parametersPanelRef.current?.writeAll()}
+                        disabled={!canWrite || pendingCount === 0}
+                        color="primary"
+                      >
+                        Write All{pendingCount > 0 ? ` (${pendingCount})` : ''}
+                      </Button>
+                    </span>
+                  </Tooltip>
+                );
+              })()}
             </Box>
           )}
 

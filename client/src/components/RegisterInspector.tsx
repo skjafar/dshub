@@ -410,10 +410,23 @@ export default function RegisterInspector({
                 letterSpacing: '-0.01em',
                 lineHeight: 1.3,
                 wordBreak: 'break-all',
-                mb: 0.75,
+                mb: mapEntry.description ? 0.5 : 0.75,
               }}>
                 {mapEntry.name}
               </Typography>
+
+              {/* ── Description ────────────────────────────────────────── */}
+              {mapEntry.description && (
+                <Typography sx={{
+                  fontFamily: FONT_BODY,
+                  fontSize: '0.6875rem',
+                  color: c.onSurfaceVar,
+                  lineHeight: 1.55,
+                  mb: 0.75,
+                }}>
+                  {mapEntry.description}
+                </Typography>
+              )}
 
               {/* ── Identity chips ─────────────────────────────────────── */}
               <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 1.25 }}>
@@ -533,6 +546,54 @@ export default function RegisterInspector({
                 } />
                 <MetaRow label="Updated" value={tsStr} />
               </Box>
+
+              {/* ── Options / value list ───────────────────────────────── */}
+              {mapEntry.valueList && mapEntry.valueList.length > 0 && (
+                <>
+                  <Sep />
+                  <SectionLabel>Options</SectionLabel>
+                  <Box sx={{ mb: 1.25 }}>
+                    {mapEntry.valueList.map((vd) => {
+                      const numVal = vd.value.startsWith('0x') || vd.value.startsWith('0X')
+                        ? parseInt(vd.value, 16)
+                        : parseInt(vd.value, 10);
+                      const isActive = value !== null && !isNaN(numVal) && numVal === value;
+                      return (
+                        <Box key={vd.value} sx={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          py: '3px',
+                          px: 0.75,
+                          borderRadius: '3px',
+                          mb: '2px',
+                          backgroundColor: isActive ? `rgba(${hexCh(c.primary)},0.08)` : 'transparent',
+                          border: `1px solid ${isActive ? `rgba(${hexCh(c.primary)},0.20)` : c.ghost}`,
+                        }}>
+                          <Typography sx={{
+                            fontFamily: FONT_MONO,
+                            fontSize: '0.625rem',
+                            color: isActive ? c.primary : c.outline,
+                            mr: 1,
+                            flexShrink: 0,
+                          }}>
+                            {vd.value}
+                          </Typography>
+                          <Typography sx={{
+                            fontFamily: FONT_BODY,
+                            fontSize: '0.6875rem',
+                            color: isActive ? c.onSurface : c.onSurfaceVar,
+                            fontWeight: isActive ? 600 : 400,
+                            textAlign: 'right',
+                          }}>
+                            {vd.label}
+                          </Typography>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </>
+              )}
 
               <Sep />
 

@@ -104,6 +104,11 @@ export function parseMapFile(content: string, isRegisterMap: boolean = false): P
       }
       seenNames.add(name);
 
+      if (address + arraySize - 1 > 65535) {
+        errors.push({ line: lineNum, message: `Array '${name}[${arraySize}]' starting at address ${address} exceeds maximum address 65535` });
+        continue;
+      }
+
       for (let i = 0; i < arraySize; i++) {
         entries.push({
           address: address++,
@@ -130,6 +135,11 @@ export function parseMapFile(content: string, isRegisterMap: boolean = false): P
         errors.push({ line: lineNum, message: `Duplicate entry name '${name}'` });
       }
       seenNames.add(name);
+
+      if (address > 65535) {
+        errors.push({ line: lineNum, message: `Entry '${name}' at address ${address} exceeds maximum address 65535` });
+        continue;
+      }
 
       entries.push({
         address: address++,

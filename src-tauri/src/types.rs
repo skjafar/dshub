@@ -32,6 +32,9 @@ pub struct DeviceConnection {
     #[serde(rename = "interface")]
     pub interface_type: InterfaceType,
     pub connected: bool,
+    /// True while a reconnect loop is running after an unexpected disconnect.
+    /// False once the user intentionally disconnects or reconnect succeeds.
+    pub reconnecting: bool,
     /// Serialised as "controlState" (numeric) to match TypeScript
     #[serde(rename = "controlState")]
     pub control_state: u32,
