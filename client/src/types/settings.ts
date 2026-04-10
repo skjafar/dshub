@@ -94,6 +94,7 @@ export interface UserSettings {
   logSettings: LogSettings; // Activity log filtering and retention settings
   dashboardLayouts: Record<string, DashboardLayout>; // Dashboard layouts per profile ID
   cncDashboardVersion?: number; // Tracks CNC dashboard template version for auto-reset
+  showGettingStarted: boolean; // Show Getting Started dialog on startup
 }
 
 export const DEFAULT_PROFILE_ID = 'default';
@@ -127,5 +128,6 @@ export const DEFAULT_SETTINGS: UserSettings = {
     maxLogCount: 1000, // Default: 1000 entries (balanced performance)
     requestRateLimit: 2000 // Default: 2000 requests/second (prevents device overload)
   },
-  dashboardLayouts: {} // Dashboard layouts per profile (empty by default)
+  dashboardLayouts: {}, // Dashboard layouts per profile (empty by default)
+  showGettingStarted: true, // Show Getting Started dialog on first launch
 };

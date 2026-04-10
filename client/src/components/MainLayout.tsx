@@ -54,6 +54,7 @@ import {
   Timer as TimerIcon,
   Send as SendIcon,
   Upload as UploadIcon,
+  HelpOutline as HelpOutlineIcon,
 } from '@mui/icons-material';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -71,6 +72,7 @@ import type { RegistersPanelRef } from './RegistersPanel';
 import type { ParametersPanelRef } from './ParametersPanel';
 import type { MapEditorPanelRef, MapEditorBarState } from './maps/MapEditorPanel';
 import type { MapProfilesPanelRef } from './MapProfilesPanel';
+import GettingStartedDialog from './GettingStartedDialog';
 
 const EMPTY_PROFILE_ID = '__empty__';
 
@@ -86,6 +88,7 @@ const SettingsPanel = lazy(() => import('./SettingsPanel'));
 const MapEditorPanel = lazy(() => import('./maps/MapEditorPanel'));
 const MapProfilesPanelLazy = lazy(() => import('./MapProfilesPanel'));
 const AboutPanel = lazy(() => import('./AboutPanel'));
+const GuidePanel = lazy(() => import('./GuidePanel'));
 
 const drawerWidth = 240;
 const drawerWidthCollapsed = 64;
@@ -103,6 +106,7 @@ const views: Array<{ key: ViewType; label: string; icon: React.ReactNode }> = [
   { key: 'logs', label: 'Activity Logs', icon: <LogsIcon /> },
   { key: 'mapeditor', label: 'Map Editor', icon: <MapEditorIcon /> },
   { key: 'profiles', label: 'Profiles', icon: <ProfilesIcon /> },
+
   { key: 'settings', label: 'Settings', icon: <SettingsIcon /> },
   { key: 'about', label: 'About', icon: <AboutIcon /> },
 ];
@@ -125,6 +129,15 @@ export default function MainLayout() {
   });
   const [autoConnectAttempts, setAutoConnectAttempts] = useState(0);
   const [isAutoConnecting, setIsAutoConnecting] = useState(false);
+  const [gettingStartedOpen, setGettingStartedOpen] = useState(false);
+  const [helpDrawerOpen, setHelpDrawerOpen] = useState(false);
+  // Show Getting Started dialog on startup if enabled
+  useEffect(() => {
+    if (settings.showGettingStarted) {
+      setGettingStartedOpen(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Persist last viewed panel & mark logs read when viewing logs
   useEffect(() => {
     localStorage.setItem('dshub-last-view', currentView);
@@ -313,7 +326,12 @@ export default function MainLayout() {
       case 'settings':
         return <SettingsPanel />;
       case 'about':
-        return <AboutPanel />;
+        return (
+          <AboutPanel
+            onOpenGettingStarted={() => setGettingStartedOpen(true)}
+            onOpenGuide={() => setHelpDrawerOpen(true)}
+          />
+        );
       default:
         return <DeviceScannerPanel />;
     }
@@ -1071,6 +1089,18 @@ export default function MainLayout() {
               </>
             )}
           </Box>
+
+          {/* Help button - pinned to far right */}
+          <Tooltip title="Workflow Guide">
+            <IconButton
+              size="small"
+              onClick={() => setHelpDrawerOpen(true)}
+              sx={{ color: 'text.secondary', ml: 1 }}
+              aria-label="Open workflow guide"
+            >
+              <HelpOutlineIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
         </Toolbar>
       </AppBar>
       <Box
@@ -1130,6 +1160,26 @@ export default function MainLayout() {
       </Box>
 
       <StatusBar />
+
+      <GettingStartedDialog
+        open={gettingStartedOpen}
+        onClose={() => setGettingStartedOpen(false)}
+        onViewGuide={() => {
+          setGettingStartedOpen(false);
+          setHelpDrawerOpen(true);
+        }}
+      />
+
+      <Drawer
+        anchor="right"
+        open={helpDrawerOpen}
+        onClose={() => setHelpDrawerOpen(false)}
+        slotProps={{ paper: { sx: { width: 420, p: 2, overflowX: 'hidden' } } }}
+      >
+        <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', pt: 4 }}><CircularProgress /></Box>}>
+          <GuidePanel />
+        </Suspense>
+      </Drawer>
     </Box>
   );
 }
