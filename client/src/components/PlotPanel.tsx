@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
+  Autocomplete,
   Box,
   Button,
   Card,
@@ -1395,23 +1396,21 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
               </FormControl>
             </Grid>
             <Grid size={{ xs: 12, sm: 2.5 }}>
-              <FormControl fullWidth size="small">
-                <InputLabel>{selectedSource === 'sysRegister' ? 'System Register' : 'Register'}</InputLabel>
-                <Select
-                  value={selectedRegister}
-                  onChange={(e) => setSelectedRegister(e.target.value)}
-                  label={selectedSource === 'sysRegister' ? 'System Register' : 'Register'}
-                >
-                  {(selectedSource === 'sysRegister' ? availableSystemRegisters : availableRegisters).map(register => {
-                    const existsInAnyPlot = plots.some(plot => plot.series.has(register.name));
-                    return (
-                      <MenuItem key={register.name} value={register.name} disabled={existsInAnyPlot}>
-                        {register.name}
-                      </MenuItem>
-                    );
-                  })}
-                </Select>
-              </FormControl>
+              <Autocomplete
+                size="small"
+                options={(selectedSource === 'sysRegister' ? availableSystemRegisters : availableRegisters).map(r => r.name)}
+                value={selectedRegister || null}
+                onChange={(_, newValue) => setSelectedRegister(newValue ?? '')}
+                getOptionDisabled={(option) => plots.some(plot => plot.series.has(option))}
+                autoHighlight
+                autoSelect={false}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label={selectedSource === 'sysRegister' ? 'System Register' : 'Register'}
+                  />
+                )}
+              />
             </Grid>
             <Grid size={{ xs: 12, sm: 2 }}>
               <TextField
