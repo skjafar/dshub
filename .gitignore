@@ -182,3 +182,6 @@ aur/dshub/
 .claude/ScreenHome5.png
 .claude/ScreenHome6.png
 .claude/ScreenHome7.png
+
+# Temporary local files
+tmp/

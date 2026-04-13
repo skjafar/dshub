@@ -588,6 +588,9 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
       },
 
       MuiTooltip: {
+        defaultProps: {
+          disableInteractive: true,
+        },
         styleOverrides: {
           tooltip: {
             fontFamily: FONT_BODY, fontSize: '0.6875rem', borderRadius: 4,

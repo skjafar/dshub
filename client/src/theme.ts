@@ -342,6 +342,9 @@ export const dsHubTheme = createTheme({
       },
     },
     MuiTooltip: {
+      defaultProps: {
+        disableInteractive: true,
+      },
       styleOverrides: {
         tooltip: {
           fontFamily: FONT_BODY,
@@ -744,6 +747,9 @@ export const dsHubDarkTheme = createTheme({
 
     // ─── Tooltip: surface-lowest + ghost border ───────────────────────────
     MuiTooltip: {
+      defaultProps: {
+        disableInteractive: true,
+      },
       styleOverrides: {
         tooltip: {
           fontFamily: FONT_BODY,
