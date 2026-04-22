@@ -119,7 +119,7 @@ This starts the Vite dev server and opens a Tauri window with hot-reload. Rust c
    git push origin vX.Y.Z
    ```
 4. The GitHub Actions workflow uploads `.deb`, `.rpm`, `.exe`, `.dmg`, and a Linux `.zip` to the release
-5. Update the AUR package (see `aur/MAINTAINER_GUIDE.md`)
+5. Update the AUR package (see `aur-bin/MAINTAINER_GUIDE.md` — locally only, not in git)
 
 ---
 

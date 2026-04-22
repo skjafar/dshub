@@ -7,7 +7,7 @@ DSHub is a native desktop application — no server to run, no browser to open. 
 ### Arch Linux (AUR)
 
 ```bash
-yay -S dshub
+yay -S dshub-bin
 ```
 
 ### From a .deb package (Ubuntu / Debian)

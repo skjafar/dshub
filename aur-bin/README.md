@@ -6,11 +6,10 @@ Arch Linux package for DSHub, a native desktop application for monitoring and co
 
 | Field | Value |
 |-------|-------|
-| Package name | `dshub` |
+| Package name | `dshub-bin` |
 | Architecture | `x86_64` |
 | License | MIT |
 | Runtime deps | `webkit2gtk-4.1`, `gtk3`, `libsoup3`, `openssl`, `xdg-utils` |
-| Build deps | `rust`, `npm`, `webkit2gtk-4.1`, `libsoup3` |
 
 ## Installation
 
@@ -18,14 +17,14 @@ Arch Linux package for DSHub, a native desktop application for monitoring and co
 
 ```bash
 # Using yay
-yay -S dshub
+yay -S dshub-bin
 
 # Using paru
-paru -S dshub
+paru -S dshub-bin
 
 # Manual
-git clone https://aur.archlinux.org/dshub.git
-cd dshub
+git clone https://aur.archlinux.org/dshub-bin.git
+cd dshub-bin
 makepkg -si
 ```
 
@@ -47,17 +46,16 @@ There is no service to start, no browser to open. DSHub is a self-contained desk
 /usr/share/icons/hicolor/32x32/apps/        # Icons
 /usr/share/icons/hicolor/128x128/apps/
 /usr/share/icons/hicolor/256x256/apps/
-/usr/share/licenses/dshub/LICENSE
 ```
 
 ## Uninstallation
 
 ```bash
-yay -R dshub
+yay -R dshub-bin
 # or
-paru -R dshub
+paru -R dshub-bin
 # or
-sudo pacman -R dshub
+sudo pacman -R dshub-bin
 ```
 
 No leftover config files in `/etc` — user settings are stored in `~/.config/dshub/` and can be removed manually if desired.
@@ -65,21 +63,20 @@ No leftover config files in `/etc` — user settings are stored in `~/.config/ds
 ## Building Locally
 
 ```bash
-cd aur/
+cd aur-bin/
 makepkg -si
 ```
 
 ### Build Requirements
 
 ```bash
-sudo pacman -S --needed rust npm webkit2gtk-4.1 libsoup3 base-devel
+sudo pacman -S --needed webkit2gtk-4.1 libsoup3 base-devel
 ```
 
 The PKGBUILD:
-1. Clones the repository at the tagged version
-2. Builds the React frontend with `npm ci` + `npm run build`
-3. Compiles the Rust binary with `cargo build --release --locked`
-4. Installs the binary, desktop entry, and icons
+1. Downloads the pre-built binary from the GitHub release
+2. Downloads the source tarball for icons and desktop file
+3. Installs the binary, desktop entry, and icons
 
 ## Firewall Notes
 
@@ -105,14 +102,7 @@ dshub
 sudo pacman -S webkit2gtk-4.1
 ```
 
-**Build fails:**
-```bash
-# Clean and retry
-rm -rf pkg/ src/
-makepkg -f
-```
-
 ## Support
 
 - Issues: https://github.com/skjafar/dshub/issues
-- AUR page: https://aur.archlinux.org/packages/dshub
+- AUR page: https://aur.archlinux.org/packages/dshub-bin

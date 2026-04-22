@@ -22,9 +22,9 @@ A desktop application for monitoring and controlling industrial devices via TCP/
 ### Install (Arch Linux)
 
 ```bash
-yay -S dshub
+yay -S dshub-bin
 # or
-paru -S dshub
+paru -S dshub-bin
 ```
 
 Launch from your application menu or run `dshub`.
@@ -110,7 +110,7 @@ dshub/
 │   │   └── types.rs     # Shared types (serde)
 │   └── tauri.conf.json
 ├── emulator/            # Python board emulator (no dependencies)
-├── aur/                 # Arch Linux AUR package files
+├── aur-bin/             # Arch Linux AUR package files (binary)
 └── libs/                # Third-party libs (gitignored, clone manually)
     └── datastream/      # Protocol definitions — git clone https://github.com/skjafar/datastream
 ```

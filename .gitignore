@@ -147,12 +147,13 @@ libs/
 # ============================================
 # AUR Package Build Artifacts
 # ============================================
-aur/pkg/
-aur/src/
-aur/*.pkg.tar.zst
-aur/*.pkg.tar.xz
-aur/*.tar.gz
-aur/dshub/
+aur-bin/pkg/
+aur-bin/src/
+aur-bin/*.pkg.tar.zst
+aur-bin/*.pkg.tar.xz
+aur-bin/*.tar.gz
+aur-bin/*.zip
+aur-bin/MAINTAINER_GUIDE.md
 
 # ============================================
 # Development & Documentation (Keep in Git)
@@ -163,17 +164,13 @@ aur/dshub/
 !DEPLOYMENT-PM2.md
 !VITE-MIGRATION.md
 !emulator/README.md
-!aur/README.md
 !client/public/maps/*.map
 !ecosystem.config.js
 !vite.config.ts
 !tsconfig*.json
-!aur/PKGBUILD
-!aur/.SRCINFO
-!aur/*.service
-!aur/*.desktop
-!aur/*.install
-!aur/config.env
+!aur-bin/PKGBUILD
+!aur-bin/.SRCINFO
+!aur-bin/README.md
 
 .claude/ScreenHome.png
 .claude/ScreenHome2.png
