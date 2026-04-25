@@ -3,10 +3,9 @@
 This project uses TypeScript with strict configuration.
 
 ## TypeScript Configuration
-- Strict mode enabled
-- No implicit any
-- Strict null checks
-- ES modules
+- Strict mode is currently **off** (`"strict": false` in `client/tsconfig.json` — relaxed during ongoing migration). New code should still be written as if strict were on: no implicit any, explicit null handling, no unchecked indexed access.
+- ES modules (`"type": "module"` in `client/package.json`)
+- `noFallthroughCasesInSwitch: true`
 
 ## Type Conventions
 - Prefer interfaces for object shapes

@@ -162,19 +162,28 @@ React UI  ──invoke()──►  Rust Commands  ──tokio::net──►  Dev
 
 ### Data (TCP port 2009 / UDP port 2011)
 
-**Packet (6 bytes):**
+**Request (8 bytes, little-endian):**
 ```
-[Command (1B)] [Address (1B)] [Value (4B, signed LE)]
+[Type (2B)] [Address (2B)] [Value (4B, signed)]
 ```
 
-| Command | Operation |
-|---------|-----------|
+**Response (8 bytes, little-endian):**
+```
+[Status (2B, signed)] [Address (2B)] [Value (4B, signed)]
+```
+
+| Type | Operation |
+|------|-----------|
 | 0 | SYS_COMMAND |
 | 1 | Read Register |
 | 2 | Write Register |
 | 3 | Read Parameter |
 | 4 | Write Parameter |
 | 5 | Take Control |
+| 6 | Read System Register |
+| 7 | Write System Register (always rejected — system registers are library-managed) |
+
+Full wire format, system command catalog, and conventions are in [PROTOCOL.md](PROTOCOL.md).
 
 ## Map Files
 
