@@ -247,7 +247,7 @@ const MapEditorPanel = forwardRef<MapEditorPanelRef, MapEditorPanelProps>(
       return;
     }
 
-    const newEntries = createEntriesFromData(newData, oldEntry.address, filtered);
+    const newEntries = createEntriesFromData({ ...oldEntry, ...newData }, oldEntry.address, filtered);
     const result = [...filtered];
     result.splice(insertIndex, 0, ...newEntries);
     const readdressed = result.map((e, index) => ({ ...e, address: index }));
@@ -445,7 +445,7 @@ const MapEditorPanel = forwardRef<MapEditorPanelRef, MapEditorPanelProps>(
       const regsMeta = extractMetadata(registerEntries);
       const paramsMeta = extractMetadata(parameterEntries);
 
-      const success = updateProfile(profileToOverwrite, registersContent, parametersContent, sysCommandEntries, profile?.boardTypesMap, undefined, regsMeta, paramsMeta);
+      const success = updateProfile(profileToOverwrite, registersContent, parametersContent, sysCommandEntries, profile?.boardTypesMap, regsMeta, paramsMeta);
 
       if (success) {
         mapManager.reload();
@@ -496,7 +496,7 @@ const MapEditorPanel = forwardRef<MapEditorPanelRef, MapEditorPanelProps>(
       const regsMeta = extractMetadata(registerEntries);
       const paramsMeta = extractMetadata(parameterEntries);
 
-      const newProfileId = createProfile(trimmedName, registersContent, parametersContent, sysCommandEntries, boardTypesContent, undefined, regsMeta, paramsMeta);
+      const newProfileId = createProfile(trimmedName, registersContent, parametersContent, sysCommandEntries, boardTypesContent, regsMeta, paramsMeta);
 
       const regParsed = parseMapFile(registersContent, true);
       const paramParsed = parseMapFile(parametersContent, false);

@@ -7,6 +7,19 @@ import { logger } from '../utils/logger';
 
 const STORAGE_KEY = 'dshub_settings';
 
+// System registers are protocol-fixed (library-managed, read-only over the wire) and
+// identical across every device. They are not part of user customization — every
+// profile carries this same canonical map so the System tab is never empty.
+const DEFAULT_SYSTEM_REGISTERS_MAP = `// System registers are library-managed and read-only from the protocol.
+// Accessed via command byte 6 (READ_SYSTEM_REGISTER).
+// Defined in ds_system_register_names.h from the datastream library.
+
+uint32_t            DS_PACKET_COUNT;
+uint32_t            DS_ERROR_COUNT;
+uint32_t            CONTROL_INTERFACE;
+uint32_t            COUNTER_1HZ;
+`;
+
 interface SettingsContextType {
   settings: UserSettings;
   storageError: boolean; // true when localStorage quota is exceeded and settings cannot be saved
@@ -17,8 +30,8 @@ interface SettingsContextType {
   // Map profile management
   getAllProfiles: () => MapProfile[]; // Returns all profiles including default
   getActiveProfile: () => MapProfile | null;
-  createProfile: (name: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, systemRegistersContent?: string, registersMetadata?: Record<string, EntryMetadata>, parametersMetadata?: Record<string, EntryMetadata>) => string;
-  updateProfile: (profileId: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, systemRegistersContent?: string, registersMetadata?: Record<string, EntryMetadata>, parametersMetadata?: Record<string, EntryMetadata>) => boolean;
+  createProfile: (name: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, registersMetadata?: Record<string, EntryMetadata>, parametersMetadata?: Record<string, EntryMetadata>) => string;
+  updateProfile: (profileId: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, registersMetadata?: Record<string, EntryMetadata>, parametersMetadata?: Record<string, EntryMetadata>) => boolean;
   deleteProfile: (profileId: string) => boolean;
   activateProfile: (profileId: string) => boolean;
   downloadProfileMaps: (profileId: string) => { registers: string; parameters: string; boardTypes?: string; systemRegisters?: string } | null;
@@ -44,12 +57,18 @@ function loadSettingsFromStorage(): UserSettings {
     if (stored) {
       const parsed = JSON.parse(stored);
       // Deep merge nested objects so new fields added to defaults are not lost
-      return {
+      const merged: UserSettings = {
         ...DEFAULT_SETTINGS,
         ...parsed,
         logSettings: { ...DEFAULT_SETTINGS.logSettings, ...parsed.logSettings },
         plotDefaults: { ...DEFAULT_SETTINGS.plotDefaults, ...parsed.plotDefaults },
       };
+      // Backfill canonical system registers on legacy user profiles created before
+      // they were populated automatically.
+      merged.mapProfiles = (merged.mapProfiles ?? []).map(p =>
+        p.systemRegistersMap ? p : { ...p, systemRegistersMap: DEFAULT_SYSTEM_REGISTERS_MAP }
+      );
+      return merged;
     }
   } catch (error) {
     console.error('Failed to load settings from localStorage:', error);
@@ -197,15 +216,16 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
         logger.log('Board types map not found, will use defaults');
       }
 
-      // Try to load system registers map (optional)
-      let systemRegistersMap: string | undefined = undefined;
+      // System registers are protocol-fixed; the bundled file is preferred but the
+      // canonical constant is the fallback so the System tab is never empty.
+      let systemRegistersMap: string = DEFAULT_SYSTEM_REGISTERS_MAP;
       try {
         const systemRegistersResponse = await fetch('/maps/system_registers.map');
         if (systemRegistersResponse.ok) {
           systemRegistersMap = await systemRegistersResponse.text();
         }
       } catch {
-        logger.log('system_registers.map not found, system tab will be empty');
+        logger.log('system_registers.map not found, using canonical defaults');
       }
 
       return {
@@ -238,15 +258,16 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     const registersMap = await registersResponse.text();
     const parametersMap = await parametersResponse.text();
 
-    // Try to load CNC system registers map (optional)
-    let systemRegistersMap: string | undefined = undefined;
+    // System registers are protocol-fixed; the bundled file is preferred but the
+    // canonical constant is the fallback so the System tab is never empty.
+    let systemRegistersMap: string = DEFAULT_SYSTEM_REGISTERS_MAP;
     try {
       const sysRegResponse = await fetch('/maps/cnc_system_registers.map');
       if (sysRegResponse.ok) {
         systemRegistersMap = await sysRegResponse.text();
       }
     } catch {
-      logger.log('cnc_system_registers.map not found');
+      logger.log('cnc_system_registers.map not found, using canonical defaults');
     }
 
     return {
@@ -287,8 +308,8 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     return settings.mapProfiles.find(p => p.id === settings.activeMapProfileId) || null;
   }, [settings.activeMapProfileId, settings.mapProfiles, defaultProfile, cncProfile]);
 
-  // Create a new profile
-  const createProfile = useCallback((name: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, systemRegistersContent?: string, registersMetadata?: Record<string, EntryMetadata>, parametersMetadata?: Record<string, EntryMetadata>): string => {
+  // Create a new profile. System registers are protocol-fixed and seeded automatically.
+  const createProfile = useCallback((name: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, registersMetadata?: Record<string, EntryMetadata>, parametersMetadata?: Record<string, EntryMetadata>): string => {
     const profileId = `profile_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const newProfile: MapProfile = {
       id: profileId,
@@ -297,7 +318,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
       registersMap: registersContent,
       parametersMap: parametersContent,
       boardTypesMap: boardTypesContent,
-      systemRegistersMap: systemRegistersContent,
+      systemRegistersMap: DEFAULT_SYSTEM_REGISTERS_MAP,
       sysCommands,
       registersMetadata,
       parametersMetadata,
@@ -312,8 +333,9 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     return profileId;
   }, []);
 
-  // Update an existing profile (cannot update default or CNC)
-  const updateProfile = useCallback((profileId: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, systemRegistersContent?: string, registersMetadata?: Record<string, EntryMetadata>, parametersMetadata?: Record<string, EntryMetadata>): boolean => {
+  // Update an existing profile (cannot update default or CNC).
+  // System registers are protocol-fixed and always reset to canonical content.
+  const updateProfile = useCallback((profileId: string, registersContent: string, parametersContent: string, sysCommands?: SysCommand[], boardTypesContent?: string, registersMetadata?: Record<string, EntryMetadata>, parametersMetadata?: Record<string, EntryMetadata>): boolean => {
     if (profileId === DEFAULT_PROFILE_ID || profileId === CNC_PROFILE_ID) {
       console.error('Cannot update built-in profile');
       return false;
@@ -329,7 +351,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
         registersMap: registersContent,
         parametersMap: parametersContent,
         boardTypesMap: boardTypesContent,
-        systemRegistersMap: systemRegistersContent,
+        systemRegistersMap: DEFAULT_SYSTEM_REGISTERS_MAP,
         sysCommands,
         registersMetadata,
         parametersMetadata,
@@ -429,7 +451,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
       isDefault: false,
       registersMap: file.maps.registers,
       parametersMap: file.maps.parameters,
-      systemRegistersMap: file.maps.systemRegisters,
+      systemRegistersMap: DEFAULT_SYSTEM_REGISTERS_MAP,
       boardTypesMap: file.maps.boardTypes,
       sysCommands: file.maps.sysCommands,
       registersMetadata: file.metadata.registers,

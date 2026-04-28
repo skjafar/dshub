@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -38,15 +38,12 @@ export default function EntryDescriptionDialog({
   onSave,
   onClose
 }: EntryDescriptionDialogProps) {
+  // The parent mounts this dialog only when an entry is selected and unmounts it
+  // on close, so initial values are seeded correctly on each open. Don't sync from
+  // props after mount: parent re-renders (driven by DSHubContext events) pass a
+  // fresh [] for the valueList default and would clobber the user's typing.
   const [description, setDescription] = useState(initialDescription);
   const [valueList, setValueList] = useState<ValueDescriptor[]>(initialValueList);
-
-  useEffect(() => {
-    if (open) {
-      setDescription(initialDescription);
-      setValueList(initialValueList);
-    }
-  }, [open, initialDescription, initialValueList]);
 
   const handleAddRow = () => {
     setValueList(prev => [...prev, { value: '', label: '' }]);
