@@ -7,6 +7,9 @@ import { mapManager } from '../../maps/mapManager';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
 import { FONT_MONO, FONT_HEADLINE } from '../../theme';
+import { getPlotValue } from '../../utils/dataTableUtils';
+import { formatFloat, isTinyFloat } from '../../utils/floatConversion';
+import { DataForm } from '../../maps/mapParser';
 
 interface EncoderDisplayWidgetProps {
   config: EncoderDisplayWidgetConfig;
@@ -45,7 +48,8 @@ export default function EncoderDisplayWidget({ config, isEditMode, widgetSize }:
     ? state.systemRegisters.get(config.address)
     : state.parameters.get(config.address);
 
-  const rawValue = currentData?.value !== undefined ? (currentData.value as number) : 0;
+  const sourceMapEntry = mapManager.getEntryBySource(config.source, config.address);
+  const rawValue = currentData?.value !== undefined ? getPlotValue(currentData.value, sourceMapEntry) : 0;
 
   // Load conversion factor if using parameter source
   useEffect(() => {
@@ -64,7 +68,8 @@ export default function EncoderDisplayWidget({ config, isEditMode, widgetSize }:
     if (config.conversionSource === 'parameter' && config.conversionAddress !== undefined) {
       const convData = state.parameters.get(config.conversionAddress);
       if (convData?.value !== undefined) {
-        setConversionFactor(convData.value as number);
+        const convMapEntry = mapManager.getParameterByAddress(config.conversionAddress);
+        setConversionFactor(getPlotValue(convData.value, convMapEntry));
       }
     }
   }, [state.parameters, config.conversionSource, config.conversionAddress]);
@@ -77,11 +82,16 @@ export default function EncoderDisplayWidget({ config, isEditMode, widgetSize }:
   // Format value with decimals
   const formatValue = (value: number): string => {
     const decimals = config.decimals ?? 3;
-    return value.toFixed(decimals).padStart(9, ' ');
+    const text = config.scientificNotation || isTinyFloat(value) ? value.toExponential(decimals) : value.toFixed(decimals);
+    return text.padStart(9, ' ');
   };
 
   const formatRawValue = (value: number): string => {
-    return value.toString().padStart(8, ' ');
+    const isRawFloat = sourceMapEntry?.type === DataForm.FLOAT;
+    const text = config.rawScientificNotation || (isRawFloat && isTinyFloat(value))
+      ? value.toExponential(4)
+      : isRawFloat ? formatFloat(value) : value.toString();
+    return text.padStart(8, ' ');
   };
 
   const displayColor = config.color || '#00F2FF';

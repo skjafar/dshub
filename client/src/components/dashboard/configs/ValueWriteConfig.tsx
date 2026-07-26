@@ -64,7 +64,7 @@ export default function ValueWriteConfig({ config, onConfigChange, registers, pa
         type="number"
         label="Minimum Value (optional)"
         value={config.min ?? ''}
-        onChange={(e) => onConfigChange({ ...config, min: e.target.value ? parseInt(e.target.value) : undefined })}
+        onChange={(e) => onConfigChange({ ...config, min: e.target.value ? parseFloat(e.target.value) : undefined })}
         margin="normal"
       />
       <TextField
@@ -72,7 +72,7 @@ export default function ValueWriteConfig({ config, onConfigChange, registers, pa
         type="number"
         label="Maximum Value (optional)"
         value={config.max ?? ''}
-        onChange={(e) => onConfigChange({ ...config, max: e.target.value ? parseInt(e.target.value) : undefined })}
+        onChange={(e) => onConfigChange({ ...config, max: e.target.value ? parseFloat(e.target.value) : undefined })}
         margin="normal"
       />
       <TextField

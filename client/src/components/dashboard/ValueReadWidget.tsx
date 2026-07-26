@@ -7,6 +7,10 @@ import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
 import { FONT_MONO, FONT_HEADLINE } from '../../theme';
+import { mapManager } from '../../maps/mapManager';
+import { getPlotValue } from '../../utils/dataTableUtils';
+import { formatFloat, isTinyFloat } from '../../utils/floatConversion';
+import { DataForm } from '../../maps/mapParser';
 
 interface ValueReadWidgetProps {
   config: ValueReadWidgetConfig;
@@ -25,6 +29,9 @@ export default function ValueReadWidget({ config, isEditMode, widgetSize }: Valu
     : config.source === 'sysRegister'
     ? state.systemRegisters.get(config.address)
     : state.parameters.get(config.address);
+
+  const mapEntry = mapManager.getEntryBySource(config.source, config.address);
+  const value = data?.value !== undefined ? getPlotValue(data.value, mapEntry) : null;
 
   // Set up auto-refresh via shared hook
   useAutoRefresh({
@@ -53,8 +60,11 @@ export default function ValueReadWidget({ config, isEditMode, widgetSize }: Valu
       case 'binary':
         return `0b${value.toString(2)}`;
       case 'decimal':
-      default:
-        return value.toString();
+      default: {
+        const isFloat = mapEntry?.type === DataForm.FLOAT;
+        if (config.scientificNotation || (isFloat && isTinyFloat(value))) return value.toExponential(4);
+        return isFloat ? formatFloat(value) : value.toString();
+      }
     }
   };
 
@@ -115,7 +125,7 @@ export default function ValueReadWidget({ config, isEditMode, widgetSize }: Valu
               color: data?.valid === false ? 'error.main' : 'text.primary',
             }}
           >
-            {formatValue(data?.value ?? null)}
+            {formatValue(value)}
           </Typography>
 
           {config.unit && (

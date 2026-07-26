@@ -6,7 +6,7 @@ import {
   Timer as TimerIcon,
 } from '@mui/icons-material';
 import { MapEntry, DataForm, DataAccessPermit } from '../maps/mapParser';
-import { int32ToFloat, formatFloat } from '../utils/floatConversion';
+import { int32ToFloat, formatFloat, isTinyFloat } from '../utils/floatConversion';
 import { FONT_MONO, FONT_BODY, FONT_HEADLINE } from '../theme';
 import { hexCh } from '../appThemes';
 
@@ -285,7 +285,12 @@ export default function RegisterInspector({
   const binStr   = value !== null ? toBin32(value).match(/.{4}/g)!.join(' ') : '---';
   const decS     = value !== null ? decSigned(value)     : '---';
   const decU     = value !== null ? decUnsigned(value)   : '---';
-  const floatStr = value !== null ? formatFloat(int32ToFloat(value)) : '---';
+  const floatVal  = value !== null ? int32ToFloat(value) : null;
+  const floatStr  = floatVal === null
+    ? '---'
+    : isTinyFloat(floatVal)
+      ? floatVal.toExponential(4)
+      : formatFloat(floatVal);
 
   // Status
   const statusColor = value === null ? c.outline : valid ? c.secondary : c.error;

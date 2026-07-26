@@ -16,6 +16,8 @@ import { WidgetSizeInfo, scaledRem, scaledPx } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
+import { mapManager } from '../../maps/mapManager';
+import { getPlotValue } from '../../utils/dataTableUtils';
 
 interface DataPoint {
   x: number; // timestamp
@@ -48,6 +50,12 @@ export default function MiniPlotWidget({ config, isEditMode, widgetSize }: MiniP
     ? state.systemRegisters.get(config.address)
     : state.parameters.get(config.address);
 
+  const mapEntry = config.source === 'register'
+    ? mapManager.getRegisterByAddress(config.address)
+    : config.source === 'sysRegister'
+    ? mapManager.getSystemRegisterByAddress(config.address)
+    : mapManager.getParameterByAddress(config.address);
+
   // Collect data points - triggers on every new read (timestamp change), even if value stays the same
   useEffect(() => {
     if (currentData?.value === undefined || isEditMode) return;
@@ -58,9 +66,11 @@ export default function MiniPlotWidget({ config, isEditMode, widgetSize }: MiniP
     // Calculate max data points based on time window and poll interval (+10% buffer)
     const maxDataPoints = Math.ceil((config.timeWindow * 1000 / config.pollInterval) * 1.1);
 
+    const value = getPlotValue(currentData.value as number, mapEntry);
+
     setDataPoints(prev => {
       // Add new point
-      const newPoints = [...prev, { x: now, y: currentData.value as number }];
+      const newPoints = [...prev, { x: now, y: value }];
 
       // Filter out old points based on time window
       let filtered = newPoints.filter(point => point.x >= cutoffTime);

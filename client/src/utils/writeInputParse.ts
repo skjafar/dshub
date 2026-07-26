@@ -79,20 +79,20 @@ export function filterWriteInput(value: string, format: WriteFormat): string {
     case 'decimal':
     default: {
       // Allow digits, one leading minus, one dot, e/E for scientific notation
+      // with an optional +/- sign on the exponent (e.g. "-1.5e-3")
       let result = '';
       let hasMinus = false;
       let hasDot = false;
       let hasE = false;
       let afterE = false;
       for (const ch of value) {
-        if (ch === '-') {
-          if (result === '' && !hasMinus) { hasMinus = true; result += ch; }
+        if (ch === '-' || ch === '+') {
+          if (afterE) { afterE = false; result += ch; }
+          else if (ch === '-' && result === '' && !hasMinus) { hasMinus = true; result += ch; }
         } else if (ch === '.') {
           if (!hasDot && !hasE) { hasDot = true; result += ch; }
         } else if (ch === 'e' || ch === 'E') {
           if (!hasE && result !== '' && result !== '-') { hasE = true; afterE = true; result += ch; }
-        } else if (ch === '+') {
-          if (afterE) { afterE = false; result += ch; }
         } else if (ch >= '0' && ch <= '9') {
           afterE = false;
           result += ch;
@@ -103,12 +103,23 @@ export function filterWriteInput(value: string, format: WriteFormat): string {
   }
 }
 
+/**
+ * Check whether `value` is a valid multiple of `step`, with float-precision tolerance
+ * (e.g. 0.3 / 0.1 === 2.9999999999999996 in JS, not 3 — a plain `%` check would wrongly reject it).
+ * No step configured (undefined or <= 0) means no constraint — any value is valid.
+ */
+export function isValidStep(value: number, step: number | undefined): boolean {
+  if (step === undefined || step <= 0) return true;
+  const ratio = value / step;
+  return Math.abs(ratio - Math.round(ratio)) < 1e-9;
+}
+
 /** Short helper text shown below the input field. */
 export function formatInputHint(format: WriteFormat, min?: number, max?: number): string {
   const rangeStr = min !== undefined && max !== undefined ? ` · Range: ${min}–${max}` : '';
   switch (format) {
     case 'hex':    return `Hex (e.g. 1A2B or 0x1A2B)${rangeStr}`;
     case 'binary': return `Binary (e.g. 1010 or 0b1010)${rangeStr}`;
-    default:       return min !== undefined && max !== undefined ? `Range: ${min}–${max}` : '';
+    default:       return `Decimal or scientific (e.g. 1.5 or 1.5e-3)${rangeStr}`;
   }
 }

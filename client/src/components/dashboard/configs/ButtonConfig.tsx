@@ -93,9 +93,9 @@ export default function ButtonConfig({ config, onConfigChange, registers, parame
         type="number"
         label={config.target === 'sysCommand' ? 'Command Value (Optional)' : 'Value to Write'}
         value={config.valueToWrite ?? 0}
-        onChange={(e) => onConfigChange({ ...config, valueToWrite: parseInt(e.target.value) })}
+        onChange={(e) => onConfigChange({ ...config, valueToWrite: parseFloat(e.target.value) })}
         margin="normal"
-        helperText={config.target === 'sysCommand' ? 'Optional value parameter for the command' : undefined}
+        helperText={config.target === 'sysCommand' ? 'Optional value parameter for the command' : 'Enter a decimal value if writing to a float register/parameter'}
       />
       <ColorPickerField
         label="Button Color"

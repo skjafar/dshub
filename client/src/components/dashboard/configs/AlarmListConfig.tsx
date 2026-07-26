@@ -15,7 +15,9 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  ArrowUpward as ArrowUpwardIcon,
+  ArrowDownward as ArrowDownwardIcon
 } from '@mui/icons-material';
 import { AlarmListWidgetConfig, AlarmRule, DataSource } from '../../../types/dashboard';
 import AddressSelector, { AddressItem } from './AddressSelector';
@@ -29,6 +31,14 @@ interface AlarmListConfigProps {
 }
 
 export default function AlarmListConfig({ config, onConfigChange, registers, parameters, systemRegisters }: AlarmListConfigProps): React.ReactElement {
+  const moveAlarm = (index: number, direction: -1 | 1) => {
+    const alarms = [...(config.alarms ?? [])];
+    const target = index + direction;
+    if (target < 0 || target >= alarms.length) return;
+    [alarms[index], alarms[target]] = [alarms[target], alarms[index]];
+    onConfigChange({ ...config, alarms });
+  };
+
   return (
     <>
       <TextField
@@ -108,6 +118,22 @@ export default function AlarmListConfig({ config, onConfigChange, registers, par
               size="small"
               sx={{ flex: 1 }}
             />
+            <IconButton
+              onClick={() => moveAlarm(index, -1)}
+              disabled={index === 0}
+              size="small"
+              title="Move up"
+            >
+              <ArrowUpwardIcon fontSize="small" />
+            </IconButton>
+            <IconButton
+              onClick={() => moveAlarm(index, 1)}
+              disabled={index === (config.alarms ?? []).length - 1}
+              size="small"
+              title="Move down"
+            >
+              <ArrowDownwardIcon fontSize="small" />
+            </IconButton>
             <IconButton
               onClick={() => {
                 const alarms = (config.alarms ?? []).filter((_, i) => i !== index);
@@ -240,6 +266,37 @@ export default function AlarmListConfig({ config, onConfigChange, registers, par
               helperText="Comma-separated values that trigger alarm (e.g., 3, 5, 7)"
             />
           )}
+
+          {/* Row 5: Value display formatting */}
+          <Box sx={{ display: 'flex', gap: 1, mt: 1, alignItems: 'center' }}>
+            <TextField
+              label="Decimals"
+              type="number"
+              value={alarm.decimals ?? ''}
+              onChange={(e) => {
+                const alarms = [...(config.alarms ?? [])];
+                alarms[index] = { ...alarms[index], decimals: e.target.value ? parseInt(e.target.value) : undefined };
+                onConfigChange({ ...config, alarms });
+              }}
+              size="small"
+              sx={{ width: 100 }}
+              inputProps={{ min: 0, max: 10 }}
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={alarm.scientificNotation ?? false}
+                  onChange={(e) => {
+                    const alarms = [...(config.alarms ?? [])];
+                    alarms[index] = { ...alarms[index], scientificNotation: e.target.checked };
+                    onConfigChange({ ...config, alarms });
+                  }}
+                  size="small"
+                />
+              }
+              label="Sci. Notation"
+            />
+          </Box>
         </Box>
       ))}
     </>

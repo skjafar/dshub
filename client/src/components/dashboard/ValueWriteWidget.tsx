@@ -1,11 +1,16 @@
-import React, { useState } from 'react';
-import { Box, TextField, Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography } from '@mui/material';
+import React, { useEffect, useState } from 'react';
+import { Box, Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography } from '@mui/material';
 import { ValueWriteWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem, getOrientation, isCompactSize } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useToast } from '../ToastNotification';
 import { FONT_MONO } from '../../theme';
-import { parseWriteInput, formatInputHint, filterWriteInput } from '../../utils/writeInputParse';
+import { parseWriteInput, formatInputHint, isValidStep } from '../../utils/writeInputParse';
+import { mapManager } from '../../maps/mapManager';
+import { DataForm } from '../../maps/mapParser';
+import { getWireValue, getPlotValue } from '../../utils/dataTableUtils';
+import { resolveThumbwheelFormat, formatForThumbwheel, initialFractionDigits } from '../../utils/thumbwheel';
+import ThumbwheelInput from '../ThumbwheelInput';
 
 interface ValueWriteWidgetProps {
   config: ValueWriteWidgetConfig;
@@ -17,10 +22,29 @@ export default function ValueWriteWidget({ config, isEditMode, widgetSize }: Val
   const { state, actions } = useDSHub();
   const { showSuccess, showError } = useToast();
   const [inputValue, setInputValue] = useState<string>('');
+  const [isFocused, setIsFocused] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(false);
   const [pendingValue, setPendingValue] = useState<number | null>(null);
 
   const format = config.format ?? 'decimal';
+  const mapEntry = mapManager.getEntryBySource(config.target, config.address);
+  const isFloat = mapEntry?.type === DataForm.FLOAT;
+
+  // Always show the live register/parameter value — including once a write is
+  // confirmed, since confirmations land via the same registerUpdate/parameterUpdate
+  // events as ordinary reads. Skipped while the user is actively editing.
+  const liveData = config.target === 'register' ? state.registers.get(config.address) : state.parameters.get(config.address);
+  const liveValue = liveData?.value !== undefined ? getPlotValue(liveData.value, mapEntry) : null;
+
+  useEffect(() => {
+    if (isFocused) return;
+    if (liveValue === null) {
+      setInputValue('');
+      return;
+    }
+    const fractionDigits = isFloat ? initialFractionDigits(liveValue) : undefined;
+    setInputValue(formatForThumbwheel(liveValue, resolveThumbwheelFormat(format, isFloat), fractionDigits));
+  }, [liveValue, isFocused, format, isFloat]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,9 +68,8 @@ export default function ValueWriteWidget({ config, isEditMode, widgetSize }: Val
       return;
     }
 
-    const step = config.step ?? 1;
-    if (step > 0 && numValue % step !== 0) {
-      showError(`Value must be a multiple of ${step} (e.g. 0, ${step}, ${step * 2}...)`);
+    if (!isValidStep(numValue, config.step)) {
+      showError(`Value must be a multiple of ${config.step} (e.g. 0, ${config.step}, ${(config.step ?? 0) * 2}...)`);
       return;
     }
 
@@ -62,14 +85,16 @@ export default function ValueWriteWidget({ config, isEditMode, widgetSize }: Val
     setConfirmDialog(false);
 
     try {
+      const wireValue = getWireValue(value, mapEntry);
       if (config.target === 'register') {
-        actions.writeRegister(config.address, value);
+        actions.writeRegister(config.address, wireValue);
         showSuccess(`Wrote ${value} to register ${config.address}`);
       } else {
-        actions.writeParameter(config.address, value);
+        actions.writeParameter(config.address, wireValue);
         showSuccess(`Wrote ${value} to parameter ${config.address}`);
       }
-      setInputValue(''); // Clear input after successful write
+      // Input keeps showing the pending value until the device-confirmed value
+      // arrives via registerUpdate/parameterUpdate and the sync effect updates it.
     } catch (error) {
       showError(`Failed to write value: ${error}`);
     }
@@ -99,11 +124,16 @@ export default function ValueWriteWidget({ config, isEditMode, widgetSize }: Val
           {config.label}
         </Typography>
 
-        <TextField
-          type="text"
+        <ThumbwheelInput
           value={inputValue}
-          onChange={(e) => setInputValue(filterWriteInput(e.target.value, format))}
+          onChange={setInputValue}
+          writeFormat={format}
+          isFloat={isFloat}
+          min={config.min}
+          max={config.max}
           disabled={isEditMode || !state.connection?.connected}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
           fullWidth={!isLandscape}
           size="small"
           label="Value"

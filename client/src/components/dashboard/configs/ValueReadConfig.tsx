@@ -62,6 +62,17 @@ export default function ValueReadConfig({ config, onConfigChange, registers, par
           <MenuItem value="binary">Binary</MenuItem>
         </Select>
       </FormControl>
+      {(config.displayFormat ?? 'decimal') === 'decimal' && (
+        <FormControlLabel
+          control={
+            <Switch
+              checked={config.scientificNotation ?? false}
+              onChange={(e) => onConfigChange({ ...config, scientificNotation: e.target.checked })}
+            />
+          }
+          label="Scientific Notation"
+        />
+      )}
       <TextField
         fullWidth
         type="number"

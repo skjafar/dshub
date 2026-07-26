@@ -8,7 +8,9 @@ import {
   TextField,
 } from '@mui/material';
 import { MapEntry } from '../maps/mapParser';
-import { parseWriteValue, filterWriteValueFromMap } from '../utils/dataTableUtils';
+import { parseWriteValue, getPlotValue } from '../utils/dataTableUtils';
+import { resolveThumbwheelFormat, formatForThumbwheel, initialFractionDigits } from '../utils/thumbwheel';
+import ThumbwheelInput from './ThumbwheelInput';
 
 interface DataEditDialogProps {
   open: boolean;
@@ -23,11 +25,17 @@ interface DataEditDialogProps {
 export function DataEditDialog({ open, dataType, item, mapEntry, onClose, onWrite }: DataEditDialogProps) {
   const [valueStr, setValueStr] = useState('');
 
+  const isFloat = mapEntry?.type === 'float';
+  const writeFormat: 'decimal' | 'hex' = mapEntry?.showAsHex ? 'hex' : 'decimal';
+
   useEffect(() => {
     if (item) {
-      setValueStr(String(item.value ?? 0));
+      const decoded = item.value !== null ? getPlotValue(item.value, mapEntry) : 0;
+      const fractionDigits = isFloat ? initialFractionDigits(decoded) : undefined;
+      setValueStr(formatForThumbwheel(decoded, resolveThumbwheelFormat(writeFormat, isFloat), fractionDigits));
     }
-  }, [item]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item, mapEntry]);
 
   const handleWrite = () => {
     if (item) {
@@ -54,16 +62,17 @@ export function DataEditDialog({ open, dataType, item, mapEntry, onClose, onWrit
         Edit {dataType} {item?.name || ''} (0x{item?.address.toString(16).toUpperCase()})
       </DialogTitle>
       <DialogContent>
-        <TextField
+        <ThumbwheelInput
           autoFocus
           margin="dense"
           label="Value"
-          type="text"
           fullWidth
           variant="outlined"
           value={valueStr}
+          onChange={setValueStr}
+          writeFormat={writeFormat}
+          isFloat={isFloat}
           placeholder={placeholder}
-          onChange={(e) => setValueStr(filterWriteValueFromMap(e.target.value, mapEntry))}
           sx={{ mt: 2 }}
           helperText={helperText}
         />

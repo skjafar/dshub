@@ -180,6 +180,17 @@ export class MapManager {
     return this.systemRegistersMap?.entries.find(e => e.name === name);
   }
 
+  /** Look up a map entry by its dashboard-widget DataSource ('register' | 'sysRegister' | 'parameter' | 'sysCommand').
+   *  sysCommand has no map entry (returns undefined) since it isn't a typed register/parameter. */
+  getEntryBySource(source: string, address: number): MapEntry | undefined {
+    switch (source) {
+      case 'register': return this.getRegisterByAddress(address);
+      case 'sysRegister': return this.getSystemRegisterByAddress(address);
+      case 'parameter': return this.getParameterByAddress(address);
+      default: return undefined;
+    }
+  }
+
   // Board types methods
   getBoardTypeName(typeId: number): string {
     const entry = this.boardTypesMap.find(bt => bt.id === typeId);

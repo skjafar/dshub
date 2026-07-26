@@ -38,7 +38,7 @@ export default function AboutPanel({ onOpenGettingStarted, onOpenGuide }: AboutP
               DSHub
             </Typography>
             <Typography variant="caption" sx={{ fontFamily: FONT_MONO, color: 'text.secondary' }}>
-              v0.2.3
+              v0.2.4
             </Typography>
           </Box>
 

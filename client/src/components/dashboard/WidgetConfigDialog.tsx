@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Dialog,
@@ -91,33 +91,45 @@ export default function WidgetConfigDialog({
   const [config, setConfig] = useState<Partial<WidgetConfig>>({});
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
-  // Get available registers, parameters and system registers from the map
+  // Get available registers, parameters and system registers from the map.
+  // Memoized on the underlying map text so these arrays (and the AddressItem
+  // objects inside them) keep a stable identity across re-renders — MainLayout
+  // re-renders on every live device update, and without this the address
+  // Autocomplete's `value`/`options` would get a new object every render,
+  // which makes MUI reset the in-progress search text and the selection.
   const activeProfile = getActiveProfile();
-  const registerMapEntries = activeProfile ? parseMapFile(activeProfile.registersMap, true).entries : [];
-  const parameterMapEntries = activeProfile ? parseMapFile(activeProfile.parametersMap, false).entries : [];
-  const sysRegMapEntries = activeProfile?.systemRegistersMap
-    ? parseMapFile(activeProfile.systemRegistersMap, false).entries
-    : [];
+  const registersMapText = activeProfile?.registersMap;
+  const parametersMapText = activeProfile?.parametersMap;
+  const systemRegistersMapText = activeProfile?.systemRegistersMap;
 
-  const registers: AddressItem[] = registerMapEntries.map(entry => ({
-    address: entry.address,
-    name: entry.name,
-    type: entry.type,
-    isReadOnly: entry.accessPermit === 'READ_ONLY'
-  }));
+  const registers: AddressItem[] = useMemo(() => {
+    if (!registersMapText) return [];
+    return parseMapFile(registersMapText, true).entries.map(entry => ({
+      address: entry.address,
+      name: entry.name,
+      type: entry.type,
+      isReadOnly: entry.accessPermit === 'READ_ONLY'
+    }));
+  }, [registersMapText]);
 
-  const parameters: AddressItem[] = parameterMapEntries.map(entry => ({
-    address: entry.address,
-    name: entry.name,
-    type: entry.type
-  }));
+  const parameters: AddressItem[] = useMemo(() => {
+    if (!parametersMapText) return [];
+    return parseMapFile(parametersMapText, false).entries.map(entry => ({
+      address: entry.address,
+      name: entry.name,
+      type: entry.type
+    }));
+  }, [parametersMapText]);
 
-  const systemRegisters: AddressItem[] = sysRegMapEntries.map(entry => ({
-    address: entry.address,
-    name: entry.name,
-    type: entry.type,
-    isReadOnly: true
-  }));
+  const systemRegisters: AddressItem[] = useMemo(() => {
+    if (!systemRegistersMapText) return [];
+    return parseMapFile(systemRegistersMapText, false).entries.map(entry => ({
+      address: entry.address,
+      name: entry.name,
+      type: entry.type,
+      isReadOnly: true
+    }));
+  }, [systemRegistersMapText]);
 
   // Update widget type and config when dialog opens or props change
   useEffect(() => {

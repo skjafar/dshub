@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Box, FormControl, InputLabel, Select, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography } from '@mui/material';
 import { DropdownWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem, getOrientation, isCompactSize } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useToast } from '../ToastNotification';
 import { FONT_MONO } from '../../theme';
+import { mapManager } from '../../maps/mapManager';
+import { getWireValue, getPlotValue } from '../../utils/dataTableUtils';
 
 interface DropdownWidgetProps {
   config: DropdownWidgetConfig;
@@ -16,8 +18,23 @@ export default function DropdownWidget({ config, isEditMode, widgetSize }: Dropd
   const { state, actions } = useDSHub();
   const { showSuccess, showError } = useToast();
   const [selectedValue, setSelectedValue] = useState<number | ''>('');
+  const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(false);
   const [pendingValue, setPendingValue] = useState<{ label: string; value: number } | null>(null);
+
+  const mapEntry = mapManager.getEntryBySource(config.target, config.address);
+
+  // Always show the live register/parameter value — including once a write is
+  // confirmed, since confirmations land via the same registerUpdate/parameterUpdate
+  // events as ordinary reads. Skipped while the picklist is open.
+  const liveData = config.target === 'register' ? state.registers.get(config.address) : state.parameters.get(config.address);
+  const liveValue = liveData?.value !== undefined ? getPlotValue(liveData.value, mapEntry) : null;
+
+  useEffect(() => {
+    if (menuOpen) return;
+    const matches = liveValue !== null && config.options.some(opt => opt.value === liveValue);
+    setSelectedValue(matches ? (liveValue as number) : '');
+  }, [liveValue, menuOpen, config.options]);
 
   const handleChange = (value: number) => {
     if (isEditMode || !state.connection?.connected) return;
@@ -37,14 +54,16 @@ export default function DropdownWidget({ config, isEditMode, widgetSize }: Dropd
     setConfirmDialog(false);
 
     try {
+      const wireValue = getWireValue(value, mapEntry);
       if (config.target === 'register') {
-        actions.writeRegister(config.address, value);
+        actions.writeRegister(config.address, wireValue);
         showSuccess(`Wrote ${value} to register ${config.address}`);
       } else {
-        actions.writeParameter(config.address, value);
+        actions.writeParameter(config.address, wireValue);
         showSuccess(`Wrote ${value} to parameter ${config.address}`);
       }
-      setSelectedValue(value);
+      // Selection keeps showing the pending value until the device-confirmed value
+      // arrives via registerUpdate/parameterUpdate and the sync effect updates it.
     } catch (error) {
       showError(`Failed to write value: ${error}`);
     }
@@ -75,6 +94,9 @@ export default function DropdownWidget({ config, isEditMode, widgetSize }: Dropd
           <Select
             labelId={`dropdown-${config.address}-label`}
             value={selectedValue}
+            open={menuOpen}
+            onOpen={() => setMenuOpen(true)}
+            onClose={() => setMenuOpen(false)}
             onChange={(e) => handleChange(e.target.value as number)}
             label="Select Value"
             sx={{ fontFamily: FONT_MONO, fontSize: widgetSize ? scaledRem(config.valueFontSize ?? 0.8125, widgetSize.scale) : `${config.valueFontSize ?? 0.8125}rem` }}

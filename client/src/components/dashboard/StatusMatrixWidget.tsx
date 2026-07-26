@@ -5,6 +5,8 @@ import { WidgetSizeInfo, scaledRem, isCompactSize } from '../../utils/widgetScal
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefreshMulti } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
+import { mapManager } from '../../maps/mapManager';
+import { getPlotValue } from '../../utils/dataTableUtils';
 
 interface StatusMatrixWidgetProps {
   config: StatusMatrixWidgetConfig;
@@ -75,7 +77,8 @@ export default function StatusMatrixWidget({ config, isEditMode, widgetSize }: S
             : item.source === 'sysRegister'
             ? state.systemRegisters.get(item.address)
             : state.parameters.get(item.address);
-          const value = data?.value !== undefined ? (data.value as number) : undefined;
+          const itemMapEntry = mapManager.getEntryBySource(item.source, item.address);
+          const value = data?.value !== undefined ? getPlotValue(data.value, itemMapEntry) : undefined;
           const onValue = item.onValue ?? 1;
           const isOn = value === onValue;
           const onColor = item.onColor ?? '#4ADE80';

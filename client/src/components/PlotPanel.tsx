@@ -50,6 +50,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import { mapManager } from '../maps/mapManager';
 import { MapEntry } from '../maps/mapParser';
+import { getPlotValue } from '../utils/dataTableUtils';
 
 ChartJS.register(
   CategoryScale,
@@ -253,6 +254,12 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
     }
     return COLORS[plotColors.size % COLORS.length];
   }, [plots]);
+
+  // Look up the map entry for a series so its raw value can be decoded correctly
+  const getSeriesMapEntry = useCallback((series: PlotSeries): MapEntry | undefined => {
+    const sourceList = series.source === 'sysRegister' ? availableSystemRegisters : availableRegisters;
+    return sourceList.find(r => r.name === series.name);
+  }, [availableRegisters, availableSystemRegisters]);
 
   // Get chart coordinates helper for a specific plot
   const getChartCoordinates = useCallback((plotId: string, clientX: number, clientY: number) => {
@@ -504,14 +511,21 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
 
   // Save data
   const handleSaveData = () => {
-    const allSeriesNames: string[] = [];
+    const allSeries: PlotSeries[] = [];
     plots.forEach(plot => {
-      plot.series.forEach((_, seriesName) => {
-        allSeriesNames.push(seriesName);
+      plot.series.forEach((series) => {
+        allSeries.push(series);
       });
     });
+    const allSeriesNames = allSeries.map(series => series.name);
 
-    const seriesData = allSeriesNames.map(name => state.plotData.get(name) ?? []);
+    const seriesData = allSeries.map(series => {
+      const mapEntry = getSeriesMapEntry(series);
+      return (state.plotData.get(series.name) ?? []).map(point => ({
+        x: point.x,
+        y: getPlotValue(point.y, mapEntry)
+      }));
+    });
     const maxRows = Math.max(0, ...seriesData.map(d => d.length));
 
     const pad = (n: number, len = 2) => String(n).padStart(len, '0');
@@ -692,15 +706,16 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
   };
 
   // Calculate statistics for a series
-  const calculateStatistics = (seriesName: string) => {
-    const seriesData = state.plotData.get(seriesName) || [];
+  const calculateStatistics = (series: PlotSeries) => {
+    const seriesData = state.plotData.get(series.name) || [];
     const filteredData = getFilteredData(seriesData, timeWindowStart);
 
     if (filteredData.length === 0) {
       return { min: 0, max: 0, avg: 0, count: 0 };
     }
 
-    const values = filteredData.map(point => point.y);
+    const mapEntry = getSeriesMapEntry(series);
+    const values = filteredData.map(point => getPlotValue(point.y, mapEntry));
     const min = Math.min(...values);
     const max = Math.max(...values);
     const sum = values.reduce((acc, val) => acc + val, 0);
@@ -717,12 +732,13 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
         .map(([seriesName, series]) => {
           const seriesData = state.plotData.get(seriesName) || [];
           const filteredData = getFilteredData(seriesData, timeWindowStart);
+          const mapEntry = getSeriesMapEntry(series);
 
           return {
             label: seriesName,
             data: filteredData.map(point => ({
               x: point.x * 1000,
-              y: point.y
+              y: getPlotValue(point.y, mapEntry)
             })),
             borderColor: series.color,
             backgroundColor: series.color + '20',
@@ -1589,7 +1605,7 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
                     </TableHead>
                     <TableBody>
                       {Array.from(plot.series.entries()).map(([name, series]) => {
-                        const stats = calculateStatistics(name);
+                        const stats = calculateStatistics(series);
                         return (
                           <TableRow
                             key={name}

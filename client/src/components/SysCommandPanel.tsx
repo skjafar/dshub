@@ -22,7 +22,7 @@ import IconButton from '@mui/material/IconButton';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
-import { filterWriteInput } from '../utils/writeInputParse';
+import ThumbwheelInput from './ThumbwheelInput';
 import { DS_SYS_COMMANDS } from '../utils/sysCommandFileGenerator';
 
 export default function SysCommandPanel() {
@@ -124,22 +124,22 @@ export default function SysCommandPanel() {
               </Typography>
 
               <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <TextField
+                <ThumbwheelInput
                   label="Command Code"
-                  type="text"
                   fullWidth
                   value={commandCode}
-                  onChange={(e) => setCommandCode(filterWriteInput(e.target.value, 'decimal'))}
+                  onChange={setCommandCode}
+                  writeFormat="decimal"
                   slotProps={{ htmlInput: { inputMode: 'numeric' } }}
                   helperText={currentCommandInfo ? currentCommandInfo.name : 'Custom command code'}
                 />
 
-                <TextField
+                <ThumbwheelInput
                   label="Value (Optional)"
-                  type="text"
                   fullWidth
                   value={commandValue}
-                  onChange={(e) => setCommandValue(filterWriteInput(e.target.value, 'decimal'))}
+                  onChange={setCommandValue}
+                  writeFormat="decimal"
                   slotProps={{ htmlInput: { inputMode: 'numeric' } }}
                   helperText="Command-specific value parameter"
                 />

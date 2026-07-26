@@ -6,6 +6,9 @@ import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefreshMulti } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
 import { FONT_MONO, FONT_HEADLINE } from '../../theme';
+import { mapManager } from '../../maps/mapManager';
+import { getPlotValue } from '../../utils/dataTableUtils';
+import { isTinyFloat } from '../../utils/floatConversion';
 
 interface AlarmListWidgetProps {
   config: AlarmListWidgetConfig;
@@ -24,6 +27,12 @@ const SEVERITY_COLORS: Record<string, string> = {
   critical: '#FF3D71',
   warning: '#FFAB00',
 };
+
+function formatAlarmValue(value: number | undefined, decimals?: number, scientific?: boolean): string {
+  if (value === undefined) return '---';
+  if (scientific || isTinyFloat(value)) return value.toExponential(decimals ?? 4);
+  return decimals !== undefined ? value.toFixed(decimals) : value.toLocaleString();
+}
 
 /**
  * Alarm List Widget
@@ -65,7 +74,8 @@ export default function AlarmListWidget({ config, isEditMode, widgetSize }: Alar
       : rule.source === 'sysRegister'
       ? state.systemRegisters.get(rule.address)
       : state.parameters.get(rule.address);
-    const value = data?.value !== undefined ? (data.value as number) : undefined;
+    const ruleMapEntry = mapManager.getEntryBySource(rule.source, rule.address);
+    const value = data?.value !== undefined ? getPlotValue(data.value, ruleMapEntry) : undefined;
 
     let active = false;
     if (value !== undefined) {
@@ -190,7 +200,7 @@ export default function AlarmListWidget({ config, isEditMode, widgetSize }: Alar
                   flexShrink: 0,
                 }}
               >
-                {alarm.value !== undefined ? alarm.value : '---'}
+                {formatAlarmValue(alarm.value, alarm.rule.decimals, alarm.rule.scientificNotation)}
               </Typography>
             </Box>
           );

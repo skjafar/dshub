@@ -51,3 +51,12 @@ export function formatFloat(value: number, precision: number = 6): string {
   // Remove trailing zeros and unnecessary decimal point
   return value.toFixed(precision).replace(/\.?0+$/, '');
 }
+
+/**
+ * True when a float's magnitude is small enough that fixed-decimal notation
+ * would round it away to 0 or lose meaningful precision. Callers use this to
+ * force scientific notation regardless of any user-configured display toggle.
+ */
+export function isTinyFloat(value: number): boolean {
+  return value !== 0 && Math.abs(value) < 0.001;
+}

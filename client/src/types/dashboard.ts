@@ -47,6 +47,7 @@ export interface ValueReadWidgetConfig {
   showTimestamp?: boolean;
   unit?: string;
   valueFontSize?: number; // Main value display size in rem
+  scientificNotation?: boolean; // Show decimal values in scientific notation (e.g. 1.5e-3)
 }
 
 // Value write widget configuration
@@ -120,6 +121,7 @@ export interface GaugeWidgetConfig {
   }>;
   showValue?: boolean;
   valueFontSize?: number; // Value display size inside the gauge in rem
+  scientificNotation?: boolean; // Show decimal values in scientific notation (e.g. 1.5e-3)
 }
 
 // Progress bar widget configuration - horizontal/vertical progress indicator
@@ -140,6 +142,8 @@ export interface ProgressBarWidgetConfig {
   showPercentage?: boolean;
   showValue?: boolean;
   valueFontSize?: number; // Value/percentage text size in rem
+  decimals?: number;
+  scientificNotation?: boolean; // Show decimal values in scientific notation (e.g. 1.5e-3)
 }
 
 // Encoder display widget configuration - numeric value with unit conversion
@@ -157,6 +161,8 @@ export interface EncoderDisplayWidgetConfig {
   decimals?: number;
   color?: string;
   valueFontSize?: number; // Primary converted value size in rem
+  scientificNotation?: boolean; // Show converted value in scientific notation (e.g. 1.5e-3)
+  rawScientificNotation?: boolean; // Show raw value in scientific notation
 }
 
 // LED indicator widget configuration - simple on/off LED
@@ -200,6 +206,8 @@ export interface SystemInfoWidgetConfig {
     format?: 'decimal' | 'hex' | 'binary' | 'time'; // 'time' formats as HH:MM:SS
     unit?: string;
     color?: string;
+    decimals?: number;
+    scientificNotation?: boolean; // Show decimal values in scientific notation (e.g. 1.5e-3)
   }>;
   refreshInterval: number; // in milliseconds
   layout?: 'vertical' | 'horizontal' | 'grid';
@@ -217,6 +225,7 @@ export interface DataTableWidgetConfig {
     format?: 'decimal' | 'hex' | 'binary';
     unit?: string;
     decimals?: number;
+    scientificNotation?: boolean; // Show decimal values in scientific notation (e.g. 1.5e-3)
     min?: number; // Validation for writable rows
     max?: number;
     step?: number;
@@ -240,6 +249,8 @@ export interface AlarmRule {
   // State mode: specific values that trigger the alarm
   triggerValues?: number[];
   severity: 'warning' | 'critical';
+  decimals?: number;
+  scientificNotation?: boolean; // Show the monitored value in scientific notation (e.g. 1.5e-3)
 }
 
 // Alarm list widget configuration - monitors addresses and shows active alarms
