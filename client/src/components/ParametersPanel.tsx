@@ -37,9 +37,10 @@ import { mapManager } from '../maps/mapManager';
 import { MapEntry } from '../maps/mapParser';
 import { useToast } from './ToastNotification';
 import { int32ToFloat, formatFloat } from '../utils/floatConversion';
-import { canWriteToDevice, formatDataValue, filterWriteValueFromMap, parseWriteValue } from '../utils/dataTableUtils';
+import { canWriteToDevice, formatDataValue, parseWriteValue } from '../utils/dataTableUtils';
 import { useDebouncedCallback } from '../hooks/useDebounce';
 import { DataEditDialog, DataReadDialog } from './DataEditDialog';
+import ThumbwheelInput from './ThumbwheelInput';
 import { FONT_MONO } from '../theme';
 import { logger } from '../utils/logger';
 
@@ -183,8 +184,8 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
     actions.readParameter(address, name);
   };
 
-  const handleInlineValueChange = (address: number, value: string, mapEntry?: MapEntry) => {
-    setEditingValues(prev => ({ ...prev, [address]: filterWriteValueFromMap(value, mapEntry) }));
+  const handleInlineValueChange = (address: number, value: string) => {
+    setEditingValues(prev => ({ ...prev, [address]: value }));
   };
 
   const handleInlineValueWrite = (address: number, parameter: Parameter | undefined, mapEntry: MapEntry) => {
@@ -726,12 +727,14 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
                           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                            <TextField
+                            <ThumbwheelInput
                               variant="outlined"
                               size="small"
                               placeholder="Write value..."
                               value={editingValues[mapEntry.address] || ''}
-                              onChange={(e) => handleInlineValueChange(mapEntry.address, e.target.value, mapEntry)}
+                              onChange={(v) => handleInlineValueChange(mapEntry.address, v)}
+                              writeFormat={mapEntry.showAsHex ? 'hex' : 'decimal'}
+                              isFloat={mapEntry.type === 'float'}
                               onKeyDown={(e) => handleInlineValueKeyPress(e, mapEntry.address, parameter, mapEntry)}
                               disabled={!state.connection?.connected}
                               sx={{

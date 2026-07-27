@@ -15,7 +15,9 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  ArrowUpward as ArrowUpwardIcon,
+  ArrowDownward as ArrowDownwardIcon
 } from '@mui/icons-material';
 import { DropdownWidgetConfig, DataSource } from '../../../types/dashboard';
 import AddressSelector, { AddressItem } from './AddressSelector';
@@ -48,6 +50,14 @@ export default function DropdownConfig({ config, onConfigChange, registers, para
       ...config,
       options: options.filter((_, i) => i !== index)
     });
+  };
+
+  const moveOption = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= options.length) return;
+    const newOptions = [...options];
+    [newOptions[index], newOptions[target]] = [newOptions[target], newOptions[index]];
+    onConfigChange({ ...config, options: newOptions });
   };
 
   return (
@@ -101,10 +111,16 @@ export default function DropdownConfig({ config, onConfigChange, registers, para
             label="Value"
             type="number"
             value={option.value}
-            onChange={(e) => updateOption(index, 'value', parseInt(e.target.value))}
+            onChange={(e) => updateOption(index, 'value', parseFloat(e.target.value))}
             size="small"
             sx={{ width: 100 }}
           />
+          <IconButton onClick={() => moveOption(index, -1)} disabled={index === 0} size="small" title="Move up">
+            <ArrowUpwardIcon fontSize="small" />
+          </IconButton>
+          <IconButton onClick={() => moveOption(index, 1)} disabled={index === options.length - 1} size="small" title="Move down">
+            <ArrowDownwardIcon fontSize="small" />
+          </IconButton>
           <IconButton onClick={() => removeOption(index)} size="small" color="error">
             <DeleteIcon />
           </IconButton>

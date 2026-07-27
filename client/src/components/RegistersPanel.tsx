@@ -44,9 +44,10 @@ import { useToast } from './ToastNotification';
 import { mapManager } from '../maps/mapManager';
 import { MapEntry, DataAccessPermit } from '../maps/mapParser';
 import { int32ToFloat, formatFloat } from '../utils/floatConversion';
-import { canWriteToDevice, formatDataValue, filterWriteValueFromMap, parseWriteValue } from '../utils/dataTableUtils';
+import { canWriteToDevice, formatDataValue, parseWriteValue } from '../utils/dataTableUtils';
 import { useDebouncedCallback } from '../hooks/useDebounce';
 import { DataEditDialog, DataReadDialog } from './DataEditDialog';
+import ThumbwheelInput from './ThumbwheelInput';
 import { RegisterData } from '../types/shared';
 import { FONT_MONO } from '../theme';
 
@@ -171,8 +172,8 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
     actions.readRegister(address, name);
   };
 
-  const handleInlineValueChange = (address: number, value: string, mapEntry?: MapEntry) => {
-    setEditingValues(prev => ({ ...prev, [address]: filterWriteValueFromMap(value, mapEntry) }));
+  const handleInlineValueChange = (address: number, value: string) => {
+    setEditingValues(prev => ({ ...prev, [address]: value }));
   };
 
   const handleInlineValueWrite = (address: number, register: RegisterData, mapEntry: MapEntry | undefined) => {
@@ -648,12 +649,14 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
                         <TableCell sx={{ py: 0.5 }}>
                           {currentTab !== 2 && mapEntry?.accessPermit === DataAccessPermit.READ_WRITE && state.connection?.connected ? (
                             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                              <TextField
+                              <ThumbwheelInput
                                 variant="outlined"
                                 size="small"
                                 placeholder="Write value..."
                                 value={editingValues[register.address] || ''}
-                                onChange={(e) => handleInlineValueChange(register.address, e.target.value, mapEntry)}
+                                onChange={(v) => handleInlineValueChange(register.address, v)}
+                                writeFormat={mapEntry?.showAsHex ? 'hex' : 'decimal'}
+                                isFloat={mapEntry?.type === 'float'}
                                 onKeyDown={(e) => handleInlineValueKeyPress(e, register.address, register, mapEntry)}
                                 sx={{
                                   fontFamily: FONT_MONO,

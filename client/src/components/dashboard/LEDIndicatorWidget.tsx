@@ -6,6 +6,8 @@ import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
 import { FONT_MONO } from '../../theme';
+import { mapManager } from '../../maps/mapManager';
+import { getPlotValue } from '../../utils/dataTableUtils';
 
 interface LEDIndicatorWidgetProps {
   config: LEDIndicatorWidgetConfig;
@@ -35,7 +37,8 @@ export default function LEDIndicatorWidget({ config, isEditMode, widgetSize }: L
     ? state.systemRegisters.get(config.address)
     : state.parameters.get(config.address);
 
-  const currentValue = currentData?.value !== undefined ? (currentData.value as number) : null;
+  const mapEntry = mapManager.getEntryBySource(config.source, config.address);
+  const currentValue = currentData?.value !== undefined ? getPlotValue(currentData.value, mapEntry) : null;
 
   // Determine on/off state
   const onValue = config.onValue ?? 1;

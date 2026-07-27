@@ -6,6 +6,9 @@ import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefreshMulti } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
 import { FONT_MONO } from '../../theme';
+import { mapManager } from '../../maps/mapManager';
+import { getPlotValue } from '../../utils/dataTableUtils';
+import { isTinyFloat } from '../../utils/floatConversion';
 
 interface SystemInfoWidgetProps {
   config: SystemInfoWidgetConfig;
@@ -38,7 +41,7 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
   /**
    * Format value based on format type
    */
-  const formatValue = (value: number | undefined, format?: string): string => {
+  const formatValue = (value: number | undefined, format?: string, decimals?: number, scientific?: boolean): string => {
     if (value === undefined) return '---';
 
     switch (format) {
@@ -54,7 +57,8 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
         return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
       case 'decimal':
       default:
-        return value.toLocaleString();
+        if (scientific || isTinyFloat(value)) return value.toExponential(decimals ?? 4);
+        return decimals !== undefined ? value.toFixed(decimals) : value.toLocaleString();
     }
   };
 
@@ -66,8 +70,9 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
       ? state.systemRegisters.get(item.address)
       : state.parameters.get(item.address);
 
-    const value = currentData?.value !== undefined ? (currentData.value as number) : undefined;
-    const formattedValue = formatValue(value, item.format);
+    const mapEntry = mapManager.getEntryBySource(item.source, item.address);
+    const value = currentData?.value !== undefined ? getPlotValue(currentData.value, mapEntry) : undefined;
+    const formattedValue = formatValue(value, item.format, item.decimals, item.scientificNotation);
     const itemColor = item.color || '#00F2FF';
 
     return (

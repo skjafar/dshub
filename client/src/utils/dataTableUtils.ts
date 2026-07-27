@@ -1,5 +1,5 @@
 import { DataForm, MapEntry } from '../maps/mapParser';
-import { int32ToFloat, floatToInt32, formatFloat } from './floatConversion';
+import { int32ToFloat, floatToInt32, formatFloat, isTinyFloat } from './floatConversion';
 import { filterWriteInput } from './writeInputParse';
 
 // Shared constants
@@ -23,13 +23,37 @@ export function formatDataValue(value: number | null | undefined, mapEntry: MapE
 
   if (mapEntry?.type === 'float') {
     const floatValue = int32ToFloat(value);
-    return formatFloat(floatValue);
+    return isTinyFloat(floatValue) ? floatValue.toExponential(4) : formatFloat(floatValue);
   }
 
   if (mapEntry?.showAsHex) {
     return `0x${value.toString(16).toUpperCase()}`;
   }
   return value.toString();
+}
+
+// Convert a raw register value (as received over the wire) into the numeric
+// value it should be plotted/aggregated as, based on its map entry type.
+// Floats are decoded from their IEEE 754 bit pattern; hex values are shown as
+// unsigned; signed/unsigned integers pass through unchanged.
+export function getPlotValue(value: number, mapEntry: MapEntry | undefined): number {
+  if (mapEntry?.type === DataForm.FLOAT) {
+    return int32ToFloat(value);
+  }
+  if (mapEntry?.showAsHex) {
+    return value >>> 0;
+  }
+  return value;
+}
+
+// Inverse of getPlotValue: encode a real-world value (e.g. user-entered 3.14) into
+// the raw wire value expected by writeRegister/writeParameter. Floats are encoded to
+// their IEEE 754 bit pattern; everything else is sent through unchanged.
+export function getWireValue(value: number, mapEntry: MapEntry | undefined): number {
+  if (mapEntry?.type === DataForm.FLOAT) {
+    return floatToInt32(value);
+  }
+  return value;
 }
 
 /**

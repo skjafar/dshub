@@ -7,6 +7,9 @@ import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
 import { FONT_MONO, FONT_HEADLINE } from '../../theme';
+import { mapManager } from '../../maps/mapManager';
+import { getPlotValue } from '../../utils/dataTableUtils';
+import { isTinyFloat } from '../../utils/floatConversion';
 
 interface ProgressBarWidgetProps {
   config: ProgressBarWidgetConfig;
@@ -44,7 +47,8 @@ export default function ProgressBarWidget({ config, isEditMode, widgetSize }: Pr
     ? state.systemRegisters.get(config.address)
     : state.parameters.get(config.address);
 
-  const currentValue = currentData?.value !== undefined ? (currentData.value as number) : config.min;
+  const mapEntry = mapManager.getEntryBySource(config.source, config.address);
+  const currentValue = currentData?.value !== undefined ? getPlotValue(currentData.value, mapEntry) : config.min;
 
   // Calculate percentage
   const percentage = ((currentValue - config.min) / (config.max - config.min)) * 100;
@@ -66,6 +70,11 @@ export default function ProgressBarWidget({ config, isEditMode, widgetSize }: Pr
   };
 
   const barColor = getValueColor(currentValue);
+
+  const formatCurrentValue = (value: number): string =>
+    config.scientificNotation || isTinyFloat(value)
+      ? value.toExponential(config.decimals ?? 2)
+      : value.toFixed(config.decimals ?? 0);
 
   const isHorizontal = config.orientation !== 'vertical';
 
@@ -106,7 +115,7 @@ export default function ProgressBarWidget({ config, isEditMode, widgetSize }: Pr
                 fontVariantNumeric: 'tabular-nums',
               }}
             >
-              {currentValue.toFixed(0)}{config.unit || ''}
+              {formatCurrentValue(currentValue)}{config.unit || ''}
             </Typography>
           )}
           {config.showPercentage && (

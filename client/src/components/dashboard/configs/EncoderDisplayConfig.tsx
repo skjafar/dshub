@@ -107,6 +107,24 @@ export default function EncoderDisplayConfig({ config, onConfigChange, registers
         margin="normal"
         inputProps={{ min: 0, max: 10 }}
       />
+      <FormControlLabel
+        control={
+          <Switch
+            checked={config.scientificNotation ?? false}
+            onChange={(e) => onConfigChange({ ...config, scientificNotation: e.target.checked })}
+          />
+        }
+        label="Scientific Notation (converted value)"
+      />
+      <FormControlLabel
+        control={
+          <Switch
+            checked={config.rawScientificNotation ?? false}
+            onChange={(e) => onConfigChange({ ...config, rawScientificNotation: e.target.checked })}
+          />
+        }
+        label="Scientific Notation (raw value)"
+      />
       <TextField
         fullWidth
         label="Refresh Interval (ms)"

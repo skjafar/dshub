@@ -92,6 +92,24 @@ export default function ProgressBarConfig({ config, onConfigChange, registers, p
         onChange={(e) => onConfigChange({ ...config, refreshInterval: parseInt(e.target.value) })}
         margin="normal"
       />
+      <TextField
+        fullWidth
+        label="Decimal Places"
+        type="number"
+        value={config.decimals ?? 0}
+        onChange={(e) => onConfigChange({ ...config, decimals: parseInt(e.target.value) })}
+        margin="normal"
+        inputProps={{ min: 0, max: 10 }}
+      />
+      <FormControlLabel
+        control={
+          <Switch
+            checked={config.scientificNotation ?? false}
+            onChange={(e) => onConfigChange({ ...config, scientificNotation: e.target.checked })}
+          />
+        }
+        label="Scientific Notation"
+      />
       <FormControl fullWidth margin="normal">
         <InputLabel>Orientation</InputLabel>
         <Select

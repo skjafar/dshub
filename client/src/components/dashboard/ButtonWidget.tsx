@@ -157,6 +157,8 @@ import { ButtonWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useToast } from '../ToastNotification';
+import { mapManager } from '../../maps/mapManager';
+import { getWireValue } from '../../utils/dataTableUtils';
 
 // Icon mapping for button widgets
 const ICON_COMPONENTS: Record<string, React.ComponentType> = {
@@ -359,10 +361,12 @@ export default function ButtonWidget({ config, isEditMode, widgetSize }: ButtonW
 
     try {
       if (config.target === 'register') {
-        actions.writeRegister(config.address, config.valueToWrite);
+        const mapEntry = mapManager.getEntryBySource(config.target, config.address);
+        actions.writeRegister(config.address, getWireValue(config.valueToWrite, mapEntry));
         showSuccess(`Wrote ${config.valueToWrite} to register ${config.address}`);
       } else if (config.target === 'parameter') {
-        actions.writeParameter(config.address, config.valueToWrite);
+        const mapEntry = mapManager.getEntryBySource(config.target, config.address);
+        actions.writeParameter(config.address, getWireValue(config.valueToWrite, mapEntry));
         showSuccess(`Wrote ${config.valueToWrite} to parameter ${config.address}`);
       } else if (config.target === 'sysCommand') {
         actions.sendCommand(0, config.valueToWrite, config.address);

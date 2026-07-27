@@ -15,7 +15,9 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  ArrowUpward as ArrowUpwardIcon,
+  ArrowDownward as ArrowDownwardIcon
 } from '@mui/icons-material';
 import { StateLEDWidgetConfig, DataSource } from '../../../types/dashboard';
 import AddressSelector, { AddressItem } from './AddressSelector';
@@ -30,6 +32,14 @@ interface StateLEDConfigProps {
 }
 
 export default function StateLEDConfig({ config, onConfigChange, registers, parameters, systemRegisters }: StateLEDConfigProps): React.ReactElement {
+  const moveState = (index: number, direction: -1 | 1) => {
+    const states = [...(config.states ?? [])];
+    const target = index + direction;
+    if (target < 0 || target >= states.length) return;
+    [states[index], states[target]] = [states[target], states[index]];
+    onConfigChange({ ...config, states });
+  };
+
   return (
     <>
       <TextField
@@ -134,6 +144,12 @@ export default function StateLEDConfig({ config, onConfigChange, registers, para
             size="small"
             sx={{ width: 120 }}
           />
+          <IconButton onClick={() => moveState(index, -1)} disabled={index === 0} size="small" title="Move up">
+            <ArrowUpwardIcon fontSize="small" />
+          </IconButton>
+          <IconButton onClick={() => moveState(index, 1)} disabled={index === (config.states ?? []).length - 1} size="small" title="Move down">
+            <ArrowDownwardIcon fontSize="small" />
+          </IconButton>
           <IconButton
             onClick={() => {
               const states = (config.states ?? []).filter((_, i) => i !== index);

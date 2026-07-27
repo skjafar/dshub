@@ -6,6 +6,9 @@ import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
 import { FONT_MONO, FONT_HEADLINE } from '../../theme';
+import { mapManager } from '../../maps/mapManager';
+import { getPlotValue } from '../../utils/dataTableUtils';
+import { isTinyFloat } from '../../utils/floatConversion';
 
 interface GaugeWidgetProps {
   config: GaugeWidgetConfig;
@@ -36,12 +39,13 @@ export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWid
     ? state.systemRegisters.get(config.address)
     : state.parameters.get(config.address);
 
-  const currentValue = currentData?.value !== undefined ? (currentData.value as number) : 0;
+  const mapEntry = mapManager.getEntryBySource(config.source, config.address);
+  const currentValue = currentData?.value !== undefined ? getPlotValue(currentData.value, mapEntry) : 0;
 
   // Format value with decimals
   const formatValue = (value: number): string => {
     const decimals = config.decimals ?? 0;
-    return value.toFixed(decimals);
+    return config.scientificNotation || isTinyFloat(value) ? value.toExponential(decimals) : value.toFixed(decimals);
   };
 
   // Get color based on value and color ranges

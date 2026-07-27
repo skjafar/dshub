@@ -15,7 +15,9 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  ArrowUpward as ArrowUpwardIcon,
+  ArrowDownward as ArrowDownwardIcon
 } from '@mui/icons-material';
 import { DataTableWidgetConfig, DataSource } from '../../../types/dashboard';
 import AddressSelector, { AddressItem } from './AddressSelector';
@@ -30,6 +32,14 @@ interface DataTableConfigProps {
 }
 
 export default function DataTableConfig({ config, onConfigChange, registers, parameters, systemRegisters }: DataTableConfigProps): React.ReactElement {
+  const moveItem = (index: number, direction: -1 | 1) => {
+    const items = [...(config.items ?? [])];
+    const target = index + direction;
+    if (target < 0 || target >= items.length) return;
+    [items[index], items[target]] = [items[target], items[index]];
+    onConfigChange({ ...config, items });
+  };
+
   return (
     <>
       <TextField
@@ -144,6 +154,22 @@ export default function DataTableConfig({ config, onConfigChange, registers, par
                 {isWritable ? 'R/W' : 'R/O'}
               </Typography>
               <IconButton
+                onClick={() => moveItem(index, -1)}
+                disabled={index === 0}
+                size="small"
+                title="Move up"
+              >
+                <ArrowUpwardIcon fontSize="small" />
+              </IconButton>
+              <IconButton
+                onClick={() => moveItem(index, 1)}
+                disabled={index === (config.items ?? []).length - 1}
+                size="small"
+                title="Move down"
+              >
+                <ArrowDownwardIcon fontSize="small" />
+              </IconButton>
+              <IconButton
                 onClick={() => {
                   const items = (config.items ?? []).filter((_, i) => i !== index);
                   onConfigChange({ ...config, items });
@@ -221,19 +247,36 @@ export default function DataTableConfig({ config, onConfigChange, registers, par
                 </Select>
               </FormControl>
               {(item.format ?? 'decimal') === 'decimal' && (
-                <TextField
-                  label="Decimals"
-                  type="number"
-                  value={item.decimals ?? ''}
-                  onChange={(e) => {
-                    const items = [...(config.items ?? [])];
-                    items[index] = { ...items[index], decimals: e.target.value ? parseInt(e.target.value) : undefined };
-                    onConfigChange({ ...config, items });
-                  }}
-                  size="small"
-                  sx={{ width: 100 }}
-                  inputProps={{ min: 0, max: 10 }}
-                />
+                <>
+                  <TextField
+                    label="Decimals"
+                    type="number"
+                    value={item.decimals ?? ''}
+                    onChange={(e) => {
+                      const items = [...(config.items ?? [])];
+                      items[index] = { ...items[index], decimals: e.target.value ? parseInt(e.target.value) : undefined };
+                      onConfigChange({ ...config, items });
+                    }}
+                    size="small"
+                    sx={{ width: 100 }}
+                    inputProps={{ min: 0, max: 10 }}
+                  />
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={item.scientificNotation ?? false}
+                        onChange={(e) => {
+                          const items = [...(config.items ?? [])];
+                          items[index] = { ...items[index], scientificNotation: e.target.checked };
+                          onConfigChange({ ...config, items });
+                        }}
+                        size="small"
+                      />
+                    }
+                    label="Sci. Notation"
+                    sx={{ ml: 0 }}
+                  />
+                </>
               )}
             </Box>
 

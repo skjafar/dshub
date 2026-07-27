@@ -93,6 +93,15 @@ export default function GaugeConfig({ config, onConfigChange, registers, paramet
         margin="normal"
         inputProps={{ min: 0, max: 10 }}
       />
+      <FormControlLabel
+        control={
+          <Switch
+            checked={config.scientificNotation ?? false}
+            onChange={(e) => onConfigChange({ ...config, scientificNotation: e.target.checked })}
+          />
+        }
+        label="Scientific Notation"
+      />
       <TextField
         fullWidth
         label="Refresh Interval (ms)"

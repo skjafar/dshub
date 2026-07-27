@@ -15,7 +15,9 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  ArrowUpward as ArrowUpwardIcon,
+  ArrowDownward as ArrowDownwardIcon
 } from '@mui/icons-material';
 import { StatusMatrixWidgetConfig, DataSource } from '../../../types/dashboard';
 import AddressSelector, { AddressItem } from './AddressSelector';
@@ -30,6 +32,14 @@ interface StatusMatrixConfigProps {
 }
 
 export default function StatusMatrixConfig({ config, onConfigChange, registers, parameters, systemRegisters }: StatusMatrixConfigProps): React.ReactElement {
+  const moveItem = (index: number, direction: -1 | 1) => {
+    const items = [...(config.items ?? [])];
+    const target = index + direction;
+    if (target < 0 || target >= items.length) return;
+    [items[index], items[target]] = [items[target], items[index]];
+    onConfigChange({ ...config, items });
+  };
+
   return (
     <>
       <TextField
@@ -118,6 +128,22 @@ export default function StatusMatrixConfig({ config, onConfigChange, registers, 
               size="small"
               sx={{ flex: 1 }}
             />
+            <IconButton
+              onClick={() => moveItem(index, -1)}
+              disabled={index === 0}
+              size="small"
+              title="Move up"
+            >
+              <ArrowUpwardIcon fontSize="small" />
+            </IconButton>
+            <IconButton
+              onClick={() => moveItem(index, 1)}
+              disabled={index === (config.items ?? []).length - 1}
+              size="small"
+              title="Move down"
+            >
+              <ArrowDownwardIcon fontSize="small" />
+            </IconButton>
             <IconButton
               onClick={() => {
                 const items = (config.items ?? []).filter((_, i) => i !== index);

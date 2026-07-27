@@ -23,6 +23,14 @@ pub struct ReconnectParams {
     pub device_name: Option<String>,
 }
 
+/// Enough info to resume a plot's polling task after a reconnect.
+#[derive(Clone)]
+pub struct ActivePlotSpec {
+    pub address: u16,
+    pub command: u16,
+    pub poll_interval: u64,
+}
+
 // ── Managed application state ─────────────────────────────────────────────────
 
 pub struct AppState {
@@ -30,6 +38,10 @@ pub struct AppState {
     pub communicator_tx: tokio::sync::Mutex<Option<mpsc::Sender<DeviceRequest>>>,
     /// Active plot task handles keyed by register name
     pub plot_tasks: tokio::sync::Mutex<HashMap<String, JoinHandle<()>>>,
+    /// Specs for currently-plotted registers, kept across reconnects so their
+    /// polling tasks (aborted when the communicator drops) can be respawned
+    /// once a new connection is established.
+    pub active_plots: tokio::sync::Mutex<HashMap<String, ActivePlotSpec>>,
     /// Current device connection info (for takeControl to know interface type)
     pub connection: tokio::sync::Mutex<Option<DeviceConnection>>,
     /// User-configurable log filter settings
@@ -49,6 +61,7 @@ impl AppState {
         AppState {
             communicator_tx: tokio::sync::Mutex::new(None),
             plot_tasks: tokio::sync::Mutex::new(HashMap::new()),
+            active_plots: tokio::sync::Mutex::new(HashMap::new()),
             connection: tokio::sync::Mutex::new(None),
             log_settings: tokio::sync::Mutex::new(LogSettings::default()),
             is_scanning: Arc::new(tokio::sync::Mutex::new(false)),
@@ -130,10 +143,12 @@ async fn reconnect_loop(app: AppHandle, params: ReconnectParams, stop: Arc<Atomi
                         // Update AppState before signalling the frontend
                         let state = app.state::<AppState>();
                         let heartbeat_tx = tx.clone();
+                        let plot_tx = tx.clone();
                         *state.communicator_tx.lock().await = Some(tx);
                         *state.connection.lock().await = Some(connection.clone());
                         let heartbeat = spawn_heartbeat(heartbeat_tx);
                         state.plot_tasks.lock().await.insert("__heartbeat__".into(), heartbeat);
+                        resume_active_plots(&app, &plot_tx).await;
 
                         if let Err(e) = app.emit("connectionStatus", &connection) {
                             log::warn!("Failed to emit connectionStatus event: {}", e);
@@ -173,10 +188,12 @@ async fn reconnect_loop(app: AppHandle, params: ReconnectParams, stop: Arc<Atomi
 
                         let state = app.state::<AppState>();
                         let heartbeat_tx = tx.clone();
+                        let plot_tx = tx.clone();
                         *state.communicator_tx.lock().await = Some(tx);
                         *state.connection.lock().await = Some(connection.clone());
                         let heartbeat = spawn_heartbeat(heartbeat_tx);
                         state.plot_tasks.lock().await.insert("__heartbeat__".into(), heartbeat);
+                        resume_active_plots(&app, &plot_tx).await;
 
                         if let Err(e) = app.emit("connectionStatus", &connection) {
                             log::warn!("Failed to emit connectionStatus event: {}", e);
@@ -261,6 +278,57 @@ fn spawn_heartbeat(tx: mpsc::Sender<DeviceRequest>) -> JoinHandle<()> {
             }
         }
     })
+}
+
+/// Spawn a task that polls `address` via `command` every `interval_ms` and emits a
+/// plotData event for each response. Exits silently once the communicator channel closes.
+fn spawn_plot_task(
+    tx: mpsc::Sender<DeviceRequest>,
+    name: String,
+    address: u16,
+    command: u16,
+    interval_ms: u64,
+) -> JoinHandle<()> {
+    tauri::async_runtime::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_millis(interval_ms));
+        loop {
+            ticker.tick().await;
+            let req = DeviceRequest {
+                packet: make_read_packet(command, address),
+                command,
+                address,
+                name: Some(name.clone()),
+                emit_plot: true,
+            };
+            if tx.send(req).await.is_err() {
+                break; // communicator gone — exit silently
+            }
+        }
+    })
+}
+
+/// Respawn polling tasks for every registered plot using the freshly (re)established
+/// communicator channel. Called after both the initial connect and every successful
+/// reconnect, so plots that were running before an unexpected disconnect keep going.
+async fn resume_active_plots(app: &AppHandle, tx: &mpsc::Sender<DeviceRequest>) {
+    let state = app.state::<AppState>();
+    let specs: Vec<(String, ActivePlotSpec)> = state
+        .active_plots
+        .lock()
+        .await
+        .iter()
+        .map(|(name, spec)| (name.clone(), spec.clone()))
+        .collect();
+
+    if specs.is_empty() {
+        return;
+    }
+
+    let mut tasks = state.plot_tasks.lock().await;
+    for (name, spec) in specs {
+        let handle = spawn_plot_task(tx.clone(), name.clone(), spec.address, spec.command, spec.poll_interval);
+        tasks.insert(name, handle);
+    }
 }
 
 /// Enqueue a request; awaits if the channel is at capacity (backpressure).
@@ -429,12 +497,16 @@ pub async fn connect_device(
     // Set communicator_tx before connection so any concurrent command that
     // reads connection then communicator_tx never sees one without the other.
     let heartbeat_tx = tx.clone();
+    let plot_tx = tx.clone();
     *state.communicator_tx.lock().await = Some(tx);
     *state.connection.lock().await = Some(connection);
 
     // Heartbeat: detect device loss even when no panel is actively reading
     let heartbeat = spawn_heartbeat(heartbeat_tx);
     state.plot_tasks.lock().await.insert("__heartbeat__".into(), heartbeat);
+
+    // Resume any plots that were running before this (re)connect
+    resume_active_plots(&app, &plot_tx).await;
 
     Ok(())
 }
@@ -573,28 +645,15 @@ pub async fn start_plotting(
             .clone()
     };
 
-    let name = register_name.clone();
     let interval_ms = poll_interval.max(10); // enforce 10ms minimum
 
-    let handle = tauri::async_runtime::spawn(async move {
-        let mut ticker =
-            tokio::time::interval(std::time::Duration::from_millis(interval_ms));
-        loop {
-            ticker.tick().await;
-            let req = DeviceRequest {
-                packet: make_read_packet(CMD_READ_REGISTER, address),
-                command: CMD_READ_REGISTER,
-                address,
-                name: Some(name.clone()),
-                emit_plot: true,
-            };
-            if tx.send(req).await.is_err() {
-                break; // communicator gone — exit silently
-            }
-        }
-    });
+    let handle = spawn_plot_task(tx, register_name.clone(), address, CMD_READ_REGISTER, interval_ms);
 
-    state.plot_tasks.lock().await.insert(register_name, handle);
+    state.plot_tasks.lock().await.insert(register_name.clone(), handle);
+    state.active_plots.lock().await.insert(
+        register_name,
+        ActivePlotSpec { address, command: CMD_READ_REGISTER, poll_interval: interval_ms },
+    );
     Ok(())
 }
 
@@ -606,6 +665,7 @@ pub async fn stop_plotting(
     if let Some(handle) = state.plot_tasks.lock().await.remove(&register_name) {
         handle.abort();
     }
+    state.active_plots.lock().await.remove(&register_name);
     Ok(())
 }
 
@@ -629,28 +689,15 @@ pub async fn start_plotting_sys_register(
             .clone()
     };
 
-    let name = register_name.clone();
     let interval_ms = poll_interval.max(10);
 
-    let handle = tauri::async_runtime::spawn(async move {
-        let mut ticker =
-            tokio::time::interval(std::time::Duration::from_millis(interval_ms));
-        loop {
-            ticker.tick().await;
-            let req = DeviceRequest {
-                packet: make_read_packet(CMD_READ_SYS_REG, address),
-                command: CMD_READ_SYS_REG,
-                address,
-                name: Some(name.clone()),
-                emit_plot: true,
-            };
-            if tx.send(req).await.is_err() {
-                break;
-            }
-        }
-    });
+    let handle = spawn_plot_task(tx, register_name.clone(), address, CMD_READ_SYS_REG, interval_ms);
 
-    state.plot_tasks.lock().await.insert(register_name, handle);
+    state.plot_tasks.lock().await.insert(register_name.clone(), handle);
+    state.active_plots.lock().await.insert(
+        register_name,
+        ActivePlotSpec { address, command: CMD_READ_SYS_REG, poll_interval: interval_ms },
+    );
     Ok(())
 }
 

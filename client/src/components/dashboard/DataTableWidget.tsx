@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Box, Typography, Dialog, DialogTitle, DialogContent, DialogActions, Button, useTheme } from '@mui/material';
 import { Send as SendIcon } from '@mui/icons-material';
 import { DataTableWidgetConfig } from '../../types/dashboard';
@@ -9,7 +9,12 @@ import { useToast } from '../ToastNotification';
 import { getWidgetError } from './WidgetErrorState';
 import { FONT_MONO } from '../../theme';
 import { mapManager } from '../../maps/mapManager';
-import { parseWriteInput, filterWriteInput } from '../../utils/writeInputParse';
+import { DataForm } from '../../maps/mapParser';
+import { parseWriteInput, WriteFormat, isValidStep } from '../../utils/writeInputParse';
+import { getPlotValue, getWireValue } from '../../utils/dataTableUtils';
+import { resolveThumbwheelFormat, formatForThumbwheel, initialFractionDigits } from '../../utils/thumbwheel';
+import { isTinyFloat } from '../../utils/floatConversion';
+import ThumbwheelInput from '../ThumbwheelInput';
 
 interface DataTableWidgetProps {
   config: DataTableWidgetConfig;
@@ -30,6 +35,85 @@ function isItemWritable(source: string, address: number): boolean {
   return false;
 }
 
+interface DataTableWriteCellProps {
+  format: WriteFormat;
+  isFloat: boolean;
+  min?: number;
+  max?: number;
+  liveValue: number | undefined;
+  disabled: boolean;
+  fontSize: string;
+  placeholder: string;
+  onSubmit: (raw: string) => void;
+}
+
+/**
+ * A single writable table row's entry field: always mirrors the row's live
+ * register/parameter value (until the user starts editing it), and supports
+ * thumbwheel digit editing via ThumbwheelInput.
+ */
+function DataTableWriteCell({ format, isFloat, min, max, liveValue, disabled, fontSize, placeholder, onSubmit }: DataTableWriteCellProps) {
+  const [value, setValue] = useState('');
+  const [isFocused, setIsFocused] = useState(false);
+  const thumbwheelFormat = resolveThumbwheelFormat(format, isFloat);
+
+  useEffect(() => {
+    if (isFocused) return;
+    if (liveValue === undefined) {
+      setValue('');
+      return;
+    }
+    const fractionDigits = isFloat ? initialFractionDigits(liveValue) : undefined;
+    setValue(formatForThumbwheel(liveValue, thumbwheelFormat, fractionDigits));
+  }, [liveValue, isFocused, thumbwheelFormat, isFloat]);
+
+  return (
+    <Box
+      component="form"
+      onSubmit={(e: React.FormEvent) => { e.preventDefault(); onSubmit(value); }}
+      sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.3em', fontSize }}
+    >
+      <ThumbwheelInput
+        value={value}
+        onChange={setValue}
+        writeFormat={format}
+        isFloat={isFloat}
+        min={min}
+        max={max}
+        disabled={disabled}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
+        placeholder={placeholder}
+        size="small"
+        sx={{
+          width: '6em',
+          '& .MuiInputBase-input': { fontFamily: FONT_MONO, fontSize: 'inherit', textAlign: 'right', py: '2px' },
+        }}
+      />
+      <Box
+        component="button"
+        type="submit"
+        disabled={disabled || !value}
+        sx={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+          color: 'primary.main',
+          fontSize: 'inherit',
+          lineHeight: 1,
+          '&:disabled': { opacity: 0.3, cursor: 'default' },
+        }}
+      >
+        <SendIcon sx={{ fontSize: '1em' }} />
+      </Box>
+    </Box>
+  );
+}
+
 /**
  * Data Table Widget
  *
@@ -44,7 +128,6 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
   const { showSuccess, showError } = useToast();
   const scale = widgetSize?.scale ?? 1;
 
-  const [inputValues, setInputValues] = useState<Record<number, string>>({});
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; itemIndex: number; value: number } | null>(null);
 
   useAutoRefreshMulti({
@@ -53,7 +136,7 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
     isEditMode,
   });
 
-  const formatValue = (value: number | undefined, format?: string, decimals?: number): string => {
+  const formatValue = (value: number | undefined, format?: string, decimals?: number, scientific?: boolean): string => {
     if (value === undefined) return '---';
     switch (format) {
       case 'hex':
@@ -62,6 +145,7 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
         return `0b${value.toString(2).padStart(8, '0')}`;
       case 'decimal':
       default:
+        if (scientific || isTinyFloat(value)) return value.toExponential(decimals ?? 4);
         return decimals !== undefined ? value.toFixed(decimals) : value.toLocaleString();
     }
   };
@@ -73,10 +157,9 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
     if (errorState) return errorState;
   }
 
-  const handleWrite = (item: DataTableItem, itemIndex: number) => {
+  const handleWrite = (item: DataTableItem, itemIndex: number, raw: string) => {
     if (isEditMode || !state.connection?.connected) return;
 
-    const raw = inputValues[itemIndex];
     if (raw === undefined || raw === '') return;
 
     const result = parseWriteInput(raw, item.format ?? 'decimal');
@@ -95,9 +178,8 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
       return;
     }
 
-    const step = item.step ?? 1;
-    if (step > 0 && numValue % step !== 0) {
-      showError(`Value must be a multiple of ${step} (e.g. 0, ${step}, ${step * 2}...)`);
+    if (!isValidStep(numValue, item.step)) {
+      showError(`Value must be a multiple of ${item.step} (e.g. 0, ${item.step}, ${(item.step ?? 0) * 2}...)`);
       return;
     }
 
@@ -111,14 +193,17 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
   const executeWrite = (item: DataTableItem, value: number, itemIndex: number) => {
     setConfirmDialog(null);
     try {
+      const mapEntry = mapManager.getEntryBySource(item.source, item.address);
+      const wireValue = getWireValue(value, mapEntry);
       if (item.source === 'register') {
-        actions.writeRegister(item.address, value);
+        actions.writeRegister(item.address, wireValue);
         showSuccess(`Wrote ${value} to register ${item.address}`);
       } else {
-        actions.writeParameter(item.address, value);
+        actions.writeParameter(item.address, wireValue);
         showSuccess(`Wrote ${value} to parameter ${item.address}`);
       }
-      setInputValues(prev => ({ ...prev, [itemIndex]: '' }));
+      // Cell keeps showing the pending value until the device-confirmed value
+      // arrives via registerUpdate/parameterUpdate and its sync effect updates it.
     } catch (error) {
       showError(`Failed to write: ${error}`);
     }
@@ -192,7 +277,8 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
                   : item.source === 'sysRegister'
                   ? state.systemRegisters.get(item.address)
                   : state.parameters.get(item.address);
-                const value = data?.value !== undefined ? (data.value as number) : undefined;
+                const itemMapEntry = mapManager.getEntryBySource(item.source, item.address);
+                const value = data?.value !== undefined ? getPlotValue(data.value, itemMapEntry) : undefined;
                 const isInvalid = data?.valid === false;
                 const writable = isItemWritable(item.source, item.address);
                 const striped = config.striped && index % 2 === 1;
@@ -209,7 +295,7 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
                     {/* Value */}
                     <td style={{ padding: cellPadding, textAlign: 'right' }}>
                       <Typography sx={{ fontFamily: FONT_MONO, fontSize, fontWeight: 600, color: isInvalid ? 'error.main' : 'text.primary' }}>
-                        {formatValue(value, item.format, item.decimals)}
+                        {formatValue(value, item.format, item.decimals, item.scientificNotation)}
                       </Typography>
                     </td>
 
@@ -226,61 +312,17 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
                     {showWriteColumn && (
                       <td style={{ padding: cellPadding, textAlign: 'right' }}>
                         {writable ? (
-                          <Box
-                            component="form"
-                            onSubmit={(e: React.FormEvent) => { e.preventDefault(); handleWrite(item, index); }}
-                            sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.3em', fontSize }}
-                          >
-                            <input
-                              type="text"
-                              value={inputValues[index] ?? ''}
-                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInputValues(prev => ({ ...prev, [index]: filterWriteInput(e.target.value, item.format ?? 'decimal') }))}
-                              disabled={isEditMode || !connected}
-                              placeholder={
-                                item.format === 'hex' ? '0x0000' :
-                                item.format === 'binary' ? '0b0000' :
-                                value !== undefined ? String(value) : '0'
-                              }
-                              onFocus={e => { e.currentTarget.style.borderColor = 'var(--mui-palette-primary-main, #00D4FF)'; }}
-                              onBlur={e => { e.currentTarget.style.borderColor = c.ghost20; }}
-                              style={{
-                                fontFamily: FONT_MONO,
-                                fontSize: 'inherit',
-                                lineHeight: 1.2,
-                                height: '1.4em',
-                                width: '6em',
-                                padding: '0 0.3em',
-                                textAlign: 'right',
-                                border: `1px solid ${c.ghost20}`,
-                                borderRadius: '3px',
-                                background: 'transparent',
-                                color: 'inherit',
-                                outline: 'none',
-                                opacity: (isEditMode || !connected) ? 0.4 : 1,
-                                boxSizing: 'border-box',
-                              }}
-                            />
-                            <Box
-                              component="button"
-                              type="submit"
-                              disabled={isEditMode || !connected || !inputValues[index]}
-                              sx={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                background: 'none',
-                                border: 'none',
-                                padding: 0,
-                                cursor: 'pointer',
-                                color: 'primary.main',
-                                fontSize: 'inherit',
-                                lineHeight: 1,
-                                '&:disabled': { opacity: 0.3, cursor: 'default' },
-                              }}
-                            >
-                              <SendIcon sx={{ fontSize: '1em' }} />
-                            </Box>
-                          </Box>
+                          <DataTableWriteCell
+                            format={item.format ?? 'decimal'}
+                            isFloat={itemMapEntry?.type === DataForm.FLOAT}
+                            min={item.min}
+                            max={item.max}
+                            liveValue={value}
+                            disabled={isEditMode || !connected}
+                            fontSize={fontSize}
+                            placeholder={item.format === 'hex' ? '0x0000' : item.format === 'binary' ? '0b0000' : '0'}
+                            onSubmit={(raw) => handleWrite(item, index, raw)}
+                          />
                         ) : (
                           <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', fontStyle: 'italic' }}>
                             read-only
