@@ -110,6 +110,7 @@ export default function ValueWriteWidget({ config, isEditMode, widgetSize }: Val
     <>
       <Box
         component="form"
+        autoComplete="off"
         onSubmit={handleSubmit}
         sx={{
           display: 'flex',

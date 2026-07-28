@@ -457,6 +457,10 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
       },
 
       MuiTextField: {
+        // Suppress the WebView/browser saved-form-history dropdown ("Saved info").
+        // Device write fields must show the live value only — a stale autofill
+        // suggestion next to a register entry field is misleading and clickable.
+        defaultProps: { autoComplete: 'off' },
         styleOverrides: {
           root: {
             '& .MuiOutlinedInput-root': {

@@ -70,6 +70,7 @@ function DataTableWriteCell({ format, isFloat, min, max, liveValue, disabled, fo
   return (
     <Box
       component="form"
+      autoComplete="off"
       onSubmit={(e: React.FormEvent) => { e.preventDefault(); onSubmit(value); }}
       sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.3em', fontSize }}
     >
