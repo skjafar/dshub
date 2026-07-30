@@ -150,3 +150,17 @@ Dark-first. Industrial precision with editorial restraint. Minimal surface, maxi
 3. **Precision at every scale** — Exact spacing, consistent geometry, tabular alignment on numeric data.
 4. **Calm confidence** — No excessive animations, no status ambiguity, no cluttered panels. Communicate changes clearly and once.
 5. **Serve both modes** — Detail-rich for debugging, scannable at a glance for monitoring.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as markdown files under `.scratch/<feature-slug>/` in this repo. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles, used verbatim (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context — one `CONTEXT.md` plus `docs/adr/` at the repo root. See `docs/agents/domain.md`.
