@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Button,
@@ -22,7 +22,11 @@ import {
   Switch,
   FormControlLabel,
   Checkbox,
-  InputAdornment
+  InputAdornment,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
@@ -34,8 +38,10 @@ import {
   Clear as ClearIcon,
   Memory as SystemIcon,
   InfoOutlined as InfoIcon,
+  Timer as TimerIcon,
 } from '@mui/icons-material';
 import RegisterInspector from './RegisterInspector';
+import PanelHeader from './PanelHeader';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { logger } from '../utils/logger';
@@ -49,21 +55,9 @@ import { useDebouncedCallback } from '../hooks/useDebounce';
 import { DataEditDialog, DataReadDialog } from './DataEditDialog';
 import ThumbwheelInput from './ThumbwheelInput';
 import { RegisterData } from '../types/shared';
-import { FONT_MONO } from '../theme';
+import { FONT_MONO } from '../design/tokens';
 
-export interface RegistersPanelRef {
-  openReadDialog: () => void;
-  refresh: () => void;
-  canRefresh: () => boolean;
-  isMapLoaded: boolean;
-  autoRefreshInterval: number;
-  setAutoRefreshInterval: (interval: number) => void;
-  activeCount: number;
-}
-
-interface RegistersPanelProps {}
-
-const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props, ref) => {
+export default function RegistersPanel(): React.JSX.Element {
   const { state, actions } = useDSHub();
   const { settings, getActiveProfile } = useSettings();
   const { showError } = useToast();
@@ -429,19 +423,61 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
   };
 
   // Expose methods to parent component
-  useImperativeHandle(ref, () => ({
-    openReadDialog: () => setReadDialog(true),
-    refresh: () => isMapLoaded ? handleReadAllMapped() : handleRefreshAll(),
-    canRefresh: () => !!state.connection?.connected,
-    isMapLoaded,
-    autoRefreshInterval,
-    setAutoRefreshInterval: handleAutoRefreshIntervalChange,
-    activeCount: state.autoRefresh.activeAddresses.size,
-  }));
+  const connected = !!state.connection?.connected;
+  const activeCount = currentTab === 2
+    ? state.autoRefresh.activeSystemAddresses.size
+    : state.autoRefresh.activeAddresses.size;
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0 }}>
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+      <PanelHeader
+        title="Registers"
+        subtitle={`${filteredRegisters.length} shown${activeCount > 0 ? ` · ${activeCount} auto-refreshing` : ''}`}
+        primaryAction={
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setReadDialog(true)}
+            disabled={!connected}
+            color="primary"
+            size="small"
+          >
+            Read Register
+          </Button>
+        }
+        actions={
+          <>
+            <Button
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+              onClick={() => (isMapLoaded ? handleReadAllMapped() : handleRefreshAll())}
+              disabled={!connected}
+              size="small"
+              color="inherit"
+            >
+              Refresh All
+            </Button>
+            <FormControl size="small" sx={{ minWidth: 116 }} disabled={!connected}>
+              <InputLabel sx={{ fontSize: '0.75rem' }}>Interval</InputLabel>
+              <Select
+                value={autoRefreshInterval}
+                onChange={(e) => handleAutoRefreshIntervalChange(e.target.value as number)}
+                label="Interval"
+                startAdornment={<TimerIcon sx={{ fontSize: 14, mr: 0.5, color: 'text.secondary' }} />}
+                sx={{ fontSize: '0.8125rem' }}
+              >
+                <MenuItem value={500}>500 ms</MenuItem>
+                <MenuItem value={1000}>1 s</MenuItem>
+                <MenuItem value={2000}>2 s</MenuItem>
+                <MenuItem value={5000}>5 s</MenuItem>
+                <MenuItem value={10000}>10 s</MenuItem>
+              </Select>
+            </FormControl>
+          </>
+        }
+      />
+
       {!state.connection?.connected && (
         <Alert
           severity="warning"
@@ -824,8 +860,4 @@ const RegistersPanel = forwardRef<RegistersPanelRef, RegistersPanelProps>((props
       />
     </Box>
   );
-});
-
-RegistersPanel.displayName = 'RegistersPanel';
-
-export default RegistersPanel;
+}

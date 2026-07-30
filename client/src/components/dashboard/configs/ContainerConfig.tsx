@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Button, FormControlLabel, Slider, Switch, TextField, Typography } from '@mui/material';
+import { Box, Button, FormControlLabel, Slider, Switch, TextField, Typography, useTheme } from '@mui/material';
 import { ContainerWidgetConfig } from '../../../types/dashboard';
 import ColorPickerField from './ColorPickerField';
 
@@ -9,6 +9,7 @@ interface ContainerConfigProps {
 }
 
 export default function ContainerConfig({ config, onConfigChange }: ContainerConfigProps): React.ReactElement {
+  const theme = useTheme();
   return (
     <>
       <TextField
@@ -27,7 +28,7 @@ export default function ContainerConfig({ config, onConfigChange }: ContainerCon
           <Switch
             size="small"
             checked={config.backgroundColor === undefined}
-            onChange={(e) => onConfigChange({ ...config, backgroundColor: e.target.checked ? undefined : '#0f1628' })}
+            onChange={(e) => onConfigChange({ ...config, backgroundColor: e.target.checked ? undefined : theme.palette.custom.surfaceContainer })}
           />
         }
         label={<Typography variant="body2" color="text.secondary">Transparent Background</Typography>}

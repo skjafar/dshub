@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { WIDGET_COLORS } from '../../design/dataColors';
 import { Box, Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography } from '@mui/material';
 import {
   PlayArrow,
@@ -401,9 +402,9 @@ export default function ButtonWidget({ config, isEditMode, widgetSize }: ButtonW
             width: '100%',
             minWidth: 0,
             backgroundColor: c.ghost,
-            border: `1.5px solid ${config.color || '#00D4FF'}`,
+            border: `1.5px solid ${config.color || WIDGET_COLORS.accent}`,
             borderRadius: 'inherit',
-            color: config.color || '#00D4FF',
+            color: config.color || WIDGET_COLORS.accent,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -412,16 +413,16 @@ export default function ButtonWidget({ config, isEditMode, widgetSize }: ButtonW
             position: 'relative',
             transition: 'all 0.15s ease',
             '&:hover:not(:disabled)': {
-              backgroundColor: alpha(config.color || '#00D4FF', 0.12),
-              border: `1.5px solid ${config.color || '#00D4FF'}`,
-              color: config.color || '#00D4FF',
+              backgroundColor: alpha(config.color || WIDGET_COLORS.accent, 0.12),
+              border: `1.5px solid ${config.color || WIDGET_COLORS.accent}`,
+              color: config.color || WIDGET_COLORS.accent,
             },
             '&:active:not(:disabled)': {
               transform: 'scale(0.98)'
             },
             '&:disabled': {
               opacity: 0.3,
-              border: `1.5px solid ${config.color || '#00D4FF'}40`,
+              border: `1.5px solid ${config.color || WIDGET_COLORS.accent}40`,
             }
           }}
         >

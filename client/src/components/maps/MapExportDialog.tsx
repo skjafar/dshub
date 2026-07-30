@@ -20,7 +20,7 @@ import { MapEntry } from '../../maps/mapParser';
 import { generateMapFile } from '../../utils/mapFileGenerator';
 import { generateHeaderFile } from '../../utils/headerFileGenerator';
 import { useToast } from '../ToastNotification';
-import { FONT_MONO } from '../../theme';
+import { FONT_MONO } from '../../design/tokens';
 
 interface MapExportDialogProps {
   open: boolean;

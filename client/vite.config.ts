@@ -17,17 +17,17 @@ export default defineConfig({
   build: {
     outDir: 'build',
     sourcemap: false,
+    // The app only ever runs in the bundled WebView (WebView2 on Windows,
+    // WKWebView on macOS, WebKitGTK on Linux). Targeting those directly avoids
+    // transpiling and polyfilling for browsers that can never load this bundle.
+    target: ['chrome110', 'safari15'],
     // Optimize chunk size
     chunkSizeWarningLimit: 1000,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom'],
-          'mui-vendor': ['@mui/material', '@mui/icons-material'],
-          'chart-vendor': ['chart.js', 'react-chartjs-2'],
-        },
-      },
-    },
+    // No manualChunks: React, MUI and Emotion are mutually entangled, and forcing
+    // them into separate chunks produces a chunk-initialisation cycle that throws
+    // "Cannot access '…' before initialization" at runtime — a failure the build
+    // itself does not catch. Vite's default splitting keeps the order correct, and
+    // the panels are already code-split via React.lazy.
   },
 
   // Path resolution

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { WIDGET_COLORS } from '../../design/dataColors';
 import { Box, Typography, useTheme } from '@mui/material';
 import {
   Chart as ChartJS,
@@ -82,6 +83,9 @@ export default function MiniPlotWidget({ config, isEditMode, widgetSize }: MiniP
 
       return filtered;
     });
+    // `currentData.value` and `mapEntry` are read inside, but a new sample always
+    // brings a new timestamp, so keying on it captures every change exactly once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentData?.timestamp, isEditMode, config.timeWindow, config.pollInterval]);
 
   const chartData = {
@@ -89,7 +93,7 @@ export default function MiniPlotWidget({ config, isEditMode, widgetSize }: MiniP
       {
         label: config.label,
         data: dataPoints,
-        borderColor: config.color || '#00D4FF',
+        borderColor: config.color || WIDGET_COLORS.accent,
         backgroundColor: 'transparent',
         borderWidth: 2,
         pointRadius: 0,

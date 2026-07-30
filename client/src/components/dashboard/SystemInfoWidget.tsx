@@ -1,14 +1,16 @@
 import React from 'react';
+import { WIDGET_COLORS } from '../../design/dataColors';
 import { Box, Typography } from '@mui/material';
 import { SystemInfoWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem, getOrientation } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefreshMulti } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
-import { FONT_MONO } from '../../theme';
+import { FONT_MONO } from '../../design/tokens';
 import { mapManager } from '../../maps/mapManager';
 import { getPlotValue } from '../../utils/dataTableUtils';
-import { isTinyFloat } from '../../utils/floatConversion';
+import { formatDeviceValue } from '../../utils/numberFormat';
+import { DataForm } from '../../maps/mapParser';
 
 interface SystemInfoWidgetProps {
   config: SystemInfoWidgetConfig;
@@ -41,7 +43,7 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
   /**
    * Format value based on format type
    */
-  const formatValue = (value: number | undefined, format?: string, decimals?: number, scientific?: boolean): string => {
+  const formatValue = (value: number | undefined, isFloat: boolean, format?: string, decimals?: number, scientific?: boolean): string => {
     if (value === undefined) return '---';
 
     switch (format) {
@@ -49,16 +51,16 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
         return `0x${value.toString(16).toUpperCase().padStart(4, '0')}`;
       case 'binary':
         return `0b${value.toString(2).padStart(8, '0')}`;
-      case 'time':
+      case 'time': {
         // Format as HH:MM:SS (assuming value is in seconds)
         const hours = Math.floor(value / 3600);
         const minutes = Math.floor((value % 3600) / 60);
         const seconds = value % 60;
         return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+      }
       case 'decimal':
       default:
-        if (scientific || isTinyFloat(value)) return value.toExponential(decimals ?? 4);
-        return decimals !== undefined ? value.toFixed(decimals) : value.toLocaleString();
+        return formatDeviceValue(value, { isFloat, decimals, scientific });
     }
   };
 
@@ -72,8 +74,8 @@ export default function SystemInfoWidget({ config, isEditMode, widgetSize }: Sys
 
     const mapEntry = mapManager.getEntryBySource(item.source, item.address);
     const value = currentData?.value !== undefined ? getPlotValue(currentData.value, mapEntry) : undefined;
-    const formattedValue = formatValue(value, item.format, item.decimals, item.scientificNotation);
-    const itemColor = item.color || '#00F2FF';
+    const formattedValue = formatValue(value, mapEntry?.type === DataForm.FLOAT, item.format, item.decimals, item.scientificNotation);
+    const itemColor = item.color || WIDGET_COLORS.accent;
 
     return (
       <Box

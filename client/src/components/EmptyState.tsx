@@ -1,6 +1,6 @@
 import { Box, Typography, Button } from '@mui/material';
 import { SvgIconProps } from '@mui/material/SvgIcon';
-import { FONT_HEADLINE } from '../theme';
+import { FONT_HEADLINE } from '../design/tokens';
 
 interface EmptyStateProps {
   icon: React.ReactElement<SvgIconProps>;

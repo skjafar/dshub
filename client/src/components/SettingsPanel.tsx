@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Box,
+  ButtonBase,
   Card,
   CardContent,
   Typography,
@@ -30,7 +31,8 @@ import {
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import { useDSHub } from '../contexts/DSHubContext';
-import { FONT_MONO, FONT_BODY } from '../theme';
+import { FONT_MONO, FONT_BODY } from '../design/tokens';
+import ConfirmDialog from './ConfirmDialog';
 import { APP_THEMES } from '../appThemes';
 
 export default function SettingsPanel() {
@@ -39,6 +41,7 @@ export default function SettingsPanel() {
   const { showSuccess, showError, showWarning } = useToast();
   const { actions } = useDSHub();
   const [importError, setImportError] = useState<string>('');
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Local state for input fields (allows typing any value)
@@ -128,21 +131,25 @@ export default function SettingsPanel() {
     }
   };
 
+  // Typing is silent; the value is committed (and announced) on blur or Enter.
+  // Announcing per keystroke emitted a toast for every digit of "20000".
   const handleMaxDataPointsChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const value = event.target.value;
-    setMaxDataPointsInput(value);
+    setMaxDataPointsInput(event.target.value);
+  };
 
-    const validation = validateNumber(value, 1000, 100000);
-    if (validation.valid) {
-      const numValue = parseInt(value);
+  const commitMaxDataPoints = () => {
+    const validation = validateNumber(maxDataPointsInput, 1000, 100000);
+    if (!validation.valid) return;
 
-      // Show warning if setting a high value
-      if (numValue > 50000) {
-        showWarning(`High data point limit set (${numValue.toLocaleString()}). This may use significant memory (~${Math.round(numValue * 16 / 1024)} KB per series).`);
-      }
+    const numValue = parseInt(maxDataPointsInput);
+    if (numValue === settings.plotDefaults.maxDataPoints) return;
 
-      updateSettings({ plotDefaults: { ...settings.plotDefaults, maxDataPoints: numValue } });
-      actions.setMaxDataPoints(numValue);
+    updateSettings({ plotDefaults: { ...settings.plotDefaults, maxDataPoints: numValue } });
+    actions.setMaxDataPoints(numValue);
+
+    if (numValue > 50000) {
+      showWarning(`Max data points set to ${numValue.toLocaleString()} — roughly ${Math.round(numValue * 16 / 1024)} KB per series.`);
+    } else {
       showSuccess(`Max data points updated to ${numValue.toLocaleString()}`);
     }
   };
@@ -242,15 +249,23 @@ export default function SettingsPanel() {
     }
   };
 
-  const handleResetSettings = () => {
-    if (window.confirm('Are you sure you want to reset all settings to defaults? This cannot be undone.')) {
-      resetSettings();
-      showSuccess('Settings reset to defaults');
-    }
+  const handleConfirmReset = () => {
+    setResetConfirmOpen(false);
+    resetSettings();
+    showSuccess('Settings reset to defaults');
   };
 
   return (
     <Box>
+      <ConfirmDialog
+        open={resetConfirmOpen}
+        title="Reset all settings"
+        message="Connection preferences, plot defaults, log filters and the selected theme return to their defaults. Map profiles and dashboards are kept."
+        confirmLabel="Reset settings"
+        destructive
+        onConfirm={handleConfirmReset}
+        onCancel={() => setResetConfirmOpen(false)}
+      />
       <Stack spacing={2}>
         {/* Theme full-width, then Connection below */}
         <Card>
@@ -261,66 +276,72 @@ export default function SettingsPanel() {
 
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 1 }}>
               {APP_THEMES.map((t) => {
-                const isSelected = (settings.colorThemeId ?? 'kinetic-monolith') === t.id;
+                const isSelected = settings.colorThemeId === t.id;
+                // The card previews the theme using that theme's own surfaces and
+                // text, so what you see is what you get.
+                const p = t.colors;
                 return (
-                  <Box
+                  <ButtonBase
                     key={t.id}
                     onClick={() => handleColorThemeChange(t.id)}
+                    aria-label={`${t.name} theme — ${t.description}`}
+                    aria-pressed={isSelected}
                     sx={{
+                      display: 'block',
+                      textAlign: 'left',
                       position: 'relative',
                       borderRadius: '6px',
-                      border: isSelected ? `2px solid ${t.preview[0]}` : '2px solid transparent',
-                      outline: isSelected ? `1px solid ${t.preview[0]}` : `1px solid ${c.ghost20}`,
-                      cursor: 'pointer',
+                      border: `2px solid ${isSelected ? p.primary : 'transparent'}`,
+                      outline: `1px solid ${isSelected ? p.primary : c.ghost20}`,
                       overflow: 'hidden',
                       transition: 'border-color 0.15s, outline-color 0.15s',
-                      '&:hover': { outline: `1px solid ${t.preview[0]}` },
+                      '&:hover': { outline: `1px solid ${p.primary}` },
                     }}
                   >
-                    {/* Color swatch row */}
-                    <Box sx={{ display: 'flex', height: 36 }}>
+                    {/* Accent swatches over the theme's own base surface */}
+                    <Box sx={{ display: 'flex', height: 36, backgroundColor: p.surface }}>
                       {t.preview.map((color, i) => (
                         <Box key={i} sx={{ flex: 1, backgroundColor: color }} />
                       ))}
                     </Box>
 
-                    {/* Name + description + mode badge */}
-                    <Box sx={{
-                      px: 1,
-                      pt: 0.75,
-                      pb: 0.75,
-                      backgroundColor: t.mode === 'dark' ? '#111' : '#f8f8f8',
-                    }}>
+                    {/* Status ramp — identical in every theme, by design */}
+                    <Box sx={{ display: 'flex', height: 6, backgroundColor: p.surface }}>
+                      {[p.status.ok, p.status.warn, p.status.error, p.status.info].map((color, i) => (
+                        <Box key={i} sx={{ flex: 1, backgroundColor: color }} />
+                      ))}
+                    </Box>
+
+                    <Box sx={{ px: 1, py: 0.75, backgroundColor: p.surfaceContainer }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.25 }}>
                         <Typography sx={{
                           fontFamily: FONT_BODY,
                           fontSize: '0.75rem',
                           fontWeight: 600,
-                          color: t.mode === 'dark' ? '#e8e8e8' : '#1a1a1a',
+                          color: p.onSurface,
                           lineHeight: 1.3,
                         }}>
                           {t.name}
                         </Typography>
                         {isSelected && (
-                          <CheckIcon sx={{ fontSize: 14, color: t.preview[0], flexShrink: 0 }} />
+                          <CheckIcon sx={{ fontSize: 14, color: p.primary, flexShrink: 0 }} />
                         )}
                       </Box>
                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 0.5 }}>
                         <Typography sx={{
                           fontFamily: FONT_BODY,
                           fontSize: '0.625rem',
-                          color: t.mode === 'dark' ? 'rgba(200,200,200,0.6)' : 'rgba(60,60,60,0.6)',
+                          color: p.onSurfaceVar,
                           lineHeight: 1.4,
                           flexGrow: 1,
                         }}>
                           {t.description}
                         </Typography>
                         <Typography sx={{
-                          fontFamily: FONT_MONO,
                           fontSize: '0.5625rem',
                           fontWeight: 700,
                           letterSpacing: '0.06em',
-                          color: t.mode === 'dark' ? 'rgba(160,160,160,0.7)' : 'rgba(80,80,80,0.7)',
+                          color: p.outline,
                           flexShrink: 0,
                           textTransform: 'uppercase',
                         }}>
@@ -328,7 +349,7 @@ export default function SettingsPanel() {
                         </Typography>
                       </Box>
                     </Box>
-                  </Box>
+                  </ButtonBase>
                 );
               })}
             </Box>
@@ -479,6 +500,8 @@ export default function SettingsPanel() {
                   type="number"
                   value={maxDataPointsInput}
                   onChange={handleMaxDataPointsChange}
+                  onBlur={commitMaxDataPoints}
+                  onKeyDown={(e) => { if (e.key === 'Enter') commitMaxDataPoints(); }}
                   error={!validateNumber(maxDataPointsInput, 1000, 100000).valid}
                   InputProps={{
                     endAdornment: <InputAdornment position="end">pts</InputAdornment>,
@@ -521,7 +544,7 @@ export default function SettingsPanel() {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Typography variant="body2">Connection & State</Typography>
                       <Tooltip title="System events, device connection status, and scanning activity">
-                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#00E676', flexShrink: 0 }} />
+                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: c.status.ok, flexShrink: 0 }} />
                       </Tooltip>
                     </Box>
                   }
@@ -539,7 +562,7 @@ export default function SettingsPanel() {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Typography variant="body2">Register Data</Typography>
                       <Tooltip title="Read and write responses for register operations">
-                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#FFAB00', flexShrink: 0 }} />
+                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: c.status.warn, flexShrink: 0 }} />
                       </Tooltip>
                     </Box>
                   }
@@ -557,7 +580,7 @@ export default function SettingsPanel() {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Typography variant="body2">Parameter Data</Typography>
                       <Tooltip title="Read and write responses for parameter operations">
-                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#FFAB00', flexShrink: 0 }} />
+                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: c.status.warn, flexShrink: 0 }} />
                       </Tooltip>
                     </Box>
                   }
@@ -575,7 +598,7 @@ export default function SettingsPanel() {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Typography variant="body2">Packet Analysis</Typography>
                       <Tooltip title="Detailed packet analysis with hex dumps (very verbose)">
-                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#FF3D71', flexShrink: 0 }} />
+                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: c.status.error, flexShrink: 0 }} />
                       </Tooltip>
                     </Box>
                   }
@@ -593,7 +616,7 @@ export default function SettingsPanel() {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Typography variant="body2">Auto-Refresh</Typography>
                       <Tooltip title="Periodic auto-refresh operation messages">
-                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#7A7A8A', flexShrink: 0 }} />
+                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: c.status.idle, flexShrink: 0 }} />
                       </Tooltip>
                     </Box>
                   }
@@ -611,7 +634,7 @@ export default function SettingsPanel() {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Typography variant="body2">Plotting</Typography>
                       <Tooltip title="Plot start and stop events">
-                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#7A7A8A', flexShrink: 0 }} />
+                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: c.status.idle, flexShrink: 0 }} />
                       </Tooltip>
                     </Box>
                   }
@@ -621,19 +644,19 @@ export default function SettingsPanel() {
               <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, flexWrap: 'wrap' }}>
                 <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.5 }}>Impact:</Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#7A7A8A' }} />
+                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: c.status.idle }} />
                   <Typography variant="caption" sx={{ color: 'text.secondary', mr: 1.5 }}>Low</Typography>
                 </Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#FFAB00' }} />
+                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: c.status.warn }} />
                   <Typography variant="caption" sx={{ color: 'text.secondary', mr: 1.5 }}>Medium</Typography>
                 </Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#FF3D71' }} />
+                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: c.status.error }} />
                   <Typography variant="caption" sx={{ color: 'text.secondary', mr: 1.5 }}>High</Typography>
                 </Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#00E676' }} />
+                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: c.status.ok }} />
                   <Typography variant="caption" sx={{ color: 'text.secondary' }}>Recommended</Typography>
                 </Box>
               </Box>
@@ -713,7 +736,7 @@ export default function SettingsPanel() {
                   variant="outlined"
                   color="error"
                   startIcon={<ResetIcon />}
-                  onClick={handleResetSettings}
+                  onClick={() => setResetConfirmOpen(true)}
                   size="small"
                 >
                   Reset

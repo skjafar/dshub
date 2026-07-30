@@ -1,5 +1,5 @@
 // Enhanced LogsPanel with virtualized scrolling for performance
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from 'react';
 import {
   Box,
   Card,
@@ -13,7 +13,7 @@ import {
   Switch,
   FormControlLabel,
   Paper,
-  Chip,
+  Tooltip,
   useTheme
 } from '@mui/material';
 import {
@@ -24,10 +24,11 @@ import {
   Receipt as ReceiptIcon
 } from '@mui/icons-material';
 import EmptyState from './EmptyState';
+import PanelHeader from './PanelHeader';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { LogEntry } from '../types/shared';
-import { FONT_MONO } from '../theme';
+import { FONT_MONO } from '../design/tokens';
 
 const getLevelColor = (level: LogEntry['level']) => {
   switch (level) {
@@ -40,21 +41,28 @@ const getLevelColor = (level: LogEntry['level']) => {
     case 'success':
       return 'success';
     case 'packet':
-      return 'secondary';
+      return 'default';
     default:
       return 'default';
   }
 };
 
-const getLevelTextColor = (level: LogEntry['level']): string => {
-  switch (level) {
-    case 'info': return '#5CE1FF';
-    case 'success': return '#00E676';
-    case 'warning': return '#FFAB00';
-    case 'error': return '#FF3D71';
-    case 'packet': return '#A78BFA';
-    default: return '#E8E8EC';
-  }
+/**
+ * Level colour from the theme's semantic ramp. These were hardcoded dark-mode
+ * hexes, which rendered as pale-on-white and were unreadable on light themes.
+ */
+const useLevelTextColor = (): ((level: LogEntry['level']) => string) => {
+  const { palette: { custom: c } } = useTheme();
+  return (level) => {
+    switch (level) {
+      case 'success': return c.status.ok;
+      case 'warning': return c.status.warn;
+      case 'error':   return c.status.error;
+      case 'packet':  return c.status.info;
+      case 'info':
+      default:        return c.onSurfaceVar;
+    }
+  };
 };
 
 // Row heights for virtual scrolling
@@ -71,6 +79,7 @@ function getRowHeight(log: LogEntry): number {
 // Virtualized log row component
 function LogRow({ log, style }: { log: LogEntry; style: React.CSSProperties }) {
   const { palette: { custom: c } } = useTheme();
+  const levelColor = useLevelTextColor()(log.level);
   const timeStr = new Date(log.timestamp).toLocaleTimeString('en-US', {
     hour12: false,
     hour: '2-digit',
@@ -91,8 +100,7 @@ function LogRow({ log, style }: { log: LogEntry; style: React.CSSProperties }) {
         py: 0.5,
         borderBottom: '1px solid',
         borderColor: 'divider',
-        fontFamily: FONT_MONO,
-        fontSize: '0.875rem',
+        fontSize: '0.8125rem',
         '&:hover': { backgroundColor: c.ghost },
         overflow: 'hidden',
       }}
@@ -101,25 +109,27 @@ function LogRow({ log, style }: { log: LogEntry; style: React.CSSProperties }) {
         variant="body2"
         component="span"
         sx={{
-          color: '#4A4A5A',
-          fontWeight: 'normal',
-          minWidth: '70px',
+          color: c.outline,
+          fontFamily: FONT_MONO,
+          fontVariantNumeric: 'tabular-nums',
+          minWidth: '68px',
           flexShrink: 0,
         }}
       >
-        [{timeStr}]
+        {timeStr}
       </Typography>
       <Typography
         variant="body2"
         component="span"
         sx={{
-          color: getLevelTextColor(log.level),
-          fontWeight: 'bold',
-          minWidth: '80px',
+          color: levelColor,
+          fontWeight: 600,
+          letterSpacing: '0.04em',
+          minWidth: '68px',
           flexShrink: 0,
         }}
       >
-        {log.level.toUpperCase()}:
+        {log.level.toUpperCase()}
       </Typography>
       <Box sx={{ color: 'text.primary', flex: 1, overflow: 'hidden' }}>
         <Typography variant="body2" component="span" sx={{ color: 'text.primary' }}>
@@ -127,32 +137,32 @@ function LogRow({ log, style }: { log: LogEntry; style: React.CSSProperties }) {
         </Typography>
         {log.level === 'packet' && log.packetData && (
           <Box sx={{ mt: 0.5 }}>
-            <Typography variant="caption" sx={{ display: 'block', color: '#A78BFA', mb: 0.5 }}>
-              {log.packetData.direction} | {log.packetData.interface} | {log.packetData.destination} | {log.packetData.size} bytes
-              {log.packetData.responseTime && ` | Response Time: ${log.packetData.responseTime}ms`}
+            <Typography variant="caption" sx={{ display: 'block', color: c.status.info, mb: 0.5 }}>
+              {log.packetData.direction} · {log.packetData.interface} · {log.packetData.destination} · {log.packetData.size} bytes
+              {log.packetData.responseTime !== undefined && ` · ${log.packetData.responseTime} ms`}
             </Typography>
             {log.packetData.hexData && (
-              <Box sx={{ bgcolor: '#0C0C0E', p: 0.5, borderRadius: 1, mb: 0.5 }}>
-                <Typography variant="caption" sx={{ display: 'block', color: '#4CAF50', fontWeight: 'bold', mb: 0.25 }}>
-                  HEX DUMP:
+              <Box sx={{ bgcolor: c.surfaceLowest, border: `1px solid ${c.ghost}`, p: 0.75, borderRadius: 1, mb: 0.5 }}>
+                <Typography variant="label" sx={{ display: 'block', color: c.onSurfaceVar, mb: 0.25 }}>
+                  Hex dump
                 </Typography>
                 <Typography
                   variant="caption"
                   component="pre"
-                  sx={{ color: '#E0E0E0', fontFamily: FONT_MONO, margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}
+                  sx={{ color: c.onSurface, fontFamily: FONT_MONO, margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}
                 >
                   {log.packetData.hexData}
                 </Typography>
               </Box>
             )}
             {log.packetData.analysis && (
-              <Box sx={{ bgcolor: '#0C0C0E', p: 0.5, borderRadius: 1 }}>
-                <Typography variant="caption" sx={{ display: 'block', color: '#FF9800', fontWeight: 'bold', mb: 0.25 }}>
-                  PACKET ANALYSIS:
+              <Box sx={{ bgcolor: c.surfaceLowest, border: `1px solid ${c.ghost}`, p: 0.75, borderRadius: 1 }}>
+                <Typography variant="label" sx={{ display: 'block', color: c.onSurfaceVar, mb: 0.25 }}>
+                  Packet analysis
                 </Typography>
                 <Typography
                   variant="caption"
-                  sx={{ color: '#E0E0E0', fontFamily: FONT_MONO, display: 'block', whiteSpace: 'pre-wrap' }}
+                  sx={{ color: c.onSurface, fontFamily: FONT_MONO, display: 'block', whiteSpace: 'pre-wrap' }}
                 >
                   {log.packetData.analysis}
                 </Typography>
@@ -203,10 +213,24 @@ export default function LogsPanel() {
     return { offsets, totalHeight: total };
   }, [filteredLogs]);
 
-  // Virtual scroll state
+  // Virtual scroll state. The viewport was a fixed 600px regardless of window
+  // size, so a maximised window showed the same small log slot as a small one.
   const [scrollTop, setScrollTop] = useState(0);
-  const CONTAINER_HEIGHT = 600;
+  const [viewportHeight, setViewportHeight] = useState(600);
   const OVERSCAN = 5;
+  // The scroll container only exists when there are rows to show, so the
+  // measuring effect must re-run when that flips.
+  const hasVisibleLogs = filteredLogs.length > 0;
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => setViewportHeight(el.clientHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasVisibleLogs]);
 
   // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
@@ -240,13 +264,13 @@ export default function LogsPanel() {
 
   const endIndex = useMemo(() => {
     const { offsets } = rowMeta;
-    const bottomEdge = scrollTop + CONTAINER_HEIGHT;
+    const bottomEdge = scrollTop + viewportHeight;
     let idx = startIndex;
     while (idx < offsets.length && offsets[idx] < bottomEdge) {
       idx++;
     }
     return Math.min(offsets.length, idx + OVERSCAN);
-  }, [scrollTop, startIndex, rowMeta]);
+  }, [scrollTop, startIndex, rowMeta, viewportHeight]);
 
   // Render only visible rows
   const visibleRows = useMemo(() => {
@@ -294,92 +318,82 @@ export default function LogsPanel() {
 
   return (
     <Box>
-      {/* Stats and Controls */}
-      <Card sx={{ mb: 2 }}>
-        <CardContent>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-              <Chip
-                label={`Total: ${displayLogs.length}`}
-                size="small"
-                variant="outlined"
-              />
-              {Object.entries(levelCounts).map(([level, count]) => (
-                <Chip
-                  key={level}
-                  label={`${level}: ${count}`}
+      <PanelHeader
+        title="Activity Logs"
+        subtitle={
+          <Box component="span" sx={{ display: 'inline-flex', gap: 1, flexWrap: 'wrap' }}>
+            <span>{displayLogs.length} total</span>
+            {Object.entries(levelCounts).map(([level, count]) => (
+              <span key={level}>· {level} {count}</span>
+            ))}
+          </Box>
+        }
+        actions={
+          <>
+            <FormControl size="small" sx={{ minWidth: 128 }}>
+              <InputLabel>Level</InputLabel>
+              <Select
+                value={levelFilter}
+                onChange={(e) => setLevelFilter(e.target.value as LogEntry['level'] | 'all')}
+                label="Level"
+              >
+                <MenuItem value="all">All</MenuItem>
+                <MenuItem value="info">Info</MenuItem>
+                <MenuItem value="success">Success</MenuItem>
+                <MenuItem value="warning">Warning</MenuItem>
+                <MenuItem value="error">Error</MenuItem>
+                <MenuItem value="packet">Packets</MenuItem>
+              </Select>
+            </FormControl>
+
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={autoScrollEnabled}
+                  onChange={(e) => setAutoScrollEnabled(e.target.checked)}
                   size="small"
-                  color={getLevelColor(level as LogEntry['level'])}
-                  variant="outlined"
                 />
-              ))}
-            </Box>
-
-            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-              <FormControl size="small" sx={{ minWidth: 120 }}>
-                <InputLabel>Filter Level</InputLabel>
-                <Select
-                  value={levelFilter}
-                  onChange={(e) => setLevelFilter(e.target.value as LogEntry['level'] | 'all')}
-                  label="Filter Level"
-                >
-                  <MenuItem value="all">All</MenuItem>
-                  <MenuItem value="info">Info</MenuItem>
-                  <MenuItem value="success">Success</MenuItem>
-                  <MenuItem value="warning">Warning</MenuItem>
-                  <MenuItem value="error">Error</MenuItem>
-                  <MenuItem value="packet">Packets</MenuItem>
-                </Select>
-              </FormControl>
-
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={autoScrollEnabled}
-                    onChange={(e) => setAutoScrollEnabled(e.target.checked)}
-                    size="small"
-                  />
-                }
-                label="Auto-scroll"
-              />
-
+              }
+              label={<Typography variant="body2">Auto-scroll</Typography>}
+              sx={{ ml: 0, whiteSpace: 'nowrap' }}
+            />
+          </>
+        }
+        status={
+          <>
+            <Tooltip title={isLoggingPaused ? 'Resume logging' : 'Pause logging'}>
               <IconButton
                 onClick={() => setIsLoggingPaused(!isLoggingPaused)}
-                aria-label={isLoggingPaused ? "Resume logging" : "Pause logging"}
-                title={isLoggingPaused ? "Resume Logging" : "Pause Logging"}
+                aria-label={isLoggingPaused ? 'Resume logging' : 'Pause logging'}
                 size="small"
-                color={isLoggingPaused ? "warning" : "default"}
+                color={isLoggingPaused ? 'warning' : 'default'}
               >
-                {isLoggingPaused ? <PlayIcon /> : <PauseIcon />}
+                {isLoggingPaused ? <PlayIcon fontSize="small" /> : <PauseIcon fontSize="small" />}
               </IconButton>
-
-              <IconButton
-                onClick={exportLogs}
-                aria-label="Export logs"
-                title="Export Logs"
-                disabled={displayLogs.length === 0}
-                size="small"
-              >
-                <ExportIcon />
-              </IconButton>
-
-              <IconButton
-                onClick={actions.clearLogs}
-                aria-label="Clear logs"
-                title="Clear Logs"
-                disabled={displayLogs.length === 0}
-                size="small"
-              >
-                <ClearIcon />
-              </IconButton>
-            </Box>
-          </Box>
-        </CardContent>
-      </Card>
+            </Tooltip>
+            <Tooltip title="Export visible entries">
+              <span>
+                <IconButton onClick={exportLogs} aria-label="Export logs" disabled={displayLogs.length === 0} size="small">
+                  <ExportIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="Clear log">
+              <span>
+                <IconButton onClick={actions.clearLogs} aria-label="Clear logs" disabled={displayLogs.length === 0} size="small">
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </>
+        }
+      />
 
       {/* Logs List — virtualized */}
       <Paper sx={{
-        height: CONTAINER_HEIGHT,
+        // Fill the remaining viewport rather than a fixed slot.
+        height: 'calc(100vh - 260px)',
+        minHeight: 320,
         overflow: 'hidden',
         backgroundColor: c.surfaceLowest,
         color: 'text.primary',

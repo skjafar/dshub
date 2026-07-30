@@ -3,7 +3,7 @@ import { Box, Typography, Tooltip, useTheme } from '@mui/material';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { ControlInterfaceState } from '../types/shared';
-import { FONT_MONO } from '../theme';
+import { FONT_MONO } from '../design/tokens';
 
 export const STATUS_BAR_HEIGHT = 32;
 

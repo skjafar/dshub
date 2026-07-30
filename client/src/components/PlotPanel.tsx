@@ -21,6 +21,8 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  FormControlLabel,
+  Switch,
   useTheme
 } from '@mui/material';
 import {
@@ -31,6 +33,7 @@ import {
   ShowChart as ShowChartIcon
 } from '@mui/icons-material';
 import EmptyState from './EmptyState';
+import PanelHeader from './PanelHeader';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -51,6 +54,9 @@ import { useToast } from './ToastNotification';
 import { mapManager } from '../maps/mapManager';
 import { MapEntry } from '../maps/mapParser';
 import { getPlotValue } from '../utils/dataTableUtils';
+import { formatFractional } from '../utils/numberFormat';
+import { SERIES_DARK, seriesColorAt } from '../design/dataColors';
+import { readableOn, alphaOf } from '../design/contrast';
 
 ChartJS.register(
   CategoryScale,
@@ -63,30 +69,17 @@ ChartJS.register(
   TimeScale
 );
 
-const COLORS = [
-  '#00D4FF',  // Cyan (primary)
-  '#FF3D71',  // Signal Red
-  '#00E676',  // Signal Green
-  '#FFAB00',  // Amber
-  '#A78BFA',  // Purple
-  '#FF7043',  // Deep Orange
-  '#26C6DA',  // Teal
-  '#EC407A',  // Magenta
-  '#5CE1FF',  // Light Cyan
-  '#FFC233',  // Gold
-  '#33EB91',  // Light Green
-  '#C4B5FD',  // Lavender
-  '#FF6B8A',  // Pink
-  '#7C3AED',  // Deep Purple
-  '#CC8900',  // Dark Amber
-];
-
 const DEFAULT_PLOT_HEIGHT = 300;
 const MAX_PLOTS = 10;
 
 interface PlotSeries {
   name: string;
-  color: string;
+  /**
+   * Index into the series palette rather than a literal colour. The palette has a
+   * dark and a light variant, so storing the slot keeps a series' identity stable
+   * across theme changes while letting its lightness follow the background.
+   */
+  colorSlot: number;
   visible: boolean;
   pollInterval: number;
   address: number;
@@ -145,17 +138,31 @@ const createEmptyPlot = (id: string, plotNumber: number): PlotPanel => ({
   height: DEFAULT_PLOT_HEIGHT
 });
 
-interface PlotPanelProps {
-  timeSpan: number;
-  isAutoscaleEnabled: boolean;
-  showStatistics: boolean;
-}
-
-export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics }: PlotPanelProps) {
+export default function PlotPanel() {
   const { state, actions } = useDSHub();
   const { settings, getActiveProfile } = useSettings();
   const { showSuccess, showError } = useToast();
   const theme = useTheme();
+
+  // View controls live with the panel rather than in the global AppBar, so they
+  // are always reachable and cannot be pushed off screen by a narrow window.
+  const [timeSpan, setTimeSpan] = useState(settings.plotDefaults.timeSpan);
+  const [timeSpanInput, setTimeSpanInput] = useState(settings.plotDefaults.timeSpan.toString());
+  const [isAutoscaleEnabled, setIsAutoscaleEnabled] = useState(true);
+  const [showStatistics, setShowStatistics] = useState(false);
+
+  const timeSpanError =
+    Number.isNaN(parseInt(timeSpanInput)) ||
+    parseInt(timeSpanInput) < 5 ||
+    parseInt(timeSpanInput) > settings.plotDefaults.maxTimeSpan;
+
+  const handleTimeSpanInput = (value: string) => {
+    setTimeSpanInput(value);
+    const num = parseInt(value);
+    if (!Number.isNaN(num) && num >= 5 && num <= settings.plotDefaults.maxTimeSpan) {
+      setTimeSpan(num);
+    }
+  };
 
   const [selectedRegister, setSelectedRegister] = useState('');
   const [selectedSource, setSelectedSource] = useState<'register' | 'sysRegister'>('register');
@@ -238,21 +245,25 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
     return { valid: true };
   };
 
-  // Get next available color within a specific plot
-  const getNextAvailableColor = useCallback((plotId: string) => {
+  // Resolve a series' palette slot for the active theme mode.
+  const seriesColor = useCallback(
+    (series: PlotSeries) => seriesColorAt(series.colorSlot, theme.palette.mode),
+    [theme.palette.mode]
+  );
+
+  // Lowest palette slot not already taken within this plot.
+  const getNextAvailableSlot = useCallback((plotId: string) => {
     const plot = plots.find(p => p.id === plotId);
-    const plotColors = new Set<string>();
+    const taken = new Set<number>();
     if (plot) {
       for (const series of plot.series.values()) {
-        plotColors.add(series.color);
+        taken.add(series.colorSlot);
       }
     }
-    for (const color of COLORS) {
-      if (!plotColors.has(color)) {
-        return color;
-      }
+    for (let slot = 0; slot < SERIES_DARK.length; slot++) {
+      if (!taken.has(slot)) return slot;
     }
-    return COLORS[plotColors.size % COLORS.length];
+    return taken.size % SERIES_DARK.length;
   }, [plots]);
 
   // Look up the map entry for a series so its raw value can be decoded correctly
@@ -390,10 +401,9 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
       return;
     }
 
-    const color = getNextAvailableColor(selectedPlotId);
     const newSeries: PlotSeries = {
       name: selectedRegister,
-      color,
+      colorSlot: getNextAvailableSlot(selectedPlotId),
       visible: true,
       pollInterval,
       address: register.address,
@@ -607,7 +617,17 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
     const savedLayout = localStorage.getItem('dshub-plot-layout');
     if (savedLayout) {
       try {
-        type SavedSeries = { name: string; color: string; visible: boolean; pollInterval: number; address: number; source: 'register' | 'sysRegister' };
+        // `color` is the pre-0.3 shape: layouts saved then stored a literal hex.
+        // Those are migrated to a palette slot on load.
+        type SavedSeries = {
+          name: string;
+          colorSlot?: number;
+          color?: string;
+          visible: boolean;
+          pollInterval: number;
+          address: number;
+          source: 'register' | 'sysRegister';
+        };
         type SavedPlot = { id: string; title: string; height: number; series: SavedSeries[] };
         const layout: SavedPlot[] = JSON.parse(savedLayout);
 
@@ -617,10 +637,17 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
             id: saved.id,
             title: saved.title,
             height: saved.height,
-            series: new Map(
+            series: new Map<string, PlotSeries>(
               saved.series
                 .filter(s => activeNonDashboard.has(s.name))
-                .map(s => [s.name, s])
+                .map((s, i): [string, PlotSeries] => [s.name, {
+                  name: s.name,
+                  colorSlot: s.colorSlot ?? i,
+                  visible: s.visible,
+                  pollInterval: s.pollInterval,
+                  address: s.address,
+                  source: s.source,
+                }])
             ),
             zoomPan: { yMin: null, yMax: null, isZoomed: false },
             mouseState: {
@@ -653,7 +680,7 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
     activeNonDashboard.forEach((plotInfo, registerName) => {
       restoredSeries.set(registerName, {
         name: registerName,
-        color: COLORS[restoredSeries.size % COLORS.length],
+        colorSlot: restoredSeries.size % SERIES_DARK.length,
         source: plotInfo.source ?? 'register',
         visible: true,
         pollInterval: plotInfo.pollInterval,
@@ -740,8 +767,8 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
               x: point.x * 1000,
               y: getPlotValue(point.y, mapEntry)
             })),
-            borderColor: series.color,
-            backgroundColor: series.color + '20',
+            borderColor: seriesColor(series),
+            backgroundColor: seriesColor(series) + '20',
             borderWidth: 2,
             pointRadius: 0,
             pointHoverRadius: 4,
@@ -753,9 +780,10 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
 
   // Generate chart options for a specific plot
   const getChartOptionsForPlot = (plot: PlotPanel) => {
-    // High contrast colors for text based on theme
-    const textColor = theme.palette.mode === 'dark' ? '#FFFFFF' : '#000000';
-    const gridColor = theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+    // Chart chrome follows the theme rather than snapping to pure black/white,
+    // which read as a foreign element pasted over the surface.
+    const textColor = theme.palette.custom.onSurfaceVar;
+    const gridColor = theme.palette.custom.ghostSep;
 
     // Compute y-axis domain from currently visible data with a 10% margin.
     // Explicit min/max (not suggestedMin/Max) ensures Chart.js rescales on every sample.
@@ -957,14 +985,19 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
 
   // Cleanup all Chart.js instances on unmount to prevent memory leaks
   useEffect(() => {
+    // The ref *objects* are stable for the component's lifetime; only their
+    // contents change. Capture them so cleanup does not re-read a ref that the
+    // linter cannot prove is still the same one.
+    const charts = chartRefs.current;
+    const containers = chartContainerRefs.current;
     return () => {
-      chartRefs.current.forEach((ref) => {
+      charts.forEach((ref) => {
         if (ref.current) {
           ref.current.destroy();
         }
       });
-      chartRefs.current.clear();
-      chartContainerRefs.current.clear();
+      charts.clear();
+      containers.clear();
     };
   }, []);
 
@@ -1260,10 +1293,11 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
       chartContainer.addEventListener('wheel', handleNativeWheel, { passive: false });
     });
 
+    const containers = chartContainerRefs.current;
     return () => {
       // Clean up all wheel event listeners
       wheelHandlers.forEach((handler, plotId) => {
-        const chartContainer = chartContainerRefs.current.get(plotId)?.current;
+        const chartContainer = containers.get(plotId)?.current;
         if (chartContainer) {
           chartContainer.removeEventListener('wheel', handler);
         }
@@ -1375,13 +1409,14 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
 
   // Cleanup resize handlers on unmount
   useEffect(() => {
+    const handlers = resizeHandlersRef.current;
     return () => {
       // Clean up any active resize handlers when component unmounts
-      if (resizeHandlersRef.current.handleMouseMove) {
-        document.removeEventListener('mousemove', resizeHandlersRef.current.handleMouseMove);
+      if (handlers.handleMouseMove) {
+        document.removeEventListener('mousemove', handlers.handleMouseMove);
       }
-      if (resizeHandlersRef.current.handleMouseUp) {
-        document.removeEventListener('mouseup', resizeHandlersRef.current.handleMouseUp);
+      if (handlers.handleMouseUp) {
+        document.removeEventListener('mouseup', handlers.handleMouseUp);
       }
       // Reset cursor and user select
       document.body.style.cursor = '';
@@ -1389,8 +1424,40 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
     };
   }, []);
 
+  const totalSeriesCount = plots.reduce((n, p) => n + p.series.size, 0);
+
   return (
     <Box>
+      <PanelHeader
+        title="Plot"
+        subtitle={`${totalSeriesCount} series across ${plots.length} plot${plots.length === 1 ? '' : 's'}`}
+        actions={
+          <>
+            <TextField
+              size="small"
+              label="Time span"
+              type="number"
+              value={timeSpanInput}
+              onChange={(e) => handleTimeSpanInput(e.target.value)}
+              error={timeSpanError}
+              helperText={timeSpanError ? `5–${settings.plotDefaults.maxTimeSpan} s` : undefined}
+              sx={{ width: 130 }}
+              slotProps={{ htmlInput: { style: { fontSize: '0.8125rem' } } }}
+            />
+            <FormControlLabel
+              control={<Switch checked={isAutoscaleEnabled} onChange={(e) => setIsAutoscaleEnabled(e.target.checked)} size="small" />}
+              label={<Typography variant="body2">Autoscale</Typography>}
+              sx={{ ml: 0, whiteSpace: 'nowrap' }}
+            />
+            <FormControlLabel
+              control={<Switch checked={showStatistics} onChange={(e) => setShowStatistics(e.target.checked)} size="small" />}
+              label={<Typography variant="body2">Statistics</Typography>}
+              sx={{ ml: 0, whiteSpace: 'nowrap' }}
+            />
+          </>
+        }
+      />
+
       {/* Controls */}
       <Card sx={{ mb: 1 }}>
         <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
@@ -1544,9 +1611,9 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
                         label={name}
                         size="small"
                         style={{
-                          backgroundColor: series.visible ? series.color : 'transparent',
-                          color: series.visible ? 'white' : 'inherit',
-                          border: `1px solid ${series.color}`,
+                          backgroundColor: series.visible ? seriesColor(series) : 'transparent',
+                          color: series.visible ? readableOn(seriesColor(series)) : 'inherit',
+                          border: `1px solid ${seriesColor(series)}`,
                           height: 20,
                           fontSize: 11,
                         }}
@@ -1571,8 +1638,8 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
                       <Box
                         sx={{
                           position: 'absolute',
-                          border: '2px dashed #00D4FF',
-                          backgroundColor: 'rgba(0, 212, 255, 0.1)',
+                          border: `2px dashed ${theme.palette.primary.main}`,
+                          backgroundColor: alphaOf(theme.palette.primary.main, 0.1),
                           pointerEvents: 'none',
                           left: Math.min(plot.mouseState.startPixelX, plot.mouseState.currentPixelX),
                           top: Math.min(plot.mouseState.startPixelY, plot.mouseState.currentPixelY),
@@ -1626,16 +1693,19 @@ export default function PlotPanel({ timeSpan, isAutoscaleEnabled, showStatistics
                                   sx={{
                                     width: '3px',
                                     height: '16px',
-                                    backgroundColor: series.color,
+                                    backgroundColor: seriesColor(series),
                                     borderRadius: '2px'
                                   }}
                                 />
                                 {name}
                               </Box>
                             </TableCell>
-                            <TableCell align="right">{stats.min.toFixed(2)}</TableCell>
-                            <TableCell align="right">{stats.max.toFixed(2)}</TableCell>
-                            <TableCell align="right">{stats.avg.toFixed(2)}</TableCell>
+                            {/* Statistics are derived figures (an average of integers
+                                is still fractional), so they always use the shared
+                                fractional rule rather than the series' own type. */}
+                            <TableCell align="right">{formatFractional(stats.min)}</TableCell>
+                            <TableCell align="right">{formatFractional(stats.max)}</TableCell>
+                            <TableCell align="right">{formatFractional(stats.avg)}</TableCell>
                           </TableRow>
                         );
                       })}

@@ -2,7 +2,7 @@ import { Box, Button, Card, CardContent, Typography, Chip, Divider } from '@mui/
 import { HelpOutline as HelpOutlineIcon } from '@mui/icons-material';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
-import { FONT_MONO } from '../theme';
+import { FONT_MONO } from '../design/tokens';
 
 interface AboutPanelProps {
   onOpenGettingStarted?: () => void;

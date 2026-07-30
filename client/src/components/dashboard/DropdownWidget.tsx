@@ -4,7 +4,7 @@ import { DropdownWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem, getOrientation, isCompactSize } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useToast } from '../ToastNotification';
-import { FONT_MONO } from '../../theme';
+import { FONT_MONO } from '../../design/tokens';
 import { mapManager } from '../../maps/mapManager';
 import { getWireValue, getPlotValue } from '../../utils/dataTableUtils';
 

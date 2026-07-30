@@ -2,29 +2,21 @@ import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import {
   AppBar,
   Box,
+  ButtonBase,
   Chip,
-  Divider,
   Drawer,
-  FormControl,
   IconButton,
-  InputLabel,
   List,
   ListItem,
   ListItemButton,
   ListItemIcon,
   ListItemText,
-  MenuItem,
-  Select,
   Toolbar,
   Typography,
   Badge,
   useTheme,
   useMediaQuery,
   Tooltip,
-  Button,
-  Slider,
-  Switch,
-  TextField,
   CircularProgress
 } from '@mui/material';
 import {
@@ -40,20 +32,9 @@ import {
   SettingsApplications as SettingsIcon,
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
-  Edit as EditIcon,
-  Add as AddIcon,
-  Refresh as RefreshIcon,
   Description as MapEditorIcon,
   Send as SysCommandIcon,
-  PictureAsPdf as PictureAsPdfIcon,
-  Save as SaveIcon,
-  SaveAs as SaveAsIcon,
-  RestartAlt as RestartAltIcon,
   LibraryBooks as ProfilesIcon,
-  Upload as ImportIcon,
-  Timer as TimerIcon,
-  Send as SendIcon,
-  Upload as UploadIcon,
   HelpOutline as HelpOutlineIcon,
 } from '@mui/icons-material';
 import { useDSHub } from '../contexts/DSHubContext';
@@ -61,20 +42,12 @@ import { useSettings } from '../contexts/SettingsContext';
 import { NavigationContext } from '../contexts/NavigationContext';
 import { useToast } from './ToastNotification';
 import { InterfaceType, ControlInterfaceState } from '../types/shared';
-import { DEFAULT_GRID_CONFIG } from '../types/dashboard';
-import { FONT_MONO } from '../theme';
-import { mapManager } from '../maps/mapManager';
+import { FONT_MONO } from '../design/tokens';
 import { logger } from '../utils/logger';
 import DeviceScannerPanel from './DeviceScannerPanel';
 import StatusBar, { STATUS_BAR_HEIGHT } from './StatusBar';
-import type { DashboardPanelRef } from './DashboardPanel';
-import type { RegistersPanelRef } from './RegistersPanel';
-import type { ParametersPanelRef } from './ParametersPanel';
-import type { MapEditorPanelRef, MapEditorBarState } from './maps/MapEditorPanel';
-import type { MapProfilesPanelRef } from './MapProfilesPanel';
 import GettingStartedDialog from './GettingStartedDialog';
-
-const EMPTY_PROFILE_ID = '__empty__';
+import { ErrorBoundary } from './ErrorBoundary';
 
 // Lazy-load heavy panels for code splitting
 const DeviceDashboard = lazy(() => import('./DeviceDashboard'));
@@ -138,78 +111,35 @@ export default function MainLayout() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // Persist last viewed panel & mark logs read when viewing logs
+  // Persist last viewed panel
   useEffect(() => {
     localStorage.setItem('dshub-last-view', currentView);
-    if (currentView === 'logs') {
-      actions.markLogsRead();
-    }
-  }, [currentView, actions]);
+  }, [currentView]);
 
-  // Show error toast when a connection attempt is refused (device already connected elsewhere)
+  // Clear the unread badge while the logs view is open, including entries that
+  // arrive after it is opened.
+  useEffect(() => {
+    if (currentView !== 'logs') return;
+    actions.markLogsRead();
+  }, [currentView, actions, state.unreadLogCount]);
+
+  // Report a connection attempt that ended without a link. The backend cannot
+  // distinguish "refused because another session holds the device" from
+  // "unreachable", so the message must not claim either.
   const wasConnectingRef = useRef(false);
   useEffect(() => {
     if (state.connecting) wasConnectingRef.current = true;
   }, [state.connecting]);
   useEffect(() => {
-    if (wasConnectingRef.current && state.connection && !state.connection.connected) {
-      wasConnectingRef.current = false;
-      const name = state.connection.deviceName ?? state.connection.ip;
-      showError(`${name} is already connected in another session`);
-    }
-  }, [state.connection]);
+    if (!wasConnectingRef.current) return;
+    if (!state.connection || state.connection.connected) return;
+    // A reconnect loop is already running and reports its own progress.
+    if (state.connection.reconnecting) return;
 
-  // Plot control state
-  const [plotTimeSpan, setPlotTimeSpan] = useState(settings.plotDefaults.timeSpan);
-  const [plotTimeSpanInput, setPlotTimeSpanInput] = useState(settings.plotDefaults.timeSpan.toString());
-  const [plotAutoscale, setPlotAutoscale] = useState(true);
-  const [plotShowStats, setPlotShowStats] = useState(false);
-
-  const handlePlotTimeSpanChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setPlotTimeSpanInput(value);
-    const num = parseInt(value);
-    if (!isNaN(num) && num >= 5 && num <= settings.plotDefaults.maxTimeSpan) {
-      setPlotTimeSpan(num);
-    }
-  };
-
-  // Dashboard control state
-  const [isDashboardEditMode, setIsDashboardEditMode] = useState(false);
-  const [dashboardCellSize, setDashboardCellSize] = useState(60);
-  const [dashboardSpacing, setDashboardSpacing] = useState(10);
-  const [dashboardRoundedCorners, setDashboardRoundedCorners] = useState(true);
-  const dashboardContainerRef = useRef<HTMLDivElement>(null);
-  const [dashboardContainerWidth, setDashboardContainerWidth] = useState(1200);
-
-  // Panel refs for exposing actions to AppBar
-  const registersPanelRef = useRef<RegistersPanelRef>(null);
-  const parametersPanelRef = useRef<ParametersPanelRef>(null);
-  const dashboardPanelRef = useRef<DashboardPanelRef>(null);
-  const mapEditorRef = useRef<MapEditorPanelRef>(null);
-  const mapProfilesRef = useRef<MapProfilesPanelRef>(null);
-  const [mapEditorBarState, setMapEditorBarState] = useState<MapEditorBarState>({
-    hasUnsavedChanges: false,
-    canSave: false,
-    selectedProfileId: EMPTY_PROFILE_ID,
-    allProfiles: [],
-  });
-
-  // Calculate dashboard columns based on container width and cell size
-  const dashboardCols = Math.floor(dashboardContainerWidth / dashboardCellSize) || DEFAULT_GRID_CONFIG.cols;
-
-  // Measure dashboard container width on mount and resize
-  useEffect(() => {
-    const updateWidth = () => {
-      if (dashboardContainerRef.current) {
-        setDashboardContainerWidth(dashboardContainerRef.current.offsetWidth);
-      }
-    };
-
-    updateWidth();
-    window.addEventListener('resize', updateWidth);
-    return () => window.removeEventListener('resize', updateWidth);
-  }, []);
+    wasConnectingRef.current = false;
+    const name = state.connection.deviceName ?? state.connection.ip;
+    showError(`Could not connect to ${name}. Check that it is powered on, reachable, and not already in use by another session.`);
+  }, [state.connection, showError]);
 
   // Auto-connect on startup with retry logic
   // Auto-scan is handled by AutoScanManager in App.tsx
@@ -277,54 +207,19 @@ export default function MainLayout() {
     setDrawerCollapsed(!drawerCollapsed);
   };
 
-  const handleDashboardAddWidget = () => {
-    dashboardPanelRef.current?.openAddWidgetDialog();
-  };
-
   const renderCurrentView = () => {
     switch (currentView) {
-      case 'scanner':
-        return <DeviceScannerPanel />;
-      case 'status':
-        return <DeviceDashboard />;
-      case 'dashboard':
-        return (
-          <DashboardPanel
-            ref={dashboardPanelRef}
-            isEditMode={isDashboardEditMode}
-            cellSize={dashboardCellSize}
-            cols={dashboardCols}
-            spacing={dashboardSpacing}
-            roundedCorners={dashboardRoundedCorners}
-            onEditModeChange={setIsDashboardEditMode}
-            onCellSizeChange={setDashboardCellSize}
-            onAddWidget={handleDashboardAddWidget}
-            containerRef={dashboardContainerRef}
-            containerWidth={dashboardContainerWidth}
-          />
-        );
-      case 'plot':
-        return (
-          <PlotPanel
-            timeSpan={plotTimeSpan}
-            isAutoscaleEnabled={plotAutoscale}
-            showStatistics={plotShowStats}
-          />
-        );
-      case 'syscommand':
-        return <SysCommandPanel />;
-      case 'registers':
-        return <RegistersPanel ref={registersPanelRef} />;
-      case 'parameters':
-        return <ParametersPanel ref={parametersPanelRef} />;
-      case 'logs':
-        return <LogsPanel />;
-      case 'mapeditor':
-        return <MapEditorPanel ref={mapEditorRef} onBarStateChange={setMapEditorBarState} />;
-      case 'profiles':
-        return <MapProfilesPanelLazy ref={mapProfilesRef} />;
-      case 'settings':
-        return <SettingsPanel />;
+      case 'scanner':     return <DeviceScannerPanel />;
+      case 'status':      return <DeviceDashboard />;
+      case 'dashboard':   return <DashboardPanel />;
+      case 'plot':        return <PlotPanel />;
+      case 'syscommand':  return <SysCommandPanel />;
+      case 'registers':   return <RegistersPanel />;
+      case 'parameters':  return <ParametersPanel />;
+      case 'logs':        return <LogsPanel />;
+      case 'mapeditor':   return <MapEditorPanel />;
+      case 'profiles':    return <MapProfilesPanelLazy />;
+      case 'settings':    return <SettingsPanel />;
       case 'about':
         return (
           <AboutPanel
@@ -332,8 +227,7 @@ export default function MainLayout() {
             onOpenGuide={() => setHelpDrawerOpen(true)}
           />
         );
-      default:
-        return <DeviceScannerPanel />;
+      default:            return <DeviceScannerPanel />;
     }
   };
 
@@ -387,8 +281,9 @@ export default function MainLayout() {
         {!effectiveDrawerCollapsed && (
           <ListItemText
             primary={view.label}
+            // Size comes from the theme's ListItemText (0.8125rem); overriding it
+            // to 1rem made the sidebar read a full step larger than everything else.
             primaryTypographyProps={{
-              fontSize: '1rem',
               fontWeight: currentView === view.key ? 600 : 400,
               color: currentView === view.key ? 'text.primary' : 'text.secondary',
             }}
@@ -412,7 +307,9 @@ export default function MainLayout() {
 
   const drawer = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Toolbar sx={{ display: 'flex', justifyContent: effectiveDrawerCollapsed ? 'center' : 'space-between', minHeight: '48px !important' }}>
+      {/* Height comes from the shared MuiToolbar override so the nav list lines up
+          with the top of the content area. */}
+      <Toolbar sx={{ display: 'flex', justifyContent: effectiveDrawerCollapsed ? 'center' : 'space-between' }}>
         {!effectiveDrawerCollapsed && (
           <Typography
             noWrap
@@ -485,7 +382,7 @@ export default function MainLayout() {
       (interfaceType === 'TCP' && controlState === ControlInterfaceState.TCP_DATASTREAM) ||
       (interfaceType === 'UDP' && controlState === ControlInterfaceState.UDP_DATASTREAM);
 
-    let label = '';
+    let label: string;
     switch (controlState) {
       case ControlInterfaceState.UNDECIDED:
         label = 'No Control';
@@ -585,421 +482,30 @@ export default function MainLayout() {
             <MenuIcon />
           </IconButton>
 
-          {/* Scanner Controls - shown when on scanner view */}
-          {currentView === 'scanner' && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mr: 'auto' }}>
-              <Button
-                variant="contained"
-                startIcon={state.isScanning ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
-                onClick={actions.startScan}
-                disabled={state.isScanning}
-                color="primary"
-                size="small"
-              >
-                {state.isScanning ? 'Scanning...' : 'Scan Network'}
-              </Button>
-            </Box>
-          )}
+          <Typography component="h1" sx={{ fontSize: '0.8125rem', fontWeight: 600, color: 'text.primary' }}>
+            {views.find(v => v.key === currentView)?.label ?? 'DSHub'}
+          </Typography>
 
-          {/* Dashboard Controls - shown when on dashboard view */}
-          {currentView === 'dashboard' && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mr: 'auto' }}>
-              <Button
-                variant={isDashboardEditMode ? 'contained' : 'outlined'}
-                startIcon={<EditIcon />}
-                onClick={() => setIsDashboardEditMode(!isDashboardEditMode)}
-                color={isDashboardEditMode ? 'primary' : 'inherit'}
-                size="small"
-              >
-                {isDashboardEditMode ? 'Exit Edit' : 'Edit'}
-              </Button>
-              {isDashboardEditMode && (
-                <>
-                  <Button
-                    variant="contained"
-                    startIcon={<AddIcon />}
-                    onClick={handleDashboardAddWidget}
-                    color="primary"
-                    size="small"
-                  >
-                    Add Widget
-                  </Button>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: 1 }}>
-                    <Typography variant="body2" color="inherit" sx={{ whiteSpace: 'nowrap', fontSize: '0.875rem' }}>
-                      Grid:
-                    </Typography>
-                    <Slider
-                      value={dashboardCellSize}
-                      onChange={(_, value) => setDashboardCellSize(value as number)}
-                      min={20}
-                      max={150}
-                      step={5}
-                      valueLabelDisplay="auto"
-                      valueLabelFormat={(value) => `${value}px`}
-                      sx={{
-                        width: 120,
-                        color: 'inherit',
-                        '& .MuiSlider-thumb': {
-                          width: 16,
-                          height: 16,
-                        },
-                        '& .MuiSlider-rail': {
-                          opacity: 0.3,
-                        }
-                      }}
-                    />
-                    <Typography variant="body2" color="inherit" sx={{ whiteSpace: 'nowrap', minWidth: '45px', fontSize: '0.875rem' }}>
-                      {dashboardCellSize}px
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: 1 }}>
-                    <Typography variant="body2" color="inherit" sx={{ whiteSpace: 'nowrap', fontSize: '0.875rem' }}>
-                      Spacing:
-                    </Typography>
-                    <Slider
-                      value={dashboardSpacing}
-                      onChange={(_, value) => setDashboardSpacing(value as number)}
-                      min={0}
-                      max={30}
-                      step={2}
-                      valueLabelDisplay="auto"
-                      valueLabelFormat={(value) => `${value}px`}
-                      sx={{
-                        width: 100,
-                        color: 'inherit',
-                        '& .MuiSlider-thumb': {
-                          width: 16,
-                          height: 16,
-                        },
-                        '& .MuiSlider-rail': {
-                          opacity: 0.3,
-                        }
-                      }}
-                    />
-                    <Typography variant="body2" color="inherit" sx={{ whiteSpace: 'nowrap', minWidth: '35px', fontSize: '0.875rem' }}>
-                      {dashboardSpacing}px
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', ml: 1 }}>
-                    <Typography variant="body2" color="inherit" sx={{ whiteSpace: 'nowrap', fontSize: '0.875rem' }}>
-                      Rounded:
-                    </Typography>
-                    <Switch
-                      checked={dashboardRoundedCorners}
-                      onChange={(e) => setDashboardRoundedCorners(e.target.checked)}
-                      size="small"
-                      sx={{
-                        '& .MuiSwitch-switchBase.Mui-checked': {
-                          color: 'primary.main',
-                        },
-                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                          backgroundColor: 'primary.main',
-                        },
-                      }}
-                    />
-                  </Box>
-                </>
-              )}
-            </Box>
-          )}
-
-          {/* Registers Controls - shown when on registers view */}
-          {currentView === 'registers' && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mr: 'auto' }}>
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => registersPanelRef.current?.openReadDialog()}
-                disabled={!state.connection?.connected}
-                color="primary"
-                size="small"
-              >
-                Read Register
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={<RefreshIcon />}
-                onClick={() => registersPanelRef.current?.refresh()}
-                disabled={!state.connection?.connected}
-                size="small"
-                color="inherit"
-              >
-                Refresh All
-              </Button>
-              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-              <Tooltip title="Auto-refresh interval">
-                <FormControl size="small" sx={{ minWidth: 90 }} disabled={!state.connection?.connected}>
-                  <InputLabel sx={{ fontSize: '0.75rem' }}>Interval</InputLabel>
-                  <Select
-                    value={state.autoRefresh.interval}
-                    onChange={(e) => registersPanelRef.current?.setAutoRefreshInterval(e.target.value as number)}
-                    label="Interval"
-                    startAdornment={<TimerIcon sx={{ fontSize: 14, mr: 0.5, color: 'text.secondary' }} />}
-                    sx={{ fontSize: '0.8125rem' }}
-                  >
-                    <MenuItem value={500}>500ms</MenuItem>
-                    <MenuItem value={1000}>1s</MenuItem>
-                    <MenuItem value={2000}>2s</MenuItem>
-                    <MenuItem value={5000}>5s</MenuItem>
-                    <MenuItem value={10000}>10s</MenuItem>
-                  </Select>
-                </FormControl>
-              </Tooltip>
-              <Typography variant="body2" sx={{ fontSize: '0.8125rem', color: 'text.secondary', whiteSpace: 'nowrap' }}>
-                {state.autoRefresh.activeAddresses.size} active
-              </Typography>
-            </Box>
-          )}
-
-          {/* Parameters Controls - shown when on parameters view */}
-          {currentView === 'parameters' && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mr: 'auto' }}>
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => parametersPanelRef.current?.openReadDialog()}
-                disabled={!state.connection?.connected}
-                color="primary"
-                size="small"
-              >
-                Read Parameter
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={<RefreshIcon />}
-                onClick={() => parametersPanelRef.current?.refresh()}
-                disabled={!state.connection?.connected}
-                size="small"
-                color="inherit"
-              >
-                Refresh All
-              </Button>
-              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-              <Tooltip title="Auto-refresh interval">
-                <FormControl size="small" sx={{ minWidth: 90 }} disabled={!state.connection?.connected}>
-                  <InputLabel sx={{ fontSize: '0.75rem' }}>Interval</InputLabel>
-                  <Select
-                    value={state.autoRefresh.interval}
-                    onChange={(e) => parametersPanelRef.current?.setAutoRefreshInterval(e.target.value as number)}
-                    label="Interval"
-                    startAdornment={<TimerIcon sx={{ fontSize: 14, mr: 0.5, color: 'text.secondary' }} />}
-                    sx={{ fontSize: '0.8125rem' }}
-                  >
-                    <MenuItem value={1000}>1s</MenuItem>
-                    <MenuItem value={2000}>2s</MenuItem>
-                    <MenuItem value={5000}>5s</MenuItem>
-                    <MenuItem value={10000}>10s</MenuItem>
-                    <MenuItem value={30000}>30s</MenuItem>
-                  </Select>
-                </FormControl>
-              </Tooltip>
-              <Typography variant="body2" sx={{ fontSize: '0.8125rem', color: 'text.secondary', whiteSpace: 'nowrap' }}>
-                {state.autoRefresh.activeParameterAddresses.size} active
-              </Typography>
-              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-              <Tooltip title="Save parameter values to CSV">
-                <span>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<SaveIcon />}
-                    onClick={() => parametersPanelRef.current?.saveValues()}
-                    disabled={state.parameters.size === 0}
-                    color="inherit"
-                  >
-                    Save
-                  </Button>
-                </span>
-              </Tooltip>
-              <Tooltip title="Load parameter values from CSV">
-                <span>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<UploadIcon />}
-                    onClick={() => parametersPanelRef.current?.loadValues()}
-                    disabled={!mapManager.isInitialized()}
-                    color="inherit"
-                  >
-                    Load
-                  </Button>
-                </span>
-              </Tooltip>
-              {(() => {
-                const pendingCount = parametersPanelRef.current?.pendingWriteCount ?? 0;
-                const canWrite = parametersPanelRef.current?.canWrite ?? false;
-                return (
-                  <Tooltip title="Write all pending values to board">
-                    <span>
-                      <Button
-                        variant="contained"
-                        size="small"
-                        startIcon={<SendIcon />}
-                        onClick={() => parametersPanelRef.current?.writeAll()}
-                        disabled={!canWrite || pendingCount === 0}
-                        color="primary"
-                      >
-                        Write All{pendingCount > 0 ? ` (${pendingCount})` : ''}
-                      </Button>
-                    </span>
-                  </Tooltip>
-                );
-              })()}
-            </Box>
-          )}
-
-          {/* Plot Controls */}
-          {currentView === 'plot' && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mr: 'auto' }}>
-              <TextField
-                size="small"
-                label="Time Span (s)"
-                type="number"
-                value={plotTimeSpanInput}
-                onChange={handlePlotTimeSpanChange}
-                error={parseInt(plotTimeSpanInput) < 5 || parseInt(plotTimeSpanInput) > settings.plotDefaults.maxTimeSpan || isNaN(parseInt(plotTimeSpanInput))}
-                sx={{ width: 130 }}
-                slotProps={{ htmlInput: { style: { fontSize: '0.875rem' } } }}
-              />
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <Typography variant="body2" sx={{ whiteSpace: 'nowrap', fontSize: '0.875rem', mr: 0.5 }}>
-                  Autoscale
-                </Typography>
-                <Switch
-                  checked={plotAutoscale}
-                  onChange={(e) => setPlotAutoscale(e.target.checked)}
-                  size="small"
-                />
-              </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <Typography variant="body2" sx={{ whiteSpace: 'nowrap', fontSize: '0.875rem', mr: 0.5 }}>
-                  Statistics
-                </Typography>
-                <Switch
-                  checked={plotShowStats}
-                  onChange={(e) => setPlotShowStats(e.target.checked)}
-                  size="small"
-                />
-              </Box>
-            </Box>
-          )}
-
-          {/* Map Editor Controls - shown when on mapeditor view */}
-          {currentView === 'mapeditor' && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: 'auto' }}>
-              <Button
-                variant="outlined"
-                startIcon={<PictureAsPdfIcon />}
-                onClick={() => mapEditorRef.current?.exportPdf()}
-                size="small"
-                color="inherit"
-                disabled={mapEditorBarState.selectedProfileId === EMPTY_PROFILE_ID}
-              >
-                Export PDF
-              </Button>
-              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-              <FormControl size="small" sx={{ minWidth: 160 }}>
-                <InputLabel sx={{ fontSize: '0.8125rem' }}>Profile</InputLabel>
-                <Select
-                  value={mapEditorBarState.selectedProfileId}
-                  label="Profile"
-                  onChange={(e) => mapEditorRef.current?.changeProfile(e.target.value)}
-                  sx={{ fontSize: '0.8125rem' }}
-                >
-                  <MenuItem value={EMPTY_PROFILE_ID} sx={{ fontSize: '0.8125rem' }}>
-                    <em>No profile</em>
-                  </MenuItem>
-                  {mapEditorBarState.allProfiles.map(p => (
-                    <MenuItem key={p.id} value={p.id} sx={{ fontSize: '0.8125rem' }}>{p.name}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              {mapEditorBarState.hasUnsavedChanges && (
-                <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: 'warning.main', flexShrink: 0 }} title="Unsaved changes" />
-              )}
-              <Tooltip title="Reset changes">
-                <span>
-                  <IconButton
-                    size="small"
-                    onClick={() => mapEditorRef.current?.reset()}
-                    disabled={!mapEditorBarState.hasUnsavedChanges}
-                    color="inherit"
-                  >
-                    <RestartAltIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Button
-                variant="contained"
-                startIcon={<SaveIcon />}
-                onClick={() => mapEditorRef.current?.save()}
-                disabled={!mapEditorBarState.canSave}
-                size="small"
-                color="primary"
-              >
-                Save
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={<SaveAsIcon />}
-                onClick={() => mapEditorRef.current?.saveAs()}
-                disabled={mapEditorBarState.selectedProfileId === EMPTY_PROFILE_ID}
-                size="small"
-                color="inherit"
-              >
-                Save As
-              </Button>
-            </Box>
-          )}
-
-          {/* Profiles Controls - shown when on profiles view */}
-          {currentView === 'profiles' && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: 'auto' }}>
-              <Button
-                variant="outlined"
-                startIcon={<ImportIcon />}
-                onClick={() => mapProfilesRef.current?.openImport()}
-                size="small"
-                color="inherit"
-              >
-                Import
-              </Button>
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => mapProfilesRef.current?.openCreate()}
-                size="small"
-                color="primary"
-              >
-                New Profile
-              </Button>
-            </Box>
-          )}
-
-          {/* Connection Status - always on the right */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: (currentView === 'dashboard' || currentView === 'scanner' || currentView === 'registers' || currentView === 'parameters' || currentView === 'plot' || currentView === 'mapeditor' || currentView === 'profiles') ? 0 : 'auto' }}>
+          {/* The AppBar carries app identity and device state only. Panel controls
+              live in each panel's own header — see PanelHeader. Previously seven
+              panels injected their own toolbars here, which overflowed and pushed
+              this connection block off screen at 1280px. */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: 'auto', minWidth: 0 }}>
             {state.connection && (
               <>
                 {state.connection.deviceName && (
                   <Typography
                     variant="body2"
-                    sx={{
-                      fontFamily: FONT_MONO,
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      color: 'text.primary',
-                    }}
+                    noWrap
+                    sx={{ fontSize: '0.75rem', fontWeight: 600, color: 'text.primary' }}
                   >
                     {state.connection.deviceName}
                   </Typography>
                 )}
                 <Typography
                   variant="body2"
-                  sx={{
-                    fontFamily: FONT_MONO,
-                    fontSize: '0.6875rem',
-                    color: 'text.secondary',
-                  }}
+                  noWrap
+                  sx={{ fontFamily: FONT_MONO, fontSize: '0.6875rem', color: 'text.secondary' }}
                 >
                   {state.connection.ip}:{state.connection.port}
                 </Typography>
@@ -1007,100 +513,70 @@ export default function MainLayout() {
                   label={state.connection.interface}
                   size="small"
                   variant="outlined"
-                  sx={{
-                    fontFamily: FONT_MONO,
-                    fontSize: '0.5625rem',
-                    height: 18,
-                    '& .MuiChip-label': { px: 0.75 },
-                  }}
+                  sx={{ fontSize: '0.5625rem', height: 18, '& .MuiChip-label': { px: 0.75 } }}
                 />
-                <Box
-                  onClick={handleConnectionClick}
-                  title={state.connection?.connected ? 'Click to disconnect' : 'Use Device Scanner to connect'}
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.75,
-                    cursor: 'pointer',
-                    px: 1,
-                    py: 0.25,
-                    borderRadius: 1,
-                    '&:hover': { backgroundColor: 'action.hover' },
-                  }}
-                >
-                  <Box
+
+                <Tooltip title={state.connection.connected ? 'Disconnect from this device' : 'Open the Device Scanner to connect'}>
+                  <ButtonBase
+                    onClick={handleConnectionClick}
+                    aria-label={`Connection: ${connectionStatus}. ${state.connection.connected ? 'Activate to disconnect.' : 'Activate to open the scanner.'}`}
                     sx={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      backgroundColor: connectionColor,
-                      boxShadow: state.connection?.connected ? `0 0 6px ${connectionColor}` : 'none',
-                    }}
-                  />
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      fontFamily: FONT_MONO,
-                      fontSize: '0.6875rem',
-                      fontWeight: 500,
-                      color: connectionColor,
-                    }}
-                  >
-                    {connectionStatus}
-                  </Typography>
-                </Box>
-                {controlStateInfo && (
-                  <Box
-                    onClick={handleControlClick}
-                    title="Click to take control"
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 0.75,
-                      cursor: 'pointer',
-                      px: 1,
-                      py: 0.25,
-                      borderRadius: 1,
+                      display: 'flex', alignItems: 'center', gap: 0.75,
+                      px: 1, py: 0.25, borderRadius: 1,
                       '&:hover': { backgroundColor: 'action.hover' },
                     }}
                   >
                     <Box
                       sx={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        backgroundColor: controlStateInfo.color,
-                        boxShadow: `0 0 6px ${controlStateInfo.color}`,
+                        width: 8, height: 8, borderRadius: '50%',
+                        backgroundColor: connectionColor,
+                        boxShadow: state.connection.connected ? `0 0 6px ${connectionColor}` : 'none',
                       }}
                     />
-                    <Typography
-                      variant="caption"
+                    <Typography sx={{ fontSize: '0.6875rem', fontWeight: 500, color: connectionColor, whiteSpace: 'nowrap' }}>
+                      {connectionStatus}
+                    </Typography>
+                  </ButtonBase>
+                </Tooltip>
+
+                {controlStateInfo && (
+                  <Tooltip title="Device control interface — activate to take control">
+                    <ButtonBase
+                      onClick={handleControlClick}
+                      aria-label={`Control state: ${controlStateInfo.label}. Activate to take control.`}
                       sx={{
-                        fontFamily: FONT_MONO,
-                        fontSize: '0.6875rem',
-                        fontWeight: 500,
-                        color: controlStateInfo.color,
+                        display: 'flex', alignItems: 'center', gap: 0.75,
+                        px: 1, py: 0.25, borderRadius: 1,
+                        '&:hover': { backgroundColor: 'action.hover' },
                       }}
                     >
-                      {controlStateInfo.label}
-                    </Typography>
-                  </Box>
+                      <Box
+                        sx={{
+                          width: 8, height: 8, borderRadius: '50%',
+                          backgroundColor: controlStateInfo.color,
+                          boxShadow: `0 0 6px ${controlStateInfo.color}`,
+                        }}
+                      />
+                      <Typography sx={{ fontSize: '0.6875rem', fontWeight: 500, color: controlStateInfo.color, whiteSpace: 'nowrap' }}>
+                        {controlStateInfo.label}
+                      </Typography>
+                    </ButtonBase>
+                  </Tooltip>
                 )}
               </>
             )}
-          </Box>
 
-          {/* Help button - pinned to far right */}
-          <Tooltip title="Workflow Guide">
-            <IconButton
-              size="small"
-              onClick={() => setHelpDrawerOpen(true)}
-              sx={{ color: 'text.secondary', ml: 1 }}
-              aria-label="Open workflow guide"
-            >
-              <HelpOutlineIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
+            <Tooltip title="Workflow guide">
+              <IconButton
+                size="small"
+                onClick={() => setHelpDrawerOpen(true)}
+                sx={{ color: 'text.secondary' }}
+                aria-label="Open workflow guide"
+              >
+                <HelpOutlineIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
         </Toolbar>
       </AppBar>
       <Box
@@ -1153,9 +629,14 @@ export default function MainLayout() {
       >
         <Toolbar />
         <NavigationContext.Provider value={{ navigate: (v) => setCurrentView(v as ViewType) }}>
-          <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', pt: 8 }}><CircularProgress /></Box>}>
-            {renderCurrentView()}
-          </Suspense>
+          {/* Boundary is keyed on the view so a crash in one panel is contained
+              there and clears when the user navigates away — previously a single
+              panel error blanked the entire application. */}
+          <ErrorBoundary key={currentView}>
+            <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', pt: 8 }}><CircularProgress /></Box>}>
+              {renderCurrentView()}
+            </Suspense>
+          </ErrorBoundary>
         </NavigationContext.Provider>
       </Box>
 

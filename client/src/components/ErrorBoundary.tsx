@@ -9,8 +9,8 @@ import {
   AlertTitle,
   Stack,
 } from '@mui/material';
-import { Refresh as RefreshIcon, BugReport as BugIcon } from '@mui/icons-material';
-import { FONT_MONO } from '../theme';
+import { Refresh as RefreshIcon, BugReport as BugIcon, ContentCopy as CopyIcon } from '@mui/icons-material';
+import { FONT_MONO } from '../design/tokens';
 
 interface Props {
   children: ReactNode;
@@ -21,6 +21,7 @@ interface State {
   hasError: boolean;
   error: Error | null;
   errorInfo: ErrorInfo | null;
+  copied: boolean;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -28,6 +29,7 @@ export class ErrorBoundary extends Component<Props, State> {
     hasError: false,
     error: null,
     errorInfo: null,
+    copied: false,
   };
 
   public static getDerivedStateFromError(error: Error): Partial<State> {
@@ -47,7 +49,23 @@ export class ErrorBoundary extends Component<Props, State> {
       hasError: false,
       error: null,
       errorInfo: null,
+      copied: false,
     });
+  };
+
+  /**
+   * The stack trace used to be rendered inline, which turned a recoverable panel
+   * error into a wall of implementation detail. It is still available, on demand.
+   */
+  private handleCopyDetails = () => {
+    const details = [
+      this.state.error?.stack ?? this.state.error?.toString() ?? 'Unknown error',
+      this.state.errorInfo?.componentStack ?? '',
+    ].join('\n\n');
+    void navigator.clipboard.writeText(details).then(
+      () => this.setState({ copied: true }),
+      () => undefined
+    );
   };
 
   private handleReload = () => {
@@ -82,33 +100,15 @@ export class ErrorBoundary extends Component<Props, State> {
                 </Box>
 
                 <Alert severity="error">
-                  <AlertTitle>Error Details</AlertTitle>
+                  <AlertTitle>What happened</AlertTitle>
                   <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap', fontFamily: FONT_MONO }}>
                     {this.state.error?.toString()}
                   </Typography>
                 </Alert>
 
-                {this.state.errorInfo && (
-                  <Alert severity="warning">
-                    <AlertTitle>Stack Trace</AlertTitle>
-                    <Typography
-                      variant="body2"
-                      component="pre"
-                      sx={{
-                        whiteSpace: 'pre-wrap',
-                        fontFamily: FONT_MONO,
-                        fontSize: '0.75rem',
-                        maxHeight: 200,
-                        overflow: 'auto',
-                      }}
-                    >
-                      {this.state.errorInfo.componentStack}
-                    </Typography>
-                  </Alert>
-                )}
-
                 <Typography variant="body2" color="text.secondary">
-                  We're sorry for the inconvenience. You can try resetting the component or reloading the page.
+                  The rest of the application is still running. Try again, or copy the
+                  technical details if you need to report this.
                 </Typography>
 
                 <Stack direction="row" spacing={2}>
@@ -118,7 +118,15 @@ export class ErrorBoundary extends Component<Props, State> {
                     onClick={this.handleReset}
                     fullWidth
                   >
-                    Reset Component
+                    Try Again
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    startIcon={<CopyIcon />}
+                    onClick={this.handleCopyDetails}
+                    fullWidth
+                  >
+                    {this.state.copied ? 'Copied' : 'Copy Details'}
                   </Button>
                   <Button
                     variant="outlined"
@@ -126,7 +134,7 @@ export class ErrorBoundary extends Component<Props, State> {
                     onClick={this.handleReload}
                     fullWidth
                   >
-                    Reload Page
+                    Reload
                   </Button>
                 </Stack>
               </Stack>

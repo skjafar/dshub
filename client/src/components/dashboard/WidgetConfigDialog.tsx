@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { WIDGET_COLORS } from '../../design/dataColors';
 import {
   Box,
   Dialog,
@@ -202,8 +203,8 @@ export default function WidgetConfigDialog({
           address: 0,
           refreshInterval: 100,
           states: [
-            { value: 0, label: 'State 0', color: '#6B7280' },
-            { value: 1, label: 'State 1', color: '#4ADE80' }
+            { value: 0, label: 'State 0', color: WIDGET_COLORS.off },
+            { value: 1, label: 'State 1', color: WIDGET_COLORS.on }
           ],
           showLabel: true,
           pulseAnimation: false
@@ -253,8 +254,8 @@ export default function WidgetConfigDialog({
           refreshInterval: 100,
           onValue: 1,
           offValue: 0,
-          onColor: '#4ADE80',
-          offColor: '#6B7280',
+          onColor: WIDGET_COLORS.on,
+          offColor: WIDGET_COLORS.off,
           onLabel: 'ON',
           offLabel: 'OFF',
           pulseWhenOn: false
@@ -310,7 +311,7 @@ export default function WidgetConfigDialog({
           label: 'Status Matrix',
           refreshInterval: 500,
           items: [
-            { label: 'Status 1', source: 'register', address: 0, onValue: 1, onColor: '#4ADE80', offColor: '#6B7280' }
+            { label: 'Status 1', source: 'register', address: 0, onValue: 1, onColor: WIDGET_COLORS.on, offColor: WIDGET_COLORS.off }
           ],
           showLabels: true,
           dotSize: 12

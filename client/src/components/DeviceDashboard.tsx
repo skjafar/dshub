@@ -9,7 +9,7 @@ import { useDSHub } from '../contexts/DSHubContext';
 import EmptyState from './EmptyState';
 import { useNavigation } from '../contexts/NavigationContext';
 import { ControlInterfaceState, InterfaceType, LogEntry } from '../types/shared';
-import { FONT_MONO, FONT_BODY, FONT_HEADLINE } from '../theme';
+import { FONT_MONO, FONT_BODY, FONT_HEADLINE } from '../design/tokens';
 import { hexCh } from '../appThemes';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

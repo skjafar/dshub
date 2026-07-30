@@ -1,9 +1,10 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { UserSettings, DEFAULT_SETTINGS, MapProfile, DEFAULT_PROFILE_ID, CNC_PROFILE_ID, SysCommand, EntryMetadata } from '../types/settings';
 import { createModernCNCDashboard, CNC_SYS_COMMANDS, CNC_DASHBOARD_VERSION, CNC_REGISTERS_METADATA, CNC_PARAMETERS_METADATA } from '../utils/cncDashboardTemplate';
 import { serializeProfile, parseProfileFile, ProfileImportResult } from '../utils/profileFileFormat';
 import { mapManager } from '../maps/mapManager';
 import { logger } from '../utils/logger';
+import { resolveThemeId } from '../appThemes';
 
 const STORAGE_KEY = 'dshub_settings';
 
@@ -62,12 +63,16 @@ function loadSettingsFromStorage(): UserSettings {
         ...parsed,
         logSettings: { ...DEFAULT_SETTINGS.logSettings, ...parsed.logSettings },
         plotDefaults: { ...DEFAULT_SETTINGS.plotDefaults, ...parsed.plotDefaults },
+        dashboardView: { ...DEFAULT_SETTINGS.dashboardView, ...parsed.dashboardView },
       };
       // Backfill canonical system registers on legacy user profiles created before
       // they were populated automatically.
       merged.mapProfiles = (merged.mapProfiles ?? []).map(p =>
         p.systemRegistersMap ? p : { ...p, systemRegistersMap: DEFAULT_SYSTEM_REGISTERS_MAP }
       );
+      // Themes retired in the 0.3 overhaul map to their nearest survivor, so a
+      // saved preference lands somewhere deliberate rather than silently resetting.
+      merged.colorThemeId = resolveThemeId(merged.colorThemeId);
       return merged;
     }
   } catch (error) {
@@ -105,6 +110,9 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   const [cncProfile, setCncProfile] = useState<MapProfile | null>(null);
   const [storageError, setStorageError] = useState(false);
   const storageWarningShownRef = React.useRef(false); // Only warn once per session
+  // Latest settings, readable from the unload handler without re-registering it.
+  const settingsRef = React.useRef(settings);
+  settingsRef.current = settings;
 
   // Load default and CNC profiles on mount
   useEffect(() => {
@@ -157,15 +165,32 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     });
   }, [settings.activeMapProfileId, settings.mapProfiles, defaultProfile, cncProfile]);
 
-  // Save to localStorage whenever settings change
+  // Persist settings, debounced.
+  //
+  // A write serialises every map profile's full text plus every dashboard layout,
+  // synchronously on the main thread. Dragging a dashboard widget or typing in a
+  // settings field used to trigger one such write per change.
   useEffect(() => {
-    const success = saveSettingsToStorage(settings);
-    if (!success && !storageWarningShownRef.current) {
-      // Only set error state once to avoid re-render loops
-      storageWarningShownRef.current = true;
-      setStorageError(true);
-    }
+    const timer = setTimeout(() => {
+      const success = saveSettingsToStorage(settings);
+      if (!success && !storageWarningShownRef.current) {
+        // Only set error state once to avoid re-render loops
+        storageWarningShownRef.current = true;
+        setStorageError(true);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
   }, [settings]);
+
+  // Flush on unload so a debounced change is never lost on quit.
+  useEffect(() => {
+    const flush = () => saveSettingsToStorage(settingsRef.current);
+    window.addEventListener('beforeunload', flush);
+    return () => {
+      window.removeEventListener('beforeunload', flush);
+      flush();
+    };
+  }, []);
 
   const updateSettings = useCallback((updates: Partial<UserSettings>) => {
     setSettings(prev => ({ ...prev, ...updates }));
@@ -474,7 +499,9 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     return { ...result, profileId };
   }, []);
 
-  const value: SettingsContextType = {
+  // Memoised: an object literal here gave every `useSettings` consumer a new
+  // context value on each provider render, defeating their own memoisation.
+  const value = useMemo<SettingsContextType>(() => ({
     settings,
     storageError,
     updateSettings,
@@ -491,7 +518,24 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     loadDefaultProfile,
     exportProfile,
     importProfile,
-  };
+  }), [
+    settings,
+    storageError,
+    updateSettings,
+    resetSettings,
+    exportSettings,
+    importSettings,
+    getAllProfiles,
+    getActiveProfile,
+    createProfile,
+    updateProfile,
+    deleteProfile,
+    activateProfile,
+    downloadProfileMaps,
+    loadDefaultProfile,
+    exportProfile,
+    importProfile,
+  ]);
 
   return (
     <SettingsContext.Provider value={value}>

@@ -4,7 +4,7 @@ import { ValueWriteWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem, getOrientation, isCompactSize } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useToast } from '../ToastNotification';
-import { FONT_MONO } from '../../theme';
+import { FONT_MONO } from '../../design/tokens';
 import { parseWriteInput, formatInputHint, isValidStep } from '../../utils/writeInputParse';
 import { mapManager } from '../../maps/mapManager';
 import { DataForm } from '../../maps/mapParser';
@@ -23,6 +23,8 @@ export default function ValueWriteWidget({ config, isEditMode, widgetSize }: Val
   const { showSuccess, showError } = useToast();
   const [inputValue, setInputValue] = useState<string>('');
   const [isFocused, setIsFocused] = useState(false);
+  // False while the field still shows the device's own value verbatim.
+  const [isEdited, setIsEdited] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(false);
   const [pendingValue, setPendingValue] = useState<number | null>(null);
 
@@ -40,10 +42,12 @@ export default function ValueWriteWidget({ config, isEditMode, widgetSize }: Val
     if (isFocused) return;
     if (liveValue === null) {
       setInputValue('');
+      setIsEdited(false);
       return;
     }
     const fractionDigits = isFloat ? initialFractionDigits(liveValue) : undefined;
     setInputValue(formatForThumbwheel(liveValue, resolveThumbwheelFormat(format, isFloat), fractionDigits));
+    setIsEdited(false);
   }, [liveValue, isFocused, format, isFloat]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -51,7 +55,11 @@ export default function ValueWriteWidget({ config, isEditMode, widgetSize }: Val
 
     if (isEditMode || !state.connection?.connected) return;
 
-    const result = parseWriteInput(inputValue, format);
+    // The field shows the value rounded to the display precision, so an
+    // untouched field must submit the device's exact value rather than silently
+    // rounding a live parameter on write-back.
+    const raw = isEdited || liveValue === null ? inputValue : String(liveValue);
+    const result = parseWriteInput(raw, format);
     if (result.ok === false) {
       showError(result.error);
       return;
@@ -127,7 +135,7 @@ export default function ValueWriteWidget({ config, isEditMode, widgetSize }: Val
 
         <ThumbwheelInput
           value={inputValue}
-          onChange={setInputValue}
+          onChange={(next) => { setInputValue(next); setIsEdited(true); }}
           writeFormat={format}
           isFloat={isFloat}
           min={config.min}

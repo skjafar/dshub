@@ -1,4 +1,5 @@
 import React from 'react';
+import { WIDGET_COLORS } from '../../design/dataColors';
 import { Box, Typography, LinearProgress } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { ProgressBarWidgetConfig } from '../../types/dashboard';
@@ -6,10 +7,11 @@ import { WidgetSizeInfo, scaledRem, scaledPx, isCompactSize } from '../../utils/
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
-import { FONT_MONO, FONT_HEADLINE } from '../../theme';
+import { FONT_MONO, FONT_HEADLINE } from '../../design/tokens';
 import { mapManager } from '../../maps/mapManager';
 import { getPlotValue } from '../../utils/dataTableUtils';
-import { isTinyFloat } from '../../utils/floatConversion';
+import { formatDeviceValue } from '../../utils/numberFormat';
+import { DataForm } from '../../maps/mapParser';
 
 interface ProgressBarWidgetProps {
   config: ProgressBarWidgetConfig;
@@ -57,7 +59,7 @@ export default function ProgressBarWidget({ config, isEditMode, widgetSize }: Pr
   // Get color based on value and color ranges
   const getValueColor = (value: number): string => {
     if (!config.colorRanges || config.colorRanges.length === 0) {
-      return '#4ADE80'; // Default green
+      return WIDGET_COLORS.on; // Default green
     }
 
     for (const range of config.colorRanges) {
@@ -66,15 +68,17 @@ export default function ProgressBarWidget({ config, isEditMode, widgetSize }: Pr
       }
     }
 
-    return '#6B7280'; // Default gray if no range matches
+    return WIDGET_COLORS.off; // Default gray if no range matches
   };
 
   const barColor = getValueColor(currentValue);
 
   const formatCurrentValue = (value: number): string =>
-    config.scientificNotation || isTinyFloat(value)
-      ? value.toExponential(config.decimals ?? 2)
-      : value.toFixed(config.decimals ?? 0);
+    formatDeviceValue(value, {
+      isFloat: mapEntry?.type === DataForm.FLOAT,
+      decimals: config.decimals,
+      scientific: config.scientificNotation,
+    });
 
   const isHorizontal = config.orientation !== 'vertical';
 

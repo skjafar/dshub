@@ -1,4 +1,4 @@
-import React, { useState, useRef, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Box,
   Card,
@@ -42,16 +42,13 @@ import {
 import { invoke } from '@tauri-apps/api/core';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
+import ConfirmDialog from './ConfirmDialog';
+import PanelHeader from './PanelHeader';
 import { useDSHub } from '../contexts/DSHubContext';
 import { DEFAULT_PROFILE_ID, CNC_PROFILE_ID } from '../types/settings';
 import type { ProfileImportError } from '../utils/profileFileFormat';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
-
-export interface MapProfilesPanelRef {
-  openCreate: () => void;
-  openImport: () => void;
-}
 
 // ---- Import error dialog ----
 
@@ -124,7 +121,7 @@ function ImportErrorDialog({ open, errors, profileName, hasFatal, onImportAnyway
 
 // ---- Main panel ----
 
-const MapProfilesPanel = forwardRef<MapProfilesPanelRef>(function MapProfilesPanel(_, ref) {
+export default function MapProfilesPanel(): React.JSX.Element {
   const {
     settings,
     getAllProfiles,
@@ -141,6 +138,7 @@ const MapProfilesPanel = forwardRef<MapProfilesPanelRef>(function MapProfilesPan
   const [profileName, setProfileName] = useState('');
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
   // Import state
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -148,11 +146,6 @@ const MapProfilesPanel = forwardRef<MapProfilesPanelRef>(function MapProfilesPan
   const [importErrors, setImportErrors] = useState<ProfileImportError[]>([]);
   const [importProfileName, setImportProfileName] = useState('');
   const [importErrorDialogOpen, setImportErrorDialogOpen] = useState(false);
-
-  useImperativeHandle(ref, () => ({
-    openCreate: () => setCreateDialogOpen(true),
-    openImport: () => importInputRef.current?.click(),
-  }));
 
   const profiles = getAllProfiles();
 
@@ -189,12 +182,16 @@ const MapProfilesPanel = forwardRef<MapProfilesPanelRef>(function MapProfilesPan
   const handleDeleteProfile = (profileId: string) => {
     const profile = profiles.find(p => p.id === profileId);
     if (!profile) return;
-    if (window.confirm(`Delete profile "${profile.name}"? This cannot be undone.`)) {
-      const success = deleteProfile(profileId);
-      if (success) showSuccess('Profile deleted');
-      else showError('Cannot delete built-in profile');
-    }
+    setDeleteConfirm({ id: profileId, name: profile.name });
     setAnchorEl(null);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!deleteConfirm) return;
+    const success = deleteProfile(deleteConfirm.id);
+    if (success) showSuccess(`Deleted profile "${deleteConfirm.name}"`);
+    else showError('Cannot delete built-in profile');
+    setDeleteConfirm(null);
   };
 
   // ---- Export profile ----
@@ -207,7 +204,7 @@ const MapProfilesPanel = forwardRef<MapProfilesPanelRef>(function MapProfilesPan
       return;
     }
     const profile = profiles.find(p => p.id === profileId);
-    const safeName = (profile?.name ?? 'profile').replace(/[^a-z0-9_\-]/gi, '_');
+    const safeName = (profile?.name ?? 'profile').replace(/[^a-z0-9_-]/gi, '_');
     try {
       const saved = await invoke<boolean>('save_text_file', {
         content: json,
@@ -295,6 +292,33 @@ const MapProfilesPanel = forwardRef<MapProfilesPanelRef>(function MapProfilesPan
     profileId === DEFAULT_PROFILE_ID || profileId === CNC_PROFILE_ID;
 
   return (
+    <Box>
+      <PanelHeader
+        title="Profiles"
+        subtitle={`${profiles.length} profile${profiles.length === 1 ? '' : 's'}`}
+        primaryAction={
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setCreateDialogOpen(true)}
+            size="small"
+            color="primary"
+          >
+            New Profile
+          </Button>
+        }
+        actions={
+          <Button
+            variant="outlined"
+            startIcon={<ImportIcon />}
+            onClick={() => importInputRef.current?.click()}
+            size="small"
+            color="inherit"
+          >
+            Import
+          </Button>
+        }
+      />
     <Card>
       <CardContent>
         <input
@@ -432,6 +456,16 @@ const MapProfilesPanel = forwardRef<MapProfilesPanelRef>(function MapProfilesPan
           onClose={handleImportErrorClose}
         />
 
+        <ConfirmDialog
+          open={deleteConfirm !== null}
+          title="Delete profile"
+          message={`"${deleteConfirm?.name ?? ''}" and its maps, metadata and dashboard layout will be removed. This cannot be undone.`}
+          confirmLabel="Delete profile"
+          destructive
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+
         <Alert severity="info" sx={{ mt: 2 }}>
           <Typography variant="body2">
             Profiles store registers, parameters, SYS_COMMANDs, metadata, and dashboard layout in a single{' '}
@@ -442,7 +476,6 @@ const MapProfilesPanel = forwardRef<MapProfilesPanelRef>(function MapProfilesPan
         </Alert>
       </CardContent>
     </Card>
+    </Box>
   );
-});
-
-export default MapProfilesPanel;
+}

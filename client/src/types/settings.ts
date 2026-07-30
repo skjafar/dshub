@@ -1,7 +1,5 @@
 import { DashboardLayout } from './dashboard';
 
-export type ThemeMode = 'light' | 'dark' | 'auto';
-
 export interface RegisterMapItem {
   address: number;
   name: string;
@@ -73,7 +71,6 @@ export interface LogSettings {
 }
 
 export interface UserSettings {
-  theme: ThemeMode;
   colorThemeId: string; // ID of the selected app theme (see appThemes.ts)
   lastDeviceIP: string;
   lastDeviceName?: string; // Board name of last connected device
@@ -88,20 +85,28 @@ export interface UserSettings {
     maxTimeSpan: number; // Maximum allowed time span in seconds
     maxDataPoints: number; // Maximum number of data points to retain per series
   };
-  themeTransitionDuration: number; // Duration of theme transitions in ms
   mapProfiles: MapProfile[]; // Saved map profiles (not including default)
   activeMapProfileId: string; // Currently active profile ID (default or custom)
   logSettings: LogSettings; // Activity log filtering and retention settings
   dashboardLayouts: Record<string, DashboardLayout>; // Dashboard layouts per profile ID
   cncDashboardVersion?: number; // Tracks CNC dashboard template version for auto-reset
   showGettingStarted: boolean; // Show Getting Started dialog on startup
+  /**
+   * Dashboard grid appearance. These are view preferences rather than session
+   * state — they used to live in MainLayout's component state and reset on every
+   * launch, so a tuned grid had to be re-tuned each time the app started.
+   */
+  dashboardView: {
+    cellSize: number;      // grid row height in px
+    spacing: number;       // gap between widgets in px
+    roundedCorners: boolean;
+  };
 }
 
 export const DEFAULT_PROFILE_ID = 'default';
 export const CNC_PROFILE_ID = 'cnc_motor_controller';
 
 export const DEFAULT_SETTINGS: UserSettings = {
-  theme: 'auto',
   colorThemeId: 'kinetic-monolith',
   lastDeviceIP: '',
   lastInterfaceType: 'TCP',
@@ -115,7 +120,6 @@ export const DEFAULT_SETTINGS: UserSettings = {
     maxTimeSpan: 3600, // 1 hour max
     maxDataPoints: 20000 // 20k points per series (balance between functionality and memory)
   },
-  themeTransitionDuration: 300,
   mapProfiles: [],
   activeMapProfileId: DEFAULT_PROFILE_ID,
   logSettings: {
@@ -130,4 +134,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
   },
   dashboardLayouts: {}, // Dashboard layouts per profile (empty by default)
   showGettingStarted: true, // Show Getting Started dialog on first launch
+  dashboardView: {
+    cellSize: 60,
+    spacing: 10,
+    roundedCorners: true,
+  },
 };

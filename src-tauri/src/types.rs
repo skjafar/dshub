@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 // ── Discovery types ──────────────────────────────────────────────────────────
 
@@ -154,6 +155,78 @@ impl Default for LogSettings {
             max_log_count: 1000,
             request_rate_limit: 2000,
         }
+    }
+}
+
+/// Lock-free view of the user's log filter.
+///
+/// Read on every request in the communicator hot path, so it deliberately avoids
+/// a mutex. Before this existed the backend serialised two hex-dump `logEntry`
+/// events per request across the IPC boundary regardless of the user's settings,
+/// only for the frontend reducer to discard them.
+#[derive(Debug)]
+pub struct LogFilter {
+    connection: AtomicBool,
+    register: AtomicBool,
+    parameter: AtomicBool,
+    packet: AtomicBool,
+    auto_refresh: AtomicBool,
+    plotting: AtomicBool,
+    /// Maximum device requests per second; 0 disables the limit.
+    request_rate_limit: AtomicU32,
+}
+
+impl LogFilter {
+    pub fn new() -> Self {
+        Self::from_settings(&LogSettings::default())
+    }
+
+    pub fn from_settings(s: &LogSettings) -> Self {
+        LogFilter {
+            connection: AtomicBool::new(s.enable_connection_logs),
+            register: AtomicBool::new(s.enable_register_logs),
+            parameter: AtomicBool::new(s.enable_parameter_logs),
+            packet: AtomicBool::new(s.enable_packet_logs),
+            auto_refresh: AtomicBool::new(s.enable_auto_refresh_logs),
+            plotting: AtomicBool::new(s.enable_plotting_logs),
+            request_rate_limit: AtomicU32::new(s.request_rate_limit),
+        }
+    }
+
+    pub fn update(&self, s: &LogSettings) {
+        self.connection.store(s.enable_connection_logs, Ordering::Relaxed);
+        self.register.store(s.enable_register_logs, Ordering::Relaxed);
+        self.parameter.store(s.enable_parameter_logs, Ordering::Relaxed);
+        self.packet.store(s.enable_packet_logs, Ordering::Relaxed);
+        self.auto_refresh.store(s.enable_auto_refresh_logs, Ordering::Relaxed);
+        self.plotting.store(s.enable_plotting_logs, Ordering::Relaxed);
+        self.request_rate_limit.store(s.request_rate_limit, Ordering::Relaxed);
+    }
+
+    pub fn category_enabled(&self, category: &LogCategory) -> bool {
+        let flag = match category {
+            LogCategory::Connection => &self.connection,
+            LogCategory::Register => &self.register,
+            LogCategory::Parameter => &self.parameter,
+            LogCategory::Packet => &self.packet,
+            LogCategory::AutoRefresh => &self.auto_refresh,
+            LogCategory::Plotting => &self.plotting,
+        };
+        flag.load(Ordering::Relaxed)
+    }
+
+    pub fn packet_enabled(&self) -> bool {
+        self.packet.load(Ordering::Relaxed)
+    }
+
+    pub fn request_rate_limit(&self) -> u32 {
+        self.request_rate_limit.load(Ordering::Relaxed)
+    }
+}
+
+impl Default for LogFilter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

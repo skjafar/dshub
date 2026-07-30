@@ -1,4 +1,5 @@
 import React from 'react';
+import { WIDGET_COLORS } from '../../../design/dataColors';
 import {
   TextField,
   FormControl,
@@ -103,8 +104,8 @@ export default function StatusMatrixConfig({ config, onConfigChange, registers, 
                 source: 'register' as DataSource,
                 address: 0,
                 onValue: 1,
-                onColor: '#4ADE80',
-                offColor: '#6B7280',
+                onColor: WIDGET_COLORS.on,
+                offColor: WIDGET_COLORS.off,
               }]
             });
           }}
@@ -204,7 +205,7 @@ export default function StatusMatrixConfig({ config, onConfigChange, registers, 
           <Box sx={{ display: 'flex', gap: 1 }}>
             <ColorPickerField
               label="On Color"
-              value={item.onColor ?? '#4ADE80'}
+              value={item.onColor ?? WIDGET_COLORS.on}
               onChange={(color) => {
                 const items = [...(config.items ?? [])];
                 items[index] = { ...items[index], onColor: color };
@@ -215,7 +216,7 @@ export default function StatusMatrixConfig({ config, onConfigChange, registers, 
             />
             <ColorPickerField
               label="Off Color"
-              value={item.offColor ?? '#6B7280'}
+              value={item.offColor ?? WIDGET_COLORS.off}
               onChange={(color) => {
                 const items = [...(config.items ?? [])];
                 items[index] = { ...items[index], offColor: color };

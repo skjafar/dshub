@@ -1,4 +1,5 @@
 import React from 'react';
+import { WIDGET_COLORS } from '../../../design/dataColors';
 import {
   TextField,
   FormControl,
@@ -162,7 +163,7 @@ export default function ProgressBarConfig({ config, onConfigChange, registers, p
             const colorRanges = config.colorRanges ?? [];
             onConfigChange({
               ...config,
-              colorRanges: [...colorRanges, { from: 0, to: 100, color: '#4ADE80' }]
+              colorRanges: [...colorRanges, { from: 0, to: 100, color: WIDGET_COLORS.on }]
             });
           }}
           size="small"

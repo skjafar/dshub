@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 import {
   Box,
   Button,
@@ -15,6 +15,9 @@ import {
   Slider,
   Divider,
   Snackbar,
+  Switch,
+  FormControlLabel,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import {
@@ -24,9 +27,11 @@ import {
   Dashboard as DashboardEmptyIcon
 } from '@mui/icons-material';
 import EmptyState from './EmptyState';
+import PanelHeader from './PanelHeader';
 import GridLayout from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import { useSettings } from '../contexts/SettingsContext';
+import { useToast } from './ToastNotification';
 import {
   DashboardWidget as DashboardWidgetType,
   DashboardTab,
@@ -48,37 +53,49 @@ import { Layout } from 'react-grid-layout';
 const LOCKED_TAB_IDS = new Set(['cnc-demo-tab', 'cnc-monitoring-tab']);
 const isLockedTab = (tabId: string | null): boolean => LOCKED_TAB_IDS.has(tabId ?? '');
 
-export interface DashboardPanelRef {
-  openAddWidgetDialog: () => void;
-}
-
-interface DashboardPanelProps {
-  isEditMode: boolean;
-  cellSize: number;
-  cols: number;
-  spacing: number;
-  roundedCorners: boolean;
-  onEditModeChange: (editMode: boolean) => void;
-  onCellSizeChange: (size: number) => void;
-  onAddWidget: () => void;
-  containerRef: React.RefObject<HTMLDivElement>;
-  containerWidth: number;
-}
-
-const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props, ref) => {
-  const {
-    isEditMode,
-    cellSize,
-    cols,
-    spacing,
-    roundedCorners,
-    onEditModeChange,
-    onCellSizeChange,
-    onAddWidget: onAddWidgetExternal,
-    containerRef,
-    containerWidth
-  } = props;
+export default function DashboardPanel(): React.JSX.Element {
   const { settings, updateSettings, getActiveProfile } = useSettings();
+
+  // Edit mode is transient; grid appearance is a persisted view preference.
+  const [isEditMode, setIsEditMode] = useState(false);
+  const { cellSize, spacing, roundedCorners } = settings.dashboardView;
+  const dashboardView = settings.dashboardView;
+  const setDashboardView = useCallback(
+    (patch: Partial<typeof dashboardView>) =>
+      updateSettings({ dashboardView: { ...dashboardView, ...patch } }),
+    [dashboardView, updateSettings]
+  );
+
+  // Measure the grid container so react-grid-layout gets a real width.
+  //
+  // The grid must not mount before this is known. `cols` is derived from the
+  // width, and react-grid-layout runs `correctBounds` on mount: any widget whose
+  // `x + w` exceeds the column count is permanently clamped inside its internal
+  // layout state. Mounting at width 0 collapses `cols` to the fallback and
+  // squashes every dashboard authored at a wider grid — and because the `layout`
+  // prop's contents are unchanged afterwards, RGL's equality check skips
+  // resyncing, so the damage survives the width update.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => setContainerWidth(el.clientWidth || null);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const isMeasured = containerWidth !== null && containerWidth > 0;
+  const cols = isMeasured
+    ? Math.max(1, Math.floor(containerWidth / cellSize) || DEFAULT_GRID_CONFIG.cols)
+    : DEFAULT_GRID_CONFIG.cols;
+
+  // Read by the layout-change handler, which must not close over a stale value.
+  const isMeasuredRef = useRef(isMeasured);
+  isMeasuredRef.current = isMeasured;
+  const { showError, showSuccess } = useToast();
   const activeProfileId = settings.activeMapProfileId;
 
   // Get dashboard layout for current profile
@@ -262,7 +279,7 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
 
         // Validate shape
         if (!data.version || !data.tab || !data.tab.name || !Array.isArray(data.tab.widgets)) {
-          alert('Invalid dashboard file format.');
+          showError('Invalid dashboard file — expected a tab export with a name and widget list.');
           return;
         }
 
@@ -282,8 +299,9 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
 
         setTabs(prev => [...prev, newTab]);
         setActiveTabId(newTab.id);
+        showSuccess(`Imported tab "${newTab.name}"`);
       } catch {
-        alert('Failed to parse dashboard file. Ensure it is a valid JSON export.');
+        showError('Could not read that dashboard file — it is not valid JSON.');
       }
     };
     input.click();
@@ -298,16 +316,8 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
   };
 
   const handleAddWidget = () => {
-    onAddWidgetExternal();
     setConfigDialog({ open: true, mode: 'add' });
   };
-
-  // Expose method to parent component
-  useImperativeHandle(ref, () => ({
-    openAddWidgetDialog: () => {
-      setConfigDialog({ open: true, mode: 'add' });
-    }
-  }));
 
   const handleEditWidget = (widgetId: string) => {
     if (isLockedTab(activeTabId)) return;
@@ -432,6 +442,9 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
   const handleLayoutChange = useCallback((layout: Layout[]) => {
     if (!isEditMode) return;
     if (isLockedTab(activeTabId)) return;
+    // Never write back a layout produced before the grid was measured: it would
+    // be react-grid-layout's bounds-corrected version, not the user's.
+    if (!isMeasuredRef.current) return;
 
     if (layoutChangeTimerRef.current) clearTimeout(layoutChangeTimerRef.current);
     layoutChangeTimerRef.current = setTimeout(() => {
@@ -451,35 +464,106 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
 
   return (
     <Box>
+      <PanelHeader
+        title="Dashboard"
+        subtitle={`${activeTab?.widgets.length ?? 0} widget${(activeTab?.widgets.length ?? 0) === 1 ? '' : 's'} · ${cols} columns`}
+        primaryAction={
+          <Button
+            variant={isEditMode ? 'contained' : 'outlined'}
+            startIcon={<EditIcon />}
+            onClick={() => setIsEditMode(v => !v)}
+            color={isEditMode ? 'primary' : 'inherit'}
+            size="small"
+          >
+            {isEditMode ? 'Done Editing' : 'Edit'}
+          </Button>
+        }
+        actions={isEditMode ? (
+          <>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddWidget} color="primary" size="small">
+              Add Widget
+            </Button>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 180 }}>
+              <Typography variant="body2" sx={{ whiteSpace: 'nowrap' }}>Grid</Typography>
+              <Slider
+                value={cellSize}
+                onChange={(_, v) => setDashboardView({ cellSize: v as number })}
+                min={20}
+                max={150}
+                step={5}
+                valueLabelDisplay="auto"
+                valueLabelFormat={(v) => `${v}px`}
+                aria-label="Grid cell size"
+                sx={{ width: 110 }}
+              />
+              <Typography variant="body2" sx={{ whiteSpace: 'nowrap', minWidth: 42, fontVariantNumeric: 'tabular-nums' }}>
+                {cellSize}px
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 160 }}>
+              <Typography variant="body2" sx={{ whiteSpace: 'nowrap' }}>Gap</Typography>
+              <Slider
+                value={spacing}
+                onChange={(_, v) => setDashboardView({ spacing: v as number })}
+                min={0}
+                max={30}
+                step={2}
+                valueLabelDisplay="auto"
+                valueLabelFormat={(v) => `${v}px`}
+                aria-label="Widget spacing"
+                sx={{ width: 90 }}
+              />
+              <Typography variant="body2" sx={{ whiteSpace: 'nowrap', minWidth: 36, fontVariantNumeric: 'tabular-nums' }}>
+                {spacing}px
+              </Typography>
+            </Box>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={roundedCorners}
+                  onChange={(e) => setDashboardView({ roundedCorners: e.target.checked })}
+                  size="small"
+                />
+              }
+              label={<Typography variant="body2">Rounded</Typography>}
+              sx={{ ml: 0, whiteSpace: 'nowrap' }}
+            />
+          </>
+        ) : undefined}
+      />
+
       {/* Tabs */}
       <Box sx={{ mb: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center' }}>
-          <Tabs value={activeTabId} onChange={handleTabChange} sx={{ flex: 1 }}>
+          <Tabs value={activeTabId} onChange={handleTabChange} sx={{ flex: 1 }} variant="scrollable" scrollButtons="auto">
             {tabs.map(tab => (
               <Tab
                 key={tab.id}
-                label={
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    {tab.name}
-                    {isEditMode && (
-                      <IconButton
-                        size="small"
-                        aria-label="Tab options"
-                        onClick={(e) => handleTabMenu(e, tab.id)}
-                        sx={{ ml: 0.5 }}
-                      >
-                        <MoreVertIcon fontSize="small" />
-                      </IconButton>
-                    )}
-                  </Box>
-                }
+                label={tab.name}
                 value={tab.id}
+                // A button cannot contain a button. In edit mode the options menu
+                // is opened from the adjacent control or a context-menu gesture on
+                // the tab itself, both of which stay keyboard-reachable.
+                onContextMenu={isEditMode ? (e) => { e.preventDefault(); handleTabMenu(e, tab.id); } : undefined}
               />
             ))}
           </Tabs>
           {isEditMode && (
-            <IconButton onClick={handleAddTab} sx={{ mr: 1 }}>
-              <AddIcon />
-            </IconButton>
+            <>
+              <Tooltip title={`Options for "${activeTab?.name ?? 'tab'}"`}>
+                <IconButton
+                  size="small"
+                  aria-label="Active tab options"
+                  onClick={(e) => handleTabMenu(e, activeTabId)}
+                >
+                  <MoreVertIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Add tab">
+                <IconButton onClick={handleAddTab} aria-label="Add tab" sx={{ mr: 1 }}>
+                  <AddIcon />
+                </IconButton>
+              </Tooltip>
+            </>
           )}
       </Box>
 
@@ -494,10 +578,14 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
               : 'Enable Edit Mode to add widgets'}
             action={!isEditMode ? {
               label: 'Enable Edit Mode',
-              onClick: () => onEditModeChange(true),
+              onClick: () => setIsEditMode(true),
               icon: <EditIcon />,
             } : undefined}
           />
+        ) : !isMeasured ? (
+          // Nothing to show for one pre-paint frame while the container is
+          // measured. Mounting the grid here would clamp the saved layout.
+          null
         ) : (
           <GridLayout
             className="layout"
@@ -629,8 +717,4 @@ const DashboardPanel = forwardRef<DashboardPanelRef, DashboardPanelProps>((props
       />
     </Box>
   );
-});
-
-DashboardPanel.displayName = 'DashboardPanel';
-
-export default DashboardPanel;
+}

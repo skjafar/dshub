@@ -23,12 +23,13 @@ import {
 } from '@mui/material';
 import { Refresh as RefreshIcon, Link as ConnectIcon, Add as AddIcon, Radar as RadarIcon } from '@mui/icons-material';
 import EmptyState from './EmptyState';
+import PanelHeader from './PanelHeader';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import { InterfaceType, DEFAULT_TCP_PORT, DEFAULT_UDP_PORT } from '../types/shared';
 import { mapManager } from '../maps/mapManager';
-import { FONT_MONO } from '../theme';
+import { FONT_MONO } from '../design/tokens';
 import { logger } from '../utils/logger';
 
 const formatMacAddress = (mac: string): string => {
@@ -151,6 +152,27 @@ export default function DeviceScannerPanel() {
 
   return (
     <Box>
+      <PanelHeader
+        title="Device Scanner"
+        subtitle={
+          state.isScanning
+            ? 'Broadcasting discovery request…'
+            : `${state.discoveredDevices.length} device${state.discoveredDevices.length === 1 ? '' : 's'} found`
+        }
+        primaryAction={
+          <Button
+            variant="contained"
+            startIcon={state.isScanning ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon />}
+            onClick={actions.startScan}
+            disabled={state.isScanning}
+            color="primary"
+            size="small"
+          >
+            {state.isScanning ? 'Scanning…' : 'Scan Network'}
+          </Button>
+        }
+      />
+
       {/* Scanning progress bar */}
       {state.isScanning && (
         <Box

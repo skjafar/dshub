@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useDSHub } from '../contexts/DSHubContext';
 import { mapManager } from '../maps/mapManager';
+import { pollRegistry } from '../services/pollRegistry';
 import type { DataSource } from '../types/dashboard';
 
 interface UseAutoRefreshOptions {
@@ -14,46 +15,35 @@ export interface AutoRefreshStatus {
   error: string | null;
 }
 
-/**
- * Hook for auto-refreshing a single register/parameter value.
- * Handles map lookup, connection checks, and polling interval.
- * Returns an error string if the map is not loaded or address not found.
- */
-export function useAutoRefresh({ source, address, refreshInterval, isEditMode }: UseAutoRefreshOptions): AutoRefreshStatus {
-  const { state, actions } = useDSHub();
-
-  const mapEntry = source === 'register'
+function lookupName(source: DataSource, address: number): string | undefined {
+  const entry = source === 'register'
     ? mapManager.getRegisterByAddress(address)
     : source === 'sysRegister'
     ? mapManager.getSystemRegisterByAddress(address)
     : mapManager.getParameterByAddress(address);
-  const actualName = mapEntry?.name;
+  return entry?.name;
+}
 
-  // Use a ref so the callback always has the latest actions without
-  // including the (unstable) actions object in the dependency array.
-  const actionsRef = useRef(actions);
-  actionsRef.current = actions;
+/**
+ * Subscribes a widget to periodic refresh of a single register/parameter.
+ *
+ * Subscriptions are coalesced by `pollRegistry`, so N widgets bound to the same
+ * address produce one device read rather than N. Previously each hook instance
+ * owned its own `setInterval` and issued its own `invoke`.
+ */
+export function useAutoRefresh({ source, address, refreshInterval, isEditMode }: UseAutoRefreshOptions): AutoRefreshStatus {
+  const { state } = useDSHub();
+  const connected = !!state.connection?.connected;
+  const actualName = lookupName(source, address);
 
   useEffect(() => {
-    if (isEditMode || !state.connection?.connected) return;
+    if (isEditMode || !connected) return;
     if (!mapManager.isInitialized() || !actualName) return;
 
-    const readData = () => {
-      if (source === 'register') {
-        actionsRef.current.readRegister(address, actualName);
-      } else if (source === 'sysRegister') {
-        actionsRef.current.readSystemRegister(address, actualName);
-      } else {
-        actionsRef.current.readParameter(address, actualName);
-      }
-    };
+    return pollRegistry.subscribe({ source, address, name: actualName }, refreshInterval);
+  }, [source, address, refreshInterval, isEditMode, connected, actualName]);
 
-    readData();
-    const intervalId = setInterval(readData, refreshInterval);
-    return () => clearInterval(intervalId);
-  }, [source, address, refreshInterval, isEditMode, state.connection?.connected, actualName]);
-
-  if (!isEditMode && state.connection?.connected) {
+  if (!isEditMode && connected) {
     if (!mapManager.isInitialized()) {
       return { error: 'Map not loaded' };
     }
@@ -80,53 +70,34 @@ interface UseAutoRefreshMultiOptions {
 }
 
 /**
- * Hook for auto-refreshing multiple register/parameter values.
- * Used by SystemInfoWidget which reads multiple addresses at once.
+ * Multi-address variant, used by widgets that read several values at once.
+ * Each address becomes its own coalesced subscription.
  */
 export function useAutoRefreshMulti({ items, refreshInterval, isEditMode }: UseAutoRefreshMultiOptions): AutoRefreshStatus {
-  const { state, actions } = useDSHub();
+  const { state } = useDSHub();
+  const connected = !!state.connection?.connected;
 
-  // Stable key so the effect only restarts when addresses actually change,
+  // Stable key so the effect only restarts when the address set actually changes,
   // not on every render due to a new array reference.
   const itemsKey = items.map(i => `${i.source}:${i.address}`).join(',');
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
 
-  // Use a ref so the callback always has the latest actions without
-  // including the (unstable) actions object in the dependency array.
-  const actionsRef = useRef(actions);
-  actionsRef.current = actions;
+  const targets = useMemo(
+    () => items
+      .map(i => ({ source: i.source, address: i.address, name: lookupName(i.source, i.address) }))
+      .filter((t): t is { source: DataSource; address: number; name: string } => Boolean(t.name)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [itemsKey, connected]
+  );
 
   useEffect(() => {
-    if (isEditMode || !state.connection?.connected) return;
+    if (isEditMode || !connected) return;
     if (!mapManager.isInitialized()) return;
 
-    const readAllData = () => {
-      itemsRef.current.forEach(item => {
-        const mapEntry = item.source === 'register'
-          ? mapManager.getRegisterByAddress(item.address)
-          : item.source === 'sysRegister'
-          ? mapManager.getSystemRegisterByAddress(item.address)
-          : mapManager.getParameterByAddress(item.address);
+    const unsubscribes = targets.map(t => pollRegistry.subscribe(t, refreshInterval));
+    return () => unsubscribes.forEach(u => u());
+  }, [targets, refreshInterval, isEditMode, connected]);
 
-        if (mapEntry) {
-          if (item.source === 'register') {
-            actionsRef.current.readRegister(item.address, mapEntry.name);
-          } else if (item.source === 'sysRegister') {
-            actionsRef.current.readSystemRegister(item.address, mapEntry.name);
-          } else {
-            actionsRef.current.readParameter(item.address, mapEntry.name);
-          }
-        }
-      });
-    };
-
-    readAllData();
-    const intervalId = setInterval(readAllData, refreshInterval);
-    return () => clearInterval(intervalId);
-  }, [itemsKey, refreshInterval, isEditMode, state.connection?.connected]);
-
-  if (!isEditMode && state.connection?.connected && !mapManager.isInitialized()) {
+  if (!isEditMode && connected && !mapManager.isInitialized()) {
     return { error: 'Map not loaded' };
   }
   return { error: null };

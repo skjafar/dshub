@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
 import { Snackbar, Alert, AlertColor } from '@mui/material';
+import { STATUS_BAR_HEIGHT } from './StatusBar';
 
 interface Toast {
   id: number;
@@ -55,12 +56,19 @@ export function ToastProvider({ children }: ToastProviderProps) {
     showToast(message, 'info');
   }, [showToast]);
 
-  const handleClose = (id: number) => {
+  const handleClose = useCallback((id: number) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
-  };
+  }, []);
+
+  // Stable identity: consumers list these callbacks in dependency arrays, and an
+  // unmemoised value would re-render every `useToast` consumer on each toast.
+  const value = useMemo<ToastContextType>(
+    () => ({ showToast, showSuccess, showError, showWarning, showInfo }),
+    [showToast, showSuccess, showError, showWarning, showInfo]
+  );
 
   return (
-    <ToastContext.Provider value={{ showToast, showSuccess, showError, showWarning, showInfo }}>
+    <ToastContext.Provider value={value}>
       {children}
       {toasts.map((toast, index) => (
         <Snackbar
@@ -69,7 +77,8 @@ export function ToastProvider({ children }: ToastProviderProps) {
           autoHideDuration={toast.duration}
           onClose={() => handleClose(toast.id)}
           anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-          style={{ bottom: `${80 * index + 24}px` }}
+          // Stack upward from just above the fixed status bar.
+          style={{ bottom: `${80 * index + STATUS_BAR_HEIGHT + 16}px` }}
         >
           <Alert
             onClose={() => handleClose(toast.id)}

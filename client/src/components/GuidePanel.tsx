@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Card, CardContent, Chip, Divider, Typography } from '@mui/material';
-import { FONT_MONO } from '../theme';
+import { FONT_MONO } from '../design/tokens';
 
 interface GuideStep {
   number: number;

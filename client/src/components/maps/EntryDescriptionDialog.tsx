@@ -19,7 +19,7 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { ValueDescriptor } from '../../maps/mapParser';
-import { FONT_MONO } from '../../theme';
+import { FONT_MONO } from '../../design/tokens';
 
 interface EntryDescriptionDialogProps {
   open: boolean;

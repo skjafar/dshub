@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { WIDGET_COLORS } from '../../design/dataColors';
 import { Box, Typography, IconButton } from '@mui/material';
 import {
   ArrowUpward,
@@ -50,7 +51,7 @@ export default function DirectionalControlWidget({ config, isEditMode, widgetSiz
   const layout = config.layout || '4way';
   const baseButtonSize = config.buttonSize || 48;
   const buttonSize = widgetSize ? scaledPx(baseButtonSize, widgetSize.scale) : baseButtonSize;
-  const color = config.color || '#00F2FF';
+  const color = config.color || WIDGET_COLORS.accent;
 
   // Cleanup timeout on unmount to prevent memory leaks
   useEffect(() => {

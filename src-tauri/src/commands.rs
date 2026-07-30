@@ -33,6 +33,51 @@ pub struct ActivePlotSpec {
 
 // ── Managed application state ─────────────────────────────────────────────────
 
+/// Token-bucket limiter for outbound device requests.
+///
+/// Backs the user-facing `requestRateLimit` setting, which previously existed in
+/// the settings model but was never enforced anywhere.
+pub struct RateLimiter {
+    /// (last refill instant, available tokens)
+    bucket: tokio::sync::Mutex<(tokio::time::Instant, f64)>,
+}
+
+impl RateLimiter {
+    fn new() -> Self {
+        RateLimiter {
+            bucket: tokio::sync::Mutex::new((tokio::time::Instant::now(), 0.0)),
+        }
+    }
+
+    /// Waits until one request may be sent. A `limit` of 0 disables limiting.
+    async fn acquire(&self, limit: u32) {
+        if limit == 0 {
+            return;
+        }
+        let rate = limit as f64;
+        let sleep_for = {
+            let mut bucket = self.bucket.lock().await;
+            let (last, tokens) = *bucket;
+            let now = tokio::time::Instant::now();
+            // Refill, capped at one second's worth so an idle period cannot bank
+            // an unbounded burst.
+            let refilled = (tokens + now.duration_since(last).as_secs_f64() * rate).min(rate);
+            if refilled >= 1.0 {
+                *bucket = (now, refilled - 1.0);
+                None
+            } else {
+                // Charge the token now and sleep off the deficit.
+                let deficit = (1.0 - refilled) / rate;
+                *bucket = (now, 0.0);
+                Some(std::time::Duration::from_secs_f64(deficit))
+            }
+        };
+        if let Some(d) = sleep_for {
+            tokio::time::sleep(d).await;
+        }
+    }
+}
+
 pub struct AppState {
     /// Sender half of the communicator channel; None when not connected
     pub communicator_tx: tokio::sync::Mutex<Option<mpsc::Sender<DeviceRequest>>>,
@@ -44,14 +89,20 @@ pub struct AppState {
     pub active_plots: tokio::sync::Mutex<HashMap<String, ActivePlotSpec>>,
     /// Current device connection info (for takeControl to know interface type)
     pub connection: tokio::sync::Mutex<Option<DeviceConnection>>,
-    /// User-configurable log filter settings
-    pub log_settings: tokio::sync::Mutex<LogSettings>,
+    /// Lock-free log filter, read by the communicator on every request
+    pub log_filter: Arc<LogFilter>,
+    /// Enforces the user's `requestRateLimit` setting
+    pub rate_limiter: RateLimiter,
     /// Prevents concurrent scans (shared as Arc for spawned tasks)
     pub is_scanning: Arc<tokio::sync::Mutex<bool>>,
     /// Last directory used for saving files
     pub last_save_dir: tokio::sync::Mutex<Option<std::path::PathBuf>>,
-    /// Set to true when the user explicitly disconnects; stops the reconnect loop
-    pub disconnect_requested: Arc<AtomicBool>,
+    /// Stop token for the *current* connection's reconnect loop.
+    ///
+    /// Replaced wholesale on every connect rather than cleared, so a reconnect
+    /// loop belonging to a previous connection can never be re-enabled and race
+    /// the new one for `communicator_tx`.
+    pub connection_token: tokio::sync::Mutex<Arc<AtomicBool>>,
     /// Parameters of the last successful connection, used by the reconnect loop
     pub reconnect_params: tokio::sync::Mutex<Option<ReconnectParams>>,
 }
@@ -63,10 +114,11 @@ impl AppState {
             plot_tasks: tokio::sync::Mutex::new(HashMap::new()),
             active_plots: tokio::sync::Mutex::new(HashMap::new()),
             connection: tokio::sync::Mutex::new(None),
-            log_settings: tokio::sync::Mutex::new(LogSettings::default()),
+            log_filter: Arc::new(LogFilter::new()),
+            rate_limiter: RateLimiter::new(),
             is_scanning: Arc::new(tokio::sync::Mutex::new(false)),
             last_save_dir: tokio::sync::Mutex::new(None),
-            disconnect_requested: Arc::new(AtomicBool::new(false)),
+            connection_token: tokio::sync::Mutex::new(Arc::new(AtomicBool::new(true))),
             reconnect_params: tokio::sync::Mutex::new(None),
         }
     }
@@ -263,6 +315,9 @@ fn spawn_heartbeat(tx: mpsc::Sender<DeviceRequest>) -> JoinHandle<()> {
     const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
     tauri::async_runtime::spawn(async move {
         let mut ticker = tokio::time::interval(HEARTBEAT_INTERVAL);
+        // Never replay missed ticks: the default Burst behaviour would fire them
+        // back-to-back and flood the request queue after any device stall.
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         ticker.tick().await; // skip the immediate first tick
         loop {
             ticker.tick().await;
@@ -291,6 +346,9 @@ fn spawn_plot_task(
 ) -> JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_millis(interval_ms));
+        // A plot polling faster than the device can answer must fall behind
+        // gracefully, not accumulate ticks and burst them at the queue.
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             ticker.tick().await;
             let req = DeviceRequest {
@@ -332,15 +390,24 @@ async fn resume_active_plots(app: &AppHandle, tx: &mpsc::Sender<DeviceRequest>) 
 }
 
 /// Enqueue a request; awaits if the channel is at capacity (backpressure).
+///
+/// The sender is cloned and the mutex released *before* awaiting the send. Holding
+/// the guard across the await would block every other command — including
+/// `disconnect_device` — whenever the channel filled up.
 async fn queue_request(state: &State<'_, AppState>, req: DeviceRequest) -> Result<(), String> {
-    let guard = state.communicator_tx.lock().await;
-    match guard.as_ref() {
-        Some(tx) => tx
-            .send(req)
-            .await
-            .map_err(|_| "Communicator channel closed".to_string()),
-        None => Err("Not connected to device".to_string()),
-    }
+    let tx = {
+        let guard = state.communicator_tx.lock().await;
+        guard.as_ref().cloned().ok_or("Not connected to device")?
+    };
+
+    state
+        .rate_limiter
+        .acquire(state.log_filter.request_rate_limit())
+        .await;
+
+    tx.send(req)
+        .await
+        .map_err(|_| "Communicator channel closed".to_string())
 }
 
 // ── Tauri commands ────────────────────────────────────────────────────────────
@@ -374,9 +441,23 @@ pub async fn connect_device(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    // Signal any running reconnect loop to stop, then clean up the existing connection
-    state.disconnect_requested.store(true, Ordering::Relaxed);
+    // Retire the previous connection's stop token and mint a fresh one for this
+    // attempt. Replacing the Arc (rather than setting the old flag back to false)
+    // means a reconnect loop still sleeping from the previous connection can never
+    // wake up "allowed" and race this connection for `communicator_tx`.
+    let stop = {
+        let mut guard = state.connection_token.lock().await;
+        guard.store(true, Ordering::Relaxed);
+        let fresh = Arc::new(AtomicBool::new(false));
+        *guard = Arc::clone(&fresh);
+        fresh
+    };
+
     disconnect_internal(&state).await;
+
+    // An explicit connect starts clean: plots belonging to the previous device
+    // must not be resumed against this one.
+    state.active_plots.lock().await.clear();
 
     let port = match interface_type {
         InterfaceType::Tcp => DEFAULT_TCP_PORT,
@@ -390,10 +471,6 @@ pub async fn connect_device(
         interface_type: interface_type.clone(),
         device_name: device_name.clone(),
     });
-
-    // Clear the stop flag — reconnect loop is now allowed to run
-    state.disconnect_requested.store(false, Ordering::Relaxed);
-    let stop = Arc::clone(&state.disconnect_requested);
 
     // Channel with capacity 100 (matches original MAX_QUEUE_SIZE)
     let (tx, rx) = mpsc::channel::<DeviceRequest>(100);
@@ -513,9 +590,12 @@ pub async fn connect_device(
 
 #[tauri::command]
 pub async fn disconnect_device(state: State<'_, AppState>) -> Result<(), String> {
-    // Stop any running reconnect loop before dropping the channel
-    state.disconnect_requested.store(true, Ordering::Relaxed);
+    // Stop the current connection's reconnect loop before dropping the channel
+    state.connection_token.lock().await.store(true, Ordering::Relaxed);
     disconnect_internal(&state).await;
+    // Explicit disconnect discards plot registrations; only an automatic
+    // reconnect of the *same* connection resumes them.
+    state.active_plots.lock().await.clear();
     *state.connection.lock().await = None;
     Ok(())
 }
@@ -752,7 +832,7 @@ pub async fn update_log_settings(
     settings: LogSettings,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    *state.log_settings.lock().await = settings;
+    state.log_filter.update(&settings);
     Ok(())
 }
 

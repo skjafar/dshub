@@ -17,7 +17,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { SysCommand } from '../../types/settings';
 import { generateSysCommandMapFile, generateSysCommandHeaderFile } from '../../utils/sysCommandFileGenerator';
 import { useToast } from '../ToastNotification';
-import { FONT_MONO } from '../../theme';
+import { FONT_MONO } from '../../design/tokens';
 
 interface SysCommandExportDialogProps {
   open: boolean;

@@ -1,14 +1,17 @@
 import React, { useMemo } from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, Typography, useTheme } from '@mui/material';
 import { AlarmListWidgetConfig, AlarmRule } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem, scaledPx, isCompactSize } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefreshMulti } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
-import { FONT_MONO, FONT_HEADLINE } from '../../theme';
+import { FONT_MONO, FONT_HEADLINE } from '../../design/tokens';
 import { mapManager } from '../../maps/mapManager';
 import { getPlotValue } from '../../utils/dataTableUtils';
-import { isTinyFloat } from '../../utils/floatConversion';
+import { formatDeviceValue } from '../../utils/numberFormat';
+import { DataForm } from '../../maps/mapParser';
+import type { StatusColors } from '../../design/status';
+import { alphaOf } from '../../design/contrast';
 
 interface AlarmListWidgetProps {
   config: AlarmListWidgetConfig;
@@ -21,17 +24,21 @@ interface EvaluatedAlarm {
   active: boolean;
   value: number | undefined;
   timestamp: number | undefined;
+  /** From the map entry, so an integer alarm value is not padded to N.000. */
+  isFloat: boolean;
 }
 
-const SEVERITY_COLORS: Record<string, string> = {
-  critical: '#FF3D71',
-  warning: '#FFAB00',
-};
+/**
+ * Alarm severity is a machine condition, not a styling choice, so it reads from
+ * the theme-invariant status ramp rather than the configurable widget palette.
+ */
+function severityColor(severity: string, status: StatusColors): string {
+  return severity === 'critical' ? status.error : status.warn;
+}
 
-function formatAlarmValue(value: number | undefined, decimals?: number, scientific?: boolean): string {
+function formatAlarmValue(value: number | undefined, isFloat: boolean, decimals?: number, scientific?: boolean): string {
   if (value === undefined) return '---';
-  if (scientific || isTinyFloat(value)) return value.toExponential(decimals ?? 4);
-  return decimals !== undefined ? value.toFixed(decimals) : value.toLocaleString();
+  return formatDeviceValue(value, { isFloat, decimals, scientific });
 }
 
 /**
@@ -42,6 +49,7 @@ function formatAlarmValue(value: number | undefined, decimals?: number, scientif
  */
 export default function AlarmListWidget({ config, isEditMode, widgetSize }: AlarmListWidgetProps): React.ReactElement {
   const { state } = useDSHub();
+  const status = useTheme().palette.custom.status;
   const scale = widgetSize?.scale ?? 1;
 
   // Build items array for useAutoRefreshMulti from alarm rules
@@ -76,6 +84,7 @@ export default function AlarmListWidget({ config, isEditMode, widgetSize }: Alar
       : state.parameters.get(rule.address);
     const ruleMapEntry = mapManager.getEntryBySource(rule.source, rule.address);
     const value = data?.value !== undefined ? getPlotValue(data.value, ruleMapEntry) : undefined;
+    const isFloat = ruleMapEntry?.type === DataForm.FLOAT;
 
     let active = false;
     if (value !== undefined) {
@@ -88,7 +97,7 @@ export default function AlarmListWidget({ config, isEditMode, widgetSize }: Alar
       }
     }
 
-    return { rule, active, value, timestamp: data?.timestamp };
+    return { rule, active, value, timestamp: data?.timestamp, isFloat };
   });
 
   // Sort: active first (critical → warning), then inactive
@@ -120,7 +129,7 @@ export default function AlarmListWidget({ config, isEditMode, widgetSize }: Alar
           sx={{
             fontFamily: FONT_HEADLINE,
             fontSize: scaledRem(0.7, scale),
-            color: activeCount > 0 ? '#FF3D71' : '#00E676',
+            color: activeCount > 0 ? status.error : status.ok,
             fontWeight: 600,
             letterSpacing: '0.04em',
           }}
@@ -133,15 +142,15 @@ export default function AlarmListWidget({ config, isEditMode, widgetSize }: Alar
       <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0, display: 'flex', flexDirection: 'column', gap: compact ? 0.25 : 0.5 }}>
         {visibleAlarms.length === 0 && (
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 1 }}>
-            <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#00E676', boxShadow: '0 0 6px #00E67680' }} />
-            <Typography sx={{ fontFamily: FONT_MONO, fontSize: '0.75rem', color: '#00E676' }}>
+            <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: status.ok, boxShadow: `0 0 6px ${alphaOf(status.ok, 0.5)}` }} />
+            <Typography sx={{ fontFamily: FONT_MONO, fontSize: '0.75rem', color: status.ok }}>
               No active alarms
             </Typography>
           </Box>
         )}
 
         {visibleAlarms.map((alarm, index) => {
-          const color = alarm.active ? SEVERITY_COLORS[alarm.rule.severity] : '#6B7280';
+          const color = alarm.active ? severityColor(alarm.rule.severity, status) : status.idle;
           return (
             <Box
               key={`${alarm.rule.source}-${alarm.rule.address}-${index}`}
@@ -200,7 +209,7 @@ export default function AlarmListWidget({ config, isEditMode, widgetSize }: Alar
                   flexShrink: 0,
                 }}
               >
-                {formatAlarmValue(alarm.value, alarm.rule.decimals, alarm.rule.scientificNotation)}
+                {formatAlarmValue(alarm.value, alarm.isFloat, alarm.rule.decimals, alarm.rule.scientificNotation)}
               </Typography>
             </Box>
           );

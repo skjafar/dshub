@@ -1,5 +1,18 @@
 import { createTheme, Theme } from '@mui/material/styles';
-import { FONT_BODY, FONT_HEADLINE, FONT_MONO } from './theme';
+import {
+  FONT_BODY,
+  FONT_HEADLINE,
+  FONT_MONO,
+  RADIUS,
+  HEADER_HEIGHT,
+  buttonBase,
+  chipBase,
+  tableCellBase,
+} from './design/tokens';
+import { StatusColors, statusColors } from './design/status';
+import { alphaOf, hexCh } from './design/contrast';
+
+export { hexCh };
 
 // ─── TypeScript augmentation ──────────────────────────────────────────────────
 declare module '@mui/material/styles' {
@@ -9,32 +22,51 @@ declare module '@mui/material/styles' {
   interface PaletteOptions {
     custom?: AppThemeColors;
   }
+  interface TypographyVariants {
+    label: React.CSSProperties;
+  }
+  interface TypographyVariantsOptions {
+    label?: React.CSSProperties;
+  }
+}
+declare module '@mui/material/Typography' {
+  interface TypographyPropsVariantOverrides {
+    label: true;
+  }
 }
 
 // ─── Token interface ──────────────────────────────────────────────────────────
-export interface AppThemeColors {
+
+/** The palette a theme author supplies. Status colour is added automatically. */
+export interface AppThemePalette {
   readonly mode: 'dark' | 'light';
-  // Accent
+  // Accent — brand and chrome only. Never used to express status.
   readonly primary: string;
   readonly primaryFixed: string;  // dim variant — used for glows & alpha math
   readonly secondary: string;
   readonly tertiary: string;
-  readonly error: string;
   // Text
   readonly onSurface: string;
   readonly onSurfaceVar: string;
   readonly outline: string;
   readonly outlineVar: string;
   // Surface hierarchy (5 tiers)
-  readonly surfaceLowest: string;  // deepest inset — text inputs
-  readonly surface: string;        // base background
+  readonly surfaceLowest: string;    // deepest inset — text inputs
+  readonly surface: string;          // base background
   readonly surfaceContainer: string; // cards / sections
-  readonly surfaceHigh: string;    // elevated
-  readonly surfaceHighest: string; // top layer / overlays
+  readonly surfaceHigh: string;      // elevated
+  readonly surfaceHighest: string;   // top layer / overlays
   // Ghost borders
-  readonly ghost: string;    // outline-variant @ 15%
-  readonly ghost20: string;  // outline-variant @ 20%
-  readonly ghostSep: string; // separator  @ 40%
+  readonly ghost: string;    // outline-variant, faint
+  readonly ghost20: string;  // outline-variant, hover
+  readonly ghostSep: string; // separator
+}
+
+export interface AppThemeColors extends AppThemePalette {
+  /** Theme-invariant semantic status ramp. See `design/status.ts`. */
+  readonly status: StatusColors;
+  /** Alias of `status.error`, kept for call sites that read `custom.error`. */
+  readonly error: string;
 }
 
 export interface AppTheme {
@@ -46,21 +78,35 @@ export interface AppTheme {
   readonly colors: AppThemeColors;
 }
 
-// ─── Theme definitions ────────────────────────────────────────────────────────
+function defineTheme(
+  meta: { id: string; name: string; description: string; preview: readonly [string, string, string] },
+  palette: AppThemePalette
+): AppTheme {
+  const status = statusColors(palette.mode);
+  return {
+    ...meta,
+    mode: palette.mode,
+    colors: { ...palette, status, error: status.error },
+  };
+}
 
-const KINETIC_MONOLITH: AppTheme = {
-  id: 'kinetic-monolith',
-  name: 'Kinetic Monolith',
-  description: 'Industrial precision · Cyan on deep black',
-  mode: 'dark',
-  preview: ['#00e5ff', '#75fd00', '#ffc938'],
-  colors: {
+// ─── Theme definitions ────────────────────────────────────────────────────────
+// Four curated themes: two dark, two light. Themes removed in the 0.3 overhaul
+// (Crimson Core, Phosphor, Forge, Sage) are remapped by `LEGACY_THEME_IDS` below.
+
+const KINETIC_MONOLITH = defineTheme(
+  {
+    id: 'kinetic-monolith',
+    name: 'Kinetic Monolith',
+    description: 'Industrial precision · Cyan on deep navy',
+    preview: ['#00e5ff', '#75fd00', '#ffc938'],
+  },
+  {
     mode: 'dark',
     primary:        '#00e5ff',
     primaryFixed:   '#00daf3',
     secondary:      '#75fd00',
     tertiary:       '#ffc938',
-    error:          '#ffb4ab',
     onSurface:      '#e5e2e1',
     onSurfaceVar:   '#bac9cc',
     outline:        '#849396',
@@ -73,22 +119,22 @@ const KINETIC_MONOLITH: AppTheme = {
     ghost:    'rgba(30,48,72,0.20)',
     ghost20:  'rgba(30,48,72,0.28)',
     ghostSep: 'rgba(30,48,72,0.45)',
-  },
-};
+  }
+);
 
-const VOID_VIOLET: AppTheme = {
-  id: 'void-violet',
-  name: 'Void Violet',
-  description: 'Electric purple on cool deep space',
-  mode: 'dark',
-  preview: ['#c084fc', '#4ade80', '#fb923c'],
-  colors: {
+const VOID_VIOLET = defineTheme(
+  {
+    id: 'void-violet',
+    name: 'Void Violet',
+    description: 'Electric purple on cool deep space',
+    preview: ['#c084fc', '#22d3ee', '#fb923c'],
+  },
+  {
     mode: 'dark',
     primary:        '#c084fc',
     primaryFixed:   '#a855f7',
-    secondary:      '#4ade80',
+    secondary:      '#22d3ee',
     tertiary:       '#fb923c',
-    error:          '#ffb4ab',
     onSurface:      '#ede8f5',
     onSurfaceVar:   '#c4b8d8',
     outline:        '#8878aa',
@@ -98,112 +144,58 @@ const VOID_VIOLET: AppTheme = {
     surfaceContainer: '#191626',
     surfaceHigh:    '#231f33',
     surfaceHighest: '#2d2a40',
-    ghost:    'rgba(80,60,130,0.15)',
-    ghost20:  'rgba(80,60,130,0.20)',
-    ghostSep: 'rgba(80,60,130,0.40)',
-  },
-};
+    ghost:    'rgba(80,60,130,0.18)',
+    ghost20:  'rgba(80,60,130,0.26)',
+    ghostSep: 'rgba(80,60,130,0.42)',
+  }
+);
 
-const CRIMSON_CORE: AppTheme = {
-  id: 'crimson-core',
-  name: 'Crimson Core',
-  description: 'Hot coral red on warm dark surfaces',
-  mode: 'dark',
-  preview: ['#ff6b8a', '#fcd34d', '#f472b6'],
-  colors: {
-    mode: 'dark',
-    primary:        '#ff6b8a',
-    primaryFixed:   '#f43f5e',
-    secondary:      '#fcd34d',
-    tertiary:       '#f472b6',
-    error:          '#ffb4ab',
-    onSurface:      '#f5e0e4',
-    onSurfaceVar:   '#d4b8bf',
-    outline:        '#9b7880',
-    outlineVar:     '#4d2d35',
-    surfaceLowest:  '#0e0609',
-    surface:        '#150b0f',
-    surfaceContainer: '#1f1218',
-    surfaceHigh:    '#291820',
-    surfaceHighest: '#342028',
-    ghost:    'rgba(120,50,70,0.15)',
-    ghost20:  'rgba(120,50,70,0.20)',
-    ghostSep: 'rgba(120,50,70,0.40)',
+const BLUEPRINT = defineTheme(
+  {
+    id: 'blueprint',
+    name: 'Blueprint',
+    description: 'Navy engineering blue on cool light paper',
+    preview: ['#1d4ed8', '#0f766e', '#b45309'],
   },
-};
-
-const PHOSPHOR: AppTheme = {
-  id: 'phosphor',
-  name: 'Phosphor',
-  description: 'Terminal green on near-black substrate',
-  mode: 'dark',
-  preview: ['#39ff14', '#ffd60a', '#00ffff'],
-  colors: {
-    mode: 'dark',
-    primary:        '#39ff14',
-    primaryFixed:   '#00e600',
-    secondary:      '#ffd60a',
-    tertiary:       '#00ffff',
-    error:          '#ffb4ab',
-    onSurface:      '#d0f0d0',
-    onSurfaceVar:   '#9ac09a',
-    outline:        '#4a7a4a',
-    outlineVar:     '#1e3e1e',
-    surfaceLowest:  '#050805',
-    surface:        '#080d08',
-    surfaceContainer: '#101810',
-    surfaceHigh:    '#182018',
-    surfaceHighest: '#212b21',
-    ghost:    'rgba(30,80,30,0.15)',
-    ghost20:  'rgba(30,80,30,0.20)',
-    ghostSep: 'rgba(30,80,30,0.40)',
-  },
-};
-
-const BLUEPRINT: AppTheme = {
-  id: 'blueprint',
-  name: 'Blueprint',
-  description: 'Navy engineering blue on cool light paper',
-  mode: 'light',
-  preview: ['#1d4ed8', '#0f766e', '#b45309'],
-  colors: {
+  {
     mode: 'light',
     primary:        '#1d4ed8',
     primaryFixed:   '#2563eb',
     secondary:      '#0f766e',
     tertiary:       '#b45309',
-    error:          '#b91c1c',
     onSurface:      '#0f1b3d',
     onSurfaceVar:   '#3d4f7c',
-    outline:        '#4b6380',
+    outline:        '#48607d',
     outlineVar:     '#c5d3e8',
     surfaceLowest:  '#ffffff',
     surface:        '#f0f4ff',
     surfaceContainer: '#e8eeff',
     surfaceHigh:    '#dde5f8',
     surfaceHighest: '#d1daf2',
-    ghost:    'rgba(30,60,130,0.12)',
-    ghost20:  'rgba(30,60,130,0.18)',
-    ghostSep: 'rgba(30,60,130,0.25)',
-  },
-};
+    ghost:    'rgba(30,60,130,0.14)',
+    ghost20:  'rgba(30,60,130,0.20)',
+    ghostSep: 'rgba(30,60,130,0.28)',
+  }
+);
 
-const ARCTIC: AppTheme = {
-  id: 'arctic',
-  name: 'Arctic',
-  description: 'Sky blue & violet on bright white',
-  mode: 'light',
-  preview: ['#0284c7', '#7c3aed', '#059669'],
-  colors: {
+const ARCTIC = defineTheme(
+  {
+    id: 'arctic',
+    name: 'Arctic',
+    description: 'Sky blue & violet on bright white',
+    preview: ['#0369a1', '#6d28d9', '#047857'],
+  },
+  {
     mode: 'light',
-    primary:        '#0284c7',
-    primaryFixed:   '#0ea5e9',
-    secondary:      '#7c3aed',
-    tertiary:       '#059669',
-    error:          '#dc2626',
+    // Darkened from #0284c7, which sat at ~3.9:1 on surfaceContainer and failed AA
+    // for the small text and icons this colour is used for.
+    primary:        '#0369a1',
+    primaryFixed:   '#0284c7',
+    secondary:      '#6d28d9',
+    tertiary:       '#047857',
     onSurface:      '#0f172a',
     onSurfaceVar:   '#334155',
-    outline:        '#64748b',
+    outline:        '#5a6b80',
     outlineVar:     '#cbd5e1',
     surfaceLowest:  '#ffffff',
     surface:        '#f8fafc',
@@ -213,106 +205,56 @@ const ARCTIC: AppTheme = {
     ghost:    'rgba(15,23,42,0.10)',
     ghost20:  'rgba(15,23,42,0.16)',
     ghostSep: 'rgba(15,23,42,0.22)',
-  },
-};
-
-const FORGE: AppTheme = {
-  id: 'forge',
-  name: 'Forge',
-  description: 'Burnt copper on warm industrial cream',
-  mode: 'light',
-  preview: ['#c2410c', '#1e3a5f', '#166534'],
-  colors: {
-    mode: 'light',
-    primary:        '#c2410c',
-    primaryFixed:   '#ea580c',
-    secondary:      '#1e3a5f',
-    tertiary:       '#166534',
-    error:          '#b91c1c',
-    onSurface:      '#2c1a08',
-    onSurfaceVar:   '#5c3d1e',
-    outline:        '#7c6040',
-    outlineVar:     '#d4b896',
-    surfaceLowest:  '#fdfaf7',
-    surface:        '#faf5ef',
-    surfaceContainer: '#f3ebe0',
-    surfaceHigh:    '#e9e0d0',
-    surfaceHighest: '#dfd4bf',
-    ghost:    'rgba(100,60,20,0.12)',
-    ghost20:  'rgba(100,60,20,0.18)',
-    ghostSep: 'rgba(100,60,20,0.25)',
-  },
-};
-
-const SAGE: AppTheme = {
-  id: 'sage',
-  name: 'Sage',
-  description: 'Forest green & violet on soft mint white',
-  mode: 'light',
-  preview: ['#15803d', '#7e22ce', '#c2410c'],
-  colors: {
-    mode: 'light',
-    primary:        '#15803d',
-    primaryFixed:   '#16a34a',
-    secondary:      '#7e22ce',
-    tertiary:       '#c2410c',
-    error:          '#b91c1c',
-    onSurface:      '#0d1f0d',
-    onSurfaceVar:   '#2d4a2d',
-    outline:        '#4a6a4a',
-    outlineVar:     '#b8d4b8',
-    surfaceLowest:  '#ffffff',
-    surface:        '#f4f7f4',
-    surfaceContainer: '#eaf1ea',
-    surfaceHigh:    '#dde9dd',
-    surfaceHighest: '#d0e1d0',
-    ghost:    'rgba(20,60,20,0.10)',
-    ghost20:  'rgba(20,60,20,0.16)',
-    ghostSep: 'rgba(20,60,20,0.22)',
-  },
-};
+  }
+);
 
 export const APP_THEMES: readonly AppTheme[] = [
   KINETIC_MONOLITH,
   VOID_VIOLET,
-  CRIMSON_CORE,
-  PHOSPHOR,
   BLUEPRINT,
   ARCTIC,
-  FORGE,
-  SAGE,
 ];
 
 export const DEFAULT_THEME_ID = 'kinetic-monolith';
 
+/**
+ * Themes retired in the 0.3 design overhaul, mapped to their nearest survivor so
+ * a saved preference lands somewhere deliberate instead of silently defaulting.
+ */
+export const LEGACY_THEME_IDS: Readonly<Record<string, string>> = {
+  'crimson-core': 'void-violet',
+  'phosphor': 'kinetic-monolith',
+  'forge': 'blueprint',
+  'sage': 'arctic',
+};
+
+/** Resolves a stored theme id, following the legacy remap. */
+export function resolveThemeId(id: string | undefined): string {
+  if (!id) return DEFAULT_THEME_ID;
+  if (APP_THEMES.some(t => t.id === id)) return id;
+  return LEGACY_THEME_IDS[id] ?? DEFAULT_THEME_ID;
+}
+
 export function getThemeById(id: string): AppTheme {
-  return APP_THEMES.find(t => t.id === id) ?? KINETIC_MONOLITH;
+  const resolved = resolveThemeId(id);
+  return APP_THEMES.find(t => t.id === resolved) ?? KINETIC_MONOLITH;
 }
 
 // ─── MUI Theme builder ────────────────────────────────────────────────────────
 
 export function buildMuiTheme(appTheme: AppTheme): Theme {
   const c = appTheme.colors;
+  const s = c.status;
   const isDark = c.mode === 'dark';
 
   const ambientShadow = isDark
-    ? `0 24px 48px rgba(${hexCh(c.primaryFixed)},0.08)`
-    : `0 8px 24px rgba(0,0,0,0.10)`;
-  const buttonGlow = `0 0 8px rgba(${hexCh(c.primaryFixed)},0.4)`;
+    ? `0 24px 48px ${alphaOf(c.primaryFixed, 0.08)}`
+    : '0 8px 24px rgba(0,0,0,0.10)';
+  const buttonGlow = `0 0 8px ${alphaOf(c.primaryFixed, 0.4)}`;
 
-  // Shared structural overrides (font, shape — not color)
-  const buttonBase = {
-    root: { borderRadius: 4, padding: '6px 14px', boxShadow: 'none', fontWeight: 600, fontSize: '0.8125rem', letterSpacing: '0.03em', '&:hover': { boxShadow: 'none' } },
-    sizeSmall: { padding: '4px 10px', fontSize: '0.75rem' },
-  };
-  const chipBase = {
-    root: { borderRadius: 2, fontWeight: 500, height: 22, fontSize: '0.6875rem' },
-    sizeSmall: { height: 20, fontSize: '0.625rem' },
-  };
-  const tableCellBase = {
-    root: { padding: '6px 12px', fontSize: '0.8125rem' },
-    head: { fontWeight: 600, fontSize: '0.6875rem', letterSpacing: '0.05em', textTransform: 'uppercase' as const },
-  };
+  // Contrast text for a filled status/accent chip.
+  const onAccent = isDark ? c.surfaceLowest : '#ffffff';
+  const onStatus = isDark ? '#0b0d1a' : '#ffffff';
 
   return createTheme({
     palette: {
@@ -321,35 +263,19 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
         main:  c.primary,
         light: c.primaryFixed,
         dark:  c.primaryFixed,
-        contrastText: isDark ? c.surfaceLowest : '#ffffff',
+        contrastText: onAccent,
       },
       secondary: {
         main:  c.secondary,
         light: c.secondary,
         dark:  c.secondary,
-        contrastText: isDark ? '#000000' : '#ffffff',
+        contrastText: onAccent,
       },
-      error: {
-        main: c.error,
-        dark: isDark ? '#93000a' : '#b91c1c',
-      },
-      warning: {
-        main: c.tertiary,
-        light: c.tertiary,
-        dark: c.tertiary,
-        contrastText: isDark ? '#000' : '#fff',
-      },
-      info: {
-        main: c.primaryFixed,
-        light: c.primary,
-        dark: c.primaryFixed,
-      },
-      success: {
-        main: c.secondary,
-        light: c.secondary,
-        dark: c.secondary,
-        contrastText: '#000',
-      },
+      // Semantic slots come from the theme-invariant ramp, never from accents.
+      success: { main: s.ok,    light: s.ok,    dark: s.ok,    contrastText: onStatus },
+      warning: { main: s.warn,  light: s.warn,  dark: s.warn,  contrastText: onStatus },
+      error:   { main: s.error, light: s.error, dark: s.error, contrastText: onStatus },
+      info:    { main: s.info,  light: s.info,  dark: s.info,  contrastText: onStatus },
       background: {
         default: c.surface,
         paper:   c.surfaceContainer,
@@ -362,8 +288,8 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
       divider: c.ghost,
       action: {
         active:             c.onSurface,
-        hover:              `rgba(${hexCh(c.primaryFixed)},0.04)`,
-        selected:           `rgba(${hexCh(c.primaryFixed)},0.08)`,
+        hover:              alphaOf(c.primaryFixed, 0.04),
+        selected:           alphaOf(c.primaryFixed, 0.08),
         disabled:           isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.26)',
         disabledBackground: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
       },
@@ -382,12 +308,16 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
       subtitle2: { fontFamily: FONT_BODY, fontSize: '0.8125rem', fontWeight: 600, letterSpacing: '0.02em', textTransform: 'uppercase' },
       body1:  { fontFamily: FONT_BODY, fontSize: '0.875rem',  lineHeight: 1.6 },
       body2:  { fontFamily: FONT_BODY, fontSize: '0.8125rem', lineHeight: 1.5 },
-      caption:{ fontFamily: FONT_BODY, fontSize: '0.6875rem', lineHeight: 1.4, letterSpacing: '0.05em', textTransform: 'uppercase' },
-      button: { fontFamily: FONT_BODY, textTransform: 'none', fontWeight: 600, fontSize: '0.8125rem', letterSpacing: '0.03em' },
-      overline:{ fontFamily: FONT_MONO, fontSize: '0.625rem', fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase' },
+      // `caption` carries dynamic content (timestamps, device names, helper text),
+      // so it must not force uppercase. Use the explicit `label` variant for the
+      // uppercase + tracked treatment.
+      caption: { fontFamily: FONT_BODY, fontSize: '0.6875rem', lineHeight: 1.4 },
+      label:   { fontFamily: FONT_BODY, fontSize: '0.6875rem', lineHeight: 1.4, fontWeight: 500, letterSpacing: '0.05em', textTransform: 'uppercase' },
+      button:  { fontFamily: FONT_BODY, textTransform: 'none', fontWeight: 600, fontSize: '0.8125rem', letterSpacing: '0.03em' },
+      overline:{ fontFamily: FONT_BODY, fontSize: '0.625rem', fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase' },
     },
 
-    shape: { borderRadius: 8 },
+    shape: { borderRadius: RADIUS.large },
 
     components: {
       MuiCssBaseline: {
@@ -397,6 +327,17 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
             backgroundColor: c.surface,
             color: c.onSurface,
           },
+          // Every interactive element gets a visible keyboard focus ring.
+          ':focus-visible': {
+            outline: `2px solid ${c.primary}`,
+            outlineOffset: '2px',
+          },
+        },
+      },
+
+      MuiTypography: {
+        defaultProps: {
+          variantMapping: { label: 'span' },
         },
       },
 
@@ -408,7 +349,7 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
             background: isDark
               ? `linear-gradient(135deg, ${c.primary} 0%, ${c.primaryFixed} 100%)`
               : c.primary,
-            color: isDark ? c.surfaceLowest : '#ffffff',
+            color: onAccent,
             '&:hover': {
               boxShadow: buttonGlow,
               background: isDark
@@ -425,12 +366,12 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
             color: c.primary,
             '&:hover': {
               borderColor: c.ghostSep,
-              backgroundColor: `rgba(${hexCh(c.primaryFixed)},0.05)`,
+              backgroundColor: alphaOf(c.primaryFixed, 0.05),
             },
           },
           text: {
             color: c.primary,
-            '&:hover': { backgroundColor: `rgba(${hexCh(c.primaryFixed)},0.05)` },
+            '&:hover': { backgroundColor: alphaOf(c.primaryFixed, 0.05) },
           },
         },
       },
@@ -438,7 +379,7 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
       MuiCard: {
         styleOverrides: {
           root: {
-            borderRadius: 8,
+            borderRadius: RADIUS.large,
             boxShadow: 'none',
             border: `1px solid ${c.ghost20}`,
             backgroundColor: c.surfaceContainer,
@@ -449,7 +390,7 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
 
       MuiPaper: {
         styleOverrides: {
-          root: { borderRadius: 4, backgroundImage: 'none', backgroundColor: c.surfaceContainer },
+          root: { borderRadius: RADIUS.base, backgroundImage: 'none', backgroundColor: c.surfaceContainer },
           elevation1: { boxShadow: 'none', border: `1px solid ${c.ghost}`, backgroundColor: c.surfaceContainer },
           elevation2: { boxShadow: ambientShadow, border: `1px solid ${c.ghost}`, backgroundColor: c.surfaceHigh },
           elevation3: { boxShadow: ambientShadow, border: `1px solid ${c.ghost}`, backgroundColor: c.surfaceHighest },
@@ -464,9 +405,8 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
         styleOverrides: {
           root: {
             '& .MuiOutlinedInput-root': {
-              borderRadius: 4,
+              borderRadius: RADIUS.base,
               backgroundColor: c.surfaceLowest,
-              fontFamily: FONT_MONO,
               '& fieldset': { borderColor: c.ghost },
               '&:hover fieldset': { borderColor: c.ghost20 },
               '&.Mui-focused fieldset': { borderColor: c.primary, borderWidth: '1.5px' },
@@ -494,24 +434,29 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
           root: { ...chipBase.root, backgroundColor: c.surfaceHigh, color: c.onSurface },
           outlined: { borderColor: c.ghost20, color: c.onSurfaceVar },
           colorPrimary: {
-            backgroundColor: `rgba(${hexCh(c.primary)},0.12)`,
+            backgroundColor: alphaOf(c.primary, 0.12),
             color: c.primary,
-            border: `1px solid rgba(${hexCh(c.primary)},0.25)`,
+            border: `1px solid ${alphaOf(c.primary, 0.25)}`,
           },
           colorSuccess: {
-            backgroundColor: `rgba(${hexCh(c.secondary)},0.12)`,
-            color: c.secondary,
-            border: `1px solid rgba(${hexCh(c.secondary)},0.25)`,
+            backgroundColor: alphaOf(s.ok, 0.12),
+            color: s.ok,
+            border: `1px solid ${alphaOf(s.ok, 0.25)}`,
           },
           colorWarning: {
-            backgroundColor: `rgba(${hexCh(c.tertiary)},0.12)`,
-            color: c.tertiary,
-            border: `1px solid rgba(${hexCh(c.tertiary)},0.25)`,
+            backgroundColor: alphaOf(s.warn, 0.12),
+            color: s.warn,
+            border: `1px solid ${alphaOf(s.warn, 0.25)}`,
           },
           colorError: {
-            backgroundColor: `rgba(${hexCh(c.error)},0.12)`,
-            color: c.error,
-            border: `1px solid rgba(${hexCh(c.error)},0.25)`,
+            backgroundColor: alphaOf(s.error, 0.12),
+            color: s.error,
+            border: `1px solid ${alphaOf(s.error, 0.25)}`,
+          },
+          colorInfo: {
+            backgroundColor: alphaOf(s.info, 0.12),
+            color: s.info,
+            border: `1px solid ${alphaOf(s.info, 0.25)}`,
           },
         },
       },
@@ -519,15 +464,30 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
       MuiTableCell: {
         styleOverrides: {
           ...tableCellBase,
-          root: { ...tableCellBase.root, borderBottom: `1px solid ${c.ghost}`, color: c.onSurface, fontFamily: FONT_MONO, fontSize: '0.8125rem' },
-          head: { ...tableCellBase.head, color: c.onSurfaceVar, backgroundColor: isDark ? c.surfaceLowest : c.surfaceHighest, fontFamily: FONT_BODY, borderBottom: `1px solid ${c.ghost20}` },
+          // Decimal data aligns via tabular figures in the body face; true
+          // monospace is reserved for hex/binary/packet columns, which opt in.
+          root: {
+            ...tableCellBase.root,
+            borderBottom: `1px solid ${c.ghost}`,
+            color: c.onSurface,
+            fontFamily: FONT_BODY,
+            fontVariantNumeric: 'tabular-nums',
+            fontSize: '0.8125rem',
+          },
+          head: {
+            ...tableCellBase.head,
+            color: c.onSurfaceVar,
+            backgroundColor: isDark ? c.surfaceLowest : c.surfaceHighest,
+            fontFamily: FONT_BODY,
+            borderBottom: `1px solid ${c.ghost20}`,
+          },
         },
       },
 
       MuiTableRow: {
         styleOverrides: {
           root: {
-            '&:hover': { backgroundColor: `rgba(${hexCh(c.primaryFixed)},0.03)` },
+            '&:hover': { backgroundColor: alphaOf(c.primaryFixed, 0.03) },
           },
         },
       },
@@ -536,8 +496,9 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
         styleOverrides: {
           root: {
             fontFamily: FONT_BODY, fontSize: '0.75rem', fontWeight: 500,
-            letterSpacing: '0.02em', textTransform: 'none' as const, minHeight: 40, padding: '8px 16px',
-            color: c.outline,
+            letterSpacing: '0.02em', textTransform: 'none' as const,
+            minHeight: 40, padding: '8px 16px',
+            color: c.onSurfaceVar,
             '&.Mui-selected': { color: c.primary },
             '&:hover': { color: c.primary, opacity: 1 },
           },
@@ -553,26 +514,26 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
 
       MuiAlert: {
         styleOverrides: {
-          root: { borderRadius: 4, fontSize: '0.8125rem', border: '1px solid' },
+          root: { borderRadius: RADIUS.base, fontSize: '0.8125rem', border: '1px solid' },
           standardSuccess: {
-            backgroundColor: `rgba(${hexCh(c.secondary)},0.08)`,
-            borderColor: `rgba(${hexCh(c.secondary)},0.25)`,
-            color: c.secondary,
+            backgroundColor: alphaOf(s.ok, 0.10),
+            borderColor: alphaOf(s.ok, 0.30),
+            color: s.ok,
           },
           standardError: {
-            backgroundColor: `rgba(${hexCh(c.error)},0.10)`,
-            borderColor: `rgba(${hexCh(c.error)},0.30)`,
-            color: c.error,
+            backgroundColor: alphaOf(s.error, 0.10),
+            borderColor: alphaOf(s.error, 0.30),
+            color: s.error,
           },
           standardWarning: {
-            backgroundColor: `rgba(${hexCh(c.tertiary)},0.08)`,
-            borderColor: `rgba(${hexCh(c.tertiary)},0.25)`,
-            color: c.tertiary,
+            backgroundColor: alphaOf(s.warn, 0.10),
+            borderColor: alphaOf(s.warn, 0.30),
+            color: s.warn,
           },
           standardInfo: {
-            backgroundColor: `rgba(${hexCh(c.primaryFixed)},0.08)`,
-            borderColor: `rgba(${hexCh(c.primaryFixed)},0.25)`,
-            color: c.primary,
+            backgroundColor: alphaOf(s.info, 0.10),
+            borderColor: alphaOf(s.info, 0.30),
+            color: s.info,
           },
         },
       },
@@ -581,12 +542,12 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
         styleOverrides: {
           root: {
             '&.Mui-selected': {
-              backgroundColor: `rgba(${hexCh(c.primaryFixed)},0.07)`,
+              backgroundColor: alphaOf(c.primaryFixed, 0.07),
               borderLeft: `3px solid ${c.primary}`,
               paddingLeft: '13px',
-              '&:hover': { backgroundColor: `rgba(${hexCh(c.primaryFixed)},0.11)` },
+              '&:hover': { backgroundColor: alphaOf(c.primaryFixed, 0.11) },
             },
-            '&:hover': { backgroundColor: `rgba(${hexCh(c.primaryFixed)},0.04)` },
+            '&:hover': { backgroundColor: alphaOf(c.primaryFixed, 0.04) },
           },
         },
       },
@@ -597,7 +558,7 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
         },
         styleOverrides: {
           tooltip: {
-            fontFamily: FONT_BODY, fontSize: '0.6875rem', borderRadius: 4,
+            fontFamily: FONT_BODY, fontSize: '0.6875rem', borderRadius: RADIUS.base,
             backgroundColor: c.surfaceLowest,
             border: `1px solid ${c.ghost20}`,
             color: c.onSurface,
@@ -610,7 +571,7 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
       MuiDialog: {
         styleOverrides: {
           paper: {
-            borderRadius: 8, backgroundColor: c.surfaceContainer,
+            borderRadius: RADIUS.large, backgroundColor: c.surfaceContainer,
             border: `1px solid ${c.ghost}`, boxShadow: ambientShadow, backgroundImage: 'none',
           },
         },
@@ -638,9 +599,9 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
       MuiMenu: {
         styleOverrides: {
           paper: {
-            backgroundColor: isDark ? `rgba(${hexCh(c.surfaceHighest)},0.88)` : c.surfaceLowest,
+            backgroundColor: isDark ? alphaOf(c.surfaceHighest, 0.88) : c.surfaceLowest,
             backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-            border: `1px solid ${c.ghost}`, borderRadius: 4, boxShadow: ambientShadow, backgroundImage: 'none',
+            border: `1px solid ${c.ghost}`, borderRadius: RADIUS.base, boxShadow: ambientShadow, backgroundImage: 'none',
           },
         },
       },
@@ -649,9 +610,9 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
         styleOverrides: {
           root: {
             fontSize: '0.8125rem', fontFamily: FONT_BODY, color: c.onSurface,
-            '&:hover': { backgroundColor: `rgba(${hexCh(c.primaryFixed)},0.06)` },
-            '&.Mui-selected': { backgroundColor: `rgba(${hexCh(c.primaryFixed)},0.10)`, color: c.primary },
-            '&.Mui-selected:hover': { backgroundColor: `rgba(${hexCh(c.primaryFixed)},0.14)` },
+            '&:hover': { backgroundColor: alphaOf(c.primaryFixed, 0.06) },
+            '&.Mui-selected': { backgroundColor: alphaOf(c.primaryFixed, 0.10), color: c.primary },
+            '&.Mui-selected:hover': { backgroundColor: alphaOf(c.primaryFixed, 0.14) },
           },
         },
       },
@@ -672,7 +633,7 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
 
       MuiInputBase: {
         styleOverrides: {
-          root: { fontFamily: FONT_MONO, fontSize: '0.8125rem', color: c.onSurface },
+          root: { fontFamily: FONT_BODY, fontSize: '0.8125rem', color: c.onSurface, fontVariantNumeric: 'tabular-nums' },
           input: { '&::placeholder': { color: c.outline, opacity: 1 } },
         },
       },
@@ -686,8 +647,8 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
       MuiIconButton: {
         styleOverrides: {
           root: {
-            color: c.onSurfaceVar, borderRadius: 4,
-            '&:hover': { backgroundColor: `rgba(${hexCh(c.primaryFixed)},0.07)`, color: c.primary },
+            color: c.onSurfaceVar, borderRadius: RADIUS.base,
+            '&:hover': { backgroundColor: alphaOf(c.primaryFixed, 0.07), color: c.primary },
           },
         },
       },
@@ -700,16 +661,29 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
 
       MuiAppBar: {
         styleOverrides: {
-          root: { backgroundColor: isDark ? c.surfaceLowest : c.surfaceLowest, borderBottom: `1px solid ${c.ghost}`, boxShadow: 'none', backgroundImage: 'none' },
+          root: { backgroundColor: c.surfaceLowest, borderBottom: `1px solid ${c.ghost}`, boxShadow: 'none', backgroundImage: 'none' },
+        },
+      },
+
+      MuiToolbar: {
+        styleOverrides: {
+          // One header rhythm across the AppBar, drawer header and panel headers.
+          // These previously disagreed (64px vs a forced 48px), so the nav list
+          // never lined up with the top of the content area.
+          root: {
+            minHeight: HEADER_HEIGHT,
+            '@media (min-width:600px)': { minHeight: HEADER_HEIGHT },
+          },
+          dense: { minHeight: HEADER_HEIGHT },
         },
       },
 
       MuiPopover: {
         styleOverrides: {
           paper: {
-            backgroundColor: isDark ? `rgba(${hexCh(c.surfaceHighest)},0.88)` : c.surfaceLowest,
+            backgroundColor: isDark ? alphaOf(c.surfaceHighest, 0.88) : c.surfaceLowest,
             backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-            border: `1px solid ${c.ghost}`, borderRadius: 4, boxShadow: ambientShadow, backgroundImage: 'none',
+            border: `1px solid ${c.ghost}`, borderRadius: RADIUS.base, boxShadow: ambientShadow, backgroundImage: 'none',
           },
         },
       },
@@ -738,7 +712,7 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
           rail: { backgroundColor: c.outlineVar, opacity: 1 },
           thumb: {
             backgroundColor: c.primary, border: `2px solid ${c.surfaceContainer}`,
-            '&:hover, &.Mui-focusVisible': { boxShadow: `0 0 0 8px rgba(${hexCh(c.primary)},0.12)` },
+            '&:hover, &.Mui-focusVisible': { boxShadow: `0 0 0 8px ${alphaOf(c.primary, 0.12)}` },
           },
           mark: { backgroundColor: c.outlineVar },
           markActive: { backgroundColor: c.primaryFixed },
@@ -747,8 +721,8 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
 
       MuiLinearProgress: {
         styleOverrides: {
-          root: { backgroundColor: c.outlineVar, borderRadius: 2, height: 4 },
-          bar: { background: `linear-gradient(90deg, ${c.primary} 0%, ${c.primaryFixed} 100%)`, borderRadius: 2 },
+          root: { backgroundColor: c.outlineVar, borderRadius: RADIUS.sharp, height: 4 },
+          bar: { background: `linear-gradient(90deg, ${c.primary} 0%, ${c.primaryFixed} 100%)`, borderRadius: RADIUS.sharp },
         },
       },
 
@@ -760,14 +734,14 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
         styleOverrides: {
           root: {
             backgroundColor: c.surfaceHighest, border: `1px solid ${c.ghost}`,
-            borderRadius: 4, color: c.onSurface, boxShadow: ambientShadow,
+            borderRadius: RADIUS.base, color: c.onSurface, boxShadow: ambientShadow,
           },
         },
       },
 
       MuiBadge: {
         styleOverrides: {
-          badge: { fontFamily: FONT_MONO, fontSize: '0.625rem', fontWeight: 600, minWidth: 16, height: 16, borderRadius: 2 },
+          badge: { fontFamily: FONT_BODY, fontSize: '0.625rem', fontWeight: 600, minWidth: 16, height: 16, borderRadius: RADIUS.sharp },
         },
       },
 
@@ -790,7 +764,7 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
         styleOverrides: {
           root: {
             backgroundColor: c.surfaceHigh,
-            '&::after': { background: `linear-gradient(90deg, transparent, rgba(${hexCh(c.primaryFixed)},0.04), transparent)` },
+            '&::after': { background: `linear-gradient(90deg, transparent, ${alphaOf(c.primaryFixed, 0.04)}, transparent)` },
           },
         },
       },
@@ -800,7 +774,7 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
           label: {
             fontFamily: FONT_BODY, fontSize: '0.8125rem', color: c.outline,
             '&.Mui-active': { color: c.primary },
-            '&.Mui-completed': { color: c.secondary },
+            '&.Mui-completed': { color: s.ok },
           },
         },
       },
@@ -810,7 +784,7 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
           root: {
             color: c.outlineVar,
             '&.Mui-active': { color: c.primary },
-            '&.Mui-completed': { color: c.secondary },
+            '&.Mui-completed': { color: s.ok },
           },
         },
       },
@@ -825,11 +799,11 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
       MuiPaginationItem: {
         styleOverrides: {
           root: {
-            borderRadius: 2, color: c.onSurfaceVar,
+            borderRadius: RADIUS.sharp, color: c.onSurfaceVar,
             '&.Mui-selected': {
-              backgroundColor: `rgba(${hexCh(c.primary)},0.12)`,
+              backgroundColor: alphaOf(c.primary, 0.12),
               color: c.primary,
-              border: `1px solid rgba(${hexCh(c.primary)},0.25)`,
+              border: `1px solid ${alphaOf(c.primary, 0.25)}`,
             },
           },
         },
@@ -838,21 +812,21 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
       MuiToggleButton: {
         styleOverrides: {
           root: {
-            borderRadius: 4, borderColor: c.ghost20, color: c.onSurfaceVar,
+            borderRadius: RADIUS.base, borderColor: c.ghost20, color: c.onSurfaceVar,
             fontSize: '0.75rem', fontFamily: FONT_BODY,
             '&.Mui-selected': {
-              backgroundColor: `rgba(${hexCh(c.primary)},0.12)`, color: c.primary,
-              borderColor: `rgba(${hexCh(c.primary)},0.25)`,
-              '&:hover': { backgroundColor: `rgba(${hexCh(c.primary)},0.16)` },
+              backgroundColor: alphaOf(c.primary, 0.12), color: c.primary,
+              borderColor: alphaOf(c.primary, 0.25),
+              '&:hover': { backgroundColor: alphaOf(c.primary, 0.16) },
             },
-            '&:hover': { backgroundColor: `rgba(${hexCh(c.primaryFixed)},0.05)` },
+            '&:hover': { backgroundColor: alphaOf(c.primaryFixed, 0.05) },
           },
         },
       },
 
       MuiCheckbox: {
         styleOverrides: {
-          root: { color: c.outline, borderRadius: 2, '&.Mui-checked': { color: c.primary } },
+          root: { color: c.outline, borderRadius: RADIUS.sharp, '&.Mui-checked': { color: c.primary } },
         },
       },
 
@@ -865,42 +839,27 @@ export function buildMuiTheme(appTheme: AppTheme): Theme {
       MuiAutocomplete: {
         styleOverrides: {
           paper: {
-            backgroundColor: isDark ? `rgba(${hexCh(c.surfaceHighest)},0.88)` : c.surfaceLowest,
+            backgroundColor: isDark ? alphaOf(c.surfaceHighest, 0.88) : c.surfaceLowest,
             backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-            border: `1px solid ${c.ghost}`, borderRadius: 4, boxShadow: ambientShadow,
+            border: `1px solid ${c.ghost}`, borderRadius: RADIUS.base, boxShadow: ambientShadow,
           },
           option: {
             fontSize: '0.8125rem', fontFamily: FONT_BODY,
-            '&[aria-selected="true"]': { backgroundColor: `rgba(${hexCh(c.primaryFixed)},0.10)`, color: c.primary },
-            '&:hover': { backgroundColor: `rgba(${hexCh(c.primaryFixed)},0.06)` },
+            '&[aria-selected="true"]': { backgroundColor: alphaOf(c.primaryFixed, 0.10), color: c.primary },
+            '&:hover': { backgroundColor: alphaOf(c.primaryFixed, 0.06) },
           },
           noOptions: { fontSize: '0.8125rem', color: c.outline, fontFamily: FONT_BODY },
           tag: { backgroundColor: c.surfaceHigh, color: c.onSurface },
           clearIndicator: {
             color: c.outline,
-            '&:hover': { color: c.primary, backgroundColor: `rgba(${hexCh(c.primaryFixed)},0.06)` },
+            '&:hover': { color: c.primary, backgroundColor: alphaOf(c.primaryFixed, 0.06) },
           },
           popupIndicator: {
             color: c.outline,
-            '&:hover': { color: c.primary, backgroundColor: `rgba(${hexCh(c.primaryFixed)},0.06)` },
+            '&:hover': { color: c.primary, backgroundColor: alphaOf(c.primaryFixed, 0.06) },
           },
         },
       },
     },
   });
-}
-
-// ─── Utility: hex → "R,G,B" channel string for rgba() ────────────────────────
-export function hexCh(hex: string): string {
-  const h = hex.replace('#', '');
-  if (h.length === 3) {
-    const r = parseInt(h[0] + h[0], 16);
-    const g = parseInt(h[1] + h[1], 16);
-    const b = parseInt(h[2] + h[2], 16);
-    return `${r},${g},${b}`;
-  }
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return `${r},${g},${b}`;
 }

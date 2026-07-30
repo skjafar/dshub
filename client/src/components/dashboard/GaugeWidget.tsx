@@ -1,14 +1,16 @@
 import React from 'react';
+import { WIDGET_COLORS } from '../../design/dataColors';
 import { Box, Typography, useTheme } from '@mui/material';
 import { GaugeWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem, isCompactSize } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
-import { FONT_MONO, FONT_HEADLINE } from '../../theme';
+import { FONT_MONO, FONT_HEADLINE } from '../../design/tokens';
 import { mapManager } from '../../maps/mapManager';
 import { getPlotValue } from '../../utils/dataTableUtils';
-import { isTinyFloat } from '../../utils/floatConversion';
+import { formatDeviceValue } from '../../utils/numberFormat';
+import { DataForm } from '../../maps/mapParser';
 
 interface GaugeWidgetProps {
   config: GaugeWidgetConfig;
@@ -43,15 +45,17 @@ export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWid
   const currentValue = currentData?.value !== undefined ? getPlotValue(currentData.value, mapEntry) : 0;
 
   // Format value with decimals
-  const formatValue = (value: number): string => {
-    const decimals = config.decimals ?? 0;
-    return config.scientificNotation || isTinyFloat(value) ? value.toExponential(decimals) : value.toFixed(decimals);
-  };
+  const formatValue = (value: number): string =>
+    formatDeviceValue(value, {
+      isFloat: mapEntry?.type === DataForm.FLOAT,
+      decimals: config.decimals,
+      scientific: config.scientificNotation,
+    });
 
   // Get color based on value and color ranges
   const getValueColor = (value: number): string => {
     if (!config.colorRanges || config.colorRanges.length === 0) {
-      return '#00F2FF'; // Default cyan
+      return WIDGET_COLORS.accent; // Default cyan
     }
 
     for (const range of config.colorRanges) {
@@ -60,7 +64,7 @@ export default function GaugeWidget({ config, isEditMode, widgetSize }: GaugeWid
       }
     }
 
-    return '#6B7280'; // Default gray if no range matches
+    return WIDGET_COLORS.off; // Default gray if no range matches
   };
 
   const valueColor = getValueColor(currentValue);

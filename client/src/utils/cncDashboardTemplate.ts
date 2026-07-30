@@ -1,4 +1,5 @@
 import type { DashboardLayout, DashboardWidget, AlarmRule } from '../types/dashboard';
+import { WIDGET_COLORS } from '../design/dataColors';
 import type { SysCommand, EntryMetadata } from '../types/settings';
 
 const CNC_TAB_ID = 'cnc-demo-tab';
@@ -35,7 +36,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
       target: 'sysCommand',
       address: 14,
       valueToWrite: 0,
-      color: '#FF3B30',
+      color: WIDGET_COLORS.fault,
       confirmationRequired: true,
       fontSize: 1.3,
     },
@@ -53,7 +54,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
       timeWindow: 60,
       pollInterval: 500,
       showLegend: false,
-      color: '#00F2FF',
+      color: WIDGET_COLORS.accent,
     },
     layout: { i: 'modern-cnc-22', x: 0, y: 8, w: 6, h: 3, minW: 3, minH: 2, moved: false, static: false },
   },
@@ -68,7 +69,9 @@ const CNC_WIDGETS: DashboardWidget[] = [
     id: 'cnc-container-status',
     type: 'container',
     config: {
-      backgroundColor: '#0f1628',
+      // Omitted so the container inherits the active theme's surface. A pinned
+      // value rendered as a dark navy block on the light themes.
+      backgroundColor: undefined,
       padding: 6,
       spacing: 4,
       childWidgets: [
@@ -81,13 +84,13 @@ const CNC_WIDGETS: DashboardWidget[] = [
             address: 0,
             refreshInterval: 200,
             states: [
-              { value: 0, label: 'IDLE',    color: '#6B7280' },
-              { value: 1, label: 'HOMING',  color: '#FACC15' },
-              { value: 2, label: 'READY',   color: '#4ADE80' },
-              { value: 3, label: 'RUNNING', color: '#00F2FF' },
-              { value: 4, label: 'PAUSED',  color: '#FACC15' },
-              { value: 5, label: 'ERROR',   color: '#FF3B30' },
-              { value: 6, label: 'E-STOP',  color: '#FF3B30' },
+              { value: 0, label: 'IDLE',    color: WIDGET_COLORS.off },
+              { value: 1, label: 'HOMING',  color: WIDGET_COLORS.warn },
+              { value: 2, label: 'READY',   color: WIDGET_COLORS.on },
+              { value: 3, label: 'RUNNING', color: WIDGET_COLORS.accent },
+              { value: 4, label: 'PAUSED',  color: WIDGET_COLORS.warn },
+              { value: 5, label: 'ERROR',   color: WIDGET_COLORS.fault },
+              { value: 6, label: 'E-STOP',  color: WIDGET_COLORS.fault },
             ],
             showLabel: true,
             pulseAnimation: true,
@@ -102,9 +105,9 @@ const CNC_WIDGETS: DashboardWidget[] = [
           config: {
             label: 'System Status',
             items: [
-              { label: 'Uptime',  source: 'sysRegister', address: 3, format: 'time',    color: '#00F2FF' },
-              { label: 'Packets', source: 'sysRegister', address: 0, format: 'decimal', color: '#4ADE80' },
-              { label: 'Errors',  source: 'sysRegister', address: 1, format: 'decimal', color: '#FF3B30' },
+              { label: 'Uptime',  source: 'sysRegister', address: 3, format: 'time',    color: WIDGET_COLORS.accent },
+              { label: 'Packets', source: 'sysRegister', address: 0, format: 'decimal', color: WIDGET_COLORS.on },
+              { label: 'Errors',  source: 'sysRegister', address: 1, format: 'decimal', color: WIDGET_COLORS.fault },
             ],
             refreshInterval: 1000,
             layout: 'horizontal',
@@ -116,19 +119,19 @@ const CNC_WIDGETS: DashboardWidget[] = [
         {
           id: 'cnc-c-reset-estop',
           type: 'button',
-          config: { label: 'Reset E-Stop', target: 'sysCommand', address: 15, valueToWrite: 0, color: '#FACC15', icon: 'RestartAlt', fontSize: 0.7 },
+          config: { label: 'Reset E-Stop', target: 'sysCommand', address: 15, valueToWrite: 0, color: WIDGET_COLORS.warn, icon: 'RestartAlt', fontSize: 0.7 },
           layout: { i: 'cnc-c-reset-estop', x: 9, y: 0, w: 3, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-clear-errors',
           type: 'button',
-          config: { label: 'Clear Errors', target: 'sysCommand', address: 16, valueToWrite: 0, color: '#6B7280', icon: 'RestartAlt', fontSize: 0.7 },
+          config: { label: 'Clear Errors', target: 'sysCommand', address: 16, valueToWrite: 0, color: WIDGET_COLORS.off, icon: 'RestartAlt', fontSize: 0.7 },
           layout: { i: 'cnc-c-clear-errors', x: 0, y: 1, w: 4, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-home-all',
           type: 'button',
-          config: { label: 'Home All', target: 'sysCommand', address: 10, valueToWrite: 0, color: '#2196F3', icon: 'Home', fontSize: 0.7 },
+          config: { label: 'Home All', target: 'sysCommand', address: 10, valueToWrite: 0, color: WIDGET_COLORS.accent, icon: 'Home', fontSize: 0.7 },
           layout: { i: 'cnc-c-home-all', x: 9, y: 1, w: 3, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
       ],
@@ -145,7 +148,9 @@ const CNC_WIDGETS: DashboardWidget[] = [
     id: 'cnc-container-axes',
     type: 'container',
     config: {
-      backgroundColor: '#0f1628',
+      // Omitted so the container inherits the active theme's surface. A pinned
+      // value rendered as a dark navy block on the light themes.
+      backgroundColor: undefined,
       padding: 4,
       spacing: 4,
       childWidgets: [
@@ -156,7 +161,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
             label: 'X Position', source: 'register', address: 1, refreshInterval: 200,
             conversionSource: 'constant', conversionFactor: 1000,
             primaryUnit: 'mm', secondaryUnit: 'steps', showRawValue: true, decimals: 3,
-            color: '#00F2FF', valueFontSize: 1.8,
+            color: WIDGET_COLORS.accent, valueFontSize: 1.8,
           },
           layout: { i: 'cnc-c-xpos', x: 0, y: 0, w: 4, h: 2, minW: 2, minH: 1, moved: false, static: false },
         },
@@ -167,7 +172,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
             label: 'Y Position', source: 'register', address: 2, refreshInterval: 200,
             conversionSource: 'constant', conversionFactor: 1000,
             primaryUnit: 'mm', secondaryUnit: 'steps', showRawValue: true, decimals: 3,
-            color: '#4ADE80', valueFontSize: 1.8,
+            color: WIDGET_COLORS.on, valueFontSize: 1.8,
           },
           layout: { i: 'cnc-c-ypos', x: 4, y: 0, w: 4, h: 2, minW: 2, minH: 1, moved: false, static: false },
         },
@@ -178,7 +183,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
             label: 'Z Position', source: 'register', address: 3, refreshInterval: 200,
             conversionSource: 'constant', conversionFactor: 1000,
             primaryUnit: 'mm', secondaryUnit: 'steps', showRawValue: true, decimals: 3,
-            color: '#FF8C42', valueFontSize: 1.8,
+            color: WIDGET_COLORS.warn, valueFontSize: 1.8,
           },
           layout: { i: 'cnc-c-zpos', x: 8, y: 0, w: 4, h: 2, minW: 2, minH: 1, moved: false, static: false },
         },
@@ -197,26 +202,28 @@ const CNC_WIDGETS: DashboardWidget[] = [
     id: 'cnc-container-homing',
     type: 'container',
     config: {
-      backgroundColor: '#0f1628',
+      // Omitted so the container inherits the active theme's surface. A pinned
+      // value rendered as a dark navy block on the light themes.
+      backgroundColor: undefined,
       padding: 4,
       spacing: 4,
       childWidgets: [
         {
           id: 'cnc-c-hx',
           type: 'button',
-          config: { label: 'Home X', target: 'sysCommand', address: 11, valueToWrite: 0, color: '#00F2FF', icon: 'Home', fontSize: 0.7 },
+          config: { label: 'Home X', target: 'sysCommand', address: 11, valueToWrite: 0, color: WIDGET_COLORS.accent, icon: 'Home', fontSize: 0.7 },
           layout: { i: 'cnc-c-hx', x: 0, y: 0, w: 4, h: 2, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-hy',
           type: 'button',
-          config: { label: 'Home Y', target: 'sysCommand', address: 12, valueToWrite: 0, color: '#4ADE80', icon: 'Home', fontSize: 0.7 },
+          config: { label: 'Home Y', target: 'sysCommand', address: 12, valueToWrite: 0, color: WIDGET_COLORS.on, icon: 'Home', fontSize: 0.7 },
           layout: { i: 'cnc-c-hy', x: 4, y: 0, w: 4, h: 2, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-hz',
           type: 'button',
-          config: { label: 'Home Z', target: 'sysCommand', address: 13, valueToWrite: 0, color: '#FF8C42', icon: 'Home', fontSize: 0.7 },
+          config: { label: 'Home Z', target: 'sysCommand', address: 13, valueToWrite: 0, color: WIDGET_COLORS.warn, icon: 'Home', fontSize: 0.7 },
           layout: { i: 'cnc-c-hz', x: 8, y: 0, w: 4, h: 2, minW: 1, minH: 1, moved: false, static: false },
         },
       ],
@@ -236,7 +243,9 @@ const CNC_WIDGETS: DashboardWidget[] = [
     id: 'cnc-container-jog',
     type: 'container',
     config: {
-      backgroundColor: '#0f1628',
+      // Omitted so the container inherits the active theme's surface. A pinned
+      // value rendered as a dark navy block on the light themes.
+      backgroundColor: undefined,
       padding: 6,
       spacing: 4,
       childWidgets: [
@@ -251,20 +260,20 @@ const CNC_WIDGETS: DashboardWidget[] = [
               { direction: 'left',  command: 21 },
               { direction: 'right', command: 20 },
             ],
-            buttonSize: 40, color: '#00F2FF',
+            buttonSize: 40, color: WIDGET_COLORS.accent,
           },
           layout: { i: 'cnc-c-jog-xy', x: 0, y: 0, w: 7, h: 3, minW: 2, minH: 2, moved: false, static: false },
         },
         {
           id: 'cnc-c-zplus',
           type: 'button',
-          config: { label: 'Z+', target: 'sysCommand', address: 24, valueToWrite: 0, color: '#FF8C42', icon: 'ArrowUpward', fontSize: 1.1 },
+          config: { label: 'Z+', target: 'sysCommand', address: 24, valueToWrite: 0, color: WIDGET_COLORS.warn, icon: 'ArrowUpward', fontSize: 1.1 },
           layout: { i: 'cnc-c-zplus', x: 7, y: 0, w: 5, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-zminus',
           type: 'button',
-          config: { label: 'Z-', target: 'sysCommand', address: 25, valueToWrite: 0, color: '#FF8C42', icon: 'ArrowDownward', fontSize: 1.1 },
+          config: { label: 'Z-', target: 'sysCommand', address: 25, valueToWrite: 0, color: WIDGET_COLORS.warn, icon: 'ArrowDownward', fontSize: 1.1 },
           layout: { i: 'cnc-c-zminus', x: 7, y: 1, w: 5, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
@@ -301,7 +310,9 @@ const CNC_WIDGETS: DashboardWidget[] = [
     id: 'cnc-container-spindle',
     type: 'container',
     config: {
-      backgroundColor: '#0f1628',
+      // Omitted so the container inherits the active theme's surface. A pinned
+      // value rendered as a dark navy block on the light themes.
+      backgroundColor: undefined,
       padding: 6,
       spacing: 4,
       childWidgets: [
@@ -312,9 +323,9 @@ const CNC_WIDGETS: DashboardWidget[] = [
             label: 'Spindle RPM', source: 'register', address: 4, refreshInterval: 200,
             min: 0, max: 10000, unit: 'RPM', decimals: 0, showValue: true, valueFontSize: 1.8,
             colorRanges: [
-              { from: 0,    to: 3000,  color: '#4ADE80' },
-              { from: 3000, to: 7000,  color: '#FACC15' },
-              { from: 7000, to: 10000, color: '#FF3B30' },
+              { from: 0,    to: 3000,  color: WIDGET_COLORS.on },
+              { from: 3000, to: 7000,  color: WIDGET_COLORS.warn },
+              { from: 7000, to: 10000, color: WIDGET_COLORS.fault },
             ],
           },
           layout: { i: 'cnc-c-rpm-gauge', x: 0, y: 0, w: 4, h: 3, minW: 2, minH: 2, moved: false, static: false },
@@ -324,7 +335,7 @@ const CNC_WIDGETS: DashboardWidget[] = [
           type: 'ledIndicator',
           config: {
             label: 'Spindle', source: 'register', address: 9, refreshInterval: 200,
-            onValue: 1, offValue: 0, onColor: '#00F2FF', offColor: '#6B7280',
+            onValue: 1, offValue: 0, onColor: WIDGET_COLORS.accent, offColor: WIDGET_COLORS.off,
             onLabel: 'RUNNING', offLabel: 'STOPPED', pulseWhenOn: true,
           },
           layout: { i: 'cnc-c-spindle-led', x: 4, y: 0, w: 4, h: 1, minW: 2, minH: 1, moved: false, static: false },
@@ -346,13 +357,13 @@ const CNC_WIDGETS: DashboardWidget[] = [
         {
           id: 'cnc-c-en-spindle',
           type: 'button',
-          config: { label: 'Enable', target: 'sysCommand', address: 8, valueToWrite: 0, color: '#4ADE80', icon: 'Power', fontSize: 0.7 },
+          config: { label: 'Enable', target: 'sysCommand', address: 8, valueToWrite: 0, color: WIDGET_COLORS.on, icon: 'Power', fontSize: 0.7 },
           layout: { i: 'cnc-c-en-spindle', x: 8, y: 0, w: 4, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-dis-spindle',
           type: 'button',
-          config: { label: 'Disable', target: 'sysCommand', address: 9, valueToWrite: 0, color: '#FF3B30', icon: 'PowerOff', fontSize: 0.7 },
+          config: { label: 'Disable', target: 'sysCommand', address: 9, valueToWrite: 0, color: WIDGET_COLORS.fault, icon: 'PowerOff', fontSize: 0.7 },
           layout: { i: 'cnc-c-dis-spindle', x: 8, y: 1, w: 4, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
@@ -362,9 +373,9 @@ const CNC_WIDGETS: DashboardWidget[] = [
             label: 'Spindle Load', source: 'register', address: 5, refreshInterval: 200,
             min: 0, max: 100, unit: '%', orientation: 'horizontal', showPercentage: true, showValue: true,
             colorRanges: [
-              { from: 0,  to: 50,  color: '#4ADE80' },
-              { from: 50, to: 80,  color: '#FACC15' },
-              { from: 80, to: 100, color: '#FF3B30' },
+              { from: 0,  to: 50,  color: WIDGET_COLORS.on },
+              { from: 50, to: 80,  color: WIDGET_COLORS.warn },
+              { from: 80, to: 100, color: WIDGET_COLORS.fault },
             ],
           },
           layout: { i: 'cnc-c-load-bar', x: 0, y: 3, w: 12, h: 1, minW: 4, minH: 1, moved: false, static: false },
@@ -385,74 +396,76 @@ const CNC_WIDGETS: DashboardWidget[] = [
     id: 'cnc-container-motors',
     type: 'container',
     config: {
-      backgroundColor: '#0f1628',
+      // Omitted so the container inherits the active theme's surface. A pinned
+      // value rendered as a dark navy block on the light themes.
+      backgroundColor: undefined,
       padding: 6,
       spacing: 4,
       childWidgets: [
         {
           id: 'cnc-c-mot-x',
           type: 'ledIndicator',
-          config: { label: 'Motor X', source: 'register', address: 6, refreshInterval: 200, onValue: 1, offValue: 0, onColor: '#00F2FF', offColor: '#6B7280', onLabel: 'ON', offLabel: 'OFF', pulseWhenOn: false },
+          config: { label: 'Motor X', source: 'register', address: 6, refreshInterval: 200, onValue: 1, offValue: 0, onColor: WIDGET_COLORS.accent, offColor: WIDGET_COLORS.off, onLabel: 'ON', offLabel: 'OFF', pulseWhenOn: false },
           layout: { i: 'cnc-c-mot-x', x: 0, y: 0, w: 5, h: 1, minW: 2, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-en-x',
           type: 'button',
-          config: { label: 'Enable', target: 'sysCommand', address: 2, valueToWrite: 0, color: '#4ADE80', icon: 'Power', fontSize: 0.7 },
+          config: { label: 'Enable', target: 'sysCommand', address: 2, valueToWrite: 0, color: WIDGET_COLORS.on, icon: 'Power', fontSize: 0.7 },
           layout: { i: 'cnc-c-en-x', x: 5, y: 0, w: 3, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-dis-x',
           type: 'button',
-          config: { label: 'Disable', target: 'sysCommand', address: 5, valueToWrite: 0, color: '#FF9800', icon: 'PowerOff', fontSize: 0.7 },
+          config: { label: 'Disable', target: 'sysCommand', address: 5, valueToWrite: 0, color: WIDGET_COLORS.warn, icon: 'PowerOff', fontSize: 0.7 },
           layout: { i: 'cnc-c-dis-x', x: 8, y: 0, w: 2, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-all-on',
           type: 'button',
-          config: { label: 'All On', target: 'sysCommand', address: 0, valueToWrite: 0, color: '#4ADE80', icon: 'Power', fontSize: 0.7 },
+          config: { label: 'All On', target: 'sysCommand', address: 0, valueToWrite: 0, color: WIDGET_COLORS.on, icon: 'Power', fontSize: 0.7 },
           layout: { i: 'cnc-c-all-on', x: 10, y: 0, w: 2, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-mot-y',
           type: 'ledIndicator',
-          config: { label: 'Motor Y', source: 'register', address: 7, refreshInterval: 200, onValue: 1, offValue: 0, onColor: '#4ADE80', offColor: '#6B7280', onLabel: 'ON', offLabel: 'OFF', pulseWhenOn: false },
+          config: { label: 'Motor Y', source: 'register', address: 7, refreshInterval: 200, onValue: 1, offValue: 0, onColor: WIDGET_COLORS.on, offColor: WIDGET_COLORS.off, onLabel: 'ON', offLabel: 'OFF', pulseWhenOn: false },
           layout: { i: 'cnc-c-mot-y', x: 0, y: 1, w: 5, h: 1, minW: 2, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-en-y',
           type: 'button',
-          config: { label: 'Enable', target: 'sysCommand', address: 3, valueToWrite: 0, color: '#4ADE80', icon: 'Power', fontSize: 0.7 },
+          config: { label: 'Enable', target: 'sysCommand', address: 3, valueToWrite: 0, color: WIDGET_COLORS.on, icon: 'Power', fontSize: 0.7 },
           layout: { i: 'cnc-c-en-y', x: 5, y: 1, w: 3, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-dis-y',
           type: 'button',
-          config: { label: 'Disable', target: 'sysCommand', address: 6, valueToWrite: 0, color: '#FF9800', icon: 'PowerOff', fontSize: 0.7 },
+          config: { label: 'Disable', target: 'sysCommand', address: 6, valueToWrite: 0, color: WIDGET_COLORS.warn, icon: 'PowerOff', fontSize: 0.7 },
           layout: { i: 'cnc-c-dis-y', x: 8, y: 1, w: 2, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-all-off',
           type: 'button',
-          config: { label: 'All Off', target: 'sysCommand', address: 1, valueToWrite: 0, color: '#FF9800', icon: 'PowerOff', fontSize: 0.7 },
+          config: { label: 'All Off', target: 'sysCommand', address: 1, valueToWrite: 0, color: WIDGET_COLORS.warn, icon: 'PowerOff', fontSize: 0.7 },
           layout: { i: 'cnc-c-all-off', x: 10, y: 1, w: 2, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-mot-z',
           type: 'ledIndicator',
-          config: { label: 'Motor Z', source: 'register', address: 8, refreshInterval: 200, onValue: 1, offValue: 0, onColor: '#FF8C42', offColor: '#6B7280', onLabel: 'ON', offLabel: 'OFF', pulseWhenOn: false },
+          config: { label: 'Motor Z', source: 'register', address: 8, refreshInterval: 200, onValue: 1, offValue: 0, onColor: WIDGET_COLORS.warn, offColor: WIDGET_COLORS.off, onLabel: 'ON', offLabel: 'OFF', pulseWhenOn: false },
           layout: { i: 'cnc-c-mot-z', x: 0, y: 2, w: 5, h: 1, minW: 2, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-en-z',
           type: 'button',
-          config: { label: 'Enable', target: 'sysCommand', address: 4, valueToWrite: 0, color: '#4ADE80', icon: 'Power', fontSize: 0.7 },
+          config: { label: 'Enable', target: 'sysCommand', address: 4, valueToWrite: 0, color: WIDGET_COLORS.on, icon: 'Power', fontSize: 0.7 },
           layout: { i: 'cnc-c-en-z', x: 5, y: 2, w: 3, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
         {
           id: 'cnc-c-dis-z',
           type: 'button',
-          config: { label: 'Disable', target: 'sysCommand', address: 7, valueToWrite: 0, color: '#FF9800', icon: 'PowerOff', fontSize: 0.7 },
+          config: { label: 'Disable', target: 'sysCommand', address: 7, valueToWrite: 0, color: WIDGET_COLORS.warn, icon: 'PowerOff', fontSize: 0.7 },
           layout: { i: 'cnc-c-dis-z', x: 8, y: 2, w: 4, h: 1, minW: 1, minH: 1, moved: false, static: false },
         },
       ],
@@ -575,10 +588,10 @@ const CNC_MONITORING_WIDGETS: DashboardWidget[] = [
       label: 'I/O Status',
       refreshInterval: 200,
       items: [
-        { label: 'Motor X', source: 'register' as const, address: 6, onValue: 1, onColor: '#00F2FF', offColor: '#6B7280' },
-        { label: 'Motor Y', source: 'register' as const, address: 7, onValue: 1, onColor: '#4ADE80', offColor: '#6B7280' },
-        { label: 'Motor Z', source: 'register' as const, address: 8, onValue: 1, onColor: '#FF8C42', offColor: '#6B7280' },
-        { label: 'Spindle', source: 'register' as const, address: 9, onValue: 1, onColor: '#00F2FF', offColor: '#6B7280' },
+        { label: 'Motor X', source: 'register' as const, address: 6, onValue: 1, onColor: WIDGET_COLORS.accent, offColor: WIDGET_COLORS.off },
+        { label: 'Motor Y', source: 'register' as const, address: 7, onValue: 1, onColor: WIDGET_COLORS.on, offColor: WIDGET_COLORS.off },
+        { label: 'Motor Z', source: 'register' as const, address: 8, onValue: 1, onColor: WIDGET_COLORS.warn, offColor: WIDGET_COLORS.off },
+        { label: 'Spindle', source: 'register' as const, address: 9, onValue: 1, onColor: WIDGET_COLORS.accent, offColor: WIDGET_COLORS.off },
       ],
       showLabels: true,
       dotSize: 14,

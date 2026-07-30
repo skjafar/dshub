@@ -1,5 +1,5 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::mpsc;
@@ -71,9 +71,26 @@ pub fn now_secs() -> f64 {
         .as_secs_f64()
 }
 
-// ── Log helper ────────────────────────────────────────────────────────────────
+// ── Log helpers ───────────────────────────────────────────────────────────────
+
+/// The user's live log filter, or `None` before managed state is registered.
+fn log_filter(app: &AppHandle) -> Option<std::sync::Arc<LogFilter>> {
+    app.try_state::<crate::commands::AppState>()
+        .map(|s| std::sync::Arc::clone(&s.log_filter))
+}
 
 pub fn emit_log(app: &AppHandle, level: LogLevel, category: LogCategory, message: String) {
+    // Errors always reach the user; everything else honours the category filter.
+    // Suppressing here — rather than in the frontend reducer — keeps the payload
+    // off the IPC boundary entirely.
+    if !matches!(level, LogLevel::Error) {
+        if let Some(filter) = log_filter(app) {
+            if !filter.category_enabled(&category) {
+                return;
+            }
+        }
+    }
+
     let entry = LogEntry {
         level,
         category,
@@ -137,6 +154,14 @@ pub fn emit_packet_log(
     destination: &str,
     response_time: Option<u64>,
 ) {
+    // Hot path: two calls per device request. Bail out before building the hex
+    // dump and analysis strings when packet logging is off.
+    match log_filter(app) {
+        Some(filter) if filter.packet_enabled() => {}
+        Some(_) => return,
+        None => return,
+    }
+
     let analysis = if direction == "TX" { analyze_tx_packet(data) } else { analyze_rx_packet(data) };
     let entry = LogEntry {
         level: LogLevel::Packet,
@@ -154,6 +179,58 @@ pub fn emit_packet_log(
         }),
     };
     let _ = app.emit("logEntry", &entry);
+}
+
+// ── Response correlation ──────────────────────────────────────────────────────
+
+/// True when `data` is a plausible response to `req`.
+///
+/// The device echoes the request address for register/parameter traffic. A
+/// mismatch means we are looking at a response left in the stream by an earlier
+/// request that timed out; accepting it would silently attribute one register's
+/// value to another and shift every subsequent read by one.
+///
+/// `CMD_TAKE_CONTROL`, `CMD_SYS_COMMAND` and user-defined commands do not echo a
+/// meaningful address, so they are accepted unconditionally.
+fn response_matches(req: &DeviceRequest, data: &[u8]) -> bool {
+    match req.command {
+        CMD_READ_REGISTER
+        | CMD_WRITE_REGISTER
+        | CMD_READ_PARAMETER
+        | CMD_WRITE_PARAMETER
+        | CMD_READ_SYS_REG
+        | CMD_WRITE_SYS_REG => {
+            if data.len() < 8 {
+                return false;
+            }
+            u16::from_le_bytes([data[2], data[3]]) == req.address
+        }
+        _ => true,
+    }
+}
+
+fn log_discarded_response(app: &AppHandle, req: &DeviceRequest, data: &[u8]) {
+    let got = if data.len() >= 8 {
+        u16::from_le_bytes([data[2], data[3]]).to_string()
+    } else {
+        "<short>".to_string()
+    };
+    emit_log(
+        app,
+        LogLevel::Warning,
+        LogCategory::Connection,
+        format!(
+            "Discarded out-of-order response (addr={}, expected {}) — resynchronising",
+            got, req.address
+        ),
+    );
+}
+
+/// Outcome of waiting for the response to a single request.
+enum ResponseOutcome {
+    Received([u8; 8]),
+    Timeout,
+    Fatal(String),
 }
 
 // ── Response processor ────────────────────────────────────────────────────────
@@ -359,26 +436,43 @@ pub async fn run_tcp_communicator(
                 }
                 emit_packet_log(&app, "TX", &req.packet, "TCP", &destination, None);
 
-                // Read exactly 8-byte response (protocol v0.2.2; handles TCP stream fragmentation)
-                let mut buf = [0u8; 8];
-                match timeout(REQUEST_TIMEOUT, stream.read_exact(&mut buf)).await {
-                    Ok(Ok(_)) => {
+                // Read 8-byte responses (protocol v0.2.2; read_exact handles TCP
+                // stream fragmentation) until one correlates with this request or
+                // the deadline passes. Discarding stale responses here re-syncs the
+                // stream after a timeout instead of shifting every later read by one.
+                let deadline = tokio::time::Instant::now() + REQUEST_TIMEOUT;
+                let outcome = loop {
+                    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    if remaining.is_zero() {
+                        break ResponseOutcome::Timeout;
+                    }
+
+                    let mut buf = [0u8; 8];
+                    match timeout(remaining, stream.read_exact(&mut buf)).await {
+                        Ok(Ok(_)) => {
+                            if response_matches(&req, &buf) {
+                                break ResponseOutcome::Received(buf);
+                            }
+                            log_discarded_response(&app, &req, &buf);
+                        }
+                        Ok(Err(e)) => break ResponseOutcome::Fatal(format!("TCP read error: {}", e)),
+                        Err(_) => break ResponseOutcome::Timeout,
+                    }
+                };
+
+                match outcome {
+                    ResponseOutcome::Received(buf) => {
                         consecutive_timeouts = 0;
                         let response_time = send_time.elapsed().as_millis() as u64;
                         emit_packet_log(&app, "RX", &buf, "TCP", &destination, Some(response_time));
                         process_response(&buf, &req, &app);
                     }
-                    Ok(Err(e)) => {
-                        emit_log(
-                            &app,
-                            LogLevel::Error,
-                            LogCategory::Connection,
-                            format!("TCP read error: {}", e),
-                        );
+                    ResponseOutcome::Fatal(e) => {
+                        emit_log(&app, LogLevel::Error, LogCategory::Connection, e);
                         should_reconnect = true;
                         break;
                     }
-                    Err(_) => {
+                    ResponseOutcome::Timeout => {
                         consecutive_timeouts += 1;
                         emit_log(
                             &app,
@@ -406,6 +500,102 @@ pub async fn run_tcp_communicator(
     }
 
     should_reconnect
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn req(command: u16, address: u16) -> DeviceRequest {
+        DeviceRequest {
+            packet: make_read_packet(command, address),
+            command,
+            address,
+            name: None,
+            emit_plot: false,
+        }
+    }
+
+    /// 8-byte response frame: status(i16 LE) + address(u16 LE) + value(i32 LE)
+    fn response(status: i16, address: u16, value: i32) -> [u8; 8] {
+        let mut b = [0u8; 8];
+        b[0..2].copy_from_slice(&status.to_le_bytes());
+        b[2..4].copy_from_slice(&address.to_le_bytes());
+        b[4..8].copy_from_slice(&value.to_le_bytes());
+        b
+    }
+
+    #[test]
+    fn accepts_a_response_for_the_requested_address() {
+        let r = req(CMD_READ_REGISTER, 0x1234);
+        assert!(response_matches(&r, &response(1, 0x1234, 42)));
+    }
+
+    #[test]
+    fn rejects_a_response_for_a_different_address() {
+        // The regression this guards: after a timeout the device's late reply used
+        // to be consumed as the answer to the *next* request, so every subsequent
+        // register silently displayed the previous register's value.
+        let r = req(CMD_READ_REGISTER, 0x1234);
+        assert!(!response_matches(&r, &response(1, 0x1235, 42)));
+    }
+
+    #[test]
+    fn address_is_checked_for_every_register_and_parameter_command() {
+        for command in [
+            CMD_READ_REGISTER,
+            CMD_WRITE_REGISTER,
+            CMD_READ_PARAMETER,
+            CMD_WRITE_PARAMETER,
+            CMD_READ_SYS_REG,
+            CMD_WRITE_SYS_REG,
+        ] {
+            let r = req(command, 10);
+            assert!(response_matches(&r, &response(1, 10, 0)), "cmd {command} same addr");
+            assert!(!response_matches(&r, &response(1, 11, 0)), "cmd {command} other addr");
+        }
+    }
+
+    #[test]
+    fn commands_without_a_meaningful_echo_are_accepted() {
+        // TAKE_CONTROL, SYS_COMMAND and user-defined commands do not echo the
+        // request address, so correlating on it would reject valid responses.
+        for command in [CMD_TAKE_CONTROL, CMD_SYS_COMMAND, 200] {
+            let r = req(command, 0);
+            assert!(response_matches(&r, &response(0, 999, 1)), "cmd {command}");
+        }
+    }
+
+    #[test]
+    fn rejects_a_truncated_frame() {
+        let r = req(CMD_READ_REGISTER, 5);
+        assert!(!response_matches(&r, &[0u8; 4]));
+    }
+
+    #[test]
+    fn read_packet_is_eight_bytes_little_endian_with_zero_value() {
+        let p = make_read_packet(CMD_READ_REGISTER, 0x0201);
+        assert_eq!(p.len(), 8);
+        assert_eq!(&p[0..2], &1u16.to_le_bytes());
+        assert_eq!(&p[2..4], &0x0201u16.to_le_bytes());
+        assert_eq!(&p[4..8], &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn write_packet_carries_a_signed_value() {
+        let p = make_write_packet(CMD_WRITE_REGISTER, 0x00FF, -12345);
+        assert_eq!(&p[0..2], &2u16.to_le_bytes());
+        assert_eq!(&p[2..4], &0x00FFu16.to_le_bytes());
+        assert_eq!(i32::from_le_bytes([p[4], p[5], p[6], p[7]]), -12345);
+    }
+
+    #[test]
+    fn sys_command_packet_puts_the_command_in_the_address_field() {
+        // Protocol v0.2.2: type = 0, address = the 65000-range system command.
+        let p = make_sys_cmd_packet(SYS_CMD_WRITE_FLASH, 1);
+        assert_eq!(u16::from_le_bytes([p[0], p[1]]), CMD_SYS_COMMAND);
+        assert_eq!(u16::from_le_bytes([p[2], p[3]]), SYS_CMD_WRITE_FLASH);
+    }
 }
 
 // ── UDP background task ───────────────────────────────────────────────────────
@@ -447,22 +637,26 @@ pub async fn run_udp_communicator(
                 }
                 emit_packet_log(&app, "TX", &req.packet, "UDP", &remote_addr, None);
 
-                // Wait for a response from the correct source within the timeout
+                // Wait for a datagram from the correct source that also correlates
+                // with this request. A late reply to a previously timed-out request
+                // would otherwise be accepted here and mis-attributed.
                 let recv_future = async {
                     let mut buf = [0u8; 64];
                     loop {
                         match socket.recv_from(&mut buf).await {
                             Ok((n, src)) => {
-                                if src.ip().to_string() == remote_ip && src.port() == remote_port {
-                                    if n >= 8 {
-                                        let mut out = [0u8; 8];
-                                        out.copy_from_slice(&buf[..8]);
-                                        return Ok::<[u8; 8], String>(out);
-                                    } else {
-                                        return Err(format!("Short UDP response: {} bytes", n));
-                                    }
+                                if src.ip().to_string() != remote_ip || src.port() != remote_port {
+                                    continue; // wrong source — ignore and keep waiting
                                 }
-                                // Packet from wrong source — ignore and keep waiting
+                                if n < 8 {
+                                    return Err(format!("Short UDP response: {} bytes", n));
+                                }
+                                let mut out = [0u8; 8];
+                                out.copy_from_slice(&buf[..8]);
+                                if response_matches(&req, &out) {
+                                    return Ok::<[u8; 8], String>(out);
+                                }
+                                log_discarded_response(&app, &req, &out);
                             }
                             Err(e) => return Err(e.to_string()),
                         }

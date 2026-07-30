@@ -10,7 +10,7 @@ import {
   Typography,
 } from '@mui/material';
 import { useSettings } from '../contexts/SettingsContext';
-import { FONT_MONO } from '../theme';
+import { FONT_MONO } from '../design/tokens';
 
 interface PanelEntry {
   label: string;

@@ -6,10 +6,10 @@ import { WidgetSizeInfo, scaledRem, isCompactSize } from '../../utils/widgetScal
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
-import { FONT_MONO, FONT_HEADLINE } from '../../theme';
+import { FONT_MONO, FONT_HEADLINE } from '../../design/tokens';
 import { mapManager } from '../../maps/mapManager';
 import { getPlotValue } from '../../utils/dataTableUtils';
-import { formatFloat, isTinyFloat } from '../../utils/floatConversion';
+import { formatDeviceValue } from '../../utils/numberFormat';
 import { DataForm } from '../../maps/mapParser';
 
 interface ValueReadWidgetProps {
@@ -61,9 +61,10 @@ export default function ValueReadWidget({ config, isEditMode, widgetSize }: Valu
         return `0b${value.toString(2)}`;
       case 'decimal':
       default: {
-        const isFloat = mapEntry?.type === DataForm.FLOAT;
-        if (config.scientificNotation || (isFloat && isTinyFloat(value))) return value.toExponential(4);
-        return isFloat ? formatFloat(value) : value.toString();
+        return formatDeviceValue(value, {
+          isFloat: mapEntry?.type === DataForm.FLOAT,
+          scientific: config.scientificNotation,
+        });
       }
     }
   };

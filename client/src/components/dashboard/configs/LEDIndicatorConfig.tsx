@@ -1,4 +1,5 @@
 import React from 'react';
+import { WIDGET_COLORS } from '../../../design/dataColors';
 import {
   TextField,
   FormControl,
@@ -97,14 +98,14 @@ export default function LEDIndicatorConfig({ config, onConfigChange, registers, 
       <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
         <ColorPickerField
           label="On Color"
-          value={config.onColor ?? '#4ADE80'}
+          value={config.onColor ?? WIDGET_COLORS.on}
           onChange={(color) => onConfigChange({ ...config, onColor: color })}
           size="small"
           fullWidth
         />
         <ColorPickerField
           label="Off Color"
-          value={config.offColor ?? '#6B7280'}
+          value={config.offColor ?? WIDGET_COLORS.off}
           onChange={(color) => onConfigChange({ ...config, offColor: color })}
           size="small"
           fullWidth

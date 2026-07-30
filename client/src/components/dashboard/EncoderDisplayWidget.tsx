@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { WIDGET_COLORS } from '../../design/dataColors';
 import { Box, Typography } from '@mui/material';
 import { EncoderDisplayWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem, isCompactSize } from '../../utils/widgetScaling';
@@ -6,9 +7,9 @@ import { useDSHub } from '../../contexts/DSHubContext';
 import { mapManager } from '../../maps/mapManager';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
-import { FONT_MONO, FONT_HEADLINE } from '../../theme';
+import { FONT_MONO, FONT_HEADLINE } from '../../design/tokens';
 import { getPlotValue } from '../../utils/dataTableUtils';
-import { formatFloat, isTinyFloat } from '../../utils/floatConversion';
+import { formatFractional, formatDeviceValue, VALUE_DECIMALS } from '../../utils/numberFormat';
 import { DataForm } from '../../maps/mapParser';
 
 interface EncoderDisplayWidgetProps {
@@ -80,21 +81,19 @@ export default function EncoderDisplayWidget({ config, isEditMode, widgetSize }:
     : null;
 
   // Format value with decimals
-  const formatValue = (value: number): string => {
-    const decimals = config.decimals ?? 3;
-    const text = config.scientificNotation || isTinyFloat(value) ? value.toExponential(decimals) : value.toFixed(decimals);
-    return text.padStart(9, ' ');
-  };
+  const formatValue = (value: number): string =>
+    formatFractional(value, {
+      decimals: config.decimals ?? VALUE_DECIMALS,
+      scientific: config.scientificNotation,
+    }).padStart(9, ' ');
 
-  const formatRawValue = (value: number): string => {
-    const isRawFloat = sourceMapEntry?.type === DataForm.FLOAT;
-    const text = config.rawScientificNotation || (isRawFloat && isTinyFloat(value))
-      ? value.toExponential(4)
-      : isRawFloat ? formatFloat(value) : value.toString();
-    return text.padStart(8, ' ');
-  };
+  const formatRawValue = (value: number): string =>
+    formatDeviceValue(value, {
+      isFloat: sourceMapEntry?.type === DataForm.FLOAT,
+      scientific: config.rawScientificNotation,
+    }).padStart(8, ' ');
 
-  const displayColor = config.color || '#00F2FF';
+  const displayColor = config.color || WIDGET_COLORS.accent;
 
   const errorState = getWidgetError(config.source, config.address);
   if (errorState) return errorState;

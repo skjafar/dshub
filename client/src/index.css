@@ -1,114 +1,62 @@
-/* ─── Stitch Design System — CSS Custom Properties ────────────────────────── */
-/* Industrial Precision & Editorial Depth — Dark Mode (The Kinetic Monolith)  */
-
-:root {
-  /* Primary */
-  --primary:                   #c3f5ff;
-  --primary-fixed:             #9cf0ff;
-  --primary-fixed-dim:         #00daf3;
-  --primary-container:         #00e5ff;
-  --on-primary:                #00363d;
-  --on-primary-fixed:          #001f24;
-  --on-primary-fixed-variant:  #004f58;
-  --on-primary-container:      #00626e;
-  --inverse-primary:           #006875;
-
-  /* Secondary (Lime) */
-  --secondary:                 #f8ffec;
-  --secondary-fixed:           #80ff2c;
-  --secondary-fixed-dim:       #67e100;
-  --secondary-container:       #75fd00;
-  --on-secondary:              #153800;
-  --on-secondary-fixed:        #092100;
-  --on-secondary-fixed-variant:#215100;
-  --on-secondary-container:    #307000;
-
-  /* Tertiary (Gold) */
-  --tertiary:                  #ffebc3;
-  --tertiary-fixed:            #ffdf99;
-  --tertiary-fixed-dim:        #f7be00;
-  --tertiary-container:        #ffc938;
-  --on-tertiary:               #3f2e00;
-  --on-tertiary-fixed:         #251a00;
-  --on-tertiary-fixed-variant: #5a4300;
-  --on-tertiary-container:     #705500;
-
-  /* Surface Hierarchy (Level 0 → 3) */
-  --background:                #0b0d1a;  /* Level 0 base */
-  --surface:                   #0b0d1a;
-  --surface-dim:               #0b0d1a;
-  --surface-container-lowest:  #060911;
-  --surface-container-low:     #0d1220;
-  --surface-container:         #0f1628;  /* Level 1 sections */
-  --surface-container-high:    #141d32;  /* Level 2 active cards */
-  --surface-container-highest: #1a243c;  /* Level 3 interactions */
-  --surface-variant:           #1a243c;
-  --surface-bright:            #1e2940;
-  --surface-tint:              #00daf3;
-  --inverse-surface:           #e5e2e1;
-  --inverse-on-surface:        #313030;
-
-  /* Text */
-  --on-background:             #e5e2e1;
-  --on-surface:                #e5e2e1;
-  --on-surface-variant:        #bac9cc;
-
-  /* Error */
-  --error:                     #ffb4ab;
-  --error-container:           #93000a;
-  --on-error:                  #690005;
-  --on-error-container:        #ffdad6;
-
-  /* Outline */
-  --outline:                   #849396;
-  --outline-variant:           #1e3048;
-
-  /* Spacing scale (1 unit = 0.25rem / 4px) */
-  --spacing-2:  0.4rem;    /* internal card padding */
-  --spacing-8:  1.75rem;   /* metric separation */
-  --spacing-12: 2.75rem;   /* major section breathing room */
-
-  /* Border radius */
-  --radius:      0.125rem;  /* 2px  — machined default */
-  --radius-lg:   0.5rem;    /* 8px  — buttons, inputs, cards */
-  --radius-xl:   0.75rem;   /* 12px — modals, dialogs */
-  --radius-full: 1rem;      /* 16px — pills */
-}
+/* ─── Global styles ────────────────────────────────────────────────────────────
+ *
+ * No palette lives here. Every custom property below is published at runtime by
+ * `App.tsx` from the active theme, so this stylesheet follows the theme instead
+ * of pinning one. Previously this file held a hardcoded copy of the dark palette,
+ * which left near-black scrollbar gutters and status squares on light themes.
+ *
+ * The fallbacks exist only to cover the first paint before React mounts.
+ */
 
 /* ─── Base ────────────────────────────────────────────────────────────────── */
 
 body {
   margin: 0;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: 'tnum';
-  background-color: var(--background);
-  color: var(--on-surface);
+  background-color: var(--surface, #0b0d1a);
+  color: var(--on-surface, #e5e2e1);
 }
 
-code {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+code,
+.font-mono {
+  font-family: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, Consolas, monospace;
 }
 
-/* ─── Scrollbar — 4px, tinted hover ──────────────────────────────────────── */
+.font-headline {
+  font-family: 'Space Grotesk Variable', 'Space Grotesk', 'Inter Variable', sans-serif;
+}
+
+/* ─── Scrollbar ───────────────────────────────────────────────────────────── */
 
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--background);
+  background: var(--surface, transparent);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb, var(--outline-variant));
-  border-radius: 2px;
+  background: var(--scrollbar-thumb, #2a2a2a);
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover, var(--primary-fixed-dim));
+  background: var(--scrollbar-thumb-hover, #00daf3);
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--surface, transparent);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb, #2a2a2a) var(--surface, transparent);
 }
 
 /* ─── Selection ───────────────────────────────────────────────────────────── */
@@ -122,36 +70,33 @@ code {
 
 .MuiTableCell-root,
 .MuiChip-label,
-input[type="number"] {
+input[type='number'] {
   font-feature-settings: 'tnum';
   font-variant-numeric: tabular-nums;
 }
 
-/* ─── Material Symbols variable font settings ─────────────────────────────── */
+/* ─── Status indicator — small square, architectural grid feel ───────────── */
 
-.material-symbols-outlined {
-  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-  vertical-align: middle;
-  font-size: 1.25rem;
-  line-height: 1;
+.status-square {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 1px;
+  flex-shrink: 0;
 }
 
-/* ─── Tab navigation (custom overrides) ───────────────────────────────────── */
+.status-square.healthy { background-color: var(--status-ok); }
+.status-square.warning { background-color: var(--status-warn); }
+.status-square.error { background-color: var(--status-error); }
+.status-square.inactive { background-color: var(--status-idle); }
 
-.tab-active {
-  color: var(--primary-container) !important;
-  border-bottom: 2px solid var(--primary-container);
-}
+/* ─── Glassmorphism HUD overlay ───────────────────────────────────────────── */
 
-.tab-inactive {
-  color: var(--outline);
-  border-bottom: 2px solid transparent;
-  transition: color 150ms ease, border-color 150ms ease;
-}
-
-.tab-inactive:hover {
-  color: var(--primary-container);
-  border-bottom: 2px solid rgba(0, 229, 255, 0.3);
+.hud-overlay {
+  background: var(--hud-bg, rgba(15, 22, 40, 0.6));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--ghost-20, rgba(30, 48, 72, 0.28));
 }
 
 /* ─── Chart grid background pattern ──────────────────────────────────────── */
@@ -163,47 +108,26 @@ input[type="number"] {
   background-size: 40px 40px;
 }
 
-/* ─── Status indicator — 4×4px square (architectural grid feel) ──────────── */
-
-.status-square {
-  display: inline-block;
-  width: 4px;
-  height: 4px;
-  border-radius: 1px;
-  flex-shrink: 0;
-}
-
-.status-square.healthy  { background-color: var(--secondary-container); }
-.status-square.warning  { background-color: var(--tertiary-container); }
-.status-square.error    { background-color: var(--error); }
-.status-square.inactive { background-color: var(--outline); }
-
-/* ─── Glassmorphism HUD overlay ───────────────────────────────────────────── */
-
-.hud-overlay {
-  background: rgba(15, 22, 40, 0.6);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(30, 48, 72, 0.28);
-}
-
-/* ─── Font helpers ────────────────────────────────────────────────────────── */
-
-.font-headline {
-  font-family: 'Space Grotesk', 'Inter', sans-serif;
-}
-
-.font-mono {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-}
-
 /* ─── Caption label style (uppercase, spaced) ─────────────────────────────── */
 
 .label-sm {
-  font-family: 'Inter', sans-serif;
   font-size: 0.6875rem;
   font-weight: 500;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--on-surface-variant);
+}
+
+/* ─── Reduced motion ──────────────────────────────────────────────────────── */
+/* Status LEDs pulse and blink; honour the OS preference to stop them. */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

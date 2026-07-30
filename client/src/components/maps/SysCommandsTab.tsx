@@ -23,7 +23,7 @@ import { Delete as DeleteIcon } from '@mui/icons-material';
 import { SysCommand } from '../../types/settings';
 import SysCommandExportDialog from './SysCommandExportDialog';
 import { DS_SYS_COMMANDS } from '../../utils/sysCommandFileGenerator';
-import { FONT_MONO } from '../../theme';
+import { FONT_MONO } from '../../design/tokens';
 
 interface SysCommandsTabProps {
   commands: SysCommand[];

@@ -4,6 +4,7 @@
  * Floats are transmitted as 32-bit integers (IEEE 754 representation) over the protocol.
  * These utilities convert between the integer representation and actual float values.
  */
+import { needsScientific } from './numberFormat';
 
 /**
  * Convert a 32-bit integer (IEEE 754 representation) to a float
@@ -42,10 +43,15 @@ export function floatToInt32(floatValue: number): number {
 }
 
 /**
- * Format a float value for display with appropriate precision
+ * Format a float at full working precision, with trailing zeros stripped.
+ *
+ * This is the **editing** precision, not the display precision: the thumbwheel
+ * uses it to decide how many fraction digits a value starts with, so narrowing it
+ * would silently truncate values the user is editing. For showing a value to the
+ * user, use `formatFractional` from `numberFormat.ts`.
+ *
  * @param value - The float value to format
  * @param precision - Number of decimal places (default: 6)
- * @returns Formatted string
  */
 export function formatFloat(value: number, precision: number = 6): string {
   // Remove trailing zeros and unnecessary decimal point
@@ -56,7 +62,10 @@ export function formatFloat(value: number, precision: number = 6): string {
  * True when a float's magnitude is small enough that fixed-decimal notation
  * would round it away to 0 or lose meaningful precision. Callers use this to
  * force scientific notation regardless of any user-configured display toggle.
+ *
+ * Delegates to `needsScientific` so the threshold can never drift from the
+ * decimal precision the rest of the UI displays.
  */
 export function isTinyFloat(value: number): boolean {
-  return value !== 0 && Math.abs(value) < 0.001;
+  return needsScientific(value);
 }

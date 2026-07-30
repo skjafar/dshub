@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Button,
@@ -20,7 +20,11 @@ import {
   Switch,
   FormControlLabel,
   Checkbox,
-  InputAdornment
+  InputAdornment,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
@@ -29,8 +33,13 @@ import {
   Search as SearchIcon,
   Clear as ClearIcon,
   InfoOutlined as InfoIcon,
+  Timer as TimerIcon,
+  Save as SaveIcon,
+  Upload as UploadIcon,
+  Send as SendIcon,
 } from '@mui/icons-material';
 import RegisterInspector from './RegisterInspector';
+import PanelHeader from './PanelHeader';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { mapManager } from '../maps/mapManager';
@@ -41,7 +50,7 @@ import { canWriteToDevice, formatDataValue, parseWriteValue } from '../utils/dat
 import { useDebouncedCallback } from '../hooks/useDebounce';
 import { DataEditDialog, DataReadDialog } from './DataEditDialog';
 import ThumbwheelInput from './ThumbwheelInput';
-import { FONT_MONO } from '../theme';
+import { FONT_MONO } from '../design/tokens';
 import { logger } from '../utils/logger';
 
 // Constants
@@ -58,24 +67,8 @@ interface Parameter {
   timestamp: number;
 }
 
-export interface ParametersPanelRef {
-  openReadDialog: () => void;
-  refresh: () => void;
-  canRefresh: () => boolean;
-  isMapLoaded: boolean;
-  autoRefreshInterval: number;
-  setAutoRefreshInterval: (interval: number) => void;
-  activeCount: number;
-  saveValues: () => void;
-  loadValues: () => void;
-  writeAll: () => void;
-  pendingWriteCount: number;
-  canWrite: boolean;
-}
 
-interface ParametersPanelProps {}
-
-const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((props, ref) => {
+export default function ParametersPanel(): React.JSX.Element {
   const { state, actions } = useDSHub();
   const { settings, getActiveProfile } = useSettings();
   const toast = useToast();
@@ -542,24 +535,105 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
   };
 
   // Expose methods to parent component
-  useImperativeHandle(ref, () => ({
-    openReadDialog: () => setReadDialog(true),
-    refresh: () => isMapLoaded ? handleReadAllMapped() : handleRefreshAll(),
-    canRefresh: () => !!state.connection?.connected,
-    isMapLoaded,
-    autoRefreshInterval,
-    setAutoRefreshInterval: handleAutoRefreshIntervalChange,
-    activeCount: state.autoRefresh.activeParameterAddresses.size,
-    saveValues: handleSaveValues,
-    loadValues: handleLoadValues,
-    writeAll: handleWriteAll,
-    pendingWriteCount: Object.keys(editingValues).length,
-    canWrite,
-  }));
+  const connected = !!state.connection?.connected;
+  const activeCount = state.autoRefresh.activeParameterAddresses.size;
+  // Read from state, not from a ref during render — the AppBar previously showed
+  // a stale count because refs do not trigger a re-render.
+  const pendingWriteCount = Object.keys(editingValues).length;
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0 }}>
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+      <PanelHeader
+        title="Parameters"
+        subtitle={`${activeCount > 0 ? `${activeCount} auto-refreshing · ` : ''}${pendingWriteCount > 0 ? `${pendingWriteCount} pending` : 'no pending changes'}`}
+        primaryAction={
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setReadDialog(true)}
+            disabled={!connected}
+            color="primary"
+            size="small"
+          >
+            Read Parameter
+          </Button>
+        }
+        actions={
+          <>
+            <Button
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+              onClick={() => (isMapLoaded ? handleReadAllMapped() : handleRefreshAll())}
+              disabled={!connected}
+              size="small"
+              color="inherit"
+            >
+              Refresh All
+            </Button>
+            <FormControl size="small" sx={{ minWidth: 116 }} disabled={!connected}>
+              <InputLabel sx={{ fontSize: '0.75rem' }}>Interval</InputLabel>
+              <Select
+                value={autoRefreshInterval}
+                onChange={(e) => handleAutoRefreshIntervalChange(e.target.value as number)}
+                label="Interval"
+                startAdornment={<TimerIcon sx={{ fontSize: 14, mr: 0.5, color: 'text.secondary' }} />}
+                sx={{ fontSize: '0.8125rem' }}
+              >
+                <MenuItem value={1000}>1 s</MenuItem>
+                <MenuItem value={2000}>2 s</MenuItem>
+                <MenuItem value={5000}>5 s</MenuItem>
+                <MenuItem value={10000}>10 s</MenuItem>
+                <MenuItem value={30000}>30 s</MenuItem>
+              </Select>
+            </FormControl>
+            <Tooltip title="Save parameter values to CSV">
+              <span>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<SaveIcon />}
+                  onClick={handleSaveValues}
+                  disabled={state.parameters.size === 0}
+                  color="inherit"
+                >
+                  Save
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip title="Load parameter values from CSV">
+              <span>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<UploadIcon />}
+                  onClick={handleLoadValues}
+                  disabled={!mapManager.isInitialized()}
+                  color="inherit"
+                >
+                  Load
+                </Button>
+              </span>
+            </Tooltip>
+          </>
+        }
+        status={
+          <Tooltip title={pendingWriteCount > 0 ? 'Write all pending values to the device' : 'No pending changes'}>
+            <span>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<SendIcon />}
+                onClick={handleWriteAll}
+                disabled={!canWrite || pendingWriteCount === 0}
+                color="primary"
+              >
+                Write All{pendingWriteCount > 0 ? ` (${pendingWriteCount})` : ''}
+              </Button>
+            </span>
+          </Tooltip>
+        }
+      />
       <Alert severity="info" sx={{ mb: 3 }}>
         Parameters are configuration values that typically persist across device resets. 
         Changing parameter values may require a device restart to take effect.
@@ -876,8 +950,4 @@ const ParametersPanel = forwardRef<ParametersPanelRef, ParametersPanelProps>((pr
       />
     </Box>
   );
-});
-
-ParametersPanel.displayName = 'ParametersPanel';
-
-export default ParametersPanel;
+}

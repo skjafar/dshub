@@ -31,10 +31,64 @@ This project uses TypeScript with strict configuration.
 - Use barrel exports (index.ts) for public APIs
 
 ## Commands
-- `npm run build` - Compile TypeScript
-- `npm run typecheck` - Check types without emitting
-- `npm run lint` - Run ESLint with TypeScript rules
-- `npm run dev` - Start both server (port 3002) and Vite client (port 3000) via concurrently
+
+Run from `client/`:
+- `npm run dev` — Vite dev server on port 3000. The Rust backend is a Tauri sidecar,
+  not a separate HTTP server; use `cargo tauri dev` from the repo root to run the
+  full desktop app.
+- `npm run build` — typecheck (`tsc -b`) then bundle to `client/build`
+- `npm run typecheck` — full typecheck, no emit
+- `npm run lint` — ESLint. `react-hooks/exhaustive-deps` and `rules-of-hooks` are
+  **errors** and the tree is clean against them; the remaining `react-hooks/*`
+  rules are warnings tracking a known backlog. Promote them to errors as each is
+  cleared rather than relaxing them.
+- `npm test` — Vitest (`npm run test:watch` for watch mode)
+
+Run from `src-tauri/`:
+- `cargo check` / `cargo test --lib` — backend typecheck and unit tests
+
+## Design System
+
+Colour lives in three modules under `client/src/design/`, and components must not
+hardcode hex values:
+
+- **`tokens.ts`** — type stacks, radii, the shared 48px header rhythm, and
+  structural (colourless) component bases. Fonts are self-hosted via
+  `@fontsource-variable/*`; do not reintroduce a remote font link, since the app
+  routinely runs on isolated networks.
+- **`status.ts`** — the semantic ramp (`ok`/`warn`/`error`/`info`/`idle`).
+  Deliberately **theme-invariant**: an operator's read of machine state must not
+  change meaning when the theme changes. Reach for this for anything that encodes
+  a condition. MUI's `success`/`warning`/`error`/`info` palette slots map here.
+- **`dataColors.ts`** — plot series and widget defaults. Series store a palette
+  *slot*, not a hex, so identity survives a theme switch while lightness adapts.
+
+`appThemes.ts` owns the four themes (Kinetic Monolith, Void Violet, Blueprint,
+Arctic) and controls brand/chrome accents only. Retired theme ids are remapped by
+`LEGACY_THEME_IDS`, so removing a theme must not orphan a saved preference.
+
+`src/design/__tests__/palette.test.ts` enforces WCAG contrast and hue separation
+across every theme. Adding a theme or changing a palette value means running
+`npm test` — the suite will reject combinations that are illegible or that let a
+brand accent collide with the error colour.
+
+## Layout
+
+Panel controls belong in that panel's `PanelHeader`, never in the global AppBar.
+The AppBar carries app identity, device connection/control state, and help only.
+`PanelHeader` collapses secondary actions into an overflow menu at narrow widths;
+the primary action never collapses.
+
+## Device Communication
+
+- `services/pollRegistry.ts` coalesces all periodic reads. Widgets and panels
+  declare interest via `useAutoRefresh`; the registry issues one request per
+  distinct address at the fastest requested interval. Never call
+  `invoke('read_register')` on a timer directly — the link is strictly
+  request/response, so duplicate polls directly cost latency.
+- The Rust communicator correlates each response to its request by address
+  (`response_matches`). Do not remove this: without it, one timed-out request
+  permanently shifts every later value onto the wrong register.
 
 ## Playwright / Browser Screenshots
 

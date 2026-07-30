@@ -1,4 +1,5 @@
 import React from 'react';
+import { WIDGET_COLORS } from '../../../design/dataColors';
 import {
   TextField,
   FormControl,
@@ -142,7 +143,7 @@ export default function GaugeConfig({ config, onConfigChange, registers, paramet
             const colorRanges = config.colorRanges ?? [];
             onConfigChange({
               ...config,
-              colorRanges: [...colorRanges, { from: 0, to: 100, color: '#00F2FF' }]
+              colorRanges: [...colorRanges, { from: 0, to: 100, color: WIDGET_COLORS.accent }]
             });
           }}
           size="small"

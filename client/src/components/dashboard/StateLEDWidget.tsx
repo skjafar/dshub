@@ -1,11 +1,12 @@
 import React from 'react';
+import { WIDGET_COLORS } from '../../design/dataColors';
 import { Box, Typography } from '@mui/material';
 import { StateLEDWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem, scaledPx, getOrientation } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
-import { FONT_MONO } from '../../theme';
+import { FONT_MONO } from '../../design/tokens';
 import { mapManager } from '../../maps/mapManager';
 import { getPlotValue } from '../../utils/dataTableUtils';
 
@@ -50,7 +51,7 @@ export default function StateLEDWidget({ config, isEditMode, widgetSize }: State
 
   // Find the matching state configuration
   const currentState = config.states.find(s => s.value === currentValue);
-  const defaultState = { value: -1, label: 'Unknown', color: '#6B7280' };
+  const defaultState = { value: -1, label: 'Unknown', color: WIDGET_COLORS.off };
   const activeState = currentState || defaultState;
 
   // Determine if this state should pulse

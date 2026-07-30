@@ -7,13 +7,13 @@ import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefreshMulti } from '../../hooks/useAutoRefresh';
 import { useToast } from '../ToastNotification';
 import { getWidgetError } from './WidgetErrorState';
-import { FONT_MONO } from '../../theme';
+import { FONT_MONO } from '../../design/tokens';
 import { mapManager } from '../../maps/mapManager';
 import { DataForm } from '../../maps/mapParser';
 import { parseWriteInput, WriteFormat, isValidStep } from '../../utils/writeInputParse';
 import { getPlotValue, getWireValue } from '../../utils/dataTableUtils';
 import { resolveThumbwheelFormat, formatForThumbwheel, initialFractionDigits } from '../../utils/thumbwheel';
-import { isTinyFloat } from '../../utils/floatConversion';
+import { formatDeviceValue } from '../../utils/numberFormat';
 import ThumbwheelInput from '../ThumbwheelInput';
 
 interface DataTableWidgetProps {
@@ -52,31 +52,43 @@ interface DataTableWriteCellProps {
  * register/parameter value (until the user starts editing it), and supports
  * thumbwheel digit editing via ThumbwheelInput.
  */
-function DataTableWriteCell({ format, isFloat, min, max, liveValue, disabled, fontSize, placeholder, onSubmit }: DataTableWriteCellProps) {
+export function DataTableWriteCell({ format, isFloat, min, max, liveValue, disabled, fontSize, placeholder, onSubmit }: DataTableWriteCellProps) {
   const [value, setValue] = useState('');
   const [isFocused, setIsFocused] = useState(false);
+  // False while the field still shows the device's own value verbatim.
+  const [isEdited, setIsEdited] = useState(false);
   const thumbwheelFormat = resolveThumbwheelFormat(format, isFloat);
 
   useEffect(() => {
     if (isFocused) return;
     if (liveValue === undefined) {
       setValue('');
+      setIsEdited(false);
       return;
     }
     const fractionDigits = isFloat ? initialFractionDigits(liveValue) : undefined;
     setValue(formatForThumbwheel(liveValue, thumbwheelFormat, fractionDigits));
+    setIsEdited(false);
   }, [liveValue, isFocused, thumbwheelFormat, isFloat]);
+
+  /**
+   * What to actually write. The field shows the value rounded to the display
+   * precision, so submitting an untouched field must send the device's exact
+   * value — otherwise merely clicking Send would quietly round a live parameter.
+   */
+  const submittedValue = (): string =>
+    isEdited || liveValue === undefined ? value : String(liveValue);
 
   return (
     <Box
       component="form"
       autoComplete="off"
-      onSubmit={(e: React.FormEvent) => { e.preventDefault(); onSubmit(value); }}
+      onSubmit={(e: React.FormEvent) => { e.preventDefault(); onSubmit(submittedValue()); }}
       sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.3em', fontSize }}
     >
       <ThumbwheelInput
         value={value}
-        onChange={setValue}
+        onChange={(next) => { setValue(next); setIsEdited(true); }}
         writeFormat={format}
         isFloat={isFloat}
         min={min}
@@ -95,6 +107,14 @@ function DataTableWriteCell({ format, isFloat, min, max, liveValue, disabled, fo
         component="button"
         type="submit"
         disabled={disabled || !value}
+        aria-label="Send value"
+        title="Send value"
+        // Keep focus in the field while the button is pressed. Without this the
+        // mousedown blurs the input, which flips `isFocused` and lets the live-value
+        // sync effect overwrite what the user typed — so the click would submit the
+        // device's old value instead of the new one. Enter never hit this because
+        // the field is still focused when the form submits.
+        onMouseDown={(e: React.MouseEvent) => e.preventDefault()}
         sx={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -137,7 +157,7 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
     isEditMode,
   });
 
-  const formatValue = (value: number | undefined, format?: string, decimals?: number, scientific?: boolean): string => {
+  const formatValue = (value: number | undefined, isFloat: boolean, format?: string, decimals?: number, scientific?: boolean): string => {
     if (value === undefined) return '---';
     switch (format) {
       case 'hex':
@@ -146,8 +166,7 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
         return `0b${value.toString(2).padStart(8, '0')}`;
       case 'decimal':
       default:
-        if (scientific || isTinyFloat(value)) return value.toExponential(decimals ?? 4);
-        return decimals !== undefined ? value.toFixed(decimals) : value.toLocaleString();
+        return formatDeviceValue(value, { isFloat, decimals, scientific });
     }
   };
 
@@ -296,7 +315,7 @@ export default function DataTableWidget({ config, isEditMode, widgetSize }: Data
                     {/* Value */}
                     <td style={{ padding: cellPadding, textAlign: 'right' }}>
                       <Typography sx={{ fontFamily: FONT_MONO, fontSize, fontWeight: 600, color: isInvalid ? 'error.main' : 'text.primary' }}>
-                        {formatValue(value, item.format, item.decimals, item.scientificNotation)}
+                        {formatValue(value, itemMapEntry?.type === DataForm.FLOAT, item.format, item.decimals, item.scientificNotation)}
                       </Typography>
                     </td>
 

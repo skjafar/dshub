@@ -1,4 +1,5 @@
 import React from 'react';
+import { WIDGET_COLORS } from '../../../design/dataColors';
 import {
   TextField,
   FormControl,
@@ -99,7 +100,7 @@ export default function StateLEDConfig({ config, onConfigChange, registers, para
             const states = config.states ?? [];
             onConfigChange({
               ...config,
-              states: [...states, { value: states.length, label: `State ${states.length}`, color: '#6B7280' }]
+              states: [...states, { value: states.length, label: `State ${states.length}`, color: WIDGET_COLORS.off }]
             });
           }}
           size="small"

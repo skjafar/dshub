@@ -38,7 +38,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { MapEntry, DataAccessPermit, DataForm, ValueDescriptor } from '../../maps/mapParser';
 import { consolidateArrayEntries } from '../../utils/mapFileGenerator';
-import { FONT_MONO } from '../../theme';
+import { FONT_MONO } from '../../design/tokens';
 import { logger } from '../../utils/logger';
 import EntryDescriptionDialog from './EntryDescriptionDialog';
 

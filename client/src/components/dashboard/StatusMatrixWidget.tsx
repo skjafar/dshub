@@ -1,4 +1,5 @@
 import React from 'react';
+import { WIDGET_COLORS } from '../../design/dataColors';
 import { Box, Typography } from '@mui/material';
 import { StatusMatrixWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem, isCompactSize } from '../../utils/widgetScaling';
@@ -81,8 +82,8 @@ export default function StatusMatrixWidget({ config, isEditMode, widgetSize }: S
           const value = data?.value !== undefined ? getPlotValue(data.value, itemMapEntry) : undefined;
           const onValue = item.onValue ?? 1;
           const isOn = value === onValue;
-          const onColor = item.onColor ?? '#4ADE80';
-          const offColor = item.offColor ?? '#6B7280';
+          const onColor = item.onColor ?? WIDGET_COLORS.on;
+          const offColor = item.offColor ?? WIDGET_COLORS.off;
           const color = isOn ? onColor : offColor;
 
           return (

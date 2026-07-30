@@ -1,11 +1,16 @@
 import { MIN_INT32, MAX_INT32, MAX_UINT32 } from './dataTableUtils';
 import { WriteFormat } from './writeInputParse';
-import { formatFloat } from './floatConversion';
+import { VALUE_DECIMALS, needsScientific, formatFractional } from './numberFormat';
 
 export type ThumbwheelFormat = 'decimalInt' | 'decimalFloat' | 'hex' | 'binary';
 
-/** Matches formatFloat()'s default precision, so elastic fraction growth never exceeds it. */
+/** Upper bound for elastic fraction growth (Shift+Right past the last shown digit). */
 export const FLOAT_MAX_FRACTION_DIGITS = 6;
+
+/** True when a display string is in scientific notation and so is not digit-editable. */
+export function isScientificDisplay(display: string): boolean {
+  return /e/i.test(display);
+}
 
 export interface DigitPosition {
   /** Offset of this digit character within the display string. */
@@ -27,6 +32,13 @@ export function resolveThumbwheelFormat(writeFormat: WriteFormat, isFloat: boole
  */
 export function getDigitPositions(display: string, format: ThumbwheelFormat): DigitPosition[] {
   const positions: DigitPosition[] = [];
+
+  // A scientific display has no odometer semantics — stepping a digit of "1.23e-5"
+  // would treat the exponent's characters as fraction digits. Returning no
+  // positions makes the thumbwheel stand down and leaves plain typing to handle it.
+  if (format !== 'hex' && format !== 'binary' && isScientificDisplay(display)) {
+    return positions;
+  }
 
   if (format === 'hex' || format === 'binary') {
     const hasPrefix = format === 'hex' ? /^0x/i.test(display) : /^0b/i.test(display);
@@ -73,11 +85,16 @@ export function getDefaultBounds(format: ThumbwheelFormat): { min: number; max: 
   return { min: MIN_INT32, max: MAX_INT32 };
 }
 
-/** Elastic starting decimal-digit count, matching formatFloat()'s trailing-zero-stripped convention. */
-export function initialFractionDigits(value: number): number {
-  const s = formatFloat(value, FLOAT_MAX_FRACTION_DIGITS);
-  const dot = s.indexOf('.');
-  return dot === -1 ? 0 : s.length - dot - 1;
+/**
+ * Fraction width a float field starts at.
+ *
+ * Fixed at the app-wide display precision so a prefetched value in a write field
+ * reads identically to the same value in a read-only display. The thumbwheel can
+ * still grow past it with Shift+Right, up to FLOAT_MAX_FRACTION_DIGITS, so no
+ * editing precision is lost — only the starting presentation is pinned.
+ */
+export function initialFractionDigits(_value: number): number {
+  return VALUE_DECIMALS;
 }
 
 export function formatForThumbwheel(value: number, format: ThumbwheelFormat, fractionDigits?: number): string {
@@ -86,6 +103,10 @@ export function formatForThumbwheel(value: number, format: ThumbwheelFormat, fra
     return format === 'hex' ? `0x${u.toString(16).toUpperCase()}` : `0b${u.toString(2)}`;
   }
   if (format === 'decimalFloat') {
+    // Below the display precision, fixed-point would show a non-zero value as
+    // 0.000. Fall back to scientific, exactly as read-only displays do; the write
+    // parser accepts scientific input, so the field stays submittable.
+    if (needsScientific(value)) return formatFractional(value);
     return value.toFixed(fractionDigits ?? 0);
   }
   return Math.round(value).toString(10);

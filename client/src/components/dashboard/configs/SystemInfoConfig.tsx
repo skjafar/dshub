@@ -1,4 +1,5 @@
 import React from 'react';
+import { WIDGET_COLORS } from '../../../design/dataColors';
 import {
   TextField,
   FormControl,
@@ -216,7 +217,7 @@ export default function SystemInfoConfig({ config, onConfigChange, registers, pa
             />
             <ColorPickerField
               label="Color"
-              value={item.color ?? '#00F2FF'}
+              value={item.color ?? WIDGET_COLORS.accent}
               onChange={(color) => {
                 const items = [...(config.items ?? [])];
                 items[index] = { ...items[index], color };

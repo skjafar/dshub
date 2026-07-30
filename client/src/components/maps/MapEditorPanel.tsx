@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Paper,
@@ -13,10 +13,19 @@ import {
   DialogActions,
   Divider,
   TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Tooltip,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import SaveIcon from '@mui/icons-material/Save';
+import SaveAsIcon from '@mui/icons-material/SaveAs';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useToast } from '../ToastNotification';
@@ -27,11 +36,11 @@ import { arrayMove } from '@dnd-kit/sortable';
 import { DEFAULT_PROFILE_ID, CNC_PROFILE_ID, SysCommand, EntryMetadata, MapProfile } from '../../types/settings';
 import { DataForm, DataAccessPermit } from '../../maps/mapParser';
 import MapEntriesList from './MapEntriesList';
+import PanelHeader from '../PanelHeader';
 import MapExportDialog from './MapExportDialog';
 import SysCommandsTab from './SysCommandsTab';
 import { logger } from '../../utils/logger';
-import { FONT_MONO } from '../../theme';
-import { exportMapProfilePdf } from '../../utils/pdfExporter';
+import { FONT_MONO } from '../../design/tokens';
 
 export const EMPTY_PROFILE_ID = '__empty__';
 
@@ -39,29 +48,9 @@ type MapType = 'registers' | 'parameters' | 'sysCommands';
 
 // ── Public interface exposed to parent via ref ────────────────────────────────
 
-export interface MapEditorBarState {
-  hasUnsavedChanges: boolean;
-  canSave: boolean;
-  selectedProfileId: string;
-  allProfiles: MapProfile[];
-}
-
-export interface MapEditorPanelRef {
-  save: () => void;
-  saveAs: () => void;
-  reset: () => void;
-  exportPdf: () => void;
-  changeProfile: (id: string) => void;
-}
-
-interface MapEditorPanelProps {
-  onBarStateChange?: (state: MapEditorBarState) => void;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MapEditorPanel = forwardRef<MapEditorPanelRef, MapEditorPanelProps>(
-  function MapEditorPanel({ onBarStateChange }, ref) {
+export default function MapEditorPanel(): React.JSX.Element {
   const { getActiveProfile, updateProfile, getAllProfiles, createProfile } = useSettings();
   const { state } = useDSHub();
   const { showSuccess, showError, showWarning } = useToast();
@@ -98,34 +87,28 @@ const MapEditorPanel = forwardRef<MapEditorPanelRef, MapEditorPanelProps>(
     selectedProfileId !== DEFAULT_PROFILE_ID &&
     selectedProfileId !== CNC_PROFILE_ID;
 
-  // ── Notify parent of bar state changes ───────────────────────────────────
-  useEffect(() => {
-    onBarStateChange?.({
-      hasUnsavedChanges,
-      canSave: canSaveToCurrentProfile,
-      selectedProfileId,
-      allProfiles,
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasUnsavedChanges, canSaveToCurrentProfile, selectedProfileId, allProfiles.length]);
-
-  // ── Expose imperative actions to parent ──────────────────────────────────
-  useImperativeHandle(ref, () => ({
-    save: handleSaveToCurrentProfile,
-    saveAs: handleSaveAsNewProfile,
-    reset: handleResetChanges,
-    exportPdf: () => exportMapProfilePdf(
-      selectedProfile?.name || 'Custom',
-      registerEntries,
-      parameterEntries,
-      sysCommandEntries
-    ),
-    changeProfile: handleProfileChange,
-  }));
+  // jsPDF and html2canvas together are ~360 kB and are only needed when the user
+  // actually exports. Importing them lazily keeps them out of the panel's chunk.
+  const handleExportPdf = async () => {
+    try {
+      const { exportMapProfilePdf } = await import('../../utils/pdfExporter');
+      await exportMapProfilePdf(
+        selectedProfile?.name || 'Custom',
+        registerEntries,
+        parameterEntries,
+        sysCommandEntries
+      );
+    } catch (e) {
+      showError(`PDF export failed: ${String(e)}`);
+    }
+  };
 
   // ── Profile loading ───────────────────────────────────────────────────────
+  // `loadProfile` is declared below and reads a wide slice of component state;
+  // re-running only on profile change is the intended behaviour.
   useEffect(() => {
     loadProfile(selectedProfileId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProfileId]);
 
   const loadProfile = (profileId: string) => {
@@ -518,6 +501,76 @@ const MapEditorPanel = forwardRef<MapEditorPanelRef, MapEditorPanelProps>(
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', p: 2, gap: 1.5 }}>
+      <PanelHeader
+        title="Map Editor"
+        subtitle={hasUnsavedChanges ? 'Unsaved changes' : selectedProfile?.name}
+        primaryAction={
+          <Button
+            variant="contained"
+            startIcon={<SaveIcon />}
+            onClick={handleSaveToCurrentProfile}
+            disabled={!canSaveToCurrentProfile || !hasUnsavedChanges}
+            size="small"
+            color="primary"
+          >
+            Save
+          </Button>
+        }
+        actions={
+          <>
+            <FormControl size="small" sx={{ minWidth: 170 }}>
+              <InputLabel sx={{ fontSize: '0.8125rem' }}>Profile</InputLabel>
+              <Select
+                value={selectedProfileId}
+                label="Profile"
+                onChange={(e) => handleProfileChange(e.target.value)}
+                sx={{ fontSize: '0.8125rem' }}
+              >
+                <MenuItem value={EMPTY_PROFILE_ID} sx={{ fontSize: '0.8125rem' }}>
+                  <em>No profile</em>
+                </MenuItem>
+                {allProfiles.map(p => (
+                  <MenuItem key={p.id} value={p.id} sx={{ fontSize: '0.8125rem' }}>{p.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Button
+              variant="outlined"
+              startIcon={<SaveAsIcon />}
+              onClick={handleSaveAsNewProfile}
+              disabled={selectedProfileId === EMPTY_PROFILE_ID}
+              size="small"
+              color="inherit"
+            >
+              Save As
+            </Button>
+            <Tooltip title="Discard unsaved changes">
+              <span>
+                <Button
+                  variant="outlined"
+                  startIcon={<RestartAltIcon />}
+                  onClick={handleResetChanges}
+                  disabled={!hasUnsavedChanges}
+                  size="small"
+                  color="inherit"
+                >
+                  Reset
+                </Button>
+              </span>
+            </Tooltip>
+            <Button
+              variant="outlined"
+              startIcon={<PictureAsPdfIcon />}
+              onClick={handleExportPdf}
+              size="small"
+              color="inherit"
+              disabled={selectedProfileId === EMPTY_PROFILE_ID}
+            >
+              Export PDF
+            </Button>
+          </>
+        }
+      />
 
       {/* Connected device warning */}
       {state.connection?.connected && (
@@ -654,6 +707,4 @@ const MapEditorPanel = forwardRef<MapEditorPanelRef, MapEditorPanelProps>(
       <input ref={fileInputRef} type="file" accept=".map" style={{ display: 'none' }} onChange={handleFileChange} />
     </Box>
   );
-});
-
-export default MapEditorPanel;
+}

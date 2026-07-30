@@ -7,7 +7,8 @@ import {
 } from '@mui/icons-material';
 import { MapEntry, DataForm, DataAccessPermit } from '../maps/mapParser';
 import { int32ToFloat, formatFloat, isTinyFloat } from '../utils/floatConversion';
-import { FONT_MONO, FONT_BODY, FONT_HEADLINE } from '../theme';
+import { FONT_MONO, FONT_BODY, FONT_HEADLINE } from '../design/tokens';
+import { formatFractional } from '../utils/numberFormat';
 import { hexCh } from '../appThemes';
 
 export const INSPECTOR_WIDTH = 296;
@@ -286,11 +287,7 @@ export default function RegisterInspector({
   const decS     = value !== null ? decSigned(value)     : '---';
   const decU     = value !== null ? decUnsigned(value)   : '---';
   const floatVal  = value !== null ? int32ToFloat(value) : null;
-  const floatStr  = floatVal === null
-    ? '---'
-    : isTinyFloat(floatVal)
-      ? floatVal.toExponential(4)
-      : formatFloat(floatVal);
+  const floatStr  = floatVal === null ? '---' : formatFractional(floatVal);
 
   // Status
   const statusColor = value === null ? c.outline : valid ? c.secondary : c.error;

@@ -1,5 +1,6 @@
 import { DataForm, MapEntry } from '../maps/mapParser';
-import { int32ToFloat, floatToInt32, formatFloat, isTinyFloat } from './floatConversion';
+import { int32ToFloat, floatToInt32 } from './floatConversion';
+import { formatFractional } from './numberFormat';
 import { filterWriteInput } from './writeInputParse';
 
 // Shared constants
@@ -22,8 +23,7 @@ export function formatDataValue(value: number | null | undefined, mapEntry: MapE
   }
 
   if (mapEntry?.type === 'float') {
-    const floatValue = int32ToFloat(value);
-    return isTinyFloat(floatValue) ? floatValue.toExponential(4) : formatFloat(floatValue);
+    return formatFractional(int32ToFloat(value));
   }
 
   if (mapEntry?.showAsHex) {

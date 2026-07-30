@@ -1,11 +1,12 @@
 import React from 'react';
+import { WIDGET_COLORS } from '../../design/dataColors';
 import { Box, Typography } from '@mui/material';
 import { LEDIndicatorWidgetConfig } from '../../types/dashboard';
 import { WidgetSizeInfo, scaledRem, scaledPx, getOrientation } from '../../utils/widgetScaling';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { getWidgetError } from './WidgetErrorState';
-import { FONT_MONO } from '../../theme';
+import { FONT_MONO } from '../../design/tokens';
 import { mapManager } from '../../maps/mapManager';
 import { getPlotValue } from '../../utils/dataTableUtils';
 
@@ -47,8 +48,8 @@ export default function LEDIndicatorWidget({ config, isEditMode, widgetSize }: L
   const isOff = currentValue === offValue;
 
   // Get LED color
-  const onColor = config.onColor || '#4ADE80'; // Default green
-  const offColor = config.offColor || '#6B7280'; // Default gray
+  const onColor = config.onColor || WIDGET_COLORS.on; // Default green
+  const offColor = config.offColor || WIDGET_COLORS.off; // Default gray
   const ledColor = isOn ? onColor : offColor;
 
   // Get label
