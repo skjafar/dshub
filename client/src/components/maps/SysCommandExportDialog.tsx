@@ -13,7 +13,7 @@ import {
 } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
-import { invoke } from '@tauri-apps/api/core';
+import { useBackendPort } from '../../contexts/BackendPortContext';
 import { SysCommand } from '../../types/settings';
 import { generateSysCommandMapFile, generateSysCommandHeaderFile } from '../../utils/sysCommandFileGenerator';
 import { useToast } from '../ToastNotification';
@@ -34,6 +34,7 @@ export default function SysCommandExportDialog({
 }: SysCommandExportDialogProps) {
   const [selectedTab, setSelectedTab] = useState(0);
   const { showSuccess } = useToast();
+  const port = useBackendPort();
 
   const mapFileContent = useMemo(
     () => generateSysCommandMapFile(commands),
@@ -54,7 +55,7 @@ export default function SysCommandExportDialog({
   };
 
   const handleDownload = (content: string, fileName: string, filterName: string, filterExt: string) => {
-    invoke<boolean>('save_text_file', {
+    port.files.saveText({
       content,
       suggestedName: fileName,
       filterName,

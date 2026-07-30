@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, ReactNode, useMemo } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { useBackendPort } from './BackendPortContext';
 import { listen } from '@tauri-apps/api/event';
 import {
   DiscoveredDevice,
@@ -412,6 +412,7 @@ interface DSHubProviderProps {
 
 export function DSHubProvider({ children }: DSHubProviderProps) {
   const { settings } = useSettings();
+  const port = useBackendPort();
 
   const logSettingsRef = React.useRef(settings.logSettings);
   logSettingsRef.current = settings.logSettings; // Keep current synchronously so the reducer never reads stale settings
@@ -467,7 +468,7 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
     dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: 'DSHub started', timestamp: Date.now() } });
 
     // Send initial log settings to backend
-    invoke('update_log_settings', { settings: settings.logSettings }).catch(console.error);
+    port.device.updateLogSettings(settings.logSettings).catch(console.error);
 
     const unlisteners: Array<() => void> = [];
 
@@ -492,7 +493,7 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
             dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'success', category: 'connection', message: `Connected to device at ${status.ip}:${status.port} via ${status.interface}`, timestamp: Date.now() } });
             // Read CONTROL_INTERFACE system register (addr 2) to update control state display
             setTimeout(() => {
-              invoke('read_system_register', { address: 2, name: 'CONTROL_INTERFACE' }).catch(console.error);
+              port.device.readSystemRegister(2, 'CONTROL_INTERFACE').catch(console.error);
             }, 500);
           } else if (status.reconnecting) {
             dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'warning', category: 'connection', message: `Device unresponsive — reconnecting to ${status.ip}:${status.port}…`, timestamp: Date.now() } });
@@ -542,15 +543,15 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
       unlisteners.forEach(u => u());
       // Disconnect from device if still connected
       if (connectionRef.current?.connected) {
-        invoke('disconnect_device').catch(console.error);
+        port.device.disconnect().catch(console.error);
       }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Send log settings updates to backend when they change
   useEffect(() => {
-    invoke('update_log_settings', { settings: settings.logSettings }).catch(console.error);
-  }, [settings.logSettings]);
+    port.device.updateLogSettings(settings.logSettings).catch(console.error);
+  }, [port, settings.logSettings]);
 
   // ── Polling ───────────────────────────────────────────────────────────────
   // Panel and widget refreshes share one coalesced poller, so a register watched
@@ -560,14 +561,15 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
   useEffect(() => {
     pollRegistry.setReader((source, address, name) => {
       if (!connectionRef.current?.connected) return;
-      const command = source === 'register'
-        ? 'read_register'
-        : source === 'sysRegister'
-        ? 'read_system_register'
-        : 'read_parameter';
-      invoke(command, { address, name }).catch(console.error);
+      const read =
+        source === 'register'
+          ? port.device.readRegister(address, name)
+          : source === 'sysRegister'
+            ? port.device.readSystemRegister(address, name)
+            : port.device.readParameter(address, name);
+      read.catch(console.error);
     });
-  }, []);
+  }, [port]);
 
   useEffect(() => {
     pollRegistry.setEnabled(!!state.connection?.connected);
@@ -619,7 +621,7 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
       dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: 'Starting device scan...', timestamp: Date.now() } });
       dispatch({ type: 'CLEAR_DISCOVERED_DEVICES' });
       dispatch({ type: 'SET_SCANNING', payload: true });
-      invoke('start_scan').catch(err => {
+      port.device.startScan().catch(err => {
         dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'error', category: 'connection', message: `Scan error: ${err}`, timestamp: Date.now() } });
         dispatch({ type: 'SET_SCANNING', payload: false });
       });
@@ -629,7 +631,7 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
       const displayName = deviceName ? `${deviceName} (${ip})` : ip;
       dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: `Connecting to ${displayName} via ${interfaceType}...`, timestamp: Date.now() } });
       dispatch({ type: 'SET_CONNECTING', payload: true });
-      invoke('connect_device', { ip, interfaceType, deviceName }).catch(err => {
+      port.device.connect(ip, interfaceType, deviceName).catch(err => {
         dispatch({ type: 'SET_CONNECTING', payload: false });
         dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'error', category: 'connection', message: `Connect failed: ${err}`, timestamp: Date.now() } });
       });
@@ -637,36 +639,36 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
 
     disconnectDevice: () => {
       dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: 'Disconnecting from device...', timestamp: Date.now() } });
-      invoke('disconnect_device').catch(console.error);
+      port.device.disconnect().catch(console.error);
     },
 
     takeControl: () => {
       dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: 'Taking control of device interface...', timestamp: Date.now() } });
-      invoke('take_control').catch(err =>
+      port.device.takeControl().catch(err =>
         dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'error', category: 'connection', message: `Take control failed: ${err}`, timestamp: Date.now() } })
       );
     },
 
     readRegister: (address: number, name?: string) => {
       queueLogRef.current({ level: 'info', category: 'register', message: `Reading register at address ${address} (0x${address.toString(16).toUpperCase().padStart(4, '0')})`, timestamp: Date.now() });
-      invoke('read_register', { address, name: name ?? '' }).catch(console.error);
+      port.device.readRegister(address, name ?? '').catch(console.error);
     },
 
     writeRegister: (address: number, value: number) => {
       dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'register', message: `Writing register at address ${address} (0x${address.toString(16).toUpperCase().padStart(4, '0')}) with value ${value}`, timestamp: Date.now() } });
-      invoke('write_register', { address, value }).catch(err =>
+      port.device.writeRegister(address, value).catch(err =>
         dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'error', category: 'register', message: `Write register failed: ${err}`, timestamp: Date.now() } })
       );
     },
 
     readParameter: (address: number, name?: string) => {
       queueLogRef.current({ level: 'info', category: 'parameter', message: `Reading parameter at address ${address}`, timestamp: Date.now() });
-      invoke('read_parameter', { address, name: name ?? '' }).catch(console.error);
+      port.device.readParameter(address, name ?? '').catch(console.error);
     },
 
     writeParameter: (address: number, value: number) => {
       dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'parameter', message: `Writing parameter at address ${address} with value ${value}`, timestamp: Date.now() } });
-      invoke('write_parameter', { address, value }).catch(err =>
+      port.device.writeParameter(address, value).catch(err =>
         dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'error', category: 'parameter', message: `Write parameter failed: ${err}`, timestamp: Date.now() } })
       );
     },
@@ -674,7 +676,7 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
     startPlotting: (registerName: string, pollInterval: number, address: number) => {
       dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'plotting', message: `Starting to plot register '${registerName}' with ${pollInterval}ms interval`, timestamp: Date.now() } });
       dispatch({ type: 'ADD_ACTIVE_PLOT', payload: { registerName, address, pollInterval, source: 'register' } });
-      invoke('start_plotting', { registerName, pollInterval, address }).catch(err =>
+      port.device.startPlotting(registerName, pollInterval, address).catch(err =>
         dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'error', category: 'plotting', message: `Start plotting failed: ${err}`, timestamp: Date.now() } })
       );
     },
@@ -682,7 +684,7 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
     startPlottingSysRegister: (registerName: string, pollInterval: number, address: number) => {
       dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'plotting', message: `Starting to plot system register '${registerName}' with ${pollInterval}ms interval`, timestamp: Date.now() } });
       dispatch({ type: 'ADD_ACTIVE_PLOT', payload: { registerName, address, pollInterval, source: 'sysRegister' } });
-      invoke('start_plotting_sys_register', { registerName, pollInterval, address }).catch(err =>
+      port.device.startPlottingSysRegister(registerName, pollInterval, address).catch(err =>
         dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'error', category: 'plotting', message: `Start plotting sys register failed: ${err}`, timestamp: Date.now() } })
       );
     },
@@ -690,7 +692,7 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
     stopPlotting: (registerName: string) => {
       dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'plotting', message: `Stopping plot for register '${registerName}'`, timestamp: Date.now() } });
       dispatch({ type: 'REMOVE_ACTIVE_PLOT', payload: registerName });
-      invoke('stop_plotting', { registerName }).catch(console.error);
+      port.device.stopPlotting(registerName).catch(console.error);
     },
 
     clearPlotData: (seriesName: string) => {
@@ -699,7 +701,7 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
 
     sendCommand: (command: number, value: number, address: number = 0) => {
       dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: `Sending command ${command} (addr=${address}) value=${value}`, timestamp: Date.now() } });
-      invoke('send_command', { command, address, value }).catch(err =>
+      port.device.sendCommand(command, address, value).catch(err =>
         dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'error', category: 'connection', message: `Command failed: ${err}`, timestamp: Date.now() } })
       );
     },
@@ -733,11 +735,11 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
     removeAutoRefreshParameter: (address: number) => dispatch({ type: 'REMOVE_AUTO_REFRESH_PARAMETER', payload: address }),
 
     readSystemRegister: (address: number, name?: string) => {
-      invoke('read_system_register', { address, name: name ?? '' }).catch(console.error);
+      port.device.readSystemRegister(address, name ?? '').catch(console.error);
     },
 
     writeSystemRegister: (address: number, value: number) => {
-      invoke('write_system_register', { address, value }).catch(err =>
+      port.device.writeSystemRegister(address, value).catch(err =>
         dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'error', category: 'register', message: `Write system register failed: ${err}`, timestamp: Date.now() } })
       );
     },
@@ -745,7 +747,7 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
     addAutoRefreshSystemRegister: (address: number) => dispatch({ type: 'ADD_AUTO_REFRESH_SYSTEM_REGISTER', payload: address }),
     removeAutoRefreshSystemRegister: (address: number) => dispatch({ type: 'REMOVE_AUTO_REFRESH_SYSTEM_REGISTER', payload: address }),
     clearAutoRefreshAddresses: () => dispatch({ type: 'CLEAR_AUTO_REFRESH_ADDRESSES' }),
-  }), []);
+  }), [port]);
 
   const value = useMemo<DSHubContextType>(() => ({ state, actions }), [state, actions]);
 

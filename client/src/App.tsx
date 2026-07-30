@@ -1,6 +1,8 @@
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import type { Theme } from '@mui/material/styles';
 import { useMemo, useEffect } from 'react';
+import { BackendPortProvider } from './contexts/BackendPortContext';
+import { createTauriBackendPort } from './services/tauriBackendPort';
 import { DSHubProvider } from './contexts/DSHubContext';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -83,13 +85,21 @@ function ThemedApp() {
 }
 
 function App() {
+  // The one place the real backend is chosen. Everything below receives it by
+  // injection, so a test or a browser session can substitute a fake without any
+  // consumer knowing the difference. Built once — consumers hold it in effect
+  // and memo dependencies, so a new identity per render would re-run them all.
+  const port = useMemo(() => createTauriBackendPort(), []);
+
   return (
     <ErrorBoundary>
-      <SettingsProvider>
-        <ToastProvider>
-          <ThemedApp />
-        </ToastProvider>
-      </SettingsProvider>
+      <BackendPortProvider port={port}>
+        <SettingsProvider>
+          <ToastProvider>
+            <ThemedApp />
+          </ToastProvider>
+        </SettingsProvider>
+      </BackendPortProvider>
     </ErrorBoundary>
   );
 }

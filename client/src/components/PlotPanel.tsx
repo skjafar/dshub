@@ -47,7 +47,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import 'chartjs-adapter-date-fns';
-import { invoke } from '@tauri-apps/api/core';
+import { useBackendPort } from '../contexts/BackendPortContext';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
@@ -142,6 +142,7 @@ export default function PlotPanel() {
   const { state, actions } = useDSHub();
   const { settings, getActiveProfile } = useSettings();
   const { showSuccess, showError } = useToast();
+  const port = useBackendPort();
   const theme = useTheme();
 
   // View controls live with the panel rather than in the global AppBar, so they
@@ -575,7 +576,7 @@ export default function PlotPanel() {
 
     const csv = [metaBlock, headerRow1, headerRow2, ...dataRows].join('\n');
 
-    invoke('save_csv', { content: csv, suggestedName }).catch(() => {
+    port.files.saveCsv(csv, suggestedName).catch(() => {
       showError('Failed to save data');
     });
   };

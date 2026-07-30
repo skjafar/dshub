@@ -39,7 +39,7 @@ import {
   WarningAmber as WarningIcon,
   ErrorOutline as ErrorIcon
 } from '@mui/icons-material';
-import { invoke } from '@tauri-apps/api/core';
+import { useBackendPort } from '../contexts/BackendPortContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from './ToastNotification';
 import ConfirmDialog from './ConfirmDialog';
@@ -132,6 +132,7 @@ export default function MapProfilesPanel(): React.JSX.Element {
     importProfile,
   } = useSettings();
   const { showSuccess, showError, showWarning } = useToast();
+  const port = useBackendPort();
   const { state } = useDSHub();
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -206,7 +207,7 @@ export default function MapProfilesPanel(): React.JSX.Element {
     const profile = profiles.find(p => p.id === profileId);
     const safeName = (profile?.name ?? 'profile').replace(/[^a-z0-9_-]/gi, '_');
     try {
-      const saved = await invoke<boolean>('save_text_file', {
+      const saved = await port.files.saveText({
         content: json,
         suggestedName: `${safeName}.dshub`,
         filterName: 'DSHub Profile',

@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
-import { invoke } from '@tauri-apps/api/core';
+import type { FilePort } from '../services/backendPort';
 import { MapEntry, DataAccessPermit } from '../maps/mapParser';
 import { SysCommand } from '../types/settings';
 import { consolidateArrayEntries } from './mapFileGenerator';
@@ -69,6 +69,7 @@ function addPageNumbers(doc: jsPDF): void {
 // ─── Main export function ─────────────────────────────────────────────────────
 
 export async function exportMapProfilePdf(
+  files: FilePort,
   profileName: string,
   registerEntries: MapEntry[],
   parameterEntries: MapEntry[],
@@ -303,5 +304,5 @@ export async function exportMapProfilePdf(
   const dataUri = doc.output('datauristring') as string;
   const base64 = dataUri.split(',')[1];
 
-  await invoke<boolean>('save_pdf_file', { dataBase64: base64, suggestedName });
+  await files.savePdf(base64, suggestedName);
 }

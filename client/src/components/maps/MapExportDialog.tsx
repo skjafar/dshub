@@ -15,7 +15,7 @@ import {
 } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
-import { invoke } from '@tauri-apps/api/core';
+import { useBackendPort } from '../../contexts/BackendPortContext';
 import { MapEntry } from '../../maps/mapParser';
 import { generateMapFile } from '../../utils/mapFileGenerator';
 import { generateHeaderFile } from '../../utils/headerFileGenerator';
@@ -39,6 +39,7 @@ export default function MapExportDialog({
 }: MapExportDialogProps) {
   const [selectedTab, setSelectedTab] = useState(0);
   const { showSuccess } = useToast();
+  const port = useBackendPort();
 
   const mapFileContent = useMemo(
     () => generateMapFile(entries, isRegisterMap),
@@ -59,7 +60,7 @@ export default function MapExportDialog({
   };
 
   const handleDownload = (content: string, fileName: string, filterName: string, filterExt: string) => {
-    invoke<boolean>('save_text_file', {
+    port.files.saveText({
       content,
       suggestedName: fileName,
       filterName,

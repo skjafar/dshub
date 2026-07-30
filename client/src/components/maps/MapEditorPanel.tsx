@@ -29,6 +29,7 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { useToast } from '../ToastNotification';
+import { useBackendPort } from '../../contexts/BackendPortContext';
 import { parseMapFile, MapEntry } from '../../maps/mapParser';
 import { mapManager } from '../../maps/mapManager';
 import { generateMapFile, getNextAddress, consolidateArrayEntries } from '../../utils/mapFileGenerator';
@@ -54,6 +55,7 @@ export default function MapEditorPanel(): React.JSX.Element {
   const { getActiveProfile, updateProfile, getAllProfiles, createProfile } = useSettings();
   const { state } = useDSHub();
   const { showSuccess, showError, showWarning } = useToast();
+  const port = useBackendPort();
 
   const [currentTab, setCurrentTab] = useState<MapType>('registers');
   const [selectedProfileId, setSelectedProfileId] = useState(getActiveProfile()?.id || DEFAULT_PROFILE_ID);
@@ -93,6 +95,7 @@ export default function MapEditorPanel(): React.JSX.Element {
     try {
       const { exportMapProfilePdf } = await import('../../utils/pdfExporter');
       await exportMapProfilePdf(
+        port.files,
         selectedProfile?.name || 'Custom',
         registerEntries,
         parameterEntries,
