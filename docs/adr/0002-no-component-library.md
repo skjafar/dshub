@@ -18,4 +18,4 @@ Icons come from Phosphor, whose weight axis encodes state: outline for idle, fil
 
 Plotting moved from Chart.js to uPlot in the same pass. uPlot is an eleventh of the size, is built for live time-series at the tens-of-thousands-of-points scale this app retains, and syncs a cursor across chart instances — which is what makes several Plot panes in one Workspace feel like one instrument rather than three. The cost is imperative integration with no official React wrapper.
 
-Accessibility is now a commitment rather than best effort: contrast is enforced at 4.5:1 by test across the theme roster, and every Pane, Widget and dialog is keyboard operable. `.impeccable.md` previously claimed no hard WCAG requirement and has been corrected.
+Accessibility is a commitment rather than best effort: contrast is enforced at 4.5:1 by test across the theme roster, and every Pane, Widget and dialog is keyboard operable. Note that `.impeccable.md` still claims no hard WCAG level requirement; it contradicts this decision and is corrected in the rebuild's final documentation pass, not before.
