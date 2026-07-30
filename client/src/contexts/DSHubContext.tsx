@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, ReactNode, useMemo } from 'react';
 import { useBackendPort } from './BackendPortContext';
-import { listen } from '@tauri-apps/api/event';
 import {
   DiscoveredDevice,
   DeviceConnection,
@@ -462,7 +461,7 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
   const queueLogRef = React.useRef(queueLogEntry);
   queueLogRef.current = queueLogEntry;
 
-  // ── Tauri event listeners ─────────────────────────────────────────────────
+  // ── Backend event listeners ───────────────────────────────────────────────
 
   useEffect(() => {
     dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: 'DSHub started', timestamp: Date.now() } });
@@ -474,19 +473,17 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
 
     const setup = async () => {
       unlisteners.push(
-        await listen<DiscoveredDevice>('deviceDiscovered', e => {
-          const device = e.payload;
+        await port.events.on('deviceDiscovered', device => {
           dispatch({ type: 'ADD_DISCOVERED_DEVICE', payload: device });
           dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'success', category: 'connection', message: `Device discovered: ${device.board_name} at ${device.ip_address} (ID: ${device.device_id})`, timestamp: Date.now() } });
         }),
 
-        await listen('scanComplete', () => {
+        await port.events.on('scanComplete', () => {
           dispatch({ type: 'SET_SCANNING', payload: false });
           dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: 'Device scan completed', timestamp: Date.now() } });
         }),
 
-        await listen<DeviceConnection>('connectionStatus', e => {
-          const status = e.payload;
+        await port.events.on('connectionStatus', status => {
           dispatch({ type: 'SET_CONNECTING', payload: false });
           dispatch({ type: 'SET_CONNECTION', payload: status });
           if (status.connected) {
@@ -502,8 +499,7 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
           }
         }),
 
-        await listen<RegisterData>('registerUpdate', e => {
-          const register = e.payload;
+        await port.events.on('registerUpdate', register => {
           dispatch({ type: 'UPDATE_REGISTER', payload: register });
           if (register.valid) {
             queueLogRef.current({ level: 'info', category: 'register', message: `Register ${register.name} (${register.address}): ${register.value}`, timestamp: Date.now() });
@@ -512,8 +508,7 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
           }
         }),
 
-        await listen<ParameterData>('parameterUpdate', e => {
-          const parameter = e.payload;
+        await port.events.on('parameterUpdate', parameter => {
           dispatch({ type: 'UPDATE_PARAMETER', payload: parameter });
           if (parameter.valid) {
             queueLogRef.current({ level: 'info', category: 'parameter', message: `Parameter ${parameter.name} (${parameter.address}): ${parameter.value}`, timestamp: Date.now() });
@@ -522,17 +517,16 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
           }
         }),
 
-        await listen<LogEntry>('logEntry', e => {
-          queueLogRef.current(e.payload);
+        await port.events.on('logEntry', entry => {
+          queueLogRef.current(entry);
         }),
 
-        // plotData payload: { seriesName: string, point: PlotDataPoint }
-        await listen<{ seriesName: string; point: PlotDataPoint }>('plotData', e => {
-          dispatch({ type: 'ADD_PLOT_DATA', payload: { series: e.payload.seriesName, point: e.payload.point } });
+        await port.events.on('plotData', ({ seriesName, point }) => {
+          dispatch({ type: 'ADD_PLOT_DATA', payload: { series: seriesName, point } });
         }),
 
-        await listen<RegisterData>('sysRegisterUpdate', e => {
-          dispatch({ type: 'UPDATE_SYSTEM_REGISTER', payload: e.payload });
+        await port.events.on('sysRegisterUpdate', register => {
+          dispatch({ type: 'UPDATE_SYSTEM_REGISTER', payload: register });
         }),
       );
     };

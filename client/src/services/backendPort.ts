@@ -6,14 +6,22 @@
  * and a fake implementation serves both the test suites and browser development
  * so the two cannot drift apart.
  *
- * Two concerns cross this boundary and they are kept visibly separate, because
+ * Three concerns cross this boundary and they are kept visibly separate, because
  * they change for different reasons. `device` speaks the board protocol;
- * `files` writes to the host filesystem through native save dialogs. A single
- * flat interface would have hidden the second behind a name describing only the
- * first.
+ * `files` writes to the host filesystem through native save dialogs; `events`
+ * carries everything the backend pushes the other way. A single flat interface
+ * would have hidden the latter two behind a name describing only the first.
  */
 
-import type { InterfaceType } from '../types/shared';
+import type {
+  DeviceConnection,
+  DiscoveredDevice,
+  InterfaceType,
+  LogEntry,
+  ParameterData,
+  PlotDataPoint,
+  RegisterData,
+} from '../types/shared';
 import type { LogSettings } from '../types/settings';
 
 /** A host save dialog request. These four always travel together. */
@@ -64,7 +72,43 @@ export interface FilePort {
   savePdf(dataBase64: string, suggestedName: string): Promise<boolean>;
 }
 
+/**
+ * Everything the backend pushes to the frontend, keyed by event name.
+ *
+ * Read commands resolve when the request is sent; the value itself arrives here.
+ * That makes this half of the boundary load-bearing rather than incidental — a
+ * port that could only send would leave the interface permanently empty.
+ */
+export interface BackendEventMap {
+  deviceDiscovered: DiscoveredDevice;
+  scanComplete: void;
+  connectionStatus: DeviceConnection;
+  registerUpdate: RegisterData;
+  parameterUpdate: ParameterData;
+  sysRegisterUpdate: RegisterData;
+  logEntry: LogEntry;
+  plotData: { seriesName: string; point: PlotDataPoint };
+}
+
+export type BackendEventName = keyof BackendEventMap;
+
+/** Removes one subscription. Safe to call more than once. */
+export type Unsubscribe = () => void;
+
+export interface EventPort {
+  /**
+   * Subscribes to a backend event. Resolves once the subscription is live,
+   * mirroring the transport's own asynchronous registration — a caller that
+   * awaits this knows no event has been missed after it returns.
+   */
+  on<K extends BackendEventName>(
+    event: K,
+    handler: (payload: BackendEventMap[K]) => void
+  ): Promise<Unsubscribe>;
+}
+
 export interface BackendPort {
   readonly device: DevicePort;
   readonly files: FilePort;
+  readonly events: EventPort;
 }

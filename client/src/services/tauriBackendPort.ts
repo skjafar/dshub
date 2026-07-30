@@ -9,9 +9,16 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import type { InterfaceType } from '../types/shared';
 import type { LogSettings } from '../types/settings';
-import type { BackendPort, SaveTextRequest } from './backendPort';
+import type {
+  BackendEventMap,
+  BackendEventName,
+  BackendPort,
+  SaveTextRequest,
+  Unsubscribe,
+} from './backendPort';
 
 export function createTauriBackendPort(): BackendPort {
   return {
@@ -55,6 +62,14 @@ export function createTauriBackendPort(): BackendPort {
         invoke<boolean>('save_csv', { content, suggestedName }),
       savePdf: (dataBase64: string, suggestedName: string) =>
         invoke<boolean>('save_pdf_file', { dataBase64, suggestedName }),
+    },
+
+    events: {
+      on: <K extends BackendEventName>(
+        event: K,
+        handler: (payload: BackendEventMap[K]) => void
+      ): Promise<Unsubscribe> =>
+        listen<BackendEventMap[K]>(event, e => handler(e.payload)),
     },
   };
 }
