@@ -1,0 +1,53 @@
+.root {
+  composes: ring from './focusRing.module.css';
+
+  position: relative;
+  width: 32px;
+  height: 18px;
+  flex: none;
+
+  background: var(--surface-container-highest);
+  border: 1px solid var(--ghost-sep);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color var(--duration-instant) var(--easing),
+              border-color var(--duration-instant) var(--easing);
+}
+
+/* On is the accent, not the ok-green. A switch reports a setting, not a
+   condition, and borrowing the status ramp here would dilute what green means
+   everywhere else. */
+.root[data-state='checked'] {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.root:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+
+.thumb {
+  display: block;
+  width: 12px;
+  height: 12px;
+
+  background: var(--on-surface);
+  border-radius: 50%;
+  transform: translateX(2px);
+  transition: transform var(--duration-instant) var(--easing),
+              background-color var(--duration-instant) var(--easing);
+  will-change: transform;
+}
+
+.root[data-state='checked'] .thumb {
+  background: var(--surface-lowest);
+  transform: translateX(16px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root,
+  .thumb {
+    transition: none;
+  }
+}

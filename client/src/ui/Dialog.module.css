@@ -1,0 +1,109 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  animation: fade var(--duration-base) var(--easing);
+}
+
+.content {
+  composes: ring from './focusRing.module.css';
+
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - var(--space-2xl)));
+  max-height: calc(100vh - var(--space-2xl));
+
+  background: var(--surface-container);
+  border: 1px solid var(--ghost-sep);
+  border-radius: var(--radius-large);
+  /* Depth here is tonal, not a drop shadow — but a dialog floating over content
+     is the one place a shadow earns its keep, to separate it from the scrim. */
+  box-shadow: var(--shadow-dialog);
+  color: var(--on-surface);
+
+  animation: rise var(--duration-base) var(--easing);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-lg) var(--space-sm);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-headline);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+}
+
+.description {
+  margin: 0;
+  padding: 0 var(--space-lg);
+  color: var(--on-surface-variant);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--space-md) var(--space-lg);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
+  border-top: 1px solid var(--ghost);
+}
+
+.close {
+  composes: ring from './focusRing.module.css';
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  flex: none;
+
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-base);
+  color: var(--on-surface-variant);
+  cursor: pointer;
+}
+
+.close:hover {
+  background: var(--ghost-20);
+  color: var(--on-surface);
+}
+
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 6px)); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay,
+  .content {
+    animation: none;
+  }
+}

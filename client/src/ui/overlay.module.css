@@ -1,0 +1,90 @@
+/**
+ * The shared surface for things that float above the page: menus, select lists
+ * and popovers. They are one visual object with different contents, so the
+ * surface, border and entry motion live here once rather than three times.
+ *
+ * Tooltips are deliberately not part of this — they are a label, not a surface,
+ * and giving them the same weight makes them read as something to interact with.
+ */
+
+.surface {
+  min-width: 160px;
+  padding: var(--space-2xs);
+
+  background: var(--surface-container-high);
+  border: 1px solid var(--ghost-sep);
+  border-radius: var(--radius-base);
+  box-shadow: var(--shadow-overlay);
+  color: var(--on-surface);
+
+  animation: pop var(--duration-instant) var(--easing);
+}
+
+.item {
+  composes: ringInset from './focusRing.module.css';
+
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+
+  height: var(--control-height);
+  padding: 0 var(--space-sm);
+  border-radius: var(--radius-sharp);
+
+  font-size: var(--text-base);
+  line-height: 1;
+  color: var(--on-surface);
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Radix marks the keyboard/pointer-active item with `data-highlighted`. Styling
+   that rather than `:hover` keeps pointer and keyboard on one highlight.
+   The wash alone is a 14% tint and too faint to be the only signal, so the
+   highlighted item also carries the focus ring rather than suppressing it. */
+.item[data-highlighted] {
+  background: var(--primary-wash);
+  color: var(--on-surface);
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.item[data-disabled] {
+  opacity: var(--disabled-opacity);
+  pointer-events: none;
+}
+
+.itemIndicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  flex: none;
+  color: var(--primary);
+}
+
+.separator {
+  height: 1px;
+  margin: var(--space-2xs) calc(var(--space-2xs) * -1);
+  background: var(--ghost-sep);
+}
+
+.label {
+  padding: var(--space-xs) var(--space-sm) var(--space-2xs);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+}
+
+@keyframes pop {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .surface {
+    animation: none;
+  }
+}

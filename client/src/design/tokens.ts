@@ -24,6 +24,92 @@ export const FONT_HEADLINE = '"Space Grotesk Variable", "Space Grotesk", "Inter 
  */
 export const FONT_MONO = '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace';
 
+// ─── Type scale ───────────────────────────────────────────────────────────────
+/**
+ * Eight sizes, centred on 13px rather than the usual 16px.
+ *
+ * This is a tool read at a workstation for hours, where the useful comparison is
+ * an oscilloscope or a logic analyser rather than a web page: a screen holding
+ * two hundred register rows earns its density. 13px is where the body sits, and
+ * the steps below it are for the labels that name data rather than carry it.
+ *
+ * Sizes are in rem so a user's browser or OS text scaling still works — the
+ * density is a default, not a cage.
+ */
+export const TEXT = {
+  /** 10px — chip text, dense badges. */
+  '2xs': '0.625rem',
+  /** 11px — column heads, uppercase eyebrow labels. */
+  xs: '0.6875rem',
+  /** 12px — secondary text, help lines. */
+  sm: '0.75rem',
+  /** 13px — body, table cells, controls. The default. */
+  base: '0.8125rem',
+  /** 14px — emphasised body. */
+  md: '0.875rem',
+  /** 16px — pane titles. */
+  lg: '1rem',
+  /** 20px — section headings. */
+  xl: '1.25rem',
+  /** 24px — display readouts, Focus Mode values. */
+  '2xl': '1.5rem',
+} as const;
+
+export const LEADING = {
+  /** Data rows and headings — no wasted vertical space. */
+  tight: '1.25',
+  /** Default for UI text. */
+  base: '1.45',
+  /** Running prose: help text, descriptions. */
+  relaxed: '1.6',
+} as const;
+
+export const WEIGHT = {
+  regular: '400',
+  medium: '500',
+  semibold: '600',
+  bold: '700',
+} as const;
+
+export const TRACKING = {
+  /** Large headings, which look loose at their natural spacing. */
+  tight: '-0.01em',
+  base: '0',
+  /** Uppercase labels, which are illegible without it. */
+  wide: '0.05em',
+} as const;
+
+// ─── Density ──────────────────────────────────────────────────────────────────
+/**
+ * A 4px grid with half-steps at the small end, where dense UI does its work.
+ *
+ * Named by size rather than by number, so a value can be re-tuned without every
+ * call site meaning something different afterwards.
+ */
+export const SPACE = {
+  '3xs': '2px',
+  '2xs': '4px',
+  xs: '6px',
+  sm: '8px',
+  md: '12px',
+  lg: '16px',
+  xl: '24px',
+  '2xl': '32px',
+} as const;
+
+/**
+ * Control heights. 28px is the default: a comfortable pointer target that still
+ * lets a filter row, a header and a table fit in the same pane without scrolling.
+ */
+export const CONTROL_HEIGHT = {
+  sm: '24px',
+  base: '28px',
+  lg: '32px',
+} as const;
+
+/** Table and list row height, matched to the default control so they align. */
+export const ROW_HEIGHT = '28px';
+
 // ─── Geometry ─────────────────────────────────────────────────────────────────
 
 export const RADIUS = {
@@ -37,6 +123,22 @@ export const RADIUS = {
 
 /** Single header rhythm shared by the AppBar, drawer header and panel headers. */
 export const HEADER_HEIGHT = 48;
+
+// ─── Motion ───────────────────────────────────────────────────────────────────
+/**
+ * Short and few. Anything longer reads as the interface hesitating, and an
+ * operator watching machine state should never wonder whether the UI or the
+ * machine is the slow one. Every consumer must honour `prefers-reduced-motion`.
+ */
+export const DURATION = {
+  instant: '80ms',
+  base: '140ms',
+} as const;
+
+export const EASING = 'cubic-bezier(0.2, 0, 0.2, 1)';
+
+/** Focus ring width. One value everywhere, so focus is never ambiguous. */
+export const FOCUS_RING_WIDTH = '2px';
 
 // ─── Structural component bases (no colour) ──────────────────────────────────
 

@@ -1,0 +1,23 @@
+/**
+ * The one focus ring.
+ *
+ * Every primitive composes this rather than styling its own, because focus that
+ * looks different on each surface is focus a keyboard user has to re-learn on
+ * every pane. `:focus-visible` rather than `:focus`, so a pointer click does not
+ * leave a ring behind.
+ *
+ * The outline sits outside the element and does not affect layout, which keeps a
+ * focused control from nudging its neighbours.
+ */
+
+.ring:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* For controls whose ring would be clipped by an ancestor's overflow, or which
+   sit flush against a container edge. */
+.ringInset:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: -2px;
+}

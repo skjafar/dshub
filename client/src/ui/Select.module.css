@@ -1,0 +1,49 @@
+.trigger {
+  composes: ring from './focusRing.module.css';
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+
+  height: var(--control-height);
+  min-width: 120px;
+  padding: 0 var(--space-sm);
+
+  background: var(--surface-lowest);
+  border: 1px solid var(--ghost-sep);
+  border-radius: var(--radius-base);
+
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: 1;
+  color: var(--on-surface);
+  cursor: pointer;
+}
+
+.trigger:hover:not(:disabled) {
+  border-color: var(--outline);
+}
+
+.trigger[data-state='open'] {
+  border-color: var(--primary);
+}
+
+.trigger:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+
+.trigger[data-placeholder] {
+  color: var(--on-surface-variant);
+}
+
+.icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--on-surface-variant);
+}
+
+.viewport {
+  padding: var(--space-2xs);
+}

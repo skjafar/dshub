@@ -1,0 +1,116 @@
+/* Layout for the primitives page. Nothing here belongs to the design system —
+   it exists only to put the primitives side by side in both themes. */
+
+.page {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 100vh;
+}
+
+@media (max-width: 1100px) {
+  .page {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  background: var(--surface);
+  color: var(--on-surface);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+  padding: var(--space-xl);
+  min-width: 0;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-xl);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--ghost-sep);
+}
+
+.panelTitle {
+  margin: 0;
+  font-family: var(--font-headline);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+}
+
+.panelMode {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+}
+
+.section {
+  margin-bottom: var(--space-xl);
+}
+
+.sectionTitle {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: var(--space-xs);
+}
+
+.swatch {
+  height: 44px;
+  border-radius: var(--radius-base);
+  border: 1px solid var(--ghost-sep);
+  display: flex;
+  align-items: flex-end;
+  padding: var(--space-2xs);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.typeRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+  padding: var(--space-3xs) 0;
+  border-bottom: 1px solid var(--ghost);
+}
+
+.typeLabel {
+  flex: none;
+  width: 72px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--on-surface-variant);
+}
+
+.note {
+  color: var(--on-surface-variant);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}

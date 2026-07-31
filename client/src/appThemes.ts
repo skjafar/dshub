@@ -91,8 +91,15 @@ function defineTheme(
 }
 
 // ─── Theme definitions ────────────────────────────────────────────────────────
-// Four curated themes: two dark, two light. Themes removed in the 0.3 overhaul
-// (Crimson Core, Phosphor, Forge, Sage) are remapped by `LEGACY_THEME_IDS` below.
+// Two themes: one dark, one light. They are the two faces of one visual
+// language, not two languages — the light palette is the tonal counterpart of
+// the dark one, holding the same cyan/lime/gold accent family at the lightness
+// a light surface needs. Four themes multiplied the cost of every visual change
+// by four and offered an operator a choice they did not need; the only choice
+// that carries information is dim cabinet or sunlit floor.
+//
+// Themes removed in the 0.3 overhaul (Crimson Core, Phosphor, Forge, Sage) and
+// in this rebuild (Void Violet, Arctic) are remapped by `LEGACY_THEME_IDS`.
 
 const KINETIC_MONOLITH = defineTheme(
   {
@@ -122,110 +129,76 @@ const KINETIC_MONOLITH = defineTheme(
   }
 );
 
-const VOID_VIOLET = defineTheme(
-  {
-    id: 'void-violet',
-    name: 'Void Violet',
-    description: 'Electric purple on cool deep space',
-    preview: ['#c084fc', '#22d3ee', '#fb923c'],
-  },
-  {
-    mode: 'dark',
-    primary:        '#c084fc',
-    primaryFixed:   '#a855f7',
-    secondary:      '#22d3ee',
-    tertiary:       '#fb923c',
-    onSurface:      '#ede8f5',
-    onSurfaceVar:   '#c4b8d8',
-    outline:        '#8878aa',
-    outlineVar:     '#3d3558',
-    surfaceLowest:  '#09080f',
-    surface:        '#0f0d18',
-    surfaceContainer: '#191626',
-    surfaceHigh:    '#231f33',
-    surfaceHighest: '#2d2a40',
-    ghost:    'rgba(80,60,130,0.18)',
-    ghost20:  'rgba(80,60,130,0.26)',
-    ghostSep: 'rgba(80,60,130,0.42)',
-  }
-);
-
+/**
+ * The light face of the same language.
+ *
+ * The accents are the cyan/lime/gold family of the dark theme taken to the
+ * lightness a light surface needs, rather than a different palette wearing the
+ * same layout — the two themes should read as one instrument under two lighting
+ * conditions. Every accent here is chosen at the darkest value that still reads
+ * as its hue, because the bar is 4.5:1 against `surfaceContainer`, and the
+ * obvious brighter picks all fail it.
+ */
 const BLUEPRINT = defineTheme(
   {
     id: 'blueprint',
     name: 'Blueprint',
-    description: 'Navy engineering blue on cool light paper',
-    preview: ['#1d4ed8', '#0f766e', '#b45309'],
+    description: 'Deep cyan on cool light paper',
+    preview: ['#155e75', '#3f6212', '#7a5200'],
   },
   {
     mode: 'light',
-    primary:        '#1d4ed8',
-    primaryFixed:   '#2563eb',
-    secondary:      '#0f766e',
-    tertiary:       '#b45309',
-    onSurface:      '#0f1b3d',
-    onSurfaceVar:   '#3d4f7c',
-    outline:        '#48607d',
-    outlineVar:     '#c5d3e8',
+    // Every accent is published as a token, so any of them can end up as text on
+    // any surface. These are darker than the obvious cyan-700/lime-700/yellow-700
+    // picks, which read well on white and then fail AA around 3.6:1 on
+    // `surfaceHighest` — the deepest surface a light theme has.
+    primary:        '#155e75',
+    // The dim variant darkens rather than lightens here: on light paper a hover
+    // state that got brighter would read as receding rather than responding.
+    primaryFixed:   '#164e63',
+    secondary:      '#3f6212',
+    tertiary:       '#7a5200',
+    onSurface:      '#0f1b2d',
+    onSurfaceVar:   '#3f5165',
+    outline:        '#5b6b7d',
+    outlineVar:     '#c8d4e0',
     surfaceLowest:  '#ffffff',
-    surface:        '#f0f4ff',
-    surfaceContainer: '#e8eeff',
-    surfaceHigh:    '#dde5f8',
-    surfaceHighest: '#d1daf2',
-    ghost:    'rgba(30,60,130,0.14)',
-    ghost20:  'rgba(30,60,130,0.20)',
-    ghostSep: 'rgba(30,60,130,0.28)',
-  }
-);
-
-const ARCTIC = defineTheme(
-  {
-    id: 'arctic',
-    name: 'Arctic',
-    description: 'Sky blue & violet on bright white',
-    preview: ['#0369a1', '#6d28d9', '#047857'],
-  },
-  {
-    mode: 'light',
-    // Darkened from #0284c7, which sat at ~3.9:1 on surfaceContainer and failed AA
-    // for the small text and icons this colour is used for.
-    primary:        '#0369a1',
-    primaryFixed:   '#0284c7',
-    secondary:      '#6d28d9',
-    tertiary:       '#047857',
-    onSurface:      '#0f172a',
-    onSurfaceVar:   '#334155',
-    outline:        '#5a6b80',
-    outlineVar:     '#cbd5e1',
-    surfaceLowest:  '#ffffff',
-    surface:        '#f8fafc',
-    surfaceContainer: '#f1f5f9',
-    surfaceHigh:    '#e2eaf3',
-    surfaceHighest: '#d8e4ef',
-    ghost:    'rgba(15,23,42,0.10)',
-    ghost20:  'rgba(15,23,42,0.16)',
-    ghostSep: 'rgba(15,23,42,0.22)',
+    surface:        '#f4f7fa',
+    surfaceContainer: '#eaeff5',
+    surfaceHigh:    '#dee6ef',
+    surfaceHighest: '#d2dce8',
+    ghost:    'rgba(20,45,75,0.12)',
+    ghost20:  'rgba(20,45,75,0.18)',
+    ghostSep: 'rgba(20,45,75,0.26)',
   }
 );
 
 export const APP_THEMES: readonly AppTheme[] = [
   KINETIC_MONOLITH,
-  VOID_VIOLET,
   BLUEPRINT,
-  ARCTIC,
 ];
 
 export const DEFAULT_THEME_ID = 'kinetic-monolith';
 
 /**
- * Themes retired in the 0.3 design overhaul, mapped to their nearest survivor so
- * a saved preference lands somewhere deliberate instead of silently defaulting.
+ * Retired themes, mapped to the survivor of their own mode so a saved
+ * preference lands somewhere deliberate instead of silently defaulting — and,
+ * more importantly, so a user who chose a light theme is not thrown into a dark
+ * one by an upgrade.
+ *
+ * Retired in the 0.3 overhaul: Crimson Core, Phosphor, Forge, Sage. Retired in
+ * the interface rebuild: Void Violet (dark), Arctic (light). Crimson Core and
+ * Void Violet chain — `crimson-core` resolved to `void-violet`, which is itself
+ * gone now — so both are listed against their final destination rather than
+ * relying on the lookup following a chain, which it does not do.
  */
 export const LEGACY_THEME_IDS: Readonly<Record<string, string>> = {
-  'crimson-core': 'void-violet',
+  'crimson-core': 'kinetic-monolith',
   'phosphor': 'kinetic-monolith',
+  'void-violet': 'kinetic-monolith',
   'forge': 'blueprint',
-  'sage': 'arctic',
+  'sage': 'blueprint',
+  'arctic': 'blueprint',
 };
 
 /** Resolves a stored theme id, following the legacy remap. */

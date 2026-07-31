@@ -1,0 +1,34 @@
+/**
+ * A tooltip is a label, not a surface. It stays visually lighter than the menu
+ * and popover surface on purpose — anything that looks like a panel invites a
+ * click, and this cannot be clicked.
+ */
+.content {
+  max-width: 280px;
+  padding: var(--space-2xs) var(--space-sm);
+
+  background: var(--surface-container-highest);
+  border: 1px solid var(--ghost-sep);
+  border-radius: var(--radius-sharp);
+  color: var(--on-surface);
+
+  font-size: var(--text-sm);
+  line-height: var(--leading-base);
+
+  animation: fade var(--duration-instant) var(--easing);
+}
+
+.arrow {
+  fill: var(--surface-container-highest);
+}
+
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .content {
+    animation: none;
+  }
+}

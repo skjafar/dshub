@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { APP_THEMES, LEGACY_THEME_IDS, resolveThemeId, DEFAULT_THEME_ID } from '../../appThemes';
+import {
+  APP_THEMES,
+  DEFAULT_THEME_ID,
+  LEGACY_THEME_IDS,
+  getThemeById,
+  resolveThemeId,
+} from '../../appThemes';
 import { SERIES_DARK, SERIES_LIGHT, WIDGET_COLORS } from '../dataColors';
 import { STATUS_DARK, STATUS_LIGHT } from '../status';
 import { contrastRatio, hueDistance, AA_NORMAL, AA_NON_TEXT } from '../contrast';
@@ -16,6 +22,20 @@ function surfacesFor(mode: 'dark' | 'light'): string[] {
       t.colors.surfaceHighest,
     ]);
 }
+
+describe('theme roster', () => {
+  it('offers exactly one dark theme and one light theme', () => {
+    // Four themes multiplied the cost of every visual change by four while
+    // giving an operator a choice they did not need. The roster is now the two
+    // faces of one language: a dim cabinet and a sunlit floor.
+    expect(APP_THEMES.filter(t => t.mode === 'dark')).toHaveLength(1);
+    expect(APP_THEMES.filter(t => t.mode === 'light')).toHaveLength(1);
+  });
+
+  it('defaults to the dark theme', () => {
+    expect(getThemeById(DEFAULT_THEME_ID).mode).toBe('dark');
+  });
+});
 
 describe('semantic status ramp', () => {
   it('reads as text on every dark surface in the roster', () => {
@@ -81,11 +101,19 @@ describe('theme palettes', () => {
     }
   });
 
-  it('renders the primary accent legibly on container surfaces', () => {
+  it('renders every accent legibly on every surface it is published on', () => {
+    // All three accents are published as custom properties, so any of them can
+    // end up as text on any surface. Checking only `primary` on only
+    // `surfaceContainer` let a light-theme secondary and tertiary ship at 3.6:1
+    // and 3.55:1 on the deeper surfaces.
     for (const theme of APP_THEMES) {
       const c = theme.colors;
-      expect(contrastRatio(c.primary, c.surfaceContainer), `${theme.id} primary`)
-        .toBeGreaterThanOrEqual(AA_NORMAL);
+      for (const accent of ['primary', 'primaryFixed', 'secondary', 'tertiary'] as const) {
+        for (const bg of [c.surfaceLowest, c.surface, c.surfaceContainer, c.surfaceHigh, c.surfaceHighest]) {
+          expect(contrastRatio(c[accent], bg), `${theme.id} ${accent} on ${bg}`)
+            .toBeGreaterThanOrEqual(AA_NORMAL);
+        }
+      }
     }
   });
 
@@ -145,6 +173,31 @@ describe('theme id migration', () => {
     for (const [legacy, target] of Object.entries(LEGACY_THEME_IDS)) {
       expect(APP_THEMES.some(t => t.id === target), `${legacy} -> ${target}`).toBe(true);
       expect(resolveThemeId(legacy)).toBe(target);
+    }
+  });
+
+  it('lands a retired theme on a survivor of its own mode', () => {
+    // An upgrade must not throw someone working on a sunlit floor into a dark
+    // theme. The retired ids and the mode each was.
+    const retiredMode: Readonly<Record<string, 'dark' | 'light'>> = {
+      'crimson-core': 'dark',
+      'phosphor': 'dark',
+      'void-violet': 'dark',
+      'forge': 'light',
+      'sage': 'light',
+      'arctic': 'light',
+    };
+    for (const [legacy, mode] of Object.entries(retiredMode)) {
+      expect(getThemeById(legacy).mode, `${legacy} was ${mode}`).toBe(mode);
+    }
+  });
+
+  it('resolves a retired id in one hop, not a chain', () => {
+    // `crimson-core` used to point at `void-violet`, which has itself been
+    // retired. The lookup does not follow chains, so every retired id has to
+    // name a live theme directly.
+    for (const target of Object.values(LEGACY_THEME_IDS)) {
+      expect(APP_THEMES.some(t => t.id === target), `${target} must be live`).toBe(true);
     }
   });
 

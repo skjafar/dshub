@@ -1,0 +1,7 @@
+/* A popover holds arbitrary content rather than a list of items, so it needs
+   real padding where the menu surface deliberately has almost none. */
+.content {
+  padding: var(--space-md);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+}
