@@ -31,6 +31,26 @@ throwing, which matters because panels are opened from the chrome, outside any
 Pane's error boundary; ids are assigned centrally in `shell/paneRegistry.ts` for
 that reason.
 
+## Confirmed once the slice was complete
+
+The shell slice landed without the Register Pane, so the multi-instance half of
+this decision — the actual reason the engine was chosen over a plain splitter —
+was still unexercised. The Register Pane completes it, and the verdict stands.
+
+What that added: several Panes of one kind open at once with independent state,
+each renaming its own tab, dragged between groups and re-docked. All of it worked
+through the imperative api without a second copy of dockview's state.
+
+One thing changed how Panes are written. **dockview unmounts a Pane's component
+whenever it is not the visible tab in its group, and again when it is dragged to
+another group.** Component state is therefore not per-instance state: a filter
+held in `useState` is lost by clicking a neighbouring tab. Per-instance state
+lives in `shell/paneState.ts`, keyed by panel id, and the shell prunes it when
+dockview stops reporting the panel — necessary because panel ids reuse the lowest
+free instance number, so a reopened Pane would otherwise inherit its
+predecessor's filter. This is also the shape ticket 08 needs, since a stored
+Workspace is dockview's serialized layout *plus* each Pane's own state.
+
 ## Consequences
 
 Layout persistence is dockview's serialization format, so a Workspace stored in user settings is shaped by a third-party library. Migrating off dockview later would invalidate every saved Workspace, which is the real lock-in — not the API surface.

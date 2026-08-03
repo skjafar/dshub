@@ -19,17 +19,24 @@ export interface WorkspaceProps {
  * Built per pane kind rather than once, because React unwinds to the nearest
  * boundary — one boundary around the Workspace would let a single failing Pane
  * blank every other.
+ *
+ * This is also where dockview stops. A Pane receives its own id and a way to
+ * rename its tab, and nothing else: handed the dock api it could rearrange the
+ * Workspace around itself, and every Pane would have to be read to know what the
+ * layout can do.
  */
 function paneComponentFor(kind: PaneKind): React.FunctionComponent<IDockviewPanelProps> {
   const definition = paneDefinition(kind);
   if (!definition) throw new Error(`No pane definition for "${kind}"`);
   const Pane = definition.component;
 
-  return function DockedPane() {
+  return function DockedPane({ api }: IDockviewPanelProps) {
+    const setTitle = useCallback((title: string) => api.setTitle(title), [api]);
+
     return (
       <div className={styles.paneContent}>
         <PaneBoundary title={definition.title}>
-          <Pane />
+          <Pane paneId={api.id} setTitle={setTitle} />
         </PaneBoundary>
       </div>
     );

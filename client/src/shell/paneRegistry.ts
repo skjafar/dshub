@@ -9,8 +9,25 @@
 
 import type { ComponentType } from 'react';
 import { OverviewPane } from './panes/OverviewPane';
+import { RegisterPane } from './panes/RegisterPane';
+import { InspectorPane } from './panes/InspectorPane';
 
-export type PaneKind = 'overview';
+export type PaneKind = 'overview' | 'register' | 'inspector';
+
+/**
+ * What the Workspace hands a Pane.
+ *
+ * Deliberately small, and deliberately not dockview's own panel props: a Pane
+ * needs to know which instance of itself it is and to be able to rename its own
+ * tab, and giving it the whole dock api would let any Pane rearrange the
+ * Workspace around it.
+ */
+export interface PaneProps {
+  /** This instance's panel id. Unique across the Workspace. */
+  readonly paneId: string;
+  /** Renames this Pane's tab. */
+  readonly setTitle: (title: string) => void;
+}
 
 export interface PaneDefinition {
   readonly kind: PaneKind;
@@ -20,11 +37,12 @@ export interface PaneDefinition {
   readonly description: string;
   /**
    * Whether several of this kind may be open at once. The Overview is the
-   * Device's own health and there is only one Device, so it is a singleton;
-   * the data Panes that follow are not.
+   * Device's own health and there is only one Device, so it is a singleton; so
+   * is the Inspector, which exists precisely because there used to be one per
+   * data surface. Data Panes are not.
    */
   readonly singleton: boolean;
-  readonly component: ComponentType;
+  readonly component: ComponentType<PaneProps>;
 }
 
 export const PANES: readonly PaneDefinition[] = [
@@ -34,6 +52,20 @@ export const PANES: readonly PaneDefinition[] = [
     description: "The Device's own identity, uptime, link and recent activity",
     singleton: true,
     component: OverviewPane,
+  },
+  {
+    kind: 'register',
+    title: 'Registers',
+    description: 'Live runtime values, by name from the Map',
+    singleton: false,
+    component: RegisterPane,
+  },
+  {
+    kind: 'inspector',
+    title: 'Inspector',
+    description: 'Decodes whatever was selected last, in any Pane',
+    singleton: true,
+    component: InspectorPane,
   },
 ];
 
@@ -72,4 +104,17 @@ export function paneId(kind: PaneKind, instance = 0): string {
 export function kindOfPaneId(id: string): PaneKind | undefined {
   const [kind = ''] = id.split(INSTANCE_SEPARATOR);
   return isKnownPaneKind(kind) ? kind : undefined;
+}
+
+/**
+ * The instance number in a panel id, or 0 for a singleton's bare kind.
+ *
+ * A Pane uses this to name itself when the user has not narrowed it to something
+ * more telling: two Panes titled the same are two tabs that have to be clicked
+ * to be told apart.
+ */
+export function instanceOfPaneId(id: string): number {
+  const [, instance] = id.split(INSTANCE_SEPARATOR);
+  const parsed = Number.parseInt(instance ?? '', 10);
+  return Number.isNaN(parsed) ? 0 : parsed;
 }

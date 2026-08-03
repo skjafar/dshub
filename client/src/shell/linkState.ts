@@ -30,6 +30,18 @@ export function isStale(link: LinkState): boolean {
 }
 
 /**
+ * True while the Device will answer.
+ *
+ * Not the negation of {@link isStale}: connecting is neither — nothing has gone
+ * stale yet and nothing can be asked for either. Surfaces gate their read
+ * controls on this rather than comparing against `'online'` themselves, so
+ * "can I ask the Device something" has one answer in one place.
+ */
+export function isLive(link: LinkState): boolean {
+  return link === 'online';
+}
+
+/**
  * Who holds Control.
  *
  * A discriminated union rather than a pair of booleans: "held", "held by someone

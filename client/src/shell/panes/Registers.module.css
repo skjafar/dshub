@@ -1,0 +1,125 @@
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  padding: var(--space-md);
+  gap: var(--space-sm);
+
+  background: var(--surface);
+  color: var(--on-surface);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+}
+
+/* ── Toolbar ──────────────────────────────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+}
+
+/* The filter is the control this Pane is actually used through, so it takes
+   whatever width is going and the rest keep their intrinsic size. */
+.filter {
+  flex: 1 1 14rem;
+  min-width: 10rem;
+}
+
+.liveToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+}
+
+.liveLabel {
+  color: var(--on-surface-variant);
+  font-size: var(--text-sm);
+  user-select: none;
+}
+
+/* ── Status line ──────────────────────────────────────────────────────────── */
+
+.status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2xs) var(--space-md);
+  margin: 0;
+  flex-shrink: 0;
+
+  color: var(--on-surface-variant);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.liveNote {
+  color: var(--status-info);
+}
+
+.capNote {
+  color: var(--status-warn);
+}
+
+/* Staleness carries its own weight rather than sitting in the note voice: a
+   value that stopped updating must never be read as a current one. */
+.staleNote {
+  color: var(--status-warn);
+  font-weight: var(--weight-medium);
+}
+
+.idleNote {
+  color: var(--on-surface-variant);
+}
+
+/* ── Table ────────────────────────────────────────────────────────────────── */
+
+.tableHost {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.tableHost > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.name {
+  font-family: var(--font-mono);
+}
+
+.meta {
+  color: var(--on-surface-variant);
+  font-size: var(--text-sm);
+}
+
+/* Never read. Dimmer than a value, because the absence of a reading is not a
+   reading — and heavier than nothing, because the row is still real. */
+.unread {
+  color: var(--outline);
+}
+
+.invalid {
+  color: var(--status-error);
+  font-size: var(--text-sm);
+}
+
+/* Values that stopped updating. Reduced weight rather than a colour of their
+   own: the banner above says why, and a second alarm colour in the table would
+   compete with the one that means the reading itself is bad. */
+.staleValue {
+  color: var(--on-surface-variant);
+}
+
+.notice {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: var(--space-xl) var(--space-md);
+  text-align: center;
+  color: var(--on-surface-variant);
+  font-size: var(--text-sm);
+}
