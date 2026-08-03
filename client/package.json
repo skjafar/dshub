@@ -21,6 +21,7 @@
     "chartjs-adapter-date-fns": "^3.0.0",
     "date-fns": "^4.1.0",
     "dockview": "^7.0.4",
+    "dockview-react": "^7.0.4",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
     "radix-ui": "^1.6.7",

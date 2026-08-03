@@ -6,7 +6,7 @@ import { DSHubProvider } from './contexts/DSHubContext';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastProvider, useToast } from './components/ToastNotification';
-import MainLayout from './components/MainLayout';
+import { AppShell } from './shell/AppShell';
 import AutoScanManager from './components/AutoScanManager';
 import { buildMuiTheme, getThemeById } from './appThemes';
 import { applyThemeVariables } from './design/themeVariables';
@@ -35,11 +35,14 @@ function ThemedApp() {
   }, [appTheme]);
 
   return (
+    // MUI is still mounted for the toast and the top-level error boundary. Both
+    // are ported when the old view layer is removed; until then the theme has to
+    // reach them, which is what this provider is still doing here.
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <DSHubProvider>
         <AutoScanManager />
-        <MainLayout />
+        <AppShell />
       </DSHubProvider>
     </ThemeProvider>
   );
