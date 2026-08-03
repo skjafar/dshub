@@ -461,18 +461,35 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
   const queueLogRef = React.useRef(queueLogEntry);
   queueLogRef.current = queueLogEntry;
 
+  /** Survives the effect being run more than once for the same provider. */
+  const startupLogged = React.useRef(false);
+
   // ── Backend event listeners ───────────────────────────────────────────────
 
   useEffect(() => {
-    dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: 'DSHub started', timestamp: Date.now() } });
+    // Marks the session, so it is logged once per session rather than once per
+    // effect run. Unlike the subscriptions below there is no cleanup that could
+    // undo it, so a second run would simply leave a second entry behind.
+    if (!startupLogged.current) {
+      startupLogged.current = true;
+      dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: 'DSHub started', timestamp: Date.now() } });
+    }
 
     // Send initial log settings to backend
     port.device.updateLogSettings(settings.logSettings).catch(console.error);
 
-    const unlisteners: Array<() => void> = [];
+    let unlisteners: Array<() => void> = [];
+    // Registration is asynchronous and this effect's cleanup is not, so a
+    // cleanup can run while the subscriptions below are still in flight — React
+    // does exactly that on every mount in development. Without this flag the
+    // cleanup found nothing to remove, the registration completed afterwards,
+    // and a second live handler set stayed behind: every device event then
+    // dispatched twice.
+    let cancelled = false;
 
     const setup = async () => {
-      unlisteners.push(
+      // Awaited in order, so registration order is unchanged.
+      const registered = [
         await port.events.on('deviceDiscovered', device => {
           dispatch({ type: 'ADD_DISCOVERED_DEVICE', payload: device });
           dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'success', category: 'connection', message: `Device discovered: ${device.board_name} at ${device.ip_address} (ID: ${device.device_id})`, timestamp: Date.now() } });
@@ -528,13 +545,23 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
         await port.events.on('sysRegisterUpdate', register => {
           dispatch({ type: 'UPDATE_SYSTEM_REGISTER', payload: register });
         }),
-      );
+      ];
+
+      if (cancelled) {
+        // Cleaned up while registering. Undo it here, since the cleanup that
+        // would have done so has already run.
+        registered.forEach(u => u());
+        return;
+      }
+      unlisteners = registered;
     };
 
     setup().catch(console.error);
 
     return () => {
+      cancelled = true;
       unlisteners.forEach(u => u());
+      unlisteners = [];
       // Disconnect from device if still connected
       if (connectionRef.current?.connected) {
         port.device.disconnect().catch(console.error);

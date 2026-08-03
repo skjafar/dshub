@@ -10,6 +10,30 @@ Introducing a single injected device port required editing frozen code, because 
 
 The port is the rebuild's single test seam, and it follows the pattern the codebase already chose — the poll registry takes an injected reader rather than having its transport mocked. The same fake implementation serves the tests and browser development, so what the interface is built against and what it is verified against cannot drift apart.
 
+## Amendment — the listener registration race is fixed
+
+A second edit to frozen code is permitted, and it is not mechanical: the event
+listeners in `DSHubContext` are registered asynchronously while the effect's
+cleanup is synchronous, so a cleanup running before registration completed had
+nothing to remove and left the completed registration in place. Two live handler
+sets meant every device event was dispatched twice — each discovery, connection
+and register read logged twice, and every reducer run twice per response.
+
+This was fixed rather than tolerated because "the data path is frozen" is a
+statement about not *redesigning* it, not about leaving a defect in it once
+found. The change is contained: a flag that makes a late registration undo
+itself, and a ref so the session-started entry is logged once per session rather
+than once per effect run. Sequencing, response correlation, poll coalescing,
+error handling and every reducer are untouched.
+
+It surfaced in development, because React's StrictMode double-invokes effects
+only there. The race itself is not development-only — it is what happens whenever
+an effect is cleaned up before its async setup resolves — so the fix is not a
+development-only workaround either.
+`contexts/__tests__/DSHubContext.listeners.test.tsx` pins it, counting
+subscriptions at the port because an unmounted tree renders nothing whether or
+not its handlers are still live.
+
 ## Consequences
 
 The presentation semantics that happened to live outside `components/` are *in* scope, despite sitting in the same directories as frozen code: the widget config schema in `types/dashboard.ts`, the `UserSettings` shape, the canned CNC dashboard, and the widget icon map. The boundary is what the code means, not where it sits.
