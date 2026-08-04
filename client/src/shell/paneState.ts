@@ -17,6 +17,25 @@ import { useCallback, useState } from 'react';
 const states = new Map<string, unknown>();
 
 /**
+ * Fires whenever any Pane updates its own state.
+ *
+ * A saved Workspace has to stay current with what its Panes are actually
+ * showing — a filter retyped after the Workspace was last saved is exactly the
+ * kind of change "restores what the Panes were actually showing" promises not
+ * to lose. Layout changes reach the shell through dockview's own event; typing
+ * into a filter does not touch dockview at all, so this is the other half of
+ * what tells the shell a Workspace needs to be saved again.
+ */
+const listeners = new Set<() => void>();
+
+export function subscribePaneStateChanges(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/**
  * Per-instance state that survives the component being unmounted and remounted.
  *
  * Exactly one component holds a given panel id at a time, so this needs no
@@ -40,6 +59,7 @@ export function usePaneState<T>(
         states.set(paneId, next);
         return next;
       });
+      for (const listener of listeners) listener();
     },
     [paneId]
   );
@@ -58,5 +78,38 @@ export function retainPaneState(openPaneIds: Iterable<string>): void {
   const open = new Set(openPaneIds);
   for (const id of states.keys()) {
     if (!open.has(id)) states.delete(id);
+  }
+}
+
+/**
+ * Reads back the current state of exactly the given Panes.
+ *
+ * Scoped to the ids handed in rather than the whole store, because a Workspace
+ * is saved with the Panes that are actually open in it — the store may still
+ * hold another Pane's state from earlier in the session, and that state
+ * belongs to whichever Workspace it was opened under, not this one.
+ */
+export function snapshotPaneStates(paneIds: Iterable<string>): Record<string, unknown> {
+  const snapshot: Record<string, unknown> = {};
+  for (const id of paneIds) {
+    if (states.has(id)) snapshot[id] = states.get(id);
+  }
+  return snapshot;
+}
+
+/**
+ * Seeds the store from a saved Workspace, replacing whatever it held.
+ *
+ * Must run before the Workspace's Panes are (re)created: `usePaneState` only
+ * reads the store on a Pane's first mount, so loading after dockview has
+ * already restored the layout would seed nothing. Replacing rather than
+ * merging matches `fromJSON` clearing the previous layout outright — the
+ * Workspace being left is gone, and its Panes' state should not linger for a
+ * reused panel id in the one being entered.
+ */
+export function loadPaneStates(paneStates: Readonly<Record<string, unknown>>): void {
+  states.clear();
+  for (const [id, value] of Object.entries(paneStates)) {
+    states.set(id, value);
   }
 }

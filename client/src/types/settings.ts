@@ -1,4 +1,5 @@
 import { DashboardLayout } from './dashboard';
+import type { ProfileWorkspaces } from '../shell/workspaceStore';
 
 export interface RegisterMapItem {
   address: number;
@@ -89,6 +90,11 @@ export interface UserSettings {
   activeMapProfileId: string; // Currently active profile ID (default or custom)
   logSettings: LogSettings; // Activity log filtering and retention settings
   dashboardLayouts: Record<string, DashboardLayout>; // Dashboard layouts per profile ID
+  /**
+   * Named Workspaces per Profile ID. A Workspace is dockview's serialized
+   * layout plus each open Pane's own state — see `shell/workspaceStore.ts`.
+   */
+  workspacesByProfile: Record<string, ProfileWorkspaces>;
   cncDashboardVersion?: number; // Tracks CNC dashboard template version for auto-reset
   showGettingStarted: boolean; // Show Getting Started dialog on startup
   /**
@@ -133,6 +139,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     requestRateLimit: 2000 // Default: 2000 requests/second (prevents device overload)
   },
   dashboardLayouts: {}, // Dashboard layouts per profile (empty by default)
+  workspacesByProfile: {}, // Named Workspaces per profile (seeded lazily on first Workspace mount)
   showGettingStarted: true, // Show Getting Started dialog on first launch
   dashboardView: {
     cellSize: 60,

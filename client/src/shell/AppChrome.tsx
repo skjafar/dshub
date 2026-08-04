@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Moon, Plugs, PlugsConnected, Sun, SquaresFour } from '@phosphor-icons/react';
+import { Moon, Plugs, PlugsConnected, Stack, Sun, SquaresFour } from '@phosphor-icons/react';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { APP_THEMES, getThemeById } from '../appThemes';
@@ -9,12 +9,22 @@ import { Button, Menu, MenuItem, MenuLabel, Tooltip, cx } from '../ui';
 import { PANES } from './paneRegistry';
 import type { PaneKind } from './paneRegistry';
 import { ConnectDialog } from './ConnectDialog';
+import { WorkspacesDialog } from './WorkspacesDialog';
+import type { StoredWorkspace } from './workspaceStore';
 import styles from './AppChrome.module.css';
 
 export interface AppChromeProps {
   /** Pane kinds currently open, so the menu can say which are already there. */
   readonly openKinds: readonly PaneKind[];
   readonly onOpenPane: (kind: PaneKind) => void;
+  /** The active Profile's named Workspaces, for the Workspaces dialog. */
+  readonly workspaces: readonly StoredWorkspace[];
+  readonly activeWorkspaceId: string;
+  readonly defaultWorkspaceId: string;
+  readonly onSwitchWorkspace: (id: string) => void;
+  readonly onSaveWorkspaceAs: (name: string) => void;
+  readonly onRenameWorkspace: (id: string, name: string) => void;
+  readonly onDeleteWorkspace: (id: string) => void;
 }
 
 const LED_CLASS: Readonly<Record<LinkState, string>> = {
@@ -45,10 +55,21 @@ const LINK_LABEL: Readonly<Record<LinkState, string>> = {
  * in the old interface, which meant a permanent slot in the navigation for
  * something nobody returns to once they are connected.
  */
-export function AppChrome({ openKinds, onOpenPane }: AppChromeProps): React.JSX.Element {
+export function AppChrome({
+  openKinds,
+  onOpenPane,
+  workspaces,
+  activeWorkspaceId,
+  defaultWorkspaceId,
+  onSwitchWorkspace,
+  onSaveWorkspaceAs,
+  onRenameWorkspace,
+  onDeleteWorkspace,
+}: AppChromeProps): React.JSX.Element {
   const { state, actions } = useDSHub();
   const { settings, updateSettings } = useSettings();
   const [connectOpen, setConnectOpen] = useState(false);
+  const [workspacesOpen, setWorkspacesOpen] = useState(false);
 
   const link = linkStateOf(state.connection, state.connecting);
   const control = controlHolderOf(state.connection);
@@ -120,6 +141,16 @@ export function AppChrome({ openKinds, onOpenPane }: AppChromeProps): React.JSX.
           })}
         </Menu>
 
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="Workspaces"
+          onClick={() => setWorkspacesOpen(true)}
+        >
+          <Stack size={16} />
+          Workspaces
+        </Button>
+
         <Tooltip content={`Switch to ${nextTheme.name}`}>
           <Button
             variant="ghost"
@@ -145,6 +176,17 @@ export function AppChrome({ openKinds, onOpenPane }: AppChromeProps): React.JSX.
       </div>
 
       <ConnectDialog open={connectOpen} onOpenChange={setConnectOpen} />
+      <WorkspacesDialog
+        open={workspacesOpen}
+        onOpenChange={setWorkspacesOpen}
+        workspaces={workspaces}
+        activeWorkspaceId={activeWorkspaceId}
+        defaultWorkspaceId={defaultWorkspaceId}
+        onSwitch={onSwitchWorkspace}
+        onSaveAs={onSaveWorkspaceAs}
+        onRename={onRenameWorkspace}
+        onDelete={onDeleteWorkspace}
+      />
     </header>
   );
 }
