@@ -2,7 +2,14 @@ import { useId } from 'react';
 import type { MapEntry } from '../../maps/mapParser';
 import { Button, Select, Switch, Table, TextField, cx } from '../../ui';
 import type { Column } from '../../ui';
-import { ADDRESS_SPACE_NAME, accessLabel } from '../addressSpace';
+import {
+  ADDRESS_SPACE_DESCRIPTION,
+  ADDRESS_SPACE_ENTRY_NAME,
+  ADDRESS_SPACE_NAME,
+  ADDRESS_SPACE_READ_ONLY_REASON,
+  accessLabel,
+} from '../addressSpace';
+import type { AddressSpace } from '../addressSpace';
 import { isLive, isStale } from '../linkState';
 import type { LinkState } from '../linkState';
 import { DISPLAY_FORMATS, formatEntryValue } from '../valueFormat';
@@ -10,10 +17,10 @@ import type { DisplayFormat } from '../valueFormat';
 import type { MapView } from '../useMapEntries';
 import { WriteBar } from './WriteBar';
 import type { WriteBarProps } from './WriteBar';
-import styles from './Registers.module.css';
+import styles from './Entries.module.css';
 
 /** One Map entry beside whatever the Device last said about it. */
-export interface RegisterRow {
+export interface EntryRow {
   readonly entry: MapEntry;
   /** The last value read, or null when this entry has never answered. */
   readonly value: number | null;
@@ -21,9 +28,18 @@ export interface RegisterRow {
   readonly valid: boolean;
 }
 
-export interface RegistersProps {
+export interface EntriesProps {
+  /**
+   * Which Address Space is being listed.
+   *
+   * Everything a person reads to identify what they are looking at comes from
+   * this — the heading, the filter's label, the empty states, the access column
+   * and whether writing is offered at all. A bare address is meaningless without
+   * it, and two Panes docked side by side are two columns of bare addresses.
+   */
+  readonly space: AddressSpace;
   /** The entries this Pane is showing, already filtered. */
-  readonly rows: readonly RegisterRow[];
+  readonly rows: readonly EntryRow[];
   readonly query: string;
   readonly onQueryChange: (query: string) => void;
   readonly format: DisplayFormat;
@@ -44,8 +60,10 @@ export interface RegistersProps {
   /** The Map this Pane is listing, and whether it has arrived. */
   readonly map: MapView;
   /**
-   * Everything the write bar needs, or null when nothing is selected. Absent
-   * rather than disabled: with no entry chosen there is nothing to write to.
+   * Everything the write bar needs; null when nothing is selected, and always
+   * null in a space the protocol will not accept a write to. Absent rather than
+   * disabled: with no entry chosen there is nothing to write to, and in a
+   * read-only space there never will be.
    */
   readonly write: WriteBarProps | null;
 }
@@ -64,11 +82,13 @@ const FORMAT_OPTIONS = DISPLAY_FORMATS.map(format => ({
 /**
  * Why there is nothing to list, in words that distinguish the reasons.
  *
- * A Map that has not loaded, a Profile that declares no Registers and a filter
- * that matched nothing all render as an empty table, and they call for three
- * different actions from whoever is looking at it.
+ * A Map that has not loaded, a Profile that declares nothing in this space and a
+ * filter that matched nothing all render as an empty table, and they call for
+ * three different actions from whoever is looking at it. The space is named in
+ * the last of them, because "declares no entries" leaves an Engineer wondering
+ * which of the three Maps to go and look at.
  */
-function mapNotice(map: MapView): string | null {
+function mapNotice(space: AddressSpace, map: MapView): string | null {
   switch (map.status) {
     case 'loading':
       return 'Loading this Profile’s Map…';
@@ -77,20 +97,28 @@ function mapNotice(map: MapView): string | null {
     case 'failed':
       return map.error ?? 'This Profile’s Map could not be loaded.';
     default:
-      return map.entries.length === 0 ? 'This Profile’s Map declares no Registers.' : null;
+      return map.entries.length === 0
+        ? `This Profile’s Map declares no ${ADDRESS_SPACE_NAME[space]}.`
+        : null;
   }
 }
 
 /**
- * The Registers of the active Profile's Map, with their current values.
+ * One Address Space's entries, with their current values.
  *
  * Entries are listed by the name the Map gives them rather than as bare
  * addresses, because an address is only meaningful alongside the space it
  * belongs to and the declaration of what lives there. Type and access sit beside
  * the name for the same reason: they are what say whether a reading means what
  * it appears to and whether writing to it is even permitted.
+ *
+ * The same component serves all three spaces. Where they differ — what they are
+ * called, what they list, and whether they can be written — the difference is
+ * made visible rather than kept internal, since an Engineer reading an address
+ * off one of two docked Panes has to know which space it belongs to.
  */
-export function Registers({
+export function Entries({
+  space,
   rows,
   query,
   onQueryChange,
@@ -105,13 +133,16 @@ export function Registers({
   link,
   map,
   write,
-}: RegistersProps): React.JSX.Element {
+}: EntriesProps): React.JSX.Element {
   const liveId = useId();
   const stale = isStale(link);
   const connected = isLive(link);
-  const notice = mapNotice(map);
+  const notice = mapNotice(space, map);
+  const spaceName = ADDRESS_SPACE_NAME[space];
+  const entryName = ADDRESS_SPACE_ENTRY_NAME[space].toLowerCase();
+  const readOnlyReason = ADDRESS_SPACE_READ_ONLY_REASON[space];
 
-  const columns: readonly Column<RegisterRow>[] = [
+  const columns: readonly Column<EntryRow>[] = [
     {
       key: 'address',
       header: 'Addr',
@@ -161,19 +192,25 @@ export function Registers({
       key: 'access',
       header: 'Access',
       width: '6.5rem',
-      render: row => <span className={styles.meta}>{accessLabel(row.entry)}</span>,
+      render: row => <span className={styles.meta}>{accessLabel(space, row.entry)}</span>,
     },
   ];
 
   return (
     <div className={styles.pane}>
       <div className={styles.toolbar}>
+        {/* The space, stated in the Pane and not only on its tab. A tab
+            truncates, and the Pane being read need not be the one whose tab is
+            in view — while the addresses in this table mean something different
+            in each of the three spaces. */}
+        <h2 className={styles.space}>{spaceName}</h2>
+
         <div className={styles.filter}>
           <TextField
             value={query}
             onChange={event => onQueryChange(event.target.value)}
             placeholder="Filter by name or address (0x2A)"
-            aria-label="Filter registers by name or address"
+            aria-label={`Filter ${spaceName.toLowerCase()} by name or address`}
             spellCheck={false}
             autoComplete="off"
           />
@@ -205,7 +242,7 @@ export function Registers({
 
       <p className={styles.status} role="status">
         <span>
-          {rows.length} of {map.entries.length} {ADDRESS_SPACE_NAME.register.toLowerCase()}
+          {rows.length} of {map.entries.length} {spaceName.toLowerCase()}
         </span>
         {live && connected ? (
           <span className={styles.liveNote}>live · following {followedCount}</span>
@@ -231,8 +268,21 @@ export function Registers({
         ) : null}
       </p>
 
+      {readOnlyReason !== null ? (
+        // Standing, rather than raised when someone tries to write. The missing
+        // write bar is what this Pane is *for*, and a surface that simply lacks
+        // a control reads as one that forgot it.
+        <p className={styles.readOnlySpace}>{readOnlyReason}</p>
+      ) : (
+        // A quieter, symmetric line for the two writable spaces: what a
+        // Register write changes and what a Parameter write changes look
+        // identical on screen, and only this line says a Parameter's outlives
+        // the session it was written in.
+        <p className={styles.spaceDescription}>{ADDRESS_SPACE_DESCRIPTION[space]}</p>
+      )}
+
       {/* Keyed on the entry, so selecting a different one abandons a half-typed
-          value rather than carrying it across to a register it was never meant
+          value rather than carrying it across to an entry it was never meant
           for. */}
       {write !== null ? <WriteBar key={write.entry.address} {...write} /> : null}
 
@@ -246,7 +296,7 @@ export function Registers({
             rowKey={row => String(row.entry.address)}
             selectedKey={selectedAddress === null ? undefined : String(selectedAddress)}
             onSelect={row => onSelect(row.entry)}
-            emptyMessage={`No register matches “${query.trim()}”.`}
+            emptyMessage={`No ${entryName} matches “${query.trim()}”.`}
           />
         </div>
       )}

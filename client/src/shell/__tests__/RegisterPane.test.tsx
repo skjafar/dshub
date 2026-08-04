@@ -16,15 +16,22 @@ import { InspectorPane } from '../panes/InspectorPane';
 import { RegisterPane } from '../panes/RegisterPane';
 
 /**
- * The Register Pane and the shared Inspector, driven through the fake port.
+ * What is specific to the Register Pane, and to the shared Inspector, once the
+ * behaviour every data Pane holds in common has moved to
+ * `AddressSpacePane.test.tsx`.
+ *
+ * Filtering, selection, tab naming, link states and multi-instance independence
+ * are pinned once, across all three Address Spaces, in that file — repeating
+ * them here for the Register Pane specifically would be two suites asserting
+ * the same thing, which is exactly the drift risk `AddressSpacePane.test.tsx`'s
+ * own docblock exists to prevent. What is left is what genuinely does not
+ * generalise: switching display format on one of two open Panes, and the
+ * Inspector's own decoding, renaming and staleness behaviour, none of which the
+ * cross-space suite exercises.
  *
  * Nothing here mocks a module or stubs the transport: the fake is the same
  * implementation browser development runs against, so what the interface is
  * built against and what it is verified against cannot drift apart.
- *
- * The Panes are rendered directly rather than through dockview. What is under
- * test is that two Panes of a kind are independent and that one Inspector
- * follows both — none of which is the dock engine's behaviour.
  */
 
 /** Five entries, spanning both access halves and every type the parser accepts. */
@@ -95,17 +102,6 @@ const paneA = (): HTMLElement => screen.getByRole('region', { name: 'Pane A' });
 const paneB = (): HTMLElement => screen.getByRole('region', { name: 'Pane B' });
 const inspector = (): HTMLElement => screen.getByRole('region', { name: 'Inspector pane' });
 
-const filterIn = (pane: HTMLElement): HTMLElement =>
-  within(pane).getByRole('textbox', { name: /filter registers/i });
-
-const rowNames = (pane: HTMLElement): string[] =>
-  within(pane)
-    .getAllByRole('row')
-    // The header row has no data cells, and the "nothing matched" row is one
-    // cell spanning the table rather than an entry.
-    .filter(row => within(row).queryAllByRole('cell').length > 1)
-    .map(row => within(row).getAllByRole('cell')[1].textContent ?? '');
-
 /** Lets the provider's asynchronous listener registration finish. */
 async function settle(): Promise<void> {
   await act(async () => {
@@ -131,106 +127,6 @@ afterEach(() => {
 });
 
 describe('Register Pane', () => {
-  it('lists entries by name, type and access from the Map', async () => {
-    renderPanes();
-    await settle();
-
-    expect(rowNames(paneA())).toEqual([
-      'FIRMWARE_VERSION',
-      'SPINDLE_RPM',
-      'COOLANT_TEMP',
-      'MOTOR_X_TARGET',
-      'FAULT_FLAGS',
-    ]);
-
-    const motorRow = within(paneA()).getByRole('row', { name: /MOTOR_X_TARGET/ });
-    expect(motorRow).toHaveTextContent('int32_t');
-    expect(motorRow).toHaveTextContent('read/write');
-
-    // Access comes from the Map's own read-only boundary, not from a guess.
-    const firmwareRow = within(paneA()).getByRole('row', { name: /FIRMWARE_VERSION/ });
-    expect(firmwareRow).toHaveTextContent('read-only');
-  });
-
-  it('filters by name, whatever case it was typed in', async () => {
-    const user = userEvent.setup();
-    renderPanes();
-    await settle();
-
-    await user.type(filterIn(paneA()), 'motor');
-
-    expect(rowNames(paneA())).toEqual(['MOTOR_X_TARGET']);
-  });
-
-  it('filters by address, in decimal and in hexadecimal', async () => {
-    const user = userEvent.setup();
-    renderPanes();
-    await settle();
-
-    await user.type(filterIn(paneA()), '4');
-    expect(rowNames(paneA())).toEqual(['FAULT_FLAGS']);
-
-    await user.clear(filterIn(paneA()));
-    await user.type(filterIn(paneA()), '0x04');
-    expect(rowNames(paneA())).toEqual(['FAULT_FLAGS']);
-  });
-
-  it('says a filter matched nothing rather than falling back to the whole Map', async () => {
-    // An empty result that renders as the full list is how someone reads a value
-    // off a register they never asked for.
-    const user = userEvent.setup();
-    renderPanes();
-    await settle();
-
-    await user.type(filterIn(paneA()), 'NO_SUCH_ENTRY');
-
-    expect(rowNames(paneA())).toEqual([]);
-    expect(within(paneA()).getByText(/no register matches/i)).toBeInTheDocument();
-  });
-
-  it('keeps two Panes independent in what they are filtered to', async () => {
-    const user = userEvent.setup();
-    renderPanes();
-    await settle();
-
-    await user.type(filterIn(paneA()), 'MOTOR');
-    await user.type(filterIn(paneB()), 'COOLANT');
-
-    expect(rowNames(paneA())).toEqual(['MOTOR_X_TARGET']);
-    expect(rowNames(paneB())).toEqual(['COOLANT_TEMP']);
-  });
-
-  it('keeps two Panes independent in what each has selected', async () => {
-    const user = userEvent.setup();
-    renderPanes();
-    await settle();
-
-    await user.click(within(paneA()).getByText('SPINDLE_RPM'));
-    await user.click(within(paneB()).getByText('COOLANT_TEMP'));
-
-    const selectedInA = within(paneA()).getByRole('row', { selected: true });
-    const selectedInB = within(paneB()).getByRole('row', { selected: true });
-
-    // Selecting in the second Pane must not move the first Pane's highlight:
-    // the point of two Panes is to hold two places at once.
-    expect(selectedInA).toHaveTextContent('SPINDLE_RPM');
-    expect(selectedInB).toHaveTextContent('COOLANT_TEMP');
-  });
-
-  it('names its tab after its filter, so two Panes are not an identical pair', async () => {
-    const user = userEvent.setup();
-    const { titleA, titleB } = renderPanes();
-    await settle();
-
-    expect(titleA).toHaveBeenLastCalledWith('Registers 1');
-    expect(titleB).toHaveBeenLastCalledWith('Registers 2');
-
-    await user.type(filterIn(paneA()), 'MOTOR');
-
-    expect(titleA).toHaveBeenLastCalledWith('Registers 1 · MOTOR');
-    expect(titleB).toHaveBeenLastCalledWith('Registers 2');
-  });
-
   it('switches display format per Pane, leaving its twin alone', async () => {
     const user = userEvent.setup();
     const harness = renderPanes();
@@ -259,43 +155,6 @@ describe('Register Pane', () => {
     expect(within(paneB()).getByRole('row', { name: /FAULT_FLAGS/ })).toHaveTextContent(
       '1078530011'
     );
-  });
-
-  it('offers no way to read while there is no link, and says so', async () => {
-    renderPanes();
-    await settle();
-
-    expect(within(paneA()).getByRole('button', { name: 'Read' })).toBeDisabled();
-    expect(within(paneA()).getByRole('switch', { name: /live/i })).toBeDisabled();
-    expect(within(paneA()).getByText(/connect from the chrome/i)).toBeInTheDocument();
-  });
-
-  it('says values have stopped being current once the link drops', async () => {
-    // The failure this exists to prevent: a value that stopped updating read as
-    // a current one. It is said in words, not by changing a colour.
-    const user = userEvent.setup();
-    const harness = renderPanes();
-    await settle();
-    await connect(harness);
-
-    await user.click(within(paneA()).getByRole('button', { name: 'Read' }));
-    expect(within(paneA()).getByRole('row', { name: /SPINDLE_RPM/ })).not.toHaveTextContent('—');
-
-    await act(async () => {
-      await harness.port.device.disconnect();
-    });
-
-    expect(within(paneA()).getByText(/nothing below is being updated/i)).toBeInTheDocument();
-    expect(within(paneA()).getByRole('button', { name: 'Read' })).toBeDisabled();
-  });
-
-  it('shows a dash for an entry nobody has asked about yet', async () => {
-    // Never read is not the same as read and found to be zero. A column of
-    // zeroes for a Device nobody has questioned is a confident lie.
-    renderPanes();
-    await settle();
-
-    expect(within(paneA()).getByRole('row', { name: /SPINDLE_RPM/ })).toHaveTextContent('—');
   });
 });
 
@@ -331,12 +190,13 @@ describe('shared Inspector', () => {
     renderPanes();
     await settle();
 
-    await user.type(filterIn(paneA()), 'SPIN');
+    await user.type(within(paneA()).getByRole('textbox', { name: /filter registers/i }), 'SPIN');
     await user.click(within(paneA()).getByText('SPINDLE_RPM'));
     expect(within(inspector()).getByText(/Registers 1 · SPIN/)).toBeInTheDocument();
 
-    await user.clear(filterIn(paneA()));
-    await user.type(filterIn(paneA()), 'SPINDLE_RPM');
+    const filter = within(paneA()).getByRole('textbox', { name: /filter registers/i });
+    await user.clear(filter);
+    await user.type(filter, 'SPINDLE_RPM');
 
     expect(within(inspector()).getByText(/Registers 1 · SPINDLE_RPM/)).toBeInTheDocument();
   });

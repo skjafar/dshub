@@ -106,7 +106,7 @@ export function Inspector({
           <dd className={styles.mono}>{entry.type}</dd>
 
           <dt className={styles.label}>Access</dt>
-          <dd className={styles.value}>{accessLabel(entry)}</dd>
+          <dd className={styles.value}>{accessLabel(selection.space, entry)}</dd>
 
           {entry.unit ? (
             <>

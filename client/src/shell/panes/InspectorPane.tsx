@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { useDSHub } from '../../contexts/DSHubContext';
-import type { ParameterData, RegisterData } from '../../types/shared';
 import { useSelection } from '../SelectionContext';
 import type { AddressSpace } from '../addressSpace';
 import { isLive, isStale, linkStateOf } from '../linkState';
 import type { PaneProps } from '../paneRegistry';
+import { useSpaceBinding } from '../spaceBinding';
 import { useMapEntries } from '../useMapEntries';
 import { Inspector } from './Inspector';
 
@@ -17,12 +17,6 @@ import { Inspector } from './Inspector';
  */
 const NO_SELECTION_SPACE: AddressSpace = 'register';
 
-/** Where one Address Space's readings live, and how to ask for a fresh one. */
-interface SpaceBinding {
-  readonly readings: ReadonlyMap<number, RegisterData | ParameterData>;
-  readonly read: (address: number, name: string) => void;
-}
-
 /**
  * Binds the Inspector to the selection, the Map and the Device.
  *
@@ -34,17 +28,11 @@ interface SpaceBinding {
  * rather than being re-derived at each use.
  */
 export function InspectorPane({ setTitle }: PaneProps): React.JSX.Element {
-  const { state, actions } = useDSHub();
+  const { state } = useDSHub();
   const { selection } = useSelection();
   const space = selection?.space ?? NO_SELECTION_SPACE;
   const map = useMapEntries(space);
-
-  const bindings: Readonly<Record<AddressSpace, SpaceBinding>> = {
-    register: { readings: state.registers, read: actions.readRegister },
-    parameter: { readings: state.parameters, read: actions.readParameter },
-    sysRegister: { readings: state.systemRegisters, read: actions.readSystemRegister },
-  };
-  const binding = bindings[space];
+  const binding = useSpaceBinding(space);
 
   const entry = useMemo(
     () => (selection === null ? null : map.entries.find(e => e.address === selection.address) ?? null),

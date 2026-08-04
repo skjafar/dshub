@@ -7,21 +7,33 @@ import { DSHubProvider } from '../../contexts/DSHubContext';
 import { SettingsProvider } from '../../contexts/SettingsContext';
 import { mapManager } from '../../maps/mapManager';
 import { createFakeBackendPort } from '../../services/fakeBackendPort';
-import type { BackendPort } from '../../services/backendPort';
 import { InterfaceType } from '../../types/shared';
 import type { MapProfile } from '../../types/settings';
 import { SelectionProvider } from '../SelectionContext';
+import type { AddressSpace } from '../addressSpace';
 import { retainPaneState } from '../paneState';
+import { ParameterPane } from '../panes/ParameterPane';
 import { RegisterPane } from '../panes/RegisterPane';
+import type { PaneProps } from '../paneRegistry';
+import { recordWrites } from './writeRecorder';
+import type { RecordedWrite } from './writeRecorder';
 
 /**
- * What reaches the Device when a value is written from a Register Pane.
+ * What reaches the Device when a value is written from a data Pane.
  *
  * A wrong value written to live hardware is the failure this whole surface is
  * built around: it is silent, it is irreversible, and it looks exactly like a
  * successful interaction. Nothing on screen distinguishes a spindle set to 3.142
  * from one set to 3, so the value handed to the port is asserted exactly, for
  * every type and every display format, on both ways of committing.
+ *
+ * Every case runs against both writable Address Spaces, because a Parameter
+ * write is the same contract as a Register write and one table is what stops the
+ * two drifting into different answers. The two Maps deliberately put the same
+ * entry names at *different* addresses, so a write that went out over the wrong
+ * space's command lands on the wrong address and fails here rather than on a
+ * board — Parameters persist across a power cycle, which makes a misrouted one
+ * the more expensive of the two.
  *
  * Nothing is mocked. The recording port wraps the same fake that browser
  * development runs against, so what is asserted here is what the interface
@@ -38,70 +50,126 @@ float     FLOAT_TARGET;
 hex       FLAGS_TARGET;
 `;
 
+/** The same four targets, at different addresses. A Parameter Map declares no
+ *  read-only boundary, so every entry a Profile puts here is writable. */
+const PARAMETERS_MAP = `
+uint32_t  BAUD_RATE;
+uint32_t  NODE_ID;
+uint32_t  BOOT_DELAY_MS;
+int32_t   SIGNED_TARGET;
+uint32_t  UNSIGNED_TARGET;
+float     FLOAT_TARGET;
+hex       FLAGS_TARGET;
+`;
+
 const PROFILE: MapProfile = {
   id: 'write-test-board',
   name: 'Write test board',
   isDefault: false,
   registersMap: REGISTERS_MAP,
-  parametersMap: '',
+  parametersMap: PARAMETERS_MAP,
   createdAt: 0,
 };
 
-const ADDRESS = {
-  LOCKED_COUNTER: 0,
-  SIGNED_TARGET: 1,
-  UNSIGNED_TARGET: 2,
-  FLOAT_TARGET: 3,
-  FLAGS_TARGET: 4,
-} as const;
+/** The entries every contract case is written to. */
+type Target = 'SIGNED_TARGET' | 'UNSIGNED_TARGET' | 'FLOAT_TARGET' | 'FLAGS_TARGET';
 
-interface Write {
-  readonly address: number;
-  readonly value: number;
+type FakePort = ReturnType<typeof createFakeBackendPort>;
+
+/** One writable Address Space, and everything a case needs to drive it. */
+interface SpaceCase {
+  readonly space: AddressSpace;
+  /** Reads in a test name: "…in a Parameter Pane". */
+  readonly label: string;
+  readonly Pane: (props: PaneProps) => React.JSX.Element;
+  readonly paneId: string;
+  readonly address: Readonly<Record<Target, number>>;
+  /**
+   * Drives the *Device* directly, past the interface, to arrange a starting
+   * state — a value already on the board, or an unsolicited reading arriving
+   * mid-edit. Not what the Pane does; what happens to it.
+   */
+  readonly putOnDevice: (fake: FakePort, address: number, value: number) => Promise<void>;
+  readonly askDevice: (fake: FakePort, address: number, name: string) => Promise<void>;
 }
 
+const SPACES: readonly SpaceCase[] = [
+  {
+    space: 'register',
+    label: 'Register',
+    Pane: RegisterPane,
+    paneId: 'register#1',
+    address: {
+      SIGNED_TARGET: 1,
+      UNSIGNED_TARGET: 2,
+      FLOAT_TARGET: 3,
+      FLAGS_TARGET: 4,
+    },
+    putOnDevice: (fake, address, value) => fake.device.writeRegister(address, value),
+    askDevice: (fake, address, name) => fake.device.readRegister(address, name),
+  },
+  {
+    space: 'parameter',
+    label: 'Parameter',
+    Pane: ParameterPane,
+    paneId: 'parameter#1',
+    address: {
+      SIGNED_TARGET: 3,
+      UNSIGNED_TARGET: 4,
+      FLOAT_TARGET: 5,
+      FLAGS_TARGET: 6,
+    },
+    putOnDevice: (fake, address, value) => fake.device.writeParameter(address, value),
+    askDevice: (fake, address, name) => fake.device.readParameter(address, name),
+  },
+];
+
+const REGISTERS = SPACES[0];
+
 interface Harness {
-  readonly fake: ReturnType<typeof createFakeBackendPort>;
-  readonly writes: Write[];
+  readonly fake: FakePort;
+  readonly writes: RecordedWrite[];
+  /** Writes the Device was asked to make, in the space under test. */
+  readonly sent: () => readonly { address: number; value: number }[];
 }
 
 /**
- * Records what reaches the port without changing what it does.
+ * A refused write is produced through the fake's own `refuseWrites` fault
+ * rather than by making the recorded call throw. Stubbing the transport to
+ * reject would test a failure the real port cannot produce: the backend
+ * resolves a write as soon as it is queued, and the refusal comes back later as
+ * a confirmation carrying `valid: false`.
  *
- * The recorder only observes; a refused write is produced through the fake's own
- * `refuseWrites` fault rather than by making the call throw. Stubbing the
- * transport to reject would test a failure the real port cannot produce: the
- * backend resolves a write as soon as it is queued, and the refusal comes back
- * later as a confirmation carrying `valid: false`.
+ * All three write commands are recorded, not just the one under test, so a
+ * write that left over the wrong space's command shows up as a missing write
+ * rather than being silently absorbed.
  */
-function renderPane(): Harness {
+function renderPane(testCase: SpaceCase): Harness {
   const fake = createFakeBackendPort({ deliver: fn => fn() });
-  const writes: Write[] = [];
+  const { port, writes } = recordWrites(fake);
 
-  const port: BackendPort = {
-    ...fake,
-    device: {
-      ...fake.device,
-      writeRegister: async (address: number, value: number) => {
-        writes.push({ address, value });
-        return fake.device.writeRegister(address, value);
-      },
-    },
-  };
+  const Pane = testCase.Pane;
 
   render(
     <BackendPortProvider port={port}>
       <SettingsProvider>
         <DSHubProvider>
           <SelectionProvider>
-            <RegisterPane paneId="register#1" setTitle={vi.fn()} />
+            <Pane paneId={testCase.paneId} setTitle={vi.fn()} />
           </SelectionProvider>
         </DSHubProvider>
       </SettingsProvider>
     </BackendPortProvider>
   );
 
-  return { fake, writes };
+  return {
+    fake,
+    writes,
+    sent: () =>
+      writes
+        .filter(write => write.space === testCase.space)
+        .map(({ address, value }) => ({ address, value })),
+  };
 }
 
 async function settle(): Promise<void> {
@@ -174,7 +242,7 @@ afterEach(() => {
   retainPaneState([]);
 });
 
-describe('what reaches the port, by type and display format', () => {
+describe.each(SPACES)('what reaches the port from a $label Pane', testCase => {
   /**
    * Each row is the whole contract for one combination: this text, typed against
    * this entry, in this notation, puts exactly this word on the wire.
@@ -185,7 +253,7 @@ describe('what reaches the port, by type and display format', () => {
    * board, so a write that looked accepted did nothing at all.
    */
   const CASES: ReadonlyArray<{
-    readonly entry: keyof typeof ADDRESS;
+    readonly entry: Target;
     readonly format: keyof typeof FORMAT_INDEX;
     readonly typed: string;
     readonly expected: number;
@@ -216,14 +284,18 @@ describe('what reaches the port, by type and display format', () => {
       `writes $typed to $entry in $format as the right word (${path})`,
       async ({ entry, format, typed, expected }) => {
         const user = userEvent.setup();
-        const harness = renderPane();
+        const harness = renderPane(testCase);
         await settle();
         await readyToWrite(harness);
 
         if (format !== 'Decimal') await setFormat(user, format);
         await writeValue(user, entry, typed, path);
 
-        expect(harness.writes).toEqual([{ address: ADDRESS[entry], value: expected }]);
+        // Asserted against the whole recording, not just this space's slice: a
+        // write that left over another space's command has to fail here.
+        expect(harness.writes).toEqual([
+          { space: testCase.space, address: testCase.address[entry], value: expected },
+        ]);
       }
     );
   }
@@ -232,7 +304,7 @@ describe('what reaches the port, by type and display format', () => {
     // `write_register` takes an `i32`. Anything outside that range is refused at
     // the boundary, so the write silently does nothing to the board.
     const user = userEvent.setup();
-    const harness = renderPane();
+    const harness = renderPane(testCase);
     await settle();
     await readyToWrite(harness);
 
@@ -246,7 +318,7 @@ describe('what reaches the port, by type and display format', () => {
   });
 });
 
-describe('the two commit paths', () => {
+describe.each(SPACES)('the two commit paths, from a $label Pane', testCase => {
   /**
    * The regression this pins: the field used to mirror the Device whenever it
    * was not focused, and clicking Send blurs it — so the mirror fired before the
@@ -260,14 +332,14 @@ describe('the two commit paths', () => {
 
     for (const path of ['keyboard', 'pointer'] as const) {
       const user = userEvent.setup();
-      const harness = renderPane();
+      const harness = renderPane(testCase);
       await settle();
       await readyToWrite(harness);
 
       await writeValue(user, 'SIGNED_TARGET', typed, path);
 
-      expect(harness.writes).toHaveLength(1);
-      results.push(harness.writes[0].value);
+      expect(harness.sent()).toHaveLength(1);
+      results.push(harness.sent()[0].value);
       cleanup();
       retainPaneState([]);
     }
@@ -277,28 +349,32 @@ describe('the two commit paths', () => {
   });
 });
 
-describe('a field nobody has typed into', () => {
+describe.each(SPACES)('a field nobody has typed into, in a $label Pane', testCase => {
   /**
    * The precedent's hazard, in this surface: sending an untouched field must not
-   * quietly round the register down to whatever the column happens to show.
+   * quietly round the entry down to whatever the column happens to show.
    *
-   * A float register holding 3.14159274 reads as `3.142` — display precision. A
+   * A float entry holding 3.14159274 reads as `3.142` — display precision. A
    * field seeded from that writes 3.142 the moment Enter is pressed on a value
    * nobody meant to change, and the Device accepts it. This is what makes
-   * looking at a register capable of altering it.
+   * looking at an entry capable of altering it.
    */
-  it('writes the value the Device actually holds, not the one the column shows', async () => {
-    const user = userEvent.setup();
-    const harness = renderPane();
-    await settle();
-    await readyToWrite(harness);
+  const PI_WORD = 0x40490fdb | 0;
 
-    // Put a full-precision float on the board and read it back.
-    const PI_WORD = 0x40490fdb | 0;
+  /** Puts a full-precision float on the board, in the space under test. */
+  async function seedPi(harness: Harness): Promise<void> {
     await act(async () => {
-      await harness.fake.device.writeRegister(ADDRESS.FLOAT_TARGET, PI_WORD);
+      await testCase.putOnDevice(harness.fake, testCase.address.FLOAT_TARGET, PI_WORD);
     });
     harness.writes.length = 0;
+  }
+
+  it('writes the value the Device actually holds, not the one the column shows', async () => {
+    const user = userEvent.setup();
+    const harness = renderPane(testCase);
+    await settle();
+    await readyToWrite(harness);
+    await seedPi(harness);
 
     await user.click(screen.getByText('FLOAT_TARGET'));
 
@@ -309,29 +385,24 @@ describe('a field nobody has typed into', () => {
 
     await user.click(sendButton());
 
-    expect(harness.writes).toEqual([{ address: ADDRESS.FLOAT_TARGET, value: PI_WORD }]);
+    expect(harness.sent()).toEqual([{ address: testCase.address.FLOAT_TARGET, value: PI_WORD }]);
   });
 
   it('does the same on the keyboard path', async () => {
     const user = userEvent.setup();
-    const harness = renderPane();
+    const harness = renderPane(testCase);
     await settle();
     await readyToWrite(harness);
-
-    const PI_WORD = 0x40490fdb | 0;
-    await act(async () => {
-      await harness.fake.device.writeRegister(ADDRESS.FLOAT_TARGET, PI_WORD);
-    });
-    harness.writes.length = 0;
+    await seedPi(harness);
 
     await user.click(screen.getByText('FLOAT_TARGET'));
     await user.type(fieldFor('FLOAT_TARGET'), '{Enter}');
 
-    expect(harness.writes).toEqual([{ address: ADDRESS.FLOAT_TARGET, value: PI_WORD }]);
+    expect(harness.sent()).toEqual([{ address: testCase.address.FLOAT_TARGET, value: PI_WORD }]);
   });
 });
 
-describe('an edit in progress', () => {
+describe.each(SPACES)('an edit in progress, in a $label Pane', testCase => {
   /**
    * A live reading arriving while someone is typing must not become what gets
    * written. The Pane polls, so a value lands every second — if that overwrote
@@ -340,7 +411,7 @@ describe('an edit in progress', () => {
    */
   it('is not overwritten by a reading that arrives mid-edit', async () => {
     const user = userEvent.setup();
-    const harness = renderPane();
+    const harness = renderPane(testCase);
     await settle();
     await readyToWrite(harness);
 
@@ -350,22 +421,23 @@ describe('an edit in progress', () => {
     await user.type(field, '777');
 
     // The Device answers about the very entry being edited.
+    const address = testCase.address.SIGNED_TARGET;
     await act(async () => {
-      await harness.fake.device.readRegister(ADDRESS.SIGNED_TARGET, 'SIGNED_TARGET');
+      await testCase.askDevice(harness.fake, address, 'SIGNED_TARGET');
     });
 
     expect(field).toHaveValue('777');
 
     await user.click(sendButton());
-    expect(harness.writes).toEqual([{ address: ADDRESS.SIGNED_TARGET, value: 777 }]);
+    expect(harness.sent()).toEqual([{ address, value: 777 }]);
   });
 
   it('follows the Device again once the write has gone', async () => {
     // The field is only frozen while it holds something typed. After a commit it
-    // has to resume showing what the register actually holds, or it becomes a
-    // stale value that looks current.
+    // has to resume showing what the entry actually holds, or it becomes a stale
+    // value that looks current.
     const user = userEvent.setup();
-    const harness = renderPane();
+    const harness = renderPane(testCase);
     await settle();
     await readyToWrite(harness);
 
@@ -374,16 +446,16 @@ describe('an edit in progress', () => {
     expect(fieldFor('SIGNED_TARGET')).toHaveValue('4242');
 
     await act(async () => {
-      await harness.fake.device.writeRegister(ADDRESS.SIGNED_TARGET, 99);
+      await testCase.putOnDevice(harness.fake, testCase.address.SIGNED_TARGET, 99);
     });
 
     expect(fieldFor('SIGNED_TARGET')).toHaveValue('99');
   });
 
   it('abandons a half-typed value when another entry is selected', async () => {
-    // Carrying a draft across would aim it at a register it was never meant for.
+    // Carrying a draft across would aim it at an entry it was never meant for.
     const user = userEvent.setup();
-    const harness = renderPane();
+    const harness = renderPane(testCase);
     await settle();
     await readyToWrite(harness);
 
@@ -393,31 +465,18 @@ describe('an edit in progress', () => {
     await user.click(screen.getByText('UNSIGNED_TARGET'));
     await user.click(sendButton());
 
-    expect(harness.writes.every(write => write.address === ADDRESS.UNSIGNED_TARGET)).toBe(true);
-    expect(harness.writes.some(write => write.value === 5555)).toBe(false);
+    const unsigned = testCase.address.UNSIGNED_TARGET;
+    expect(harness.sent().every(write => write.address === unsigned)).toBe(true);
+    expect(harness.sent().some(write => write.value === 5555)).toBe(false);
   });
 });
 
-describe('what the Map and the link permit', () => {
-  it('offers no way to write a read-only entry', async () => {
-    const user = userEvent.setup();
-    const harness = renderPane();
-    await settle();
-    await readyToWrite(harness);
-
-    await user.click(screen.getByText('LOCKED_COUNTER'));
-
-    expect(screen.queryByRole('textbox', { name: /new value/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^send$/i })).not.toBeInTheDocument();
-    // Scoped past the Access column, which says "read-only" about every such row.
-    expect(screen.getByText(/is read-only in this Profile/i)).toBeInTheDocument();
-  });
-
+describe.each(SPACES)('what the link permits, in a $label Pane', testCase => {
   it('refuses to write while another interface holds Control, and says so', async () => {
     // The Device would reject the write. Offering it anyway means the operator
     // believes a value was sent that never was.
     const user = userEvent.setup();
-    const harness = renderPane();
+    const harness = renderPane(testCase);
     harness.fake.faults.refuseControl(true);
     await settle();
     await readyToWrite(harness);
@@ -432,7 +491,7 @@ describe('what the Map and the link permit', () => {
 
   it('refuses to write with no link, and says so', async () => {
     const user = userEvent.setup();
-    const harness = renderPane();
+    const harness = renderPane(testCase);
     await settle();
 
     await user.click(screen.getByText('SIGNED_TARGET'));
@@ -443,7 +502,25 @@ describe('what the Map and the link permit', () => {
   });
 });
 
-describe('a value the entry cannot hold', () => {
+describe('what the Map permits', () => {
+  it('offers no way to write a read-only Register', async () => {
+    // Access comes from the Map's own read-only boundary. A Parameter Map
+    // declares none, so this case exists only in the Register space.
+    const user = userEvent.setup();
+    const harness = renderPane(REGISTERS);
+    await settle();
+    await readyToWrite(harness);
+
+    await user.click(screen.getByText('LOCKED_COUNTER'));
+
+    expect(screen.queryByRole('textbox', { name: /new value/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^send$/i })).not.toBeInTheDocument();
+    // Scoped past the Access column, which says "read-only" about every such row.
+    expect(screen.getByText(/is read-only in this Profile/i)).toBeInTheDocument();
+  });
+});
+
+describe.each(SPACES)('a value the entry cannot hold, in a $label Pane', testCase => {
   it.each([
     ['1.9', 'SIGNED_TARGET' as const, /whole number/i],
     ['-1', 'UNSIGNED_TARGET' as const, /between 0 and/i],
@@ -453,7 +530,7 @@ describe('a value the entry cannot hold', () => {
     // Truncating 1.9 to 1, or wrapping an out-of-range value, writes a number
     // nobody asked for and looks like it worked.
     const user = userEvent.setup();
-    const harness = renderPane();
+    const harness = renderPane(testCase);
     await settle();
     await readyToWrite(harness);
 
@@ -464,7 +541,7 @@ describe('a value the entry cannot hold', () => {
   });
 });
 
-describe('a write the Device refuses', () => {
+describe.each(SPACES)('a write the Device refuses, in a $label Pane', testCase => {
   /**
    * The failure this whole surface exists to prevent, and the one that used to
    * be invisible end to end.
@@ -477,7 +554,7 @@ describe('a write the Device refuses', () => {
    */
   it('says so at the field rather than reporting success', async () => {
     const user = userEvent.setup();
-    const harness = renderPane();
+    const harness = renderPane(testCase);
     await settle();
     await readyToWrite(harness);
     harness.fake.faults.refuseWrites(true);
@@ -490,7 +567,7 @@ describe('a write the Device refuses', () => {
 
   it('keeps the typed value so it can be sent again', async () => {
     const user = userEvent.setup();
-    const harness = renderPane();
+    const harness = renderPane(testCase);
     await settle();
     await readyToWrite(harness);
     harness.fake.faults.refuseWrites(true);
@@ -503,17 +580,18 @@ describe('a write the Device refuses', () => {
     await user.click(sendButton());
     await settle();
 
-    expect(harness.writes).toEqual([
-      { address: ADDRESS.SIGNED_TARGET, value: 1234 },
-      { address: ADDRESS.SIGNED_TARGET, value: 1234 },
+    const address = testCase.address.SIGNED_TARGET;
+    expect(harness.sent()).toEqual([
+      { address, value: 1234 },
+      { address, value: 1234 },
     ]);
   });
 
-  it('does not leave the refusal standing under another register', async () => {
+  it('does not leave the refusal standing under another entry', async () => {
     // A failure belongs to the entry it happened to. Left in place, it reports a
-    // refusal that the next register's field never had.
+    // refusal that the next entry's field never had.
     const user = userEvent.setup();
-    const harness = renderPane();
+    const harness = renderPane(testCase);
     await settle();
     await readyToWrite(harness);
     harness.fake.faults.refuseWrites(true);
@@ -531,7 +609,7 @@ describe('a write the Device refuses', () => {
     // Distinct from a refusal: the request never left. The fake raises the same
     // error the backend does when there is no link.
     const user = userEvent.setup();
-    const harness = renderPane();
+    const harness = renderPane(testCase);
     await settle();
     await readyToWrite(harness);
 

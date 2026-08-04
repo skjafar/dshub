@@ -61,7 +61,8 @@ One consequence reaches the interface. A write command resolves as soon as the
 request is *queued* — it cannot do otherwise, since responses arrive as events —
 so a resolved write is not a completed one. Surfaces that report a write's
 outcome must wait for the Device's answer rather than for the command, which is
-what `shell/panes/RegisterPane.tsx` does.
+what `shell/panes/AddressSpacePane.tsx` does — the one component behind the
+Register, Parameter and System Register Panes (ticket 09).
 
 ## Consequences
 

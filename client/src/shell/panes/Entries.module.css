@@ -22,6 +22,23 @@
   flex-shrink: 0;
 }
 
+/* Which Address Space this Pane lists. Set in the label voice rather than as a
+   title, because it identifies the surface rather than announcing it — and it
+   must stay legible at the width a Pane docked into a quarter of the window
+   gets, which is why it never wraps. */
+.space {
+  flex: 0 0 auto;
+  margin: 0;
+
+  color: var(--on-surface-variant);
+  font-family: var(--font-headline);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 /* The filter is the control this Pane is actually used through, so it takes
    whatever width is going and the rest keep their intrinsic size. */
 .filter {
@@ -73,6 +90,32 @@
 
 .idleNote {
   color: var(--on-surface-variant);
+}
+
+/* A space the protocol permits no write to. Sits where the write bar would be
+   and reads in the same quiet voice as the rest of the status text: it is a
+   statement of what this space is, not a warning that something went wrong. */
+.readOnlySpace {
+  flex-shrink: 0;
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-base);
+  background: var(--surface-container);
+  color: var(--on-surface-variant);
+  font-size: var(--text-sm);
+}
+
+/* The writable spaces' counterpart to `.readOnlySpace`: no border or fill,
+   since there is nothing to explain the absence of — just what a write here
+   means, in the same quiet voice as the status line above it. */
+.spaceDescription {
+  flex-shrink: 0;
+  margin: 0;
+
+  color: var(--on-surface-variant);
+  font-size: var(--text-sm);
 }
 
 /* ── Table ────────────────────────────────────────────────────────────────── */

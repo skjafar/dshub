@@ -8,11 +8,20 @@
  */
 
 import type { ComponentType } from 'react';
+import type { AddressSpace } from './addressSpace';
 import { OverviewPane } from './panes/OverviewPane';
+import { ParameterPane } from './panes/ParameterPane';
 import { RegisterPane } from './panes/RegisterPane';
+import { SystemRegisterPane } from './panes/SystemRegisterPane';
 import { InspectorPane } from './panes/InspectorPane';
 
-export type PaneKind = 'overview' | 'register' | 'inspector';
+/**
+ * The three data Pane kinds are narrowed from `AddressSpace` rather than
+ * restated, so the two cannot drift — `addressSpace.ts` sets this precedent for
+ * the same reason. A panel id carries its space, and a saved layout cannot
+ * restore a Pane pointed at a different one than it was saved with.
+ */
+export type PaneKind = 'overview' | AddressSpace | 'inspector';
 
 /**
  * What the Workspace hands a Pane.
@@ -59,6 +68,20 @@ export const PANES: readonly PaneDefinition[] = [
     description: 'Live runtime values, by name from the Map',
     singleton: false,
     component: RegisterPane,
+  },
+  {
+    kind: 'parameter',
+    title: 'Parameters',
+    description: 'Configuration the Device keeps across a power cycle',
+    singleton: false,
+    component: ParameterPane,
+  },
+  {
+    kind: 'sysRegister',
+    title: 'System Registers',
+    description: 'The protocol library’s own space — readable, never writable',
+    singleton: false,
+    component: SystemRegisterPane,
   },
   {
     kind: 'inspector',
