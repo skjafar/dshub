@@ -384,12 +384,33 @@ fn process_response(data: &[u8], req: &DeviceRequest, app: &AppHandle) {
             );
         }
         0 => {
-            // System command response (library sys commands: READ_FLASH etc.)
-            emit_log(
-                app,
-                LogLevel::Info,
-                LogCategory::Connection,
-                format!("System command response: status={}, addr={}, value={}", status, address, value),
+            // System command response — library sys commands (READ_FLASH etc.) and
+            // every Profile Command, which are both sent as type=0 with their code
+            // in the address field. Mirrors the register/parameter write arms:
+            // logged only on refusal, and the typed event (not the log) is what a
+            // caller waiting on the outcome reads, so a refused Command cannot be
+            // read as a sent one.
+            let ok = status_ok(status);
+            if !ok {
+                emit_log(
+                    app,
+                    LogLevel::Error,
+                    LogCategory::Connection,
+                    format!(
+                        "Command {} refused by the device: status={} ({})",
+                        req.address, status, status_name(status)
+                    ),
+                );
+            }
+            let _ = app.emit(
+                "commandResponse",
+                &CommandResponse {
+                    command: req.address,
+                    value,
+                    status,
+                    valid: ok,
+                    timestamp: ts,
+                },
             );
         }
         6 => {

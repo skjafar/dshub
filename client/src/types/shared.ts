@@ -64,6 +64,22 @@ export interface PlotDataPoint {
   y: number; // value
 }
 
+/**
+ * A Command's answer from the Device.
+ *
+ * `command` is the code that was sent — the request's own address field, not the
+ * response's, since SYS_COMMAND does not echo a meaningful address (see
+ * `communicator.rs`'s `response_matches`). `valid` is `status >= 0`, the same
+ * success rule the write confirmations use.
+ */
+export interface CommandResponse {
+  command: number;
+  value: number;
+  status: number;
+  valid: boolean;
+  timestamp: number;
+}
+
 export type LogCategory = 'connection' | 'register' | 'parameter' | 'packet' | 'autoRefresh' | 'plotting';
 
 export interface LogEntry {

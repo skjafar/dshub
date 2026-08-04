@@ -63,6 +63,20 @@ pub struct ParameterData {
     pub timestamp: f64,
 }
 
+/// A Command's answer from the Device.
+///
+/// `command` is the request's own address field, not the response's — SYS_COMMAND
+/// (type 0) does not echo a meaningful address (see `response_matches`), so the
+/// code identifying which Command this answers has to come from what was sent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommandResponse {
+    pub command: u16,
+    pub value: i32,
+    pub status: i16,
+    pub valid: bool,
+    pub timestamp: f64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlotDataPoint {
     pub x: f64, // Unix timestamp in seconds

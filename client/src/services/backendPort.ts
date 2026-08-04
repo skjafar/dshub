@@ -14,6 +14,7 @@
  */
 
 import type {
+  CommandResponse,
   DeviceConnection,
   DiscoveredDevice,
   InterfaceType,
@@ -52,6 +53,12 @@ export interface DevicePort {
   readSystemRegister(address: number, name: string): Promise<void>;
   writeSystemRegister(address: number, value: number): Promise<void>;
 
+  /**
+   * Sends a Command. Resolves once the request is *queued*, not once the Device
+   * has answered — the answer arrives later, as a `commandResponse` event, and a
+   * caller reporting the outcome must wait for that rather than for this to
+   * resolve.
+   */
   sendCommand(command: number, address: number, value: number): Promise<void>;
 
   startPlotting(registerName: string, pollInterval: number, address: number): Promise<void>;
@@ -86,6 +93,7 @@ export interface BackendEventMap {
   registerUpdate: RegisterData;
   parameterUpdate: ParameterData;
   sysRegisterUpdate: RegisterData;
+  commandResponse: CommandResponse;
   logEntry: LogEntry;
   plotData: { seriesName: string; point: PlotDataPoint };
 }

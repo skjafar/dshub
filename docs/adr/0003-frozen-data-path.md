@@ -64,6 +64,54 @@ outcome must wait for the Device's answer rather than for the command, which is
 what `shell/panes/AddressSpacePane.tsx` does — the one component behind the
 Register, Parameter and System Register Panes (ticket 09).
 
+## Amendment — a Command's answer now crosses the boundary as data, not only as a log line
+
+A fourth edit to frozen code is permitted, on the same grounds as the second and
+third: a defect found, fixed in place, with nothing redesigned around it.
+
+Ticket 11 (the Command Pane) carries the same requirement ticket 07 already
+carried for writes — "the result of sending is reported plainly; a Command that
+was rejected must never look like one that succeeded" — and inherits the same
+confirmation pattern: send, then wait for the Device's own answer rather than
+for the command resolving, since a write command resolves as soon as it is
+*queued*. Before this amendment there was nothing to wait for. `process_response`
+matched a Command's reply (`command == 0`, covering both the three library
+SYS_COMMANDs and every Profile Command, which are both sent as type 0 with their
+code in the address field) with a log line — `status` was read only to decide
+what to print, never carried across the boundary as data. A caller could not
+tell a `PERMISSION_ERROR` from a success without parsing a string meant for a
+person to read.
+
+The fix mirrors the write arms exactly: `commandResponse` is a new typed event,
+`CommandResponse { command, value, status, valid, timestamp }`, and case `0` now
+emits it — logging only on refusal, the same asymmetry cases `2` and `4` already
+use, since a success is fully said by `valid: true` on the event and a second
+line would be noise. `command` carries the *request's* address field, not the
+response's: `response_matches` already established that SYS_COMMAND does not
+echo a meaningful address, so the code identifying which Command this answers
+has to come from what was sent, not from what the Device echoed back.
+
+One side effect worth naming: case `0` covers both the three library
+SYS_COMMANDs and every Profile Command — both travel as type `0`, with their
+code in the address field — so the always-on info log a successful SYS_COMMAND
+used to produce is gone for both, not only for the traffic this ticket added.
+Nothing in the current interface reads that line for feedback (the legacy
+`SysCommandPanel` it served is not mounted under the rebuilt shell), so this has
+no live effect, but it is a behaviour change to shared code and not only to the
+new Pane's own path.
+
+Response correlation, sequencing, queueing and the rate limiter are untouched.
+The change is one match arm; `status_ok` is the same function the write arms
+already use and already carries its own tests.
+
+`shell/panes/CommandPane.tsx` is the interface-side consequence: it waits for a
+`commandResponse` bearing its own sent timestamp before reporting an outcome,
+timing out and saying so if none arrives, exactly as `AddressSpacePane` does for
+`registerUpdate`/`parameterUpdate`. It subscribes to the port directly rather
+than through `DSHubContext` — the device half of the application context stays
+untouched by this ticket, since the Pane needing the answer is reason enough to
+read it at the boundary without adding a case to frozen reducer state for it.
+
 ## Consequences
 
 The presentation semantics that happened to live outside `components/` are *in* scope, despite sitting in the same directories as frozen code: the widget config schema in `types/dashboard.ts`, the `UserSettings` shape, the canned CNC dashboard, and the widget icon map. The boundary is what the code means, not where it sits.

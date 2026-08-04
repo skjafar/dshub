@@ -261,6 +261,15 @@ export interface FakeFaults {
    * command as success reports a refused write as a completed one.
    */
   refuseWrites(refuse: boolean): void;
+  /**
+   * When set, the Device refuses every Command with `PERMISSION_ERROR`, as it
+   * does when Control is held elsewhere.
+   *
+   * Mirrors {@link refuseWrites}'s asymmetry: `sendCommand` still resolves — the
+   * backend queues a Command before the Device has answered it — and the
+   * refusal arrives afterwards, as a `commandResponse` carrying `valid: false`.
+   */
+  refuseCommands(refuse: boolean): void;
 }
 
 export interface FakeBackendPort extends BackendPort {
@@ -286,6 +295,7 @@ export function createFakeBackendPort(options: FakeBackendPortOptions = {}): Fak
   let refusingControl = false;
   let invalidEntries: boolean | ReadonlySet<number> = false;
   let refusingWrites = false;
+  let refusingCommands = false;
 
   const isInvalid = (address: number): boolean =>
     typeof invalidEntries === 'boolean' ? invalidEntries : invalidEntries.has(address);
@@ -473,16 +483,43 @@ export function createFakeBackendPort(options: FakeBackendPortOptions = {}): Fak
         });
       },
 
-      // The Device answers a Command with a status rather than a value, and the
-      // backend surfaces that as a log line. That line is the only feedback the
-      // Command surfaces have, so the fake has to produce it.
+      // The Device answers a Command with a status. For command=0 (SYS_COMMAND —
+      // the wire type every Profile Command and library command uses; the actual
+      // code travels in the address field) that status now crosses as a typed
+      // `commandResponse`, ADR-0003's fourth amendment, mirroring the write
+      // confirmations: logged only on refusal, since success is fully said by
+      // `valid: true` on the event and a second line would be noise. Any other
+      // command type is user-defined traffic (CNC motor control etc.) with no
+      // Pane reading its outcome, so it keeps the log-line acknowledgement it
+      // already had.
       sendCommand: async (command: number, address: number, value: number) => {
         requireLink();
+        if (command !== 0) {
+          deliver(() => {
+            bus.emit('logEntry', {
+              level: 'success',
+              category: 'connection',
+              message: `Command ${command} response: status=0, addr=${address}, value=${value}`,
+              timestamp: now(),
+            });
+          });
+          return;
+        }
+        const ok = !refusingCommands;
         deliver(() => {
-          bus.emit('logEntry', {
-            level: 'success',
-            category: 'connection',
-            message: `Command ${command} response: status=0, addr=${address}, value=${value}`,
+          if (!ok) {
+            bus.emit('logEntry', {
+              level: 'error',
+              category: 'connection',
+              message: `Command ${address} refused by the device: status=-5 (PERMISSION_ERROR)`,
+              timestamp: now(),
+            });
+          }
+          bus.emit('commandResponse', {
+            command: address,
+            value,
+            status: ok ? 0 : -5,
+            valid: ok,
             timestamp: now(),
           });
         });
@@ -519,6 +556,8 @@ export function createFakeBackendPort(options: FakeBackendPortOptions = {}): Fak
       refuseControl: (refuse: boolean) => { refusingControl = refuse; },
 
       refuseWrites: (refuse: boolean) => { refusingWrites = refuse; },
+
+      refuseCommands: (refuse: boolean) => { refusingCommands = refuse; },
 
       dropLink: () => {
         if (!link) return;
