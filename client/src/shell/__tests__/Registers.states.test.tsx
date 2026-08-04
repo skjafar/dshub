@@ -45,6 +45,9 @@ function props(map: MapView, overrides: Partial<RegistersProps> = {}): Registers
     onRead: vi.fn(),
     link: 'online',
     map,
+    // Nothing selected, so there is nothing to write to. The write bar has its
+    // own suite; these cases are about having nothing to list.
+    write: null,
     ...overrides,
   };
 }

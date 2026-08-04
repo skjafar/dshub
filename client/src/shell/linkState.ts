@@ -7,7 +7,7 @@
  * for the same machine state.
  */
 
-import { ControlInterfaceState } from '../types/shared';
+import { ControlInterfaceState, InterfaceType } from '../types/shared';
 import type { DeviceConnection } from '../types/shared';
 
 export type LinkState = 'online' | 'connecting' | 'reconnecting' | 'disconnected' | 'no device';
@@ -48,18 +48,47 @@ export function isLive(link: LinkState): boolean {
  * else" and "unclaimed" are three states, and two flags can express a fourth
  * that does not exist.
  */
+/** The interfaces the Device can report as holding Control, as it names them. */
+export type ControlTransport =
+  | 'TCP'
+  | 'UDP'
+  | 'TCP datastream'
+  | 'UDP datastream'
+  | 'TCP CLI'
+  | 'USB';
+
 export type ControlHolder =
   | { readonly kind: 'unclaimed' }
-  | { readonly kind: 'ours'; readonly transport: 'TCP' | 'UDP' }
-  | { readonly kind: 'elsewhere'; readonly transport: 'TCP CLI' | 'USB' };
+  | { readonly kind: 'ours'; readonly transport: Extract<ControlTransport, 'TCP' | 'UDP'> }
+  | {
+      readonly kind: 'elsewhere';
+      readonly transport: Exclude<ControlTransport, 'TCP' | 'UDP'>;
+    };
 
+/**
+ * Who holds Control.
+ *
+ * The Device reports which *interface type* holds its control interface, not
+ * which session — so a datastream claim is only ours if it is on the transport
+ * this session is connected over. Without that comparison, connecting over TCP
+ * to a board whose Control is held by a UDP session reads as "this session",
+ * and every write affordance that answer governs is offered for a write the
+ * board will refuse.
+ *
+ * Two sessions on the *same* transport still cannot be told apart; the protocol
+ * carries nothing that would distinguish them.
+ */
 export function controlHolderOf(connection: DeviceConnection | null): ControlHolder {
   if (!connection?.connected) return { kind: 'unclaimed' };
   switch (connection.controlState) {
     case ControlInterfaceState.TCP_DATASTREAM:
-      return { kind: 'ours', transport: 'TCP' };
+      return connection.interface === InterfaceType.TCP
+        ? { kind: 'ours', transport: 'TCP' }
+        : { kind: 'elsewhere', transport: 'TCP datastream' };
     case ControlInterfaceState.UDP_DATASTREAM:
-      return { kind: 'ours', transport: 'UDP' };
+      return connection.interface === InterfaceType.UDP
+        ? { kind: 'ours', transport: 'UDP' }
+        : { kind: 'elsewhere', transport: 'UDP datastream' };
     case ControlInterfaceState.TCP_CLI:
       return { kind: 'elsewhere', transport: 'TCP CLI' };
     case ControlInterfaceState.USB:
@@ -67,6 +96,18 @@ export function controlHolderOf(connection: DeviceConnection | null): ControlHol
     default:
       return { kind: 'unclaimed' };
   }
+}
+
+/**
+ * Whether this session may write.
+ *
+ * The one gate every write affordance is drawn from. It agrees with
+ * `canWriteToDevice`, which the old view layer wrote through and which
+ * `__tests__/linkState.test.ts` pins it against — two answers to "may I write"
+ * is how an affordance appears for a write the Device will refuse.
+ */
+export function holdsControl(connection: DeviceConnection | null): boolean {
+  return controlHolderOf(connection).kind === 'ours';
 }
 
 /** Short form, for the chrome. */

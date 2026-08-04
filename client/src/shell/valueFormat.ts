@@ -11,7 +11,7 @@
  */
 
 import { DataForm } from '../maps/mapParser';
-import { int32ToFloat } from '../utils/floatConversion';
+import { floatToInt32, int32ToFloat } from '../utils/floatConversion';
 import { formatFractional } from '../utils/numberFormat';
 
 /** The notations a Pane can be switched between. */
@@ -82,6 +82,49 @@ export function formatEntryValue(
     default:
       return toDecimal(raw, type);
   }
+}
+
+/**
+ * The shortest decimal text that decodes back to exactly this float.
+ *
+ * Display rounds to three places, which is right for reading a column and wrong
+ * for seeding a field someone is about to commit: a register holding 3.14159274
+ * shows as `3.142`, and a field started from that writes 3.142 to the Device the
+ * moment Enter is pressed on a value nobody meant to change. Digits are added
+ * until the text survives the round trip, so the field starts from the value the
+ * Device actually holds — and stays as short as that allows.
+ */
+function exactFloatText(value: number): string {
+  // Negative zero is a distinct word, and every rounding route below renders it
+  // as "0" — which writes back the positive one.
+  if (Object.is(value, -0)) return '-0';
+
+  const target = floatToInt32(value);
+  // Nine significant digits always suffice for a 32-bit float; the loop stops at
+  // the first width that does, so whole numbers stay whole.
+  for (let digits = 1; digits <= 9; digits += 1) {
+    const text = value.toPrecision(digits);
+    if (floatToInt32(Number(text)) === target) return String(Number(text));
+  }
+  return String(value);
+}
+
+/**
+ * The text a write field starts from.
+ *
+ * Distinct from {@link formatEntryValue}, which is display: hexadecimal and
+ * binary already carry every bit, but a decimal float has to be seeded at full
+ * precision rather than at the three places a column is read in.
+ */
+export function editableEntryValue(
+  raw: number,
+  type: DataForm,
+  format: DisplayFormat
+): string {
+  if (format === 'decimal' && type === DataForm.FLOAT) {
+    return exactFloatText(int32ToFloat(raw));
+  }
+  return formatEntryValue(raw, type, format);
 }
 
 /** Every reading of one word, which is what the Inspector states at once. */

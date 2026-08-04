@@ -34,6 +34,35 @@ development-only workaround either.
 subscriptions at the port because an unmounted tree renders nothing whether or
 not its handlers are still live.
 
+## Amendment — refused writes are no longer reported as successful ones
+
+A third edit to frozen code is permitted, on the same grounds as the second: a
+defect found, fixed in place, with nothing redesigned around it.
+
+`process_response` parsed the response status and then discarded it for register
+and parameter writes, emitting `registerUpdate`/`parameterUpdate` with
+`valid: true` whatever the board answered. A write the Device refused —
+`PERMISSION_ERROR` when Control is held elsewhere, or `ERROR` for a value the
+firmware will not take — was reported to the interface as a completed write. The
+board then held a different value than the screen said it did, and nothing
+anywhere said so.
+
+This is precisely the failure ticket 07 exists to prevent, and it could not be
+fixed above the boundary: the status never crossed it. The change is contained to
+the two write arms — a status check, an error log, and `valid` carrying what the
+board actually said. Note that success in this protocol is any non-negative code
+(`WRITE_REG_OK` is 2, `WRITE_PARAM_OK` is 4, not 0); treating zero as the only
+success would report every accepted write as refused.
+
+Response correlation, sequencing, queueing and the rate limiter are untouched.
+`communicator.rs`'s test module pins both halves of the status rule.
+
+One consequence reaches the interface. A write command resolves as soon as the
+request is *queued* — it cannot do otherwise, since responses arrive as events —
+so a resolved write is not a completed one. Surfaces that report a write's
+outcome must wait for the Device's answer rather than for the command, which is
+what `shell/panes/RegisterPane.tsx` does.
+
 ## Consequences
 
 The presentation semantics that happened to live outside `components/` are *in* scope, despite sitting in the same directories as frozen code: the widget config schema in `types/dashboard.ts`, the `UserSettings` shape, the canned CNC dashboard, and the widget icon map. The boundary is what the code means, not where it sits.

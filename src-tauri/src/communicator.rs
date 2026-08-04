@@ -126,12 +126,8 @@ fn analyze_tx_packet(data: &[u8]) -> String {
     format!("Type={} ({}) | Addr={} (0x{:04X}) | Value={}", cmd, cmd_name, addr, addr, val)
 }
 
-fn analyze_rx_packet(data: &[u8]) -> String {
-    if data.len() < 8 { return "Invalid RX packet".to_string(); }
-    let status = i16::from_le_bytes([data[0], data[1]]);
-    let addr   = u16::from_le_bytes([data[2], data[3]]);
-    let val    = i32::from_le_bytes([data[4], data[5], data[6], data[7]]);
-    let status_name = match status {
+pub fn status_name(status: i16) -> &'static str {
+    match status {
         0  => "SYS_CMD_OK",
         1  => "READ_REG_OK",
         2  => "WRITE_REG_OK",
@@ -142,8 +138,30 @@ fn analyze_rx_packet(data: &[u8]) -> String {
         -1 => "ERROR",
         -5 => "PERMISSION_ERROR",
         _  => "UNKNOWN",
-    };
-    format!("Status={} ({}) | Addr={} (0x{:04X}) | Value={}", status, status_name, addr, addr, val)
+    }
+}
+
+/// Whether a response status reports success.
+///
+/// Every success in this protocol is a non-negative code — `WRITE_REG_OK` is 2
+/// and `WRITE_PARAM_OK` is 4, not 0 — and every failure is negative: `ERROR` is
+/// -1 and `PERMISSION_ERROR` is -5.
+///
+/// This exists because the write arms below used to discard the status
+/// altogether and emit `valid: true` whatever the board said. A write the device
+/// refused was reported to the interface as a completed one, which is the exact
+/// failure the write path is built to prevent: nothing on screen distinguished a
+/// value that reached the register from one that was rejected.
+pub fn status_ok(status: i16) -> bool {
+    status >= 0
+}
+
+fn analyze_rx_packet(data: &[u8]) -> String {
+    if data.len() < 8 { return "Invalid RX packet".to_string(); }
+    let status = i16::from_le_bytes([data[0], data[1]]);
+    let addr   = u16::from_le_bytes([data[2], data[3]]);
+    let val    = i32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    format!("Status={} ({}) | Addr={} (0x{:04X}) | Value={}", status, status_name(status), addr, addr, val)
 }
 
 pub fn emit_packet_log(
@@ -284,11 +302,23 @@ fn process_response(data: &[u8], req: &DeviceRequest, app: &AppHandle) {
                 .name
                 .clone()
                 .unwrap_or_else(|| format!("addr_{}", address));
+            let ok = status_ok(status);
+            if !ok {
+                emit_log(
+                    app,
+                    LogLevel::Error,
+                    LogCategory::Register,
+                    format!(
+                        "Write to register {} (0x{:04X}) refused by the device: status={} ({})",
+                        address, address, status, status_name(status)
+                    ),
+                );
+            }
             let reg = RegisterData {
                 address,
                 name,
                 value,
-                valid: true,
+                valid: ok,
                 timestamp: ts,
             };
             let _ = app.emit("registerUpdate", &reg);
@@ -314,11 +344,23 @@ fn process_response(data: &[u8], req: &DeviceRequest, app: &AppHandle) {
                 .name
                 .clone()
                 .unwrap_or_else(|| format!("param_{}", address));
+            let ok = status_ok(status);
+            if !ok {
+                emit_log(
+                    app,
+                    LogLevel::Error,
+                    LogCategory::Parameter,
+                    format!(
+                        "Write to parameter {} refused by the device: status={} ({})",
+                        address, status, status_name(status)
+                    ),
+                );
+            }
             let param = ParameterData {
                 address,
                 name,
                 value,
-                valid: true,
+                valid: ok,
                 timestamp: ts,
             };
             let _ = app.emit("parameterUpdate", &param);
@@ -564,6 +606,28 @@ mod tests {
             let r = req(command, 0);
             assert!(response_matches(&r, &response(0, 999, 1)), "cmd {command}");
         }
+    }
+
+    #[test]
+    fn a_refused_write_is_not_reported_as_a_successful_one() {
+        // The write arms used to discard the status and emit `valid: true`
+        // whatever the board answered, so a register the device refused to write
+        // — PERMISSION_ERROR, or an ERROR from a value it would not take — was
+        // reported to the interface as written. Nothing on screen distinguished
+        // it from a value that had actually landed.
+        assert!(!status_ok(-5), "PERMISSION_ERROR");
+        assert!(!status_ok(-1), "ERROR");
+    }
+
+    #[test]
+    fn the_success_codes_this_protocol_uses_are_not_zero() {
+        // Writes answer 2 and 4, not 0. Treating "success" as `status == 0`
+        // would report every accepted write as refused.
+        assert!(status_ok(2), "WRITE_REG_OK");
+        assert!(status_ok(4), "WRITE_PARAM_OK");
+        assert!(status_ok(0), "SYS_CMD_OK");
+        assert_eq!(status_name(2), "WRITE_REG_OK");
+        assert_eq!(status_name(-5), "PERMISSION_ERROR");
     }
 
     #[test]

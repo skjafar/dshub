@@ -8,6 +8,8 @@ import type { LinkState } from '../linkState';
 import { DISPLAY_FORMATS, formatEntryValue } from '../valueFormat';
 import type { DisplayFormat } from '../valueFormat';
 import type { MapView } from '../useMapEntries';
+import { WriteBar } from './WriteBar';
+import type { WriteBarProps } from './WriteBar';
 import styles from './Registers.module.css';
 
 /** One Map entry beside whatever the Device last said about it. */
@@ -41,6 +43,11 @@ export interface RegistersProps {
   readonly link: LinkState;
   /** The Map this Pane is listing, and whether it has arrived. */
   readonly map: MapView;
+  /**
+   * Everything the write bar needs, or null when nothing is selected. Absent
+   * rather than disabled: with no entry chosen there is nothing to write to.
+   */
+  readonly write: WriteBarProps | null;
 }
 
 const FORMAT_LABEL: Readonly<Record<DisplayFormat, string>> = {
@@ -97,6 +104,7 @@ export function Registers({
   onRead,
   link,
   map,
+  write,
 }: RegistersProps): React.JSX.Element {
   const liveId = useId();
   const stale = isStale(link);
@@ -222,6 +230,11 @@ export function Registers({
           <span className={styles.idleNote}>Connect from the chrome above to read values.</span>
         ) : null}
       </p>
+
+      {/* Keyed on the entry, so selecting a different one abandons a half-typed
+          value rather than carrying it across to a register it was never meant
+          for. */}
+      {write !== null ? <WriteBar key={write.entry.address} {...write} /> : null}
 
       {notice !== null ? (
         <p className={styles.notice}>{notice}</p>

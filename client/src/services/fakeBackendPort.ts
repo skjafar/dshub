@@ -250,6 +250,17 @@ export interface FakeFaults {
    * gain in what it can show.
    */
   invalidate(invalid: boolean | ReadonlySet<number>): void;
+  /**
+   * When set, the Device refuses every write, as it does for an entry the
+   * firmware will not accept or a session that does not hold Control.
+   *
+   * The command itself still succeeds — the backend resolves a write as soon as
+   * the request is queued, long before the board answers — and the refusal
+   * arrives as a confirmation carrying `valid: false`. That asymmetry is the
+   * whole reason this fault exists: a write path that treats the resolved
+   * command as success reports a refused write as a completed one.
+   */
+  refuseWrites(refuse: boolean): void;
 }
 
 export interface FakeBackendPort extends BackendPort {
@@ -274,6 +285,7 @@ export function createFakeBackendPort(options: FakeBackendPortOptions = {}): Fak
   let controlState: ControlInterfaceState = ControlInterfaceState.UNDECIDED;
   let refusingControl = false;
   let invalidEntries: boolean | ReadonlySet<number> = false;
+  let refusingWrites = false;
 
   const isInvalid = (address: number): boolean =>
     typeof invalidEntries === 'boolean' ? invalidEntries : invalidEntries.has(address);
@@ -320,12 +332,16 @@ export function createFakeBackendPort(options: FakeBackendPortOptions = {}): Fak
    * A write confirmation. The write commands carry no name, so the backend falls
    * back to a generated one — and its prefix differs by space. The fake matches
    * that rather than inventing a nicer name the real link would never send.
+   *
+   * A refused write answers with `valid: false`, which is how the backend now
+   * reports a negative status. The stored value is left alone, because a refused
+   * write did not happen.
    */
   const confirmation = (space: AddressSpace, address: number, value: number): RegisterData => ({
     address,
     name: `${space === 'parameter' ? 'param' : 'addr'}_${address}`,
     value: written.get(key(space, address)) ?? value,
-    valid: !isInvalid(address),
+    valid: !refusingWrites && !isInvalid(address),
     timestamp: now(),
   });
 
@@ -423,7 +439,10 @@ export function createFakeBackendPort(options: FakeBackendPortOptions = {}): Fak
       },
       writeRegister: async (address: number, value: number) => {
         requireLink();
-        written.set(key('register', address), value);
+        // A refused write leaves the register as it was. Storing it and then
+        // reporting the refusal would leave the fake claiming a value the board
+        // never took.
+        if (!refusingWrites) written.set(key('register', address), value);
         deliver(() => bus.emit('registerUpdate', confirmation('register', address, value)));
       },
       readParameter: async (address: number, name: string) => {
@@ -432,7 +451,7 @@ export function createFakeBackendPort(options: FakeBackendPortOptions = {}): Fak
       },
       writeParameter: async (address: number, value: number) => {
         requireLink();
-        written.set(key('parameter', address), value);
+        if (!refusingWrites) written.set(key('parameter', address), value);
         deliver(() => bus.emit('parameterUpdate', confirmation('parameter', address, value)));
       },
       readSystemRegister: async (address: number, name: string) => {
@@ -498,6 +517,8 @@ export function createFakeBackendPort(options: FakeBackendPortOptions = {}): Fak
 
     faults: {
       refuseControl: (refuse: boolean) => { refusingControl = refuse; },
+
+      refuseWrites: (refuse: boolean) => { refusingWrites = refuse; },
 
       dropLink: () => {
         if (!link) return;
