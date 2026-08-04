@@ -8,6 +8,8 @@
  */
 
 .surface {
+  z-index: var(--z-overlay);
+
   min-width: 160px;
   padding: var(--space-2xs);
 

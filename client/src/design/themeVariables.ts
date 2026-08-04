@@ -31,6 +31,7 @@ import {
   TEXT,
   TRACKING,
   WEIGHT,
+  Z_INDEX,
 } from './tokens';
 
 /** A map of custom-property name to value, ready to set on an element. */
@@ -160,6 +161,10 @@ export function themeCssVariables(theme: AppTheme): CssVariables {
     '--duration-instant': DURATION.instant,
     '--duration-base': DURATION.base,
     '--easing': EASING,
+
+    // ── Elevation ────────────────────────────────────────────────────────────
+    '--z-sticky': `${Z_INDEX.sticky}`,
+    '--z-overlay': `${Z_INDEX.overlay}`,
 
     // ── Engine-painted surfaces ──────────────────────────────────────────────
     // Scrollbars, form controls and the caret are drawn by the browser. Without

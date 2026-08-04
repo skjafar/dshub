@@ -4,6 +4,7 @@
  * click, and this cannot be clicked.
  */
 .content {
+  z-index: var(--z-overlay);
   max-width: 280px;
   padding: var(--space-2xs) var(--space-sm);
 

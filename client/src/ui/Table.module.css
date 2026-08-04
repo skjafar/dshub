@@ -27,7 +27,7 @@
 .th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: var(--z-sticky);
 
   height: var(--row-height);
   padding: 0 var(--space-md);

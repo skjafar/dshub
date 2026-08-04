@@ -124,6 +124,28 @@ export const RADIUS = {
 /** Single header rhythm shared by the AppBar, drawer header and panel headers. */
 export const HEADER_HEIGHT = 48;
 
+// ─── Elevation ────────────────────────────────────────────────────────────────
+/**
+ * The only two layers this app needs, and every stacking bug so far has come
+ * from a third value appearing that neither of these accounts for. `sticky`
+ * is for in-pane elements pinned during scroll — a table's header row. Nothing
+ * else may sit above ordinary flow content without going through `overlay`.
+ *
+ * `overlay` covers everything Radix portals to the document root: menu,
+ * select, popover, tooltip and dialog. A CSS Module component that portals
+ * content must consume this rather than leaving z-index unset — an unset
+ * z-index does not mean "on top" the way DOM order alone might suggest, it
+ * means the element competes on DOM order *within its own stacking context*,
+ * which a positioned descendant elsewhere in the tree with any explicit
+ * z-index — `sticky`, here — wins against regardless of paint order. That is
+ * exactly the failure this pair exists to rule out: a menu opened over a
+ * Pane's table rendered behind the table's own sticky header.
+ */
+export const Z_INDEX = {
+  sticky: 1,
+  overlay: 1000,
+} as const;
+
 // ─── Motion ───────────────────────────────────────────────────────────────────
 /**
  * Short and few. Anything longer reads as the interface hesitating, and an

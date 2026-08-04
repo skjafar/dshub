@@ -1,6 +1,7 @@
 .overlay {
   position: fixed;
   inset: 0;
+  z-index: var(--z-overlay);
   background: var(--scrim);
   animation: fade var(--duration-base) var(--easing);
 }
@@ -11,6 +12,7 @@
   position: fixed;
   top: 50%;
   left: 50%;
+  z-index: var(--z-overlay);
   transform: translate(-50%, -50%);
 
   display: flex;
