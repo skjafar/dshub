@@ -9,6 +9,7 @@
 
 import type { ComponentType } from 'react';
 import type { AddressSpace } from './addressSpace';
+import { ActivityLogPane } from './panes/ActivityLogPane';
 import { OverviewPane } from './panes/OverviewPane';
 import { ParameterPane } from './panes/ParameterPane';
 import { RegisterPane } from './panes/RegisterPane';
@@ -21,7 +22,7 @@ import { InspectorPane } from './panes/InspectorPane';
  * the same reason. A panel id carries its space, and a saved layout cannot
  * restore a Pane pointed at a different one than it was saved with.
  */
-export type PaneKind = 'overview' | AddressSpace | 'inspector';
+export type PaneKind = 'overview' | AddressSpace | 'inspector' | 'activityLog';
 
 /**
  * What the Workspace hands a Pane.
@@ -89,6 +90,13 @@ export const PANES: readonly PaneDefinition[] = [
     description: 'Decodes whatever was selected last, in any Pane',
     singleton: true,
     component: InspectorPane,
+  },
+  {
+    kind: 'activityLog',
+    title: 'Activity Log',
+    description: 'Connection events, reads, writes and protocol traffic',
+    singleton: true,
+    component: ActivityLogPane,
   },
 ];
 

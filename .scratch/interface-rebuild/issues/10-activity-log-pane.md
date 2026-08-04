@@ -10,9 +10,9 @@ Log level maps onto status semantics, so an error in the log reads with the same
 
 **Status:** ready-for-agent
 
-- [ ] The Activity Log docks alongside other Panes without displacing them
-- [ ] Filtering by category and by level both work
-- [ ] Packet traffic is reachable as a filter and expands to show direction, interface, size, timing and dump
-- [ ] An unread indicator appears for new entries and clears when the log is attended to
-- [ ] Log levels render through status semantics, with packet traffic reading as diagnostic rather than as a condition
-- [ ] Retention respects the configured maximum entry count
+- [x] The Activity Log docks alongside other Panes without displacing them
+- [x] Filtering by category and by level both work
+- [x] Packet traffic is reachable as a filter and expands to show direction, interface, size, timing and dump
+- [x] An unread indicator appears for new entries and clears when the log is attended to
+- [x] Log levels render through status semantics, with packet traffic reading as diagnostic rather than as a condition
+- [x] Retention respects the configured maximum entry count

@@ -43,6 +43,13 @@ const LINK_LABEL: Readonly<Record<LinkState, string>> = {
   'no device': 'No device',
 };
 
+/** What the Panes trigger says, so the unread badge it carries is announced too. */
+function panesButtonLabel(unreadLogCount: number): string {
+  if (unreadLogCount === 0) return 'Panes';
+  const entries = unreadLogCount === 1 ? 'entry' : 'entries';
+  return `Panes — ${unreadLogCount} unread activity log ${entries}`;
+}
+
 /**
  * The application chrome.
  *
@@ -123,9 +130,14 @@ export function AppChrome({
         <Menu
           align="end"
           trigger={
-            <Button variant="ghost" size="sm" aria-label="Panes">
+            <Button variant="ghost" size="sm" aria-label={panesButtonLabel(state.unreadLogCount)}>
               <SquaresFour size={16} />
               Panes
+              {state.unreadLogCount > 0 ? (
+                <span className={styles.unreadBadge} aria-hidden>
+                  {state.unreadLogCount > 99 ? '99+' : state.unreadLogCount}
+                </span>
+              ) : null}
             </Button>
           }
         >

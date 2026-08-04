@@ -119,3 +119,25 @@
   border-color: var(--status-warn);
   color: var(--status-warn);
 }
+
+/* ── Unread activity ──────────────────────────────────────────────────────── */
+/* Lives on the Panes trigger rather than only inside the menu, so a new alert
+   is noticeable while the Activity Log Pane is closed or docked out of sight —
+   the exact "attention is elsewhere" case it exists for. */
+
+.unreadBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.1rem;
+  height: 1.1rem;
+  padding: 0 var(--space-3xs);
+
+  border-radius: var(--radius-sharp);
+  background: var(--status-warn);
+  color: var(--surface-lowest);
+
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
