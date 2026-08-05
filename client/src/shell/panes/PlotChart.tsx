@@ -33,6 +33,15 @@ const WHEEL_ZOOM_FACTOR = 1.15;
 /** Floor on a zoomed window's width, so scrolling in cannot collapse it to nothing. */
 const MIN_ZOOM_RANGE_S = 0.5;
 
+/**
+ * Shared by every Plot Pane's chart, so a crosshair moved in one appears at the
+ * same instant in all the others — the requirement ticket 13 exists for. uPlot
+ * keys its sync groups process-wide (`uPlot.sync`), so a fresh chart joins the
+ * group the moment it constructs with this key and leaves it on `destroy()`;
+ * nothing here has to track which Plot Panes are currently open.
+ */
+const CURSOR_SYNC_KEY = 'dshub-plot-cursor';
+
 export interface PlotChartSeries {
   readonly name: string;
   readonly colorSlot: number;
@@ -141,17 +150,46 @@ function buildTooltip(
 
 /** Reads the cursor's current index straight off the chart and repaints the tooltip from it. */
 function updateTooltip(tooltip: Tooltip, chart: uPlot, visible: readonly PlotChartSeries[]): void {
-  const idx = chart.cursor.idx;
-  const x = idx == null ? null : (chart.data[0]?.[idx] as number | null | undefined);
+  const left = chart.cursor.left;
+  if (left == null) {
+    tooltip.el.style.display = 'none';
+    return;
+  }
 
-  if (idx == null || x == null) {
+  /**
+   * A cursor synced in from another Plot Pane — `chart.cursor.event` is
+   * uPlot's own record of the *local* DOM event driving this update, and is
+   * `null` for anything arriving through the sync group rather than this
+   * chart's own mouse — can report an instant on either side of this chart's
+   * visible window. The window is exactly what each Plot keeps independently
+   * per ticket 13, so a wider, narrower or differently-scrolled Plot is the
+   * normal case, not a bug. uPlot itself only guards the left edge (nulling
+   * `idx` there) and otherwise clamps `idx` to the nearest in-range point,
+   * which would show that boundary reading as if it were the shared instant.
+   * `left` is the one place the true, unclamped position survives either
+   * clamp, so — for a synced echo only — it decides whether this Plot has
+   * anything to show, symmetrically on both edges. A genuine local
+   * mouseleave (`cursor.event` a real event, `idx` null) still hides
+   * outright below: there is nothing of this chart's own to report.
+   */
+  const isSyncedEcho = chart.cursor.event == null;
+  const outOfWindow = isSyncedEcho && (left < 0 || left > chart.rect.width);
+
+  const idx = chart.cursor.idx;
+  if (!outOfWindow && idx == null) {
+    tooltip.el.style.display = 'none';
+    return;
+  }
+
+  const x = outOfWindow ? chart.posToVal(left, 'x') : (chart.data[0]?.[idx as number] as number | null | undefined);
+  if (x == null) {
     tooltip.el.style.display = 'none';
     return;
   }
 
   tooltip.timeEl.textContent = formatClockTime(new Date(x * 1000));
   visible.forEach((_s, i) => {
-    const y = chart.data[i + 1]?.[idx] as number | null | undefined;
+    const y = outOfWindow ? null : (chart.data[i + 1]?.[idx as number] as number | null | undefined);
     tooltip.rows[i].valueEl.textContent = y == null ? '—' : formatFractional(y);
   });
 
@@ -159,17 +197,19 @@ function updateTooltip(tooltip: Tooltip, chart: uPlot, visible: readonly PlotCha
 
   // Flips to the cursor's left, and clamps vertically, rather than running off
   // the plotting area — a Pane docked into a narrow column puts the cursor
-  // within the margin's reach of the right edge often enough that this is the
-  // common case, not an edge case.
+  // within the margin's reach of an edge often enough that this is the common
+  // case, not an edge case. Clamped to the plotting area's own bounds first,
+  // since a synced cursor outside this chart's window (above) can put `left`
+  // far past either side of it.
   const margin = 12;
-  const cursorLeft = chart.cursor.left ?? 0;
+  const cursorLeft = Math.min(Math.max(left, 0), chart.rect.width);
   const cursorTop = chart.cursor.top ?? 0;
   const overflowsRight = cursorLeft + margin + tooltip.el.offsetWidth > chart.rect.width;
-  const left = overflowsRight
+  const posLeft = overflowsRight
     ? Math.max(0, cursorLeft - margin - tooltip.el.offsetWidth)
     : cursorLeft + margin;
   const top = Math.min(cursorTop + margin, Math.max(0, chart.rect.height - tooltip.el.offsetHeight - margin));
-  tooltip.el.style.transform = `translate(${left}px, ${top}px)`;
+  tooltip.el.style.transform = `translate(${posLeft}px, ${top}px)`;
 }
 
 function buildOptions(
@@ -202,6 +242,22 @@ function buildOptions(
       // rather than left implicit, since the wheel and middle-drag handlers
       // beside it are not.
       drag: { x: true, y: false, setScale: true },
+      // Crosshair position syncs across every Plot Pane sharing this key, by X
+      // value rather than relative position (`scales: ['x', null]`) — the part
+      // that makes two Plots with different time spans still line up on the
+      // same instant. `filters.sub` narrows what a synced *echo* is allowed to
+      // drive on this chart to cursor position alone: uPlot's sync group also
+      // carries mousedown/mouseup/dblclick, and left unfiltered those would
+      // mirror a drag-zoom or double-click reset from one Plot onto every
+      // other one, fighting each Plot's own independently configured time
+      // span. Publishing (`filters.pub`, left at its default) is unaffected —
+      // this chart's own drag-zoom still reaches other charts, who then choose
+      // to ignore everything but the crosshair it carries.
+      sync: {
+        key: CURSOR_SYNC_KEY,
+        scales: ['x', null],
+        filters: { sub: syncType => syncType === 'mousemove' },
+      },
     },
     hooks: {
       // Fires for a drag-zoom exactly as it does for this component's own

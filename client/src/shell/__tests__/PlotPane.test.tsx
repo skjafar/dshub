@@ -12,8 +12,10 @@ import { floatToInt32 } from '../../utils/floatConversion';
 import { InterfaceType } from '../../types/shared';
 import type { PlotDataPoint } from '../../types/shared';
 import type { MapProfile } from '../../types/settings';
+import { formatFractional } from '../../utils/numberFormat';
 import { retainPaneState } from '../paneState';
 import { __resetPlotStreamForTests } from '../plotStream';
+import { formatClockTime } from '../plotExport';
 import { PlotPane } from '../panes/PlotPane';
 
 /**
@@ -38,12 +40,39 @@ import { PlotPane } from '../panes/PlotPane';
  */
 const { chartInstances } = vi.hoisted(() => ({ chartInstances: [] as FakeUPlotInstance[] }));
 
+/**
+ * Only the slice of `uPlot.Options` these tests actually reach into: the
+ * cursor-sync config ticket 13 adds, and the `setCursor` hook it drives the
+ * tooltip from. Narrower than importing `uPlot.Options` wholesale, which would
+ * make every optional field along that path need a non-null assertion just to
+ * read it back out.
+ */
+interface FakeChartOptions {
+  readonly cursor: {
+    readonly sync: {
+      readonly key: string;
+      readonly scales: readonly [string | null, string | null];
+      readonly filters: { readonly sub: (type: string, ...rest: unknown[]) => boolean };
+    };
+  };
+  readonly hooks: {
+    readonly setCursor: readonly [(self: FakeUPlotInstance) => void];
+  };
+}
+
 interface FakeUPlotInstance {
+  /** The exact options object `PlotChart.tsx` constructed this chart with — how a test reaches its cursor-sync config and hooks without exporting either. */
+  readonly options: FakeChartOptions;
   readonly setData: ReturnType<typeof vi.fn>;
   readonly setScale: ReturnType<typeof vi.fn>;
   readonly setSize: ReturnType<typeof vi.fn>;
   readonly destroy: ReturnType<typeof vi.fn>;
   readonly over: HTMLDivElement;
+  rect: DOMRect;
+  /** `event` mirrors uPlot's own `cursor.event`: a real `MouseEvent` for this chart's own local interactions, `undefined`/`null` for a synced echo — see `PlotChart.tsx`'s `updateTooltip`. */
+  cursor: { idx: number | null; left: number; top: number; event?: MouseEvent | null };
+  data: unknown[];
+  posToVal: (val: number, scale: string) => number;
 }
 
 vi.mock('uplot', () => {
@@ -51,6 +80,7 @@ vi.mock('uplot', () => {
   // listeners to it and appends the tooltip to it, and jsdom's own DOM
   // implementation is a truer stand-in for that than hand-rolling one more fake.
   class FakeUPlot {
+    options: FakeChartOptions;
     setData = vi.fn();
     setScale = vi.fn();
     setSize = vi.fn();
@@ -60,7 +90,8 @@ vi.mock('uplot', () => {
     scales = { x: { min: 0, max: 1 } };
     cursor = { idx: null as number | null, left: 0, top: 0 };
     data: unknown[] = [[]];
-    constructor() {
+    constructor(opts: FakeChartOptions) {
+      this.options = opts;
       chartInstances.push(this as unknown as FakeUPlotInstance);
     }
     batch(fn: () => void): void {
@@ -308,6 +339,135 @@ describe('exclusive ownership across Plot Panes', () => {
     expect(within(paneA()).queryByText('COOLANT_TEMP')).not.toBeInTheDocument();
     expect(within(paneB()).getByText('COOLANT_TEMP')).toBeInTheDocument();
     expect(within(paneB()).queryByText('SPINDLE_RPM')).not.toBeInTheDocument();
+  });
+});
+
+describe('cursor sync across Plot Panes', () => {
+  /**
+   * The actual crosshair-following-the-mouse behaviour lives inside uPlot
+   * itself, which this suite mocks out (see the docblock above — no `canvas`
+   * in this project's jsdom setup). What is this repo's own code, and worth
+   * pinning here, is the configuration `PlotChart.tsx` hands every chart: the
+   * same sync group for every open Plot, narrowed to cursor position so a
+   * drag-zoom or double-click reset in one Plot cannot reach into another's
+   * independently configured time span.
+   */
+  it('joins every open Plot’s chart to one crosshair-sync group, filtered to cursor position only', async () => {
+    const user = userEvent.setup();
+    const harness = renderPanes();
+    await settle();
+    await connect(harness.fake);
+
+    await addSeriesViaPicker(user, paneA(), 'SPINDLE_RPM');
+    await addSeriesViaPicker(user, paneB(), 'COOLANT_TEMP');
+
+    expect(chartInstances).toHaveLength(2);
+    const [syncA, syncB] = chartInstances.map(chart => chart.options.cursor.sync);
+
+    expect(syncA.key).toEqual(syncB.key);
+    expect(syncA.scales).toEqual(['x', null]);
+
+    const noop = vi.fn();
+    expect(syncA.filters.sub('mousemove', noop, 0, 0, 0, 0, 0)).toBe(true);
+    expect(syncA.filters.sub('mousedown', noop, 0, 0, 0, 0, 0)).toBe(false);
+    expect(syncA.filters.sub('mouseup', noop, 0, 0, 0, 0, 0)).toBe(false);
+    expect(syncA.filters.sub('dblclick', noop, 0, 0, 0, 0, 0)).toBe(false);
+  });
+
+  /**
+   * The fixture the `updateTooltip` behaviour tests below share: a lone Plot
+   * Pane with one series plotted, its chart pre-sized to a fixed 100×50
+   * plotting area with three retained points, and a ready-to-fire trigger for
+   * the `setCursor` hook `PlotChart.tsx` reads the tooltip from.
+   */
+  async function chartWithFixedTooltipData(): Promise<{
+    readonly chart: FakeUPlotInstance;
+    readonly moveCursor: () => void;
+  }> {
+    const user = userEvent.setup();
+    const harness = renderPanes();
+    await settle();
+    await connect(harness.fake);
+    await addSeriesViaPicker(user, paneA(), 'COOLANT_TEMP');
+
+    const chart = chartInstances.at(-1);
+    if (!chart) throw new Error('PlotChart did not construct a chart instance');
+    chart.rect = { ...chart.rect, width: 100, height: 50 } as DOMRect;
+    chart.data = [
+      [10, 20, 30],
+      [1.5, 2.5, 3.5],
+    ];
+
+    const onCursorMove = chart.options.hooks.setCursor[0];
+    return { chart, moveCursor: () => onCursorMove(chart) };
+  }
+
+  /**
+   * Pins the fix for the asymmetry uPlot's own sync leaves otherwise: a
+   * cursor synced in from a Plot with a later or wider time span clamps to
+   * this chart's last visible point rather than reporting nothing, which
+   * would show a stale boundary reading as if it were the shared instant.
+   */
+  it('shows no reading, not the nearest boundary point, when the shared cursor lands past this Plot’s window', async () => {
+    const { chart, moveCursor } = await chartWithFixedTooltipData();
+    // Past the chart's own 100px-wide plotting area, undriven by a local
+    // event (`cursor.event` left unset) — exactly what a synced echo looks
+    // like — so the shared cursor's real position is only recoverable
+    // (post-clamp) from `left` itself.
+    chart.cursor = { idx: 2, left: 500, top: 5 };
+    chart.posToVal = () => 1_700_000_000;
+
+    moveCursor();
+
+    const tooltip = chart.over.firstElementChild as HTMLElement;
+    expect(tooltip.style.display).not.toBe('none');
+    expect(tooltip.textContent).toContain(formatClockTime(new Date(1_700_000_000 * 1000)));
+    expect(tooltip.textContent).toContain('—');
+    expect(tooltip.textContent).not.toContain(formatFractional(3.5));
+  });
+
+  /** The same fix, mirrored: a cursor synced in from an earlier-starting or wider Plot lands before this chart's window, not only after it. */
+  it('shows no reading, not the nearest boundary point, when the shared cursor lands before this Plot’s window', async () => {
+    const { chart, moveCursor } = await chartWithFixedTooltipData();
+    chart.cursor = { idx: null, left: -400, top: 5 };
+    chart.posToVal = () => 1_650_000_000;
+
+    moveCursor();
+
+    const tooltip = chart.over.firstElementChild as HTMLElement;
+    expect(tooltip.style.display).not.toBe('none');
+    expect(tooltip.textContent).toContain(formatClockTime(new Date(1_650_000_000 * 1000)));
+    expect(tooltip.textContent).toContain('—');
+    expect(tooltip.textContent).not.toContain(formatFractional(1.5));
+  });
+
+  /**
+   * The out-of-window fix is scoped to synced echoes only: a genuine local
+   * mouseleave carries uPlot's own real `MouseEvent` on `cursor.event` (never
+   * `null`, unlike a synced echo), and must still hide the tooltip outright
+   * rather than reporting a boundary reading as if the mouse were still over
+   * this chart.
+   */
+  it('hides outright on a genuine local mouseleave, rather than reporting a stale reading', async () => {
+    const { chart, moveCursor } = await chartWithFixedTooltipData();
+    chart.cursor = { idx: null, left: -10, top: 0, event: new MouseEvent('mouseleave') };
+
+    moveCursor();
+
+    const tooltip = chart.over.firstElementChild as HTMLElement;
+    expect(tooltip.style.display).toBe('none');
+  });
+
+  it('reports the real reading when the shared cursor lands inside this Plot’s own window', async () => {
+    const { chart, moveCursor } = await chartWithFixedTooltipData();
+    chart.cursor = { idx: 2, left: 40, top: 5 };
+
+    moveCursor();
+
+    const tooltip = chart.over.firstElementChild as HTMLElement;
+    expect(tooltip.style.display).not.toBe('none');
+    expect(tooltip.textContent).toContain(formatClockTime(new Date(30 * 1000)));
+    expect(tooltip.textContent).toContain(formatFractional(3.5));
   });
 });
 
