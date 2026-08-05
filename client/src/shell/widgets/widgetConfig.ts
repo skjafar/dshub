@@ -9,7 +9,7 @@
  * works end to end, needs nothing beyond it.
  */
 
-import type { AddressSpace } from '../addressSpace';
+import type { AddressSpace, WritableAddressSpace } from '../addressSpace';
 import type { DisplayFormat } from '../valueFormat';
 import type { ThresholdRule } from './threshold';
 
@@ -89,10 +89,102 @@ export function defaultLedIndicatorWidgetConfig(label: string): LedIndicatorWidg
   return { ...defaultBoundWidgetConfig(label), onValue: 1 };
 }
 
+// ── Control family (ticket 16) ───────────────────────────────────────────
+//
+// These four write to the Device rather than only reading from it. A read
+// binding names an address; a write needs to say more, because a Command is
+// not an address — {@link WidgetTarget} is the write-side counterpart of
+// {@link WidgetBinding} for exactly that reason.
+
+/**
+ * Where a control Widget's write goes: one address in a writable Space, or a
+ * Command by its code. Never System Registers — the protocol refuses every
+ * write there, so a Widget offering one would be an affordance for a write
+ * that can only fail.
+ */
+export type WidgetTarget =
+  | { readonly kind: 'address'; readonly space: WritableAddressSpace; readonly address: number }
+  | { readonly kind: 'command'; readonly code: number };
+
+/**
+ * A fixed value, sent on click. Not a `BoundWidgetConfig` — a Button
+ * neither displays nor formats a live reading, so `format`/`thresholds` would
+ * be fields with nothing to act on.
+ */
+export interface ButtonWidgetConfig {
+  readonly label: string;
+  /** Null until an Operator has picked a target — a Button starts unbound, the same as a read Widget's `binding`. */
+  readonly target: WidgetTarget | null;
+  readonly value: number;
+  readonly confirmationRequired?: boolean;
+}
+
+export function defaultButtonWidgetConfig(label: string): ButtonWidgetConfig {
+  return { label, target: null, value: 0 };
+}
+
+export interface DropdownOption {
+  readonly value: number;
+  readonly label: string;
+}
+
+/**
+ * Extends `BoundWidgetConfig` rather than carrying its own target: a Dropdown
+ * mirrors the address it writes, the same one address doing double duty as
+ * read and write, so the shared binding/format machinery already fits it —
+ * only System Registers make no sense to offer, since a write there always
+ * fails.
+ */
+export interface DropdownWidgetConfig extends BoundWidgetConfig {
+  readonly options: readonly DropdownOption[];
+  readonly confirmationRequired?: boolean;
+}
+
+export function defaultDropdownWidgetConfig(label: string): DropdownWidgetConfig {
+  return { ...defaultBoundWidgetConfig(label), options: [] };
+}
+
+/** Same reasoning as {@link DropdownWidgetConfig}: one address, read and written through the shared binding. */
+export interface ValueWriteWidgetConfig extends BoundWidgetConfig {
+  readonly confirmationRequired?: boolean;
+}
+
+export function defaultValueWriteWidgetConfig(label: string): ValueWriteWidgetConfig {
+  return defaultBoundWidgetConfig(label);
+}
+
+/** The eight directions a pad can offer a Command for. Diagonals are `8way`-layout only. */
+export type Direction = 'up' | 'down' | 'left' | 'right' | 'upLeft' | 'upRight' | 'downLeft' | 'downRight';
+
+export interface DirectionalControlEntry {
+  readonly direction: Direction;
+  readonly command: number;
+  readonly label?: string;
+}
+
+/**
+ * Command-only — every direction sends a numbered instruction, never writes
+ * an address — so this carries no `WidgetTarget`/`WidgetBinding` at all, just
+ * the codes themselves.
+ */
+export interface DirectionalControlWidgetConfig {
+  readonly label: string;
+  readonly directions: readonly DirectionalControlEntry[];
+  readonly layout?: '4way' | '8way';
+}
+
+export function defaultDirectionalControlWidgetConfig(label: string): DirectionalControlWidgetConfig {
+  return { label, directions: [], layout: '4way' };
+}
+
 /** Every kind-specific Widget configuration, `valueRead`/`stateLED`/`statusMatrix`'s bare `BoundWidgetConfig` included. */
 export type WidgetConfig =
   | BoundWidgetConfig
   | GaugeWidgetConfig
   | ProgressBarWidgetConfig
   | EncoderDisplayWidgetConfig
-  | LedIndicatorWidgetConfig;
+  | LedIndicatorWidgetConfig
+  | ButtonWidgetConfig
+  | DropdownWidgetConfig
+  | ValueWriteWidgetConfig
+  | DirectionalControlWidgetConfig;

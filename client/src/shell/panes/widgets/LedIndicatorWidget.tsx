@@ -20,13 +20,14 @@ const ROLE_CLASS = roleClassMap(styles);
  * where being on is the bad state.
  */
 export function LedIndicatorWidget({ config }: WidgetProps): React.JSX.Element {
-  const { onValue, onLabel = 'On', offLabel = 'Off' } = config as LedIndicatorWidgetConfig;
-  const reading = useWidgetReading(config.binding, config.format);
+  const bound = config as LedIndicatorWidgetConfig;
+  const { onValue, onLabel = 'On', offLabel = 'Off' } = bound;
+  const reading = useWidgetReading(bound.binding, bound.format);
   if (reading.status !== 'ready') return <WidgetStatusNotice status={reading.status} />;
 
   const value = reading.value ?? 0;
   const on = value === onValue;
-  const role = evaluateThresholds(value, config.thresholds) ?? (on ? 'ok' : 'idle');
+  const role = evaluateThresholds(value, bound.thresholds) ?? (on ? 'ok' : 'idle');
   const stateLabel = on ? onLabel : offLabel;
 
   return (

@@ -14,12 +14,13 @@ const ARC_LENGTH = CIRCUMFERENCE * 0.75;
 
 /** A value read against a min/max range, as an arc — Gauge's own reason to exist beyond a plain Value Readout. */
 export function GaugeWidget({ config }: WidgetProps): React.JSX.Element {
-  const { min, max, unit } = config as GaugeWidgetConfig;
-  const reading = useWidgetReading(config.binding, config.format);
+  const bound = config as GaugeWidgetConfig;
+  const { min, max, unit } = bound;
+  const reading = useWidgetReading(bound.binding, bound.format);
   if (reading.status !== 'ready') return <WidgetStatusNotice status={reading.status} />;
 
   const value = reading.value ?? min;
-  const role = evaluateThresholds(value, config.thresholds);
+  const role = evaluateThresholds(value, bound.thresholds);
   const color = role !== null ? roleCssVar(role) : 'var(--on-surface)';
   const offset = ARC_LENGTH * (1 - rangeFraction(value, min, max));
 

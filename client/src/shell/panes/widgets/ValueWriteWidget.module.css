@@ -1,0 +1,73 @@
+.widget {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-2xs);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.input {
+  composes: ring from '../../../ui/focusRing.module.css';
+
+  flex: 1 1 auto;
+  min-width: 0;
+
+  height: var(--control-height-sm);
+  padding: 0 var(--space-xs);
+
+  border: 1px solid var(--ghost-20);
+  border-radius: var(--radius-base);
+  background: var(--surface-lowest);
+  color: var(--on-surface);
+
+  font-family: var(--font-mono);
+  font-size: clamp(var(--text-xs), 10cqi, var(--text-base));
+  font-variant-numeric: tabular-nums;
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--status-error);
+}
+
+.input:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+
+.readOnly {
+  margin: 0;
+  font-size: clamp(var(--text-2xs), 8cqi, var(--text-sm));
+  color: var(--on-surface-variant);
+  text-align: center;
+}
+
+.confirmBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2xs);
+  font-size: var(--text-xs);
+}
+
+.confirmText {
+  color: var(--on-surface-variant);
+}
+
+.message {
+  font-size: clamp(var(--text-2xs), 8cqi, var(--text-xs));
+  color: var(--status-warn);
+}
+
+.failure {
+  color: var(--status-error);
+  font-weight: var(--weight-medium);
+}

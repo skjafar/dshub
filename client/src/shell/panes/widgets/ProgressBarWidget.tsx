@@ -12,12 +12,13 @@ const ROLE_CLASS = roleClassMap(styles);
 
 /** A value read against a min/max range, as a fill — legible at a glance in a strip too short for a Gauge's arc. */
 export function ProgressBarWidget({ config }: WidgetProps): React.JSX.Element {
-  const { min, max, unit, orientation = 'horizontal' } = config as ProgressBarWidgetConfig;
-  const reading = useWidgetReading(config.binding, config.format);
+  const bound = config as ProgressBarWidgetConfig;
+  const { min, max, unit, orientation = 'horizontal' } = bound;
+  const reading = useWidgetReading(bound.binding, bound.format);
   if (reading.status !== 'ready') return <WidgetStatusNotice status={reading.status} />;
 
   const value = reading.value ?? min;
-  const role = evaluateThresholds(value, config.thresholds);
+  const role = evaluateThresholds(value, bound.thresholds);
   const fraction = rangeFraction(value, min, max);
   const vertical = orientation === 'vertical';
 

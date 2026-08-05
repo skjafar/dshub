@@ -15,7 +15,7 @@ import { useDSHub } from '../contexts/DSHubContext';
 import type { DevicePort } from '../services/backendPort';
 import type { ParameterData, RegisterData } from '../types/shared';
 import { ADDRESS_SPACE_WRITABLE } from './addressSpace';
-import type { AddressSpace } from './addressSpace';
+import type { AddressSpace, WritableAddressSpace } from './addressSpace';
 
 /** Sends one value to one address. */
 export type SpaceWrite = (address: number, value: number) => Promise<void>;
@@ -43,22 +43,18 @@ export interface SpaceBinding {
 }
 
 /**
- * The space this hook's `write` may ever be non-null for.
- *
- * Narrowed from `AddressSpace` rather than checked at the call site, so a
- * System Register write command has no way to reach the Device through this
- * module — there is no case in {@link SEND} for it to fall into, rather than a
- * case that exists but is only ever discarded.
+ * Narrows `AddressSpace` to the ones {@link SEND} has a case for, so a System
+ * Register write command has no way to reach the Device through this module —
+ * there is no case for it to fall into, rather than a case that exists but is
+ * only ever discarded.
  */
-type WritableSpace = Extract<AddressSpace, 'register' | 'parameter'>;
-
-function isWritableSpace(space: AddressSpace): space is WritableSpace {
+function isWritableSpace(space: AddressSpace): space is WritableAddressSpace {
   return ADDRESS_SPACE_WRITABLE[space];
 }
 
 /** The command each writable space is written with. */
 const SEND: Readonly<
-  Record<WritableSpace, (device: DevicePort, address: number, value: number) => Promise<void>>
+  Record<WritableAddressSpace, (device: DevicePort, address: number, value: number) => Promise<void>>
 > = {
   register: (device, address, value) => device.writeRegister(address, value),
   parameter: (device, address, value) => device.writeParameter(address, value),

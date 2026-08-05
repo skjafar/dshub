@@ -11,9 +11,9 @@
  * that module's default-Workspace protections.
  */
 
-import type { WidgetKind } from './widgetRegistry';
-import { isKnownWidgetKind } from './widgetRegistry';
-import type { WidgetBinding, WidgetConfig } from './widgetConfig';
+import type { BoundWidgetKind, WidgetKind } from './widgetRegistry';
+import { isBoundWidgetKind, isKnownWidgetKind } from './widgetRegistry';
+import type { WidgetBinding, WidgetConfig, WidgetTarget } from './widgetConfig';
 import type { ThresholdRule } from './threshold';
 
 export interface WidgetLayout {
@@ -59,6 +59,9 @@ const COMPARATORS = new Set(['<', '<=', '>', '>=', '==']);
 const ROLES = new Set(['ok', 'warn', 'error', 'idle']);
 const SPACES = new Set(['register', 'parameter', 'sysRegister']);
 const FORMATS = new Set(['decimal', 'hexadecimal', 'binary']);
+const WRITABLE_SPACES = new Set(['register', 'parameter']);
+const DIRECTIONS = new Set(['up', 'down', 'left', 'right', 'upLeft', 'upRight', 'downLeft', 'downRight']);
+const LAYOUTS = new Set(['4way', '8way']);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -111,8 +114,13 @@ function isValidSharedConfig(value: Record<string, unknown>): boolean {
  * A kind's own fields beyond the shared shape. `valueRead`, `stateLED` and
  * `statusMatrix` carry nothing extra, so every field access here is optional
  * — a present-but-wrong-typed field still fails, an absent one does not.
+ *
+ * `kind: BoundWidgetKind` rather than `WidgetKind` is what makes this switch
+ * exhaustive without a `button`/`directionalControl` case that would just
+ * return `false` — those two are validated separately below, by
+ * `isValidButtonConfig`/`isValidDirectionalControlConfig`.
  */
-function isValidKindFields(kind: WidgetKind, value: Record<string, unknown>): boolean {
+function isValidKindFields(kind: BoundWidgetKind, value: Record<string, unknown>): boolean {
   switch (kind) {
     case 'gauge':
     case 'progressBar':
@@ -132,6 +140,11 @@ function isValidKindFields(kind: WidgetKind, value: Record<string, unknown>): bo
       if (!isFiniteNumber(value.onValue)) return false;
       if (!isOptionalString(value.onLabel) || !isOptionalString(value.offLabel)) return false;
       return true;
+    case 'dropdown':
+      if (!Array.isArray(value.options) || !value.options.every(isValidDropdownOption)) return false;
+      return isOptionalConfirmation(value.confirmationRequired);
+    case 'valueWrite':
+      return isOptionalConfirmation(value.confirmationRequired);
     case 'valueRead':
     case 'stateLED':
     case 'statusMatrix':
@@ -139,8 +152,59 @@ function isValidKindFields(kind: WidgetKind, value: Record<string, unknown>): bo
   }
 }
 
+function isOptionalConfirmation(value: unknown): boolean {
+  return value === undefined || typeof value === 'boolean';
+}
+
+function isValidDropdownOption(value: unknown): value is { value: number; label: string } {
+  if (!isPlainObject(value)) return false;
+  return isFiniteNumber(value.value) && typeof value.label === 'string';
+}
+
+function isValidWidgetTarget(value: unknown): value is WidgetTarget | null {
+  if (value === null) return true;
+  if (!isPlainObject(value)) return false;
+  if (value.kind === 'address') {
+    return typeof value.space === 'string' && WRITABLE_SPACES.has(value.space) && isFiniteNumber(value.address);
+  }
+  if (value.kind === 'command') return isFiniteNumber(value.code);
+  return false;
+}
+
+function isValidButtonConfig(value: Record<string, unknown>): boolean {
+  if (typeof value.label !== 'string') return false;
+  if (!isValidWidgetTarget(value.target)) return false;
+  if (!isFiniteNumber(value.value)) return false;
+  return isOptionalConfirmation(value.confirmationRequired);
+}
+
+function isValidDirectionalControlEntry(value: unknown): boolean {
+  if (!isPlainObject(value)) return false;
+  if (typeof value.direction !== 'string' || !DIRECTIONS.has(value.direction)) return false;
+  if (!isFiniteNumber(value.command)) return false;
+  return isOptionalString(value.label);
+}
+
+function isValidDirectionalControlConfig(value: Record<string, unknown>): boolean {
+  if (typeof value.label !== 'string') return false;
+  if (!Array.isArray(value.directions) || !value.directions.every(isValidDirectionalControlEntry)) return false;
+  if (value.layout !== undefined && (typeof value.layout !== 'string' || !LAYOUTS.has(value.layout))) return false;
+  return true;
+}
+
+/**
+ * `button` and `directionalControl` carry no `binding`/`format`/`thresholds`
+ * — a Button writes a fixed configured value and Directional Control only
+ * ever sends Commands, so neither displays a formatted, thresholded reading —
+ * and are validated against their own shape rather than the shared one.
+ * `isBoundWidgetKind` is the single place that split is recorded; this and
+ * `WidgetConfigDialog.tsx` both read it rather than each keeping its own list.
+ */
 function isValidConfig(value: unknown, kind: WidgetKind): value is WidgetConfig {
   if (!isPlainObject(value)) return false;
+  if (!isBoundWidgetKind(kind)) {
+    return kind === 'button' ? isValidButtonConfig(value) : isValidDirectionalControlConfig(value);
+  }
   return isValidSharedConfig(value) && isValidKindFields(kind, value);
 }
 

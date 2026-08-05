@@ -1,6 +1,7 @@
 import { cx } from '../../../ui';
 import { bitsOf } from '../../widgets/bitfield';
 import { useWidgetReading } from '../../widgets/useWidgetReading';
+import type { BoundWidgetConfig } from '../../widgets/widgetConfig';
 import type { WidgetProps } from '../../widgets/widgetRegistry';
 import { WidgetStatusNotice } from './WidgetStatusNotice';
 import styles from './StatusMatrixWidget.module.css';
@@ -32,7 +33,8 @@ const SET_BIT_ROLE = 'warn';
  * word for a float-typed entry — not a register anyone binds a bitmask to.
  */
 export function StatusMatrixWidget({ config }: WidgetProps): React.JSX.Element {
-  const reading = useWidgetReading(config.binding, config.format);
+  const bound = config as BoundWidgetConfig;
+  const reading = useWidgetReading(bound.binding, bound.format);
   if (reading.status !== 'ready') return <WidgetStatusNotice status={reading.status} />;
 
   const bits = bitsOf(reading.value ?? 0);

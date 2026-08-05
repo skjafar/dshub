@@ -19,6 +19,14 @@ import type { DataSource } from '../types/dashboard';
  */
 export type AddressSpace = Extract<DataSource, 'register' | 'parameter' | 'sysRegister'>;
 
+/**
+ * The Address Spaces a write may ever target — System Registers excluded,
+ * per {@link ADDRESS_SPACE_WRITABLE}. Narrowed here rather than restated at
+ * each write-capable call site, so a write Widget's target and `spaceBinding.ts`'s
+ * own `write` function agree about which spaces are writable by construction.
+ */
+export type WritableAddressSpace = Extract<AddressSpace, 'register' | 'parameter'>;
+
 /** How a space is named to a person. The glossary's spelling, not the discriminant's. */
 export const ADDRESS_SPACE_NAME: Readonly<Record<AddressSpace, string>> = {
   register: 'Registers',
@@ -98,4 +106,24 @@ export const ADDRESS_SPACE_DESCRIPTION: Readonly<Record<AddressSpace, string>> =
 export function accessLabel(space: AddressSpace, entry: MapEntry): string {
   if (!ADDRESS_SPACE_WRITABLE[space]) return 'read-only';
   return entry.accessPermit === DataAccessPermit.READ_WRITE ? 'read/write' : 'read-only';
+}
+
+/**
+ * Why one entry, in one space, cannot be written — or null when it can.
+ *
+ * The space is asked first, same as {@link accessLabel}: a System Register
+ * claims read/write in its own Map regardless of what is actually written
+ * there, so the space's rule has to override the entry's before the entry is
+ * even consulted. Shared by every control Widget that mirrors an address it
+ * also writes — Button, Dropdown and Value Write all faced the same two
+ * checks in the same order, which is exactly the per-kind duplication this
+ * rebuild exists to remove.
+ */
+export function entryWriteBlockReason(space: AddressSpace, entry: MapEntry): string | null {
+  const spaceReason = ADDRESS_SPACE_READ_ONLY_REASON[space];
+  if (spaceReason !== null) return spaceReason;
+  if (entry.accessPermit !== DataAccessPermit.READ_WRITE) {
+    return `${entry.name} is read-only in this Profile’s Map.`;
+  }
+  return null;
 }

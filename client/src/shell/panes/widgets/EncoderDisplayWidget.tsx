@@ -19,14 +19,14 @@ const ROLE_CLASS = roleClassMap(styles);
  * written in that unit, not steps.
  */
 export function EncoderDisplayWidget({ config }: WidgetProps): React.JSX.Element {
-  const { conversionFactor, primaryUnit, secondaryUnit, showRawValue = true, decimals = 2 } =
-    config as EncoderDisplayWidgetConfig;
-  const reading = useWidgetReading(config.binding, config.format);
+  const bound = config as EncoderDisplayWidgetConfig;
+  const { conversionFactor, primaryUnit, secondaryUnit, showRawValue = true, decimals = 2 } = bound;
+  const reading = useWidgetReading(bound.binding, bound.format);
   if (reading.status !== 'ready') return <WidgetStatusNotice status={reading.status} />;
 
   const raw = reading.value ?? 0;
   const converted = conversionFactor !== 0 ? raw / conversionFactor : null;
-  const role = converted !== null ? evaluateThresholds(converted, config.thresholds) : null;
+  const role = converted !== null ? evaluateThresholds(converted, bound.thresholds) : null;
 
   return (
     <div className={styles.widget}>

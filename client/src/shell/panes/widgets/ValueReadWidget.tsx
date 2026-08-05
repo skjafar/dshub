@@ -1,6 +1,7 @@
 import { cx } from '../../../ui';
 import { evaluateThresholds } from '../../widgets/threshold';
 import { useWidgetReading } from '../../widgets/useWidgetReading';
+import type { BoundWidgetConfig } from '../../widgets/widgetConfig';
 import type { WidgetProps } from '../../widgets/widgetRegistry';
 import { roleClassMap } from './statusRoleClass';
 import { WidgetStatusNotice } from './WidgetStatusNotice';
@@ -16,10 +17,11 @@ const ROLE_CLASS = roleClassMap(styles);
  * reimplementation of any of the four.
  */
 export function ValueReadWidget({ config }: WidgetProps): React.JSX.Element {
-  const reading = useWidgetReading(config.binding, config.format);
+  const bound = config as BoundWidgetConfig;
+  const reading = useWidgetReading(bound.binding, bound.format);
   if (reading.status !== 'ready') return <WidgetStatusNotice status={reading.status} />;
 
-  const role = reading.value !== null ? evaluateThresholds(reading.value, config.thresholds) : null;
+  const role = reading.value !== null ? evaluateThresholds(reading.value, bound.thresholds) : null;
 
   // The design language carries condition by colour alone — see status.ts —
   // so the role is not repeated as visible text. `title` supplements it for

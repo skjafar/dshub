@@ -15,6 +15,7 @@ import { useMemo } from 'react';
 import { useDSHub } from '../../contexts/DSHubContext';
 import { usePolledTargets } from '../../hooks/useAutoRefresh';
 import { getPlotValue } from '../../utils/dataTableUtils';
+import type { MapEntry } from '../../maps/mapParser';
 import { isLive, isStale, linkStateOf } from '../linkState';
 import { useSpaceBinding } from '../spaceBinding';
 import { useMapEntries } from '../useMapEntries';
@@ -47,13 +48,25 @@ export interface WidgetReading {
   readonly value: number | null;
   /** Set only when `status` is `'ready'`. */
   readonly formatted: string | null;
+  /**
+   * The Map entry behind the binding, whenever there is one — set for every
+   * status except `'unbound'`/`'not-found'`, not only `'ready'`. A control
+   * Widget needs the entry's own type and access permit to encode and gate a
+   * write even before its first reading has arrived.
+   */
+  readonly entry: MapEntry | null;
+  /**
+   * The undecoded wire word, set only when `status` is `'ready'`. Distinct
+   * from `value`: a control Widget seeds a write field from this, through
+   * `editableEntryValue`, exactly as `WriteBar` does — `value` is decoded and
+   * `formatted` is rounded for display, and either would write back a
+   * different number than the Device actually holds.
+   */
+  readonly raw: number | null;
 }
 
-const UNBOUND: WidgetReading = { status: 'unbound', value: null, formatted: null };
-const NOT_FOUND: WidgetReading = { status: 'not-found', value: null, formatted: null };
-const STALE: WidgetReading = { status: 'stale', value: null, formatted: null };
-const PENDING: WidgetReading = { status: 'pending', value: null, formatted: null };
-const INVALID: WidgetReading = { status: 'invalid', value: null, formatted: null };
+const UNBOUND: WidgetReading = { status: 'unbound', value: null, formatted: null, entry: null, raw: null };
+const NOT_FOUND: WidgetReading = { status: 'not-found', value: null, formatted: null, entry: null, raw: null };
 
 /** Binds one Widget to its configured address and turns the answer into a reading fit to display. */
 export function useWidgetReading(binding: WidgetBinding | null, format: DisplayFormat): WidgetReading {
@@ -76,16 +89,18 @@ export function useWidgetReading(binding: WidgetBinding | null, format: DisplayF
   return useMemo(() => {
     if (!binding) return UNBOUND;
     if (!entry) return NOT_FOUND;
-    if (isStale(link)) return STALE;
+    if (isStale(link)) return { status: 'stale', value: null, formatted: null, entry, raw: null };
 
     const reading = spaceBinding.readings.get(binding.address);
-    if (!reading) return PENDING;
-    if (!reading.valid) return INVALID;
+    if (!reading) return { status: 'pending', value: null, formatted: null, entry, raw: null };
+    if (!reading.valid) return { status: 'invalid', value: null, formatted: null, entry, raw: null };
 
     return {
       status: 'ready',
       value: getPlotValue(reading.value, entry),
       formatted: formatEntryValue(reading.value, entry.type, format),
+      entry,
+      raw: reading.value,
     };
   }, [binding, entry, link, spaceBinding.readings, format]);
 }
