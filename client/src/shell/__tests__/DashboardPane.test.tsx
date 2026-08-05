@@ -13,13 +13,29 @@ import { DEFAULT_SETTINGS } from '../../types/settings';
 import type { MapProfile } from '../../types/settings';
 import { retainPaneState } from '../paneState';
 import { DashboardPane } from '../panes/DashboardPane';
+import {
+  createDashboardId,
+  createWidgetId,
+} from '../widgets/dashboardStore';
+import type { ProfileDashboards, StoredDashboard, StoredWidget } from '../widgets/dashboardStore';
+import {
+  defaultBoundWidgetConfig,
+  defaultEncoderDisplayWidgetConfig,
+  defaultGaugeWidgetConfig,
+  defaultLedIndicatorWidgetConfig,
+  defaultProgressBarWidgetConfig,
+} from '../widgets/widgetConfig';
+import type { BoundWidgetConfig } from '../widgets/widgetConfig';
+import type { WidgetKind } from '../widgets/widgetRegistry';
 
 /**
- * The Dashboard Pane, driven through the fake port — the vertical slice ticket
- * 14 exists to prove: a Widget grid a Profile can hold several of, and one
- * Widget kind (`valueRead`) configured through the shared binding/format/
- * threshold surface end to end, including the stale state a Widget owes an
- * Operator when the Device stops answering.
+ * The Dashboard Pane, driven through the fake port.
+ *
+ * Ticket 14 proved the shared binding/format/threshold surface end to end
+ * through `valueRead` alone; this file also covers ticket 15's six more
+ * Widget kinds — each one's own reason to exist beyond a plain Value
+ * Readout, exercised through the same shared surface rather than a
+ * kind-specific reimplementation of binding, formatting or staleness.
  *
  * Placement and resize on the grid itself are not exercised here. Spec.md's
  * testing policy carves dockview drag out of the test net for exactly this
@@ -51,13 +67,23 @@ const PROFILE: MapProfile = {
 };
 
 /** Seeds the settings `SettingsProvider` reads on mount, matching `CommandPane.test.tsx`'s approach. */
-function seedActiveProfile(): void {
+function seedActiveProfile(dashboardsByProfile?: Record<string, ProfileDashboards>): void {
   const settings = {
     ...DEFAULT_SETTINGS,
     mapProfiles: [PROFILE],
     activeMapProfileId: PROFILE.id,
+    ...(dashboardsByProfile ? { dashboardsByProfile } : {}),
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+}
+
+/** Binds a Widget to SPINDLE_RPM, on the shared surface every kind shares. */
+function boundTo(overrides: Partial<BoundWidgetConfig> = {}): BoundWidgetConfig {
+  return {
+    ...defaultBoundWidgetConfig('Widget'),
+    binding: { space: 'register', address: SPINDLE_RPM_ADDRESS },
+    ...overrides,
+  };
 }
 
 type FakePort = ReturnType<typeof createFakeBackendPort>;
@@ -98,10 +124,11 @@ async function connect(fake: FakePort): Promise<void> {
   });
 }
 
-/** Adds one `valueRead` Widget, in edit mode, and returns its shell. */
+/** Enters edit mode and adds one `valueRead` Widget from the add-Widget menu. */
 async function addWidget(user: UserEvent): Promise<void> {
   await user.click(screen.getByRole('button', { name: 'Edit' }));
   await user.click(screen.getByRole('button', { name: /add widget/i }));
+  await user.click(await screen.findByRole('menuitem', { name: 'Value Readout' }));
 }
 
 /** Opens the shared config dialog for the (lone) Widget under test, whatever its current label reads. */
@@ -278,5 +305,211 @@ describe('several Dashboards per Profile, switchable within the Pane', () => {
 
     expect(screen.queryByRole('tab', { name: 'Dashboard 2' })).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Dashboard 1' })).toBeInTheDocument();
+  });
+});
+
+// ── Ticket 15: the six Widget kinds beyond Value Readout ─────────────────────
+
+/** A Widget bound to SPINDLE_RPM, on the shared surface every kind shares — the kind-specific fields are the caller's. */
+function withBinding<C extends BoundWidgetConfig>(config: C): C {
+  return { ...config, binding: { space: 'register', address: SPINDLE_RPM_ADDRESS } };
+}
+
+function storedWidget(kind: WidgetKind, config: StoredWidget['config'], x: number, y: number): StoredWidget {
+  return { id: createWidgetId(), kind, layout: { x, y, w: 3, h: 2 }, config };
+}
+
+function seedDashboard(widgets: readonly StoredWidget[]): void {
+  const dashboard: StoredDashboard = { id: createDashboardId(), name: 'Dashboard 1', widgets };
+  seedActiveProfile({ [PROFILE.id]: { dashboards: [dashboard] } });
+}
+
+async function writeSpindleRpm(fake: FakePort, value: number): Promise<void> {
+  await act(async () => {
+    await fake.device.writeRegister(SPINDLE_RPM_ADDRESS, value);
+  });
+}
+
+describe('the six Value and Indicator Widget kinds beyond Value Readout', () => {
+  it('each renders and updates from its own bound address, through the shared surface', async () => {
+    seedDashboard([
+      storedWidget('gauge', withBinding(defaultGaugeWidgetConfig('Gauge')), 0, 0),
+      storedWidget('progressBar', withBinding(defaultProgressBarWidgetConfig('Progress Bar')), 3, 0),
+      storedWidget('encoderDisplay', withBinding(defaultEncoderDisplayWidgetConfig('Position')), 6, 0),
+      storedWidget('ledIndicator', withBinding(defaultLedIndicatorWidgetConfig('LED')), 0, 2),
+      storedWidget(
+        'stateLED',
+        withBinding({
+          ...defaultBoundWidgetConfig('State'),
+          thresholds: [
+            { id: 'idle', comparator: '==', value: 0, role: 'idle', label: 'Idle' },
+            { id: 'run', comparator: '==', value: 1, role: 'ok', label: 'Running' },
+          ],
+        }),
+        3,
+        2
+      ),
+      storedWidget('statusMatrix', withBinding(defaultBoundWidgetConfig('Flags')), 6, 2),
+    ]);
+    const fake = createFakeBackendPort({ deliver: fn => fn() });
+    render(
+      <BackendPortProvider port={fake as BackendPort}>
+        <SettingsProvider>
+          <DSHubProvider>
+            <DashboardPane paneId="dashboard#1" setTitle={vi.fn()} />
+          </DSHubProvider>
+        </SettingsProvider>
+      </BackendPortProvider>
+    );
+    await settle();
+    await act(async () => {
+      await fake.device.connect('192.168.1.42', InterfaceType.TCP, 'SESAME-CTRL-01');
+    });
+    await writeSpindleRpm(fake, 1);
+
+    expect(within(screen.getByRole('group', { name: 'Gauge' })).getByText('1')).toBeInTheDocument();
+    expect(within(screen.getByRole('group', { name: 'Progress Bar' })).getByText('1')).toBeInTheDocument();
+    expect(within(screen.getByRole('group', { name: 'Position' })).getByText('1.00')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('group', { name: 'LED' })).getByTitle('On — Status: ok')
+    ).toBeInTheDocument();
+    expect(within(screen.getByRole('group', { name: 'State' })).getByText('Running')).toBeInTheDocument();
+
+    const flags = screen.getByRole('group', { name: 'Flags' });
+    expect(within(flags).getByTitle('Bit 0: set — Status: warn')).toBeInTheDocument();
+    expect(within(flags).getByTitle('Bit 1: clear')).toBeInTheDocument();
+  });
+
+  it('LED Indicator defaults on to ok and off to idle, overridable by an explicit threshold rule', async () => {
+    seedDashboard([
+      storedWidget('ledIndicator', withBinding(defaultLedIndicatorWidgetConfig('Plain LED')), 0, 0),
+      storedWidget(
+        'ledIndicator',
+        withBinding({
+          ...defaultLedIndicatorWidgetConfig('Alarm LED'),
+          thresholds: [{ id: 'on-is-bad', comparator: '==', value: 1, role: 'error' }],
+        }),
+        3,
+        0
+      ),
+    ]);
+    const fake = createFakeBackendPort({ deliver: fn => fn() });
+    render(
+      <BackendPortProvider port={fake as BackendPort}>
+        <SettingsProvider>
+          <DSHubProvider>
+            <DashboardPane paneId="dashboard#1" setTitle={vi.fn()} />
+          </DSHubProvider>
+        </SettingsProvider>
+      </BackendPortProvider>
+    );
+    await settle();
+    await act(async () => {
+      await fake.device.connect('192.168.1.42', InterfaceType.TCP, 'SESAME-CTRL-01');
+    });
+    await writeSpindleRpm(fake, 1);
+
+    expect(
+      within(screen.getByRole('group', { name: 'Plain LED' })).getByTitle('On — Status: ok')
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('group', { name: 'Alarm LED' })).getByTitle('On — Status: error')
+    ).toBeInTheDocument();
+  });
+});
+
+describe('kind-specific fields configure through the same shared dialog', () => {
+  it('persists a Gauge’s range across a save and reopen', async () => {
+    const user = userEvent.setup();
+    renderPane();
+    await settle();
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(screen.getByRole('button', { name: /add widget/i }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Gauge' }));
+
+    await user.click(screen.getByRole('button', { name: /^Configure/ }));
+    let dialog = screen.getByRole('dialog', { name: 'Configure Widget' });
+    expect(within(dialog).getByRole('textbox', { name: 'Maximum' })).toHaveValue('100');
+
+    const maxField = within(dialog).getByRole('textbox', { name: 'Maximum' });
+    await user.clear(maxField);
+    await user.type(maxField, '500{Enter}');
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await user.click(screen.getByRole('button', { name: /^Configure/ }));
+    dialog = screen.getByRole('dialog', { name: 'Configure Widget' });
+    expect(within(dialog).getByRole('textbox', { name: 'Maximum' })).toHaveValue('500');
+  });
+
+  it('hides the Thresholds section for Status Matrix, which does not read it', async () => {
+    const user = userEvent.setup();
+    renderPane();
+    await settle();
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(screen.getByRole('button', { name: /add widget/i }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Status Matrix' }));
+
+    await user.click(screen.getByRole('button', { name: /^Configure/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Configure Widget' });
+
+    expect(within(dialog).queryByText('Thresholds')).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /add rule/i })).not.toBeInTheDocument();
+  });
+
+  it('shows custom on/off labels for LED Indicator', async () => {
+    const user = userEvent.setup();
+    seedDashboard([storedWidget('ledIndicator', withBinding(defaultLedIndicatorWidgetConfig('Lamp')), 0, 0)]);
+    const fake = createFakeBackendPort({ deliver: fn => fn() });
+    render(
+      <BackendPortProvider port={fake as BackendPort}>
+        <SettingsProvider>
+          <DSHubProvider>
+            <DashboardPane paneId="dashboard#1" setTitle={vi.fn()} />
+          </DSHubProvider>
+        </SettingsProvider>
+      </BackendPortProvider>
+    );
+    await settle();
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(screen.getByRole('button', { name: 'Configure Lamp' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Configure Widget' });
+    const onLabelField = within(dialog).getByRole('textbox', { name: 'On label (optional)' });
+    await user.type(onLabelField, 'Enabled');
+    const offLabelField = within(dialog).getByRole('textbox', { name: 'Off label (optional)' });
+    await user.type(offLabelField, 'Disabled');
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await act(async () => {
+      await fake.device.connect('192.168.1.42', InterfaceType.TCP, 'SESAME-CTRL-01');
+    });
+    await writeSpindleRpm(fake, 0);
+
+    expect(within(screen.getByRole('group', { name: 'Lamp' })).getByText('Disabled')).toBeInTheDocument();
+  });
+});
+
+describe('the add-Widget menu', () => {
+  it('offers every registered Widget kind and adds whichever is chosen', async () => {
+    const user = userEvent.setup();
+    renderPane();
+    await settle();
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(screen.getByRole('button', { name: /add widget/i }));
+
+    for (const title of [
+      'Value Readout',
+      'Gauge',
+      'Progress Bar',
+      'Encoder Display',
+      'LED Indicator',
+      'State LED',
+      'Status Matrix',
+    ]) {
+      expect(screen.getByRole('menuitem', { name: title })).toBeInTheDocument();
+    }
+
+    await user.click(screen.getByRole('menuitem', { name: 'Gauge' }));
+    expect(screen.getByRole('button', { name: 'Configure Gauge' })).toBeInTheDocument();
   });
 });

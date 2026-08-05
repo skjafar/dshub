@@ -45,4 +45,13 @@
   justify-content: center;
   padding: var(--space-sm);
   overflow: auto;
+
+  /* Establishes a query container so a Widget's own CSS can size itself off
+     its own box (`cqi`/`cqb` units) rather than the viewport — the mechanism
+     "scales legibly across the range of grid sizes it can be given" runs on.
+     Named rather than left anonymous so a Widget's stylesheet states the
+     dependency explicitly at each `@container widget (...)` rule instead of
+     querying an unnamed ancestor implicitly. */
+  container-type: size;
+  container-name: widget;
 }

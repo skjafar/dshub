@@ -13,7 +13,7 @@
 
 import type { WidgetKind } from './widgetRegistry';
 import { isKnownWidgetKind } from './widgetRegistry';
-import type { BoundWidgetConfig, WidgetBinding } from './widgetConfig';
+import type { WidgetBinding, WidgetConfig } from './widgetConfig';
 import type { ThresholdRule } from './threshold';
 
 export interface WidgetLayout {
@@ -27,7 +27,7 @@ export interface StoredWidget {
   readonly id: string;
   readonly kind: WidgetKind;
   readonly layout: WidgetLayout;
-  readonly config: BoundWidgetConfig;
+  readonly config: WidgetConfig;
 }
 
 export interface StoredDashboard {
@@ -55,8 +55,8 @@ export function createWidgetId(): string {
 // before a stored collection reaches a live Dashboard Pane, the same
 // discipline `workspaceStore.ts` applies to a stored Workspace.
 
-const COMPARATORS = new Set(['<', '<=', '>', '>=']);
-const ROLES = new Set(['ok', 'warn', 'error']);
+const COMPARATORS = new Set(['<', '<=', '>', '>=', '==']);
+const ROLES = new Set(['ok', 'warn', 'error', 'idle']);
 const SPACES = new Set(['register', 'parameter', 'sysRegister']);
 const FORMATS = new Set(['decimal', 'hexadecimal', 'binary']);
 
@@ -86,11 +86,20 @@ function isValidThresholdRule(value: unknown): value is ThresholdRule {
   if (typeof value.comparator !== 'string' || !COMPARATORS.has(value.comparator)) return false;
   if (!isFiniteNumber(value.value)) return false;
   if (typeof value.role !== 'string' || !ROLES.has(value.role)) return false;
+  if (value.label !== undefined && typeof value.label !== 'string') return false;
   return true;
 }
 
-function isValidConfig(value: unknown): value is BoundWidgetConfig {
-  if (!isPlainObject(value)) return false;
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === 'string';
+}
+
+function isOptionalFiniteNumber(value: unknown): value is number | undefined {
+  return value === undefined || isFiniteNumber(value);
+}
+
+/** The shared shape every kind carries — checked regardless of kind. */
+function isValidSharedConfig(value: Record<string, unknown>): boolean {
   if (typeof value.label !== 'string') return false;
   if (!isValidBinding(value.binding)) return false;
   if (typeof value.format !== 'string' || !FORMATS.has(value.format)) return false;
@@ -98,12 +107,49 @@ function isValidConfig(value: unknown): value is BoundWidgetConfig {
   return true;
 }
 
+/**
+ * A kind's own fields beyond the shared shape. `valueRead`, `stateLED` and
+ * `statusMatrix` carry nothing extra, so every field access here is optional
+ * — a present-but-wrong-typed field still fails, an absent one does not.
+ */
+function isValidKindFields(kind: WidgetKind, value: Record<string, unknown>): boolean {
+  switch (kind) {
+    case 'gauge':
+    case 'progressBar':
+      if (!isFiniteNumber(value.min) || !isFiniteNumber(value.max)) return false;
+      if (!isOptionalString(value.unit)) return false;
+      if (kind === 'progressBar' && value.orientation !== undefined) {
+        if (value.orientation !== 'horizontal' && value.orientation !== 'vertical') return false;
+      }
+      return true;
+    case 'encoderDisplay':
+      if (!isFiniteNumber(value.conversionFactor)) return false;
+      if (!isOptionalString(value.primaryUnit) || !isOptionalString(value.secondaryUnit)) return false;
+      if (value.showRawValue !== undefined && typeof value.showRawValue !== 'boolean') return false;
+      if (!isOptionalFiniteNumber(value.decimals)) return false;
+      return true;
+    case 'ledIndicator':
+      if (!isFiniteNumber(value.onValue)) return false;
+      if (!isOptionalString(value.onLabel) || !isOptionalString(value.offLabel)) return false;
+      return true;
+    case 'valueRead':
+    case 'stateLED':
+    case 'statusMatrix':
+      return true;
+  }
+}
+
+function isValidConfig(value: unknown, kind: WidgetKind): value is WidgetConfig {
+  if (!isPlainObject(value)) return false;
+  return isValidSharedConfig(value) && isValidKindFields(kind, value);
+}
+
 function isValidStoredWidget(value: unknown): value is StoredWidget {
   if (!isPlainObject(value)) return false;
   if (typeof value.id !== 'string' || value.id === '') return false;
   if (typeof value.kind !== 'string' || !isKnownWidgetKind(value.kind)) return false;
   if (!isValidLayout(value.layout)) return false;
-  if (!isValidConfig(value.config)) return false;
+  if (!isValidConfig(value.config, value.kind)) return false;
   return true;
 }
 
@@ -182,7 +228,7 @@ export function removeWidget(dashboard: StoredDashboard, widgetId: string): Stor
 export function updateWidgetConfig(
   dashboard: StoredDashboard,
   widgetId: string,
-  config: BoundWidgetConfig
+  config: WidgetConfig
 ): StoredDashboard {
   return { ...dashboard, widgets: dashboard.widgets.map(w => (w.id === widgetId ? { ...w, config } : w)) };
 }

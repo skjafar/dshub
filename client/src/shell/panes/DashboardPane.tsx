@@ -3,7 +3,7 @@ import GridLayout from 'react-grid-layout';
 import type { Layout } from 'react-grid-layout';
 import { Check, PencilSimple, Plus, TrashSimple, X } from '@phosphor-icons/react';
 import { useSettings } from '../../contexts/SettingsContext';
-import { Button, TabPanel, Tabs, TextField, cx } from '../../ui';
+import { Button, Menu, MenuItem, TabPanel, Tabs, TextField, cx } from '../../ui';
 import type { TabDefinition } from '../../ui';
 import {
   addDashboard,
@@ -21,9 +21,9 @@ import {
   nextAvailablePosition,
 } from '../widgets/dashboardStore';
 import type { ProfileDashboards, StoredDashboard, StoredWidget } from '../widgets/dashboardStore';
-import { widgetDefinition } from '../widgets/widgetRegistry';
+import { WIDGETS, widgetDefinition } from '../widgets/widgetRegistry';
 import type { WidgetKind } from '../widgets/widgetRegistry';
-import type { BoundWidgetConfig } from '../widgets/widgetConfig';
+import type { WidgetConfig } from '../widgets/widgetConfig';
 import { instanceOfPaneId } from '../paneRegistry';
 import type { PaneProps } from '../paneRegistry';
 import { usePaneState } from '../paneState';
@@ -32,14 +32,6 @@ import { WIDGET_DRAG_CANCEL_CLASS, WidgetShell } from './WidgetShell';
 import styles from './DashboardPane.module.css';
 
 import 'react-grid-layout/css/styles.css';
-
-/**
- * The single Widget kind this ticket delivers — "Add Widget" places one
- * directly rather than opening a kind picker, since there is exactly one kind
- * to place. Later tickets widen this to a picker once there is something to
- * pick between.
- */
-const NEW_WIDGET_KIND: WidgetKind = 'valueRead';
 
 /**
  * Fixed rather than derived from the measured container width — unlike the
@@ -76,8 +68,9 @@ function newDashboard(name: string): StoredDashboard {
  * Deliberately not dissolved into Panes (spec.md) — it keeps its own internal
  * layout system, `react-grid-layout`, separate from the Workspace's dockview.
  * Every Widget on the grid configures through one shared surface
- * (`WidgetConfigDialog`) regardless of kind, which is what this ticket exists
- * to prove works before the other fifteen kinds join `valueRead` here.
+ * (`WidgetConfigDialog`) regardless of kind — seven kinds share it as of
+ * ticket 15; the remaining nine join `widgetRegistry.ts`'s list in later
+ * tickets without this Pane changing at all.
  */
 export function DashboardPane({ paneId, setTitle }: PaneProps): React.JSX.Element {
   const { settings, updateSettings } = useSettings();
@@ -176,24 +169,27 @@ export function DashboardPane({ paneId, setTitle }: PaneProps): React.JSX.Elemen
 
   // ── Widget-level actions ─────────────────────────────────────────────────
 
-  const handleAddWidget = useCallback(() => {
-    if (!collection || !activeDashboard) return;
-    const definition = widgetDefinition(NEW_WIDGET_KIND);
-    if (!definition) return;
+  const handleAddWidget = useCallback(
+    (kind: WidgetKind) => {
+      if (!collection || !activeDashboard) return;
+      const definition = widgetDefinition(kind);
+      if (!definition) return;
 
-    const position = nextAvailablePosition(
-      activeDashboard.widgets.map(w => w.layout),
-      definition.defaultSize,
-      GRID_COLS
-    );
-    const widget: StoredWidget = {
-      id: createWidgetId(),
-      kind: definition.kind,
-      layout: { x: position.x, y: position.y, w: definition.defaultSize.w, h: definition.defaultSize.h },
-      config: definition.defaultConfig(),
-    };
-    commit(updateDashboard(collection, activeDashboard.id, d => addWidget(d, widget)));
-  }, [collection, activeDashboard, commit]);
+      const position = nextAvailablePosition(
+        activeDashboard.widgets.map(w => w.layout),
+        definition.defaultSize,
+        GRID_COLS
+      );
+      const widget: StoredWidget = {
+        id: createWidgetId(),
+        kind: definition.kind,
+        layout: { x: position.x, y: position.y, w: definition.defaultSize.w, h: definition.defaultSize.h },
+        config: definition.defaultConfig(),
+      };
+      commit(updateDashboard(collection, activeDashboard.id, d => addWidget(d, widget)));
+    },
+    [collection, activeDashboard, commit]
+  );
 
   const handleRemoveWidget = useCallback(
     (widgetId: string) => {
@@ -204,7 +200,7 @@ export function DashboardPane({ paneId, setTitle }: PaneProps): React.JSX.Elemen
   );
 
   const handleSaveWidgetConfig = useCallback(
-    (config: BoundWidgetConfig) => {
+    (config: WidgetConfig) => {
       if (!collection || !activeDashboard || configuringWidgetId === null) return;
       commit(updateDashboard(collection, activeDashboard.id, d => updateWidgetConfig(d, configuringWidgetId, config)));
     },
@@ -334,9 +330,19 @@ export function DashboardPane({ paneId, setTitle }: PaneProps): React.JSX.Elemen
             {editing ? 'Done Editing' : 'Edit'}
           </Button>
           {editing ? (
-            <Button size="sm" onClick={handleAddWidget}>
-              <Plus size={14} weight="bold" /> Add Widget
-            </Button>
+            <Menu
+              trigger={
+                <Button size="sm">
+                  <Plus size={14} weight="bold" /> Add Widget
+                </Button>
+              }
+            >
+              {WIDGETS.map(definition => (
+                <MenuItem key={definition.kind} onSelect={() => handleAddWidget(definition.kind)}>
+                  {definition.title}
+                </MenuItem>
+              ))}
+            </Menu>
           ) : null}
         </div>
 
@@ -390,6 +396,7 @@ export function DashboardPane({ paneId, setTitle }: PaneProps): React.JSX.Elemen
           onOpenChange={open => {
             if (!open) setConfiguringWidgetId(null);
           }}
+          kind={configuringWidget.kind}
           config={configuringWidget.config}
           onSave={handleSaveWidgetConfig}
         />

@@ -69,16 +69,31 @@
 
 .rule {
   display: grid;
-  grid-template-columns: auto 1fr auto 1fr auto;
+  grid-template-columns: auto 5rem auto 1fr auto;
   align-items: center;
   gap: var(--space-2xs);
 }
 
-.ruleLabel {
-  color: var(--on-surface-variant);
-  font-size: var(--text-sm);
-}
-
 .ruleValue {
   width: 100%;
+}
+
+.ruleLabelField {
+  width: 100%;
+}
+
+.kindFields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: var(--space-sm);
+  align-items: end;
+}
+
+.switchRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  grid-column: 1 / -1;
+  color: var(--on-surface-variant);
+  font-size: var(--text-sm);
 }

@@ -58,7 +58,7 @@ describe('validating a stored Dashboard', () => {
       widgets: [
         widget({
           config: config({
-            thresholds: [{ id: 't1', comparator: '==' as never, value: 1, role: 'warn' }],
+            thresholds: [{ id: 't1', comparator: '!=' as never, value: 1, role: 'warn' }],
           }),
         }),
       ],
@@ -68,6 +68,25 @@ describe('validating a stored Dashboard', () => {
 
   it('accepts a null binding — an unconfigured Widget is valid, not corrupt', () => {
     expect(isValidStoredDashboard(dashboard({ widgets: [widget({ config: config({ binding: null }) })] }))).toBe(true);
+  });
+
+  it('rejects an Encoder Display Widget whose decimals field is not a number', () => {
+    const bad = dashboard({
+      widgets: [
+        widget({
+          kind: 'encoderDisplay',
+          config: { ...config(), conversionFactor: 1, decimals: 'two' as never },
+        }),
+      ],
+    });
+    expect(isValidStoredDashboard(bad)).toBe(false);
+  });
+
+  it('accepts an Encoder Display Widget with no decimals field at all', () => {
+    const ok = dashboard({
+      widgets: [widget({ kind: 'encoderDisplay', config: { ...config(), conversionFactor: 1 } })],
+    });
+    expect(isValidStoredDashboard(ok)).toBe(true);
   });
 
   it('rejects garbage of every shape without throwing', () => {

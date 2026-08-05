@@ -32,7 +32,7 @@ export interface WidgetShellProps {
  */
 export function WidgetShell({ label, editing, onConfigure, onRemove, children }: WidgetShellProps): React.JSX.Element {
   return (
-    <div className={styles.shell}>
+    <div className={styles.shell} role="group" aria-label={label}>
       <div className={styles.header}>
         <span className={styles.label}>{label}</span>
         {editing ? (

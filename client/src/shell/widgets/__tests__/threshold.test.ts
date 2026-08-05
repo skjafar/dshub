@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateThresholds } from '../threshold';
+import { evaluateThresholds, matchingThresholdRule } from '../threshold';
 import type { ThresholdRule } from '../threshold';
 
 function rule(overrides: Partial<ThresholdRule> = {}): ThresholdRule {
@@ -48,8 +48,30 @@ describe('evaluateThresholds', () => {
     ['>', 5, 5, false],
     ['>=', 5, 5, true],
     ['>=', 5, 4, false],
+    ['==', 5, 5, true],
+    ['==', 5, 6, false],
   ] as const)('comparator %s against bound %d with value %d matches: %s', (comparator, bound, value, shouldMatch) => {
     const rules = [rule({ comparator, value: bound, role: 'error' })];
     expect(evaluateThresholds(value, rules)).toBe(shouldMatch ? 'error' : 'ok');
+  });
+});
+
+describe('matchingThresholdRule', () => {
+  it('returns null when no rule matches, distinct from the "ok" evaluateThresholds falls back to', () => {
+    const rules = [rule({ comparator: '==', value: 1, role: 'ok' })];
+    expect(matchingThresholdRule(0, rules)).toBeNull();
+  });
+
+  it('returns the first matching rule, label and all, for a discrete state code', () => {
+    const rules = [
+      rule({ id: 'idle', comparator: '==', value: 0, role: 'idle', label: 'Idle' }),
+      rule({ id: 'running', comparator: '==', value: 1, role: 'ok', label: 'Running' }),
+    ];
+    expect(matchingThresholdRule(1, rules)).toEqual(rules[1]);
+  });
+
+  it('a rule need not carry a label — callers fall back to something else when it is absent', () => {
+    const rules = [rule({ comparator: '>', value: 0, role: 'warn' })];
+    expect(matchingThresholdRule(5, rules)?.label).toBeUndefined();
   });
 });

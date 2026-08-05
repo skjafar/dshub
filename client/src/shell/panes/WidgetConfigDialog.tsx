@@ -8,16 +8,24 @@ import { useMapEntries } from '../useMapEntries';
 import { DISPLAY_FORMATS } from '../valueFormat';
 import type { DisplayFormat } from '../valueFormat';
 import type { ThresholdRule } from '../widgets/threshold';
-import type { BoundWidgetConfig } from '../widgets/widgetConfig';
-import { Button, Dialog, NumericInput, Select, Table, TextField } from '../../ui';
+import type {
+  EncoderDisplayWidgetConfig,
+  GaugeWidgetConfig,
+  LedIndicatorWidgetConfig,
+  ProgressBarWidgetConfig,
+  WidgetConfig,
+} from '../widgets/widgetConfig';
+import type { WidgetKind } from '../widgets/widgetRegistry';
+import { Button, Dialog, NumericInput, Select, Switch, Table, TextField } from '../../ui';
 import type { Column, SelectOption } from '../../ui';
 import styles from './WidgetConfigDialog.module.css';
 
 export interface WidgetConfigDialogProps {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
-  readonly config: BoundWidgetConfig;
-  readonly onSave: (config: BoundWidgetConfig) => void;
+  readonly kind: WidgetKind;
+  readonly config: WidgetConfig;
+  readonly onSave: (config: WidgetConfig) => void;
 }
 
 const SPACE_OPTIONS: readonly SelectOption<AddressSpace>[] = (
@@ -39,22 +47,165 @@ const COMPARATOR_LABEL: Readonly<Record<ThresholdRule['comparator'], string>> = 
   '<=': 'is at or below',
   '>': 'is above',
   '>=': 'is at or above',
+  '==': 'equals',
 };
 const COMPARATOR_OPTIONS: readonly SelectOption<ThresholdRule['comparator']>[] = (
-  ['<', '<=', '>', '>='] as const
+  ['<', '<=', '>', '>=', '=='] as const
 ).map(comparator => ({ value: comparator, label: COMPARATOR_LABEL[comparator] }));
 
 const ROLE_LABEL: Readonly<Record<ThresholdRule['role'], string>> = {
   ok: 'OK',
   warn: 'Warn',
   error: 'Error',
+  idle: 'Idle',
 };
-const ROLE_OPTIONS: readonly SelectOption<ThresholdRule['role']>[] = (['ok', 'warn', 'error'] as const).map(
+const ROLE_OPTIONS: readonly SelectOption<ThresholdRule['role']>[] = (['ok', 'warn', 'error', 'idle'] as const).map(
   role => ({ value: role, label: ROLE_LABEL[role] })
 );
 
+const ORIENTATION_OPTIONS: readonly SelectOption<'horizontal' | 'vertical'>[] = [
+  { value: 'horizontal', label: 'Horizontal' },
+  { value: 'vertical', label: 'Vertical' },
+];
+
+/**
+ * The kind-specific fields section's own heading, keyed by kind. Doubles as
+ * the answer to whether that section shows at all — `valueRead`, `stateLED`
+ * and `statusMatrix` carry no fields beyond the shared shape, so they have no
+ * entry here rather than a heading nothing sits under.
+ */
+const KIND_FIELDS_SECTION_TITLE: Readonly<Partial<Record<WidgetKind, string>>> = {
+  gauge: 'Range',
+  progressBar: 'Range',
+  encoderDisplay: 'Conversion',
+  ledIndicator: 'On value',
+};
+
+/**
+ * Whether Thresholds do anything for this kind. Every other kind reads
+ * `config.thresholds` to colour or label its reading; Status Matrix decomposes
+ * its one bound value bit by bit instead and gives every set bit the same
+ * fixed colour (see `StatusMatrixWidget.tsx`), so showing the Thresholds
+ * editor for it would be configuration with no effect.
+ */
+function thresholdsApplyTo(kind: WidgetKind): boolean {
+  return kind !== 'statusMatrix';
+}
+
 function createThresholdRuleId(): string {
   return `threshold_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+interface FieldsProps<C extends WidgetConfig> {
+  readonly draft: C;
+  readonly onChange: (patch: Partial<C>) => void;
+}
+
+/** Gauge and Progress Bar share a min/max/unit shape — the fields differ only in the label above them. */
+function RangeFields({
+  draft,
+  onChange,
+}: FieldsProps<GaugeWidgetConfig | ProgressBarWidgetConfig>): React.JSX.Element {
+  return (
+    <>
+      <NumericInput label="Minimum" value={draft.min} onCommit={min => onChange({ min })} />
+      <NumericInput label="Maximum" value={draft.max} onCommit={max => onChange({ max })} />
+      <TextField
+        label="Unit (optional)"
+        value={draft.unit ?? ''}
+        onChange={event => onChange({ unit: event.target.value === '' ? undefined : event.target.value })}
+      />
+    </>
+  );
+}
+
+function ProgressBarFields({ draft, onChange }: FieldsProps<ProgressBarWidgetConfig>): React.JSX.Element {
+  return (
+    <>
+      <RangeFields draft={draft} onChange={onChange} />
+      <Select
+        value={draft.orientation ?? 'horizontal'}
+        onValueChange={orientation => onChange({ orientation })}
+        options={ORIENTATION_OPTIONS}
+        aria-label="Orientation"
+      />
+    </>
+  );
+}
+
+function EncoderDisplayFields({ draft, onChange }: FieldsProps<EncoderDisplayWidgetConfig>): React.JSX.Element {
+  return (
+    <>
+      <NumericInput
+        label="Conversion factor"
+        value={draft.conversionFactor}
+        onCommit={conversionFactor => onChange({ conversionFactor })}
+      />
+      <TextField
+        label="Converted unit (optional)"
+        value={draft.primaryUnit ?? ''}
+        onChange={event => onChange({ primaryUnit: event.target.value === '' ? undefined : event.target.value })}
+      />
+      <TextField
+        label="Raw unit (optional)"
+        value={draft.secondaryUnit ?? ''}
+        onChange={event => onChange({ secondaryUnit: event.target.value === '' ? undefined : event.target.value })}
+      />
+      <label className={styles.switchRow}>
+        <Switch checked={draft.showRawValue ?? true} onCheckedChange={showRawValue => onChange({ showRawValue })} />
+        Show the raw reading alongside the converted one
+      </label>
+    </>
+  );
+}
+
+function LedIndicatorFields({ draft, onChange }: FieldsProps<LedIndicatorWidgetConfig>): React.JSX.Element {
+  return (
+    <>
+      <NumericInput label="Value counted as “on”" value={draft.onValue} onCommit={onValue => onChange({ onValue })} />
+      <TextField
+        label="On label (optional)"
+        value={draft.onLabel ?? ''}
+        onChange={event => onChange({ onLabel: event.target.value === '' ? undefined : event.target.value })}
+      />
+      <TextField
+        label="Off label (optional)"
+        value={draft.offLabel ?? ''}
+        onChange={event => onChange({ offLabel: event.target.value === '' ? undefined : event.target.value })}
+      />
+    </>
+  );
+}
+
+/**
+ * The one place a Widget's kind decides anything about this dialog. Every
+ * field above and below this section is identical regardless of `kind`; only
+ * a handful of kinds need fields beyond the shared shape at all, and this is
+ * where each says what they are.
+ */
+function KindFields({
+  kind,
+  draft,
+  onChange,
+}: {
+  readonly kind: WidgetKind;
+  readonly draft: WidgetConfig;
+  readonly onChange: (patch: Partial<WidgetConfig>) => void;
+}): React.JSX.Element | null {
+  switch (kind) {
+    case 'gauge':
+      return <RangeFields draft={draft as GaugeWidgetConfig} onChange={onChange} />;
+    case 'progressBar':
+      return <ProgressBarFields draft={draft as ProgressBarWidgetConfig} onChange={onChange} />;
+    case 'encoderDisplay':
+      return <EncoderDisplayFields draft={draft as EncoderDisplayWidgetConfig} onChange={onChange} />;
+    case 'ledIndicator':
+      return <LedIndicatorFields draft={draft as LedIndicatorWidgetConfig} onChange={onChange} />;
+    case 'valueRead':
+    case 'stateLED':
+    case 'statusMatrix':
+      return null;
+  }
 }
 
 /**
@@ -63,9 +214,16 @@ function createThresholdRuleId(): string {
  *
  * A single form for all three rather than a kind-specific dialog is the point
  * — "learning one Widget teaches you the others" is a property of this
- * component, not of any one Widget kind's own code.
+ * component, not of any one Widget kind's own code. `kind` only ever reaches
+ * {@link KindFields}, the one section that legitimately varies.
  */
-export function WidgetConfigDialog({ open, onOpenChange, config, onSave }: WidgetConfigDialogProps): React.JSX.Element {
+export function WidgetConfigDialog({
+  open,
+  onOpenChange,
+  kind,
+  config,
+  onSave,
+}: WidgetConfigDialogProps): React.JSX.Element {
   const [draft, setDraft] = useState(config);
   const [space, setSpace] = useState<AddressSpace>(config.binding?.space ?? 'register');
   const [query, setQuery] = useState('');
@@ -126,6 +284,10 @@ export function WidgetConfigDialog({ open, onOpenChange, config, onSave }: Widge
       ...previous,
       thresholds: previous.thresholds.map(rule => (rule.id === id ? { ...rule, ...patch } : rule)),
     }));
+  };
+
+  const handleKindFieldsChange = (patch: Partial<WidgetConfig>): void => {
+    setDraft(previous => ({ ...previous, ...patch }));
   };
 
   const handleSave = (): void => {
@@ -203,49 +365,70 @@ export function WidgetConfigDialog({ open, onOpenChange, config, onSave }: Widge
           aria-label="Display format"
         />
 
-        <section className={styles.section}>
-          <h3 className={styles.sectionTitle}>Thresholds</h3>
-          {draft.thresholds.length === 0 ? (
-            <p className={styles.boundText}>No thresholds — the reading shows with no condition colouring.</p>
-          ) : (
-            <ul className={styles.rules}>
-              {draft.thresholds.map(rule => (
-                <li key={rule.id} className={styles.rule}>
-                  <span className={styles.ruleLabel}>Value</span>
-                  <Select
-                    value={rule.comparator}
-                    onValueChange={comparator => handleUpdateRule(rule.id, { comparator })}
-                    options={COMPARATOR_OPTIONS}
-                    aria-label="Comparator"
-                  />
-                  <NumericInput
-                    value={rule.value}
-                    onCommit={value => handleUpdateRule(rule.id, { value })}
-                    className={styles.ruleValue}
-                    aria-label="Threshold value"
-                  />
-                  <Select
-                    value={rule.role}
-                    onValueChange={role => handleUpdateRule(rule.id, { role })}
-                    options={ROLE_OPTIONS}
-                    aria-label="Status when this rule matches"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label="Remove this threshold rule"
-                    onClick={() => handleRemoveRule(rule.id)}
-                  >
-                    <TrashSimple size={14} />
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <Button size="sm" onClick={handleAddRule}>
-            <Plus size={14} weight="bold" /> Add rule
-          </Button>
-        </section>
+        {KIND_FIELDS_SECTION_TITLE[kind] ? (
+          <section className={styles.section}>
+            <h3 className={styles.sectionTitle}>{KIND_FIELDS_SECTION_TITLE[kind]}</h3>
+            <div className={styles.kindFields}>
+              <KindFields kind={kind} draft={draft} onChange={handleKindFieldsChange} />
+            </div>
+          </section>
+        ) : null}
+
+        {thresholdsApplyTo(kind) ? (
+          <section className={styles.section}>
+            <h3 className={styles.sectionTitle}>Thresholds</h3>
+            {draft.thresholds.length === 0 ? (
+              <p className={styles.boundText}>No thresholds — the reading shows with no condition colouring.</p>
+            ) : (
+              <ul className={styles.rules}>
+                {draft.thresholds.map(rule => (
+                  <li key={rule.id} className={styles.rule}>
+                    <Select
+                      value={rule.comparator}
+                      onValueChange={comparator => handleUpdateRule(rule.id, { comparator })}
+                      options={COMPARATOR_OPTIONS}
+                      aria-label="Comparator"
+                    />
+                    <NumericInput
+                      value={rule.value}
+                      onCommit={value => handleUpdateRule(rule.id, { value })}
+                      className={styles.ruleValue}
+                      aria-label="Threshold value"
+                    />
+                    <Select
+                      value={rule.role}
+                      onValueChange={role => handleUpdateRule(rule.id, { role })}
+                      options={ROLE_OPTIONS}
+                      aria-label="Status when this rule matches"
+                    />
+                    <TextField
+                      value={rule.label ?? ''}
+                      onChange={event =>
+                        handleUpdateRule(rule.id, {
+                          label: event.target.value === '' ? undefined : event.target.value,
+                        })
+                      }
+                      placeholder="Name (optional)"
+                      aria-label="Name shown for this rule, used by State LED"
+                      className={styles.ruleLabelField}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label="Remove this threshold rule"
+                      onClick={() => handleRemoveRule(rule.id)}
+                    >
+                      <TrashSimple size={14} />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Button size="sm" onClick={handleAddRule}>
+              <Plus size={14} weight="bold" /> Add rule
+            </Button>
+          </section>
+        ) : null}
       </div>
     </Dialog>
   );
