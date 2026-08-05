@@ -64,12 +64,6 @@
   font-size: var(--text-sm);
 }
 
-.pickerCap {
-  margin: 0;
-  color: var(--status-warn);
-  font-size: var(--text-sm);
-}
-
 /* ── Legend ───────────────────────────────────────────────────────────────── */
 
 .legend {

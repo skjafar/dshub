@@ -3,6 +3,8 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { FONT_MONO } from '../../design/tokens';
 import { seriesColorAt } from '../../design/dataColors';
+import { formatFractional } from '../../utils/numberFormat';
+import { formatClockTime } from '../plotExport';
 import { bufferOf } from '../plotStream';
 import styles from './PlotChart.module.css';
 
@@ -24,6 +26,12 @@ const FALLBACK_SIZE = { width: 400, height: 240 };
 // true fixed-width face is the only way a changing tick value does not jitter
 // the axis width from one redraw to the next.
 const AXIS_FONT = `11px ${FONT_MONO}`;
+
+/** One wheel notch narrows or widens the visible window by this factor. */
+const WHEEL_ZOOM_FACTOR = 1.15;
+
+/** Floor on a zoomed window's width, so scrolling in cannot collapse it to nothing. */
+const MIN_ZOOM_RANGE_S = 0.5;
 
 export interface PlotChartSeries {
   readonly name: string;
@@ -47,10 +55,16 @@ export interface PlotChartProps {
   readonly textColor: string;
   /** Gridline colour. Follows the theme rather than a fixed value. */
   readonly gridColor: string;
-  /** Seconds of history the visible window shows. */
+  /** Seconds of history the visible window shows, absent a manual zoom. */
   readonly timeSpan: number;
   /** Freezes the visible window without stopping retention. */
   readonly paused: boolean;
+}
+
+/** The X window a manual zoom or pan has set. `null` means "follow live/paused as usual". */
+interface XWindow {
+  readonly min: number;
+  readonly max: number;
 }
 
 function visibleOf(series: readonly PlotChartSeries[]): readonly PlotChartSeries[] {
@@ -71,13 +85,102 @@ function alignedDataFor(visible: readonly PlotChartSeries[]): uPlot.AlignedData 
   return uPlot.join(tables);
 }
 
+/**
+ * The cursor tooltip: one instant's reading from every visible series, in the
+ * vertical line the cursor is on.
+ *
+ * Built as plain DOM once per chart and mutated in place on every cursor move,
+ * not held in React state — a hover can move dozens of times a second, and
+ * routing that through a render is exactly what this component exists to
+ * avoid for the data itself. The row for a series is created once because the
+ * set of visible series only changes on a structural rebuild, which discards
+ * this tooltip along with the chart it belongs to.
+ */
+interface Tooltip {
+  readonly el: HTMLDivElement;
+  readonly timeEl: HTMLDivElement;
+  readonly rows: readonly { readonly valueEl: HTMLSpanElement }[];
+}
+
+function buildTooltip(
+  over: HTMLElement,
+  visible: readonly PlotChartSeries[],
+  mode: 'dark' | 'light'
+): Tooltip {
+  const el = document.createElement('div');
+  el.className = styles.tooltip;
+  el.style.display = 'none';
+
+  const timeEl = document.createElement('div');
+  timeEl.className = styles.tooltipTime;
+  el.appendChild(timeEl);
+
+  const rows = visible.map(s => {
+    const row = document.createElement('div');
+    row.className = styles.tooltipRow;
+
+    const swatch = document.createElement('span');
+    swatch.className = styles.tooltipSwatch;
+    swatch.style.background = seriesColorAt(s.colorSlot, mode);
+
+    const name = document.createElement('span');
+    name.className = styles.tooltipName;
+    name.textContent = s.name;
+
+    const valueEl = document.createElement('span');
+    valueEl.className = styles.tooltipValue;
+
+    row.append(swatch, name, valueEl);
+    el.appendChild(row);
+    return { valueEl };
+  });
+
+  over.appendChild(el);
+  return { el, timeEl, rows };
+}
+
+/** Reads the cursor's current index straight off the chart and repaints the tooltip from it. */
+function updateTooltip(tooltip: Tooltip, chart: uPlot, visible: readonly PlotChartSeries[]): void {
+  const idx = chart.cursor.idx;
+  const x = idx == null ? null : (chart.data[0]?.[idx] as number | null | undefined);
+
+  if (idx == null || x == null) {
+    tooltip.el.style.display = 'none';
+    return;
+  }
+
+  tooltip.timeEl.textContent = formatClockTime(new Date(x * 1000));
+  visible.forEach((_s, i) => {
+    const y = chart.data[i + 1]?.[idx] as number | null | undefined;
+    tooltip.rows[i].valueEl.textContent = y == null ? '—' : formatFractional(y);
+  });
+
+  tooltip.el.style.display = '';
+
+  // Flips to the cursor's left, and clamps vertically, rather than running off
+  // the plotting area — a Pane docked into a narrow column puts the cursor
+  // within the margin's reach of the right edge often enough that this is the
+  // common case, not an edge case.
+  const margin = 12;
+  const cursorLeft = chart.cursor.left ?? 0;
+  const cursorTop = chart.cursor.top ?? 0;
+  const overflowsRight = cursorLeft + margin + tooltip.el.offsetWidth > chart.rect.width;
+  const left = overflowsRight
+    ? Math.max(0, cursorLeft - margin - tooltip.el.offsetWidth)
+    : cursorLeft + margin;
+  const top = Math.min(cursorTop + margin, Math.max(0, chart.rect.height - tooltip.el.offsetHeight - margin));
+  tooltip.el.style.transform = `translate(${left}px, ${top}px)`;
+}
+
 function buildOptions(
   width: number,
   height: number,
   visible: readonly PlotChartSeries[],
   mode: 'dark' | 'light',
   textColor: string,
-  gridColor: string
+  gridColor: string,
+  onUserScale: (min: number, max: number) => void,
+  onCursorMove: (self: uPlot) => void
 ): uPlot.Options {
   const axisLine: uPlot.Axis.Grid = { stroke: gridColor, width: 1 };
   return {
@@ -93,7 +196,25 @@ function buildOptions(
       { stroke: textColor, grid: axisLine, ticks: axisLine, font: AXIS_FONT },
     ],
     legend: { show: false },
-    cursor: { points: { show: false } },
+    cursor: {
+      points: { show: false },
+      // Left-drag zooms to the selected X range. uPlot's own default — stated
+      // rather than left implicit, since the wheel and middle-drag handlers
+      // beside it are not.
+      drag: { x: true, y: false, setScale: true },
+    },
+    hooks: {
+      // Fires for a drag-zoom exactly as it does for this component's own
+      // tick-driven `setScale` calls; `onUserScale` tells the two apart.
+      setScale: [
+        (self, key) => {
+          if (key !== 'x') return;
+          const { min, max } = self.scales.x;
+          if (min != null && max != null) onUserScale(min, max);
+        },
+      ],
+      setCursor: [onCursorMove],
+    },
     series: [
       {},
       ...visible.map(s => ({
@@ -137,8 +258,19 @@ export function PlotChart({
   const pausedAtRef = useRef<number | null>(null);
   const visibleRef = useRef<readonly PlotChartSeries[]>(visibleOf(series));
 
+  // A manual zoom or pan's X window, or null to keep following live/paused
+  // "now" as usual. `suppressScaleHookRef` is what lets the redraw tick's own
+  // `setScale` calls share the same uPlot hook that observes a drag-zoom
+  // without the tick's own upkeep being mistaken for a fresh manual zoom.
+  const zoomRef = useRef<XWindow | null>(null);
+  const suppressScaleHookRef = useRef(false);
+  const tooltipRef = useRef<Tooltip | null>(null);
+
   useEffect(() => {
     timeSpanRef.current = timeSpan;
+    // A newly-chosen span is a request to see that much history now, which a
+    // stale zoom would otherwise silently override.
+    zoomRef.current = null;
   }, [timeSpan]);
 
   useEffect(() => {
@@ -163,14 +295,103 @@ export function PlotChart({
 
     const visible = visibleOf(series);
     const { width, height } = sizeRef.current;
-    const options = buildOptions(width, height, visible, mode, textColor, gridColor);
+
+    const handleUserScale = (min: number, max: number): void => {
+      if (suppressScaleHookRef.current) return;
+      zoomRef.current = { min, max };
+    };
+    const handleCursorMove = (chart: uPlot): void => {
+      if (tooltipRef.current) updateTooltip(tooltipRef.current, chart, visibleRef.current);
+    };
+
+    const options = buildOptions(width, height, visible, mode, textColor, gridColor, handleUserScale, handleCursorMove);
     const chart = new uPlot(options, alignedDataFor(visible), host);
     chartRef.current = chart;
     lastLengthsRef.current.clear();
+    tooltipRef.current = buildTooltip(chart.over, visible, mode);
+
+    const over = chart.over;
+
+    // The scroll wheel zooms around the cursor's time position — uPlot has no
+    // wheel behaviour of its own, unlike the left-drag zoom set in `cursor.drag`.
+    const handleWheel = (e: WheelEvent): void => {
+      e.preventDefault();
+      const left = e.clientX - chart.rect.left;
+      const cursorX = chart.posToVal(left, 'x');
+      const current = zoomRef.current ?? {
+        min: chart.scales.x.min ?? cursorX - 1,
+        max: chart.scales.x.max ?? cursorX + 1,
+      };
+      const range = current.max - current.min;
+      const factor = e.deltaY > 0 ? WHEEL_ZOOM_FACTOR : 1 / WHEEL_ZOOM_FACTOR;
+      const newRange = Math.max(MIN_ZOOM_RANGE_S, range * factor);
+      const ratio = range > 0 ? (cursorX - current.min) / range : 0.5;
+      const next = { min: cursorX - newRange * ratio, max: cursorX + newRange * (1 - ratio) };
+      zoomRef.current = next;
+      suppressScaleHookRef.current = true;
+      chart.setScale('x', next);
+      suppressScaleHookRef.current = false;
+    };
+
+    // Middle-button drag pans without changing the window's width — a
+    // separate gesture from the left-drag zoom `cursor.drag` already owns.
+    let panStart: { readonly clientX: number; readonly min: number; readonly max: number } | null = null;
+
+    const handleMouseDown = (e: MouseEvent): void => {
+      if (e.button !== 1) return;
+      e.preventDefault();
+      const current = zoomRef.current ?? { min: chart.scales.x.min ?? 0, max: chart.scales.x.max ?? 1 };
+      panStart = { clientX: e.clientX, min: current.min, max: current.max };
+      over.style.cursor = 'grabbing';
+    };
+    const handleMouseMove = (e: MouseEvent): void => {
+      if (!panStart || chart.rect.width <= 0) return;
+      const valuePerPixel = (panStart.max - panStart.min) / chart.rect.width;
+      const deltaVal = (e.clientX - panStart.clientX) * valuePerPixel;
+      const next = { min: panStart.min - deltaVal, max: panStart.max - deltaVal };
+      zoomRef.current = next;
+      suppressScaleHookRef.current = true;
+      chart.setScale('x', next);
+      suppressScaleHookRef.current = false;
+    };
+    const handleMouseUp = (e: MouseEvent): void => {
+      if (e.button !== 1 || !panStart) return;
+      panStart = null;
+      over.style.cursor = 'crosshair';
+    };
+
+    // Double-click resets to following live/paused "now" again. uPlot's own
+    // default double-click handler already ran by the time this fires (both
+    // are bound to the same native event, in attachment order) and auto-scaled
+    // to the full retained extent; setting the correct window here rather than
+    // only clearing `zoomRef` avoids a visible flash of that wide view before
+    // the next redraw tick would otherwise have corrected it, up to 200 ms later.
+    const handleDoubleClick = (): void => {
+      zoomRef.current = null;
+      const effectiveNow = pausedRef.current ? (pausedAtRef.current ?? Date.now() / 1000) : Date.now() / 1000;
+      suppressScaleHookRef.current = true;
+      chart.setScale('x', { min: effectiveNow - timeSpanRef.current, max: effectiveNow });
+      suppressScaleHookRef.current = false;
+    };
+
+    over.style.cursor = 'crosshair';
+    over.addEventListener('wheel', handleWheel, { passive: false });
+    over.addEventListener('mousedown', handleMouseDown);
+    // Bound on the window rather than `over`, so a pan does not stop the
+    // moment the cursor drifts off the plotting area mid-drag.
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    over.addEventListener('dblclick', handleDoubleClick);
 
     return () => {
+      over.removeEventListener('wheel', handleWheel);
+      over.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      over.removeEventListener('dblclick', handleDoubleClick);
       chart.destroy();
       chartRef.current = null;
+      tooltipRef.current = null;
     };
   }, [series, mode, textColor, gridColor]);
 
@@ -196,14 +417,23 @@ export function PlotChart({
   // unless a buffer's length actually changed since the last tick — cheap for
   // the common single-series case regardless, and what keeps a multi-series
   // Plot from re-joining tens of thousands of retained points many times a
-  // second once history has built up.
+  // second once history has built up. A manual zoom or pan (`zoomRef`) is
+  // honoured here too, including while paused — the whole point of being able
+  // to zoom into a frozen trace is that this tick must not fight it.
   useEffect(() => {
     const id = setInterval(() => {
       const chart = chartRef.current;
       if (!chart) return;
 
-      const effectiveNow = pausedRef.current ? (pausedAtRef.current ?? Date.now() / 1000) : Date.now() / 1000;
-      const min = effectiveNow - timeSpanRef.current;
+      let min: number;
+      let max: number;
+      if (zoomRef.current) {
+        ({ min, max } = zoomRef.current);
+      } else {
+        const effectiveNow = pausedRef.current ? (pausedAtRef.current ?? Date.now() / 1000) : Date.now() / 1000;
+        min = effectiveNow - timeSpanRef.current;
+        max = effectiveNow;
+      }
 
       let dirty = false;
       for (const s of visibleRef.current) {
@@ -214,10 +444,12 @@ export function PlotChart({
         }
       }
 
+      suppressScaleHookRef.current = true;
       chart.batch(() => {
         if (dirty) chart.setData(alignedDataFor(visibleRef.current), false);
-        chart.setScale('x', { min, max: effectiveNow });
+        chart.setScale('x', { min, max });
       });
+      suppressScaleHookRef.current = false;
     }, REDRAW_INTERVAL_MS);
     return () => clearInterval(id);
   }, []);

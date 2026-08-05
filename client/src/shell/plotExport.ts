@@ -24,9 +24,11 @@ export interface PlotExport {
 
 const pad = (n: number, len = 2): string => String(n).padStart(len, '0');
 const localDate = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const localTime = (d: Date): string =>
+
+/** `HH:mm:ss.mmm`, local time. Also used by the chart's cursor tooltip — a poll interval as fast as 50 ms puts several points inside the same second, so a reading without the milliseconds would be ambiguous about which one this is. */
+export const formatClockTime = (d: Date): string =>
   `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
-const localDateTime = (d: Date): string => `${localDate(d)} ${localTime(d)}`;
+const localDateTime = (d: Date): string => `${localDate(d)} ${formatClockTime(d)}`;
 
 /**
  * A Plot Pane's series as a CSV, one Date/Time/Value triplet per series so a
@@ -46,7 +48,7 @@ export function buildPlotCsv(series: readonly PlotExportSeries[], exportedAt: Da
         const point = s.points[i];
         if (!point) return ',,';
         const d = new Date(point.x * 1000);
-        return `${localDate(d)},${localTime(d)},${point.y}`;
+        return `${localDate(d)},${formatClockTime(d)},${point.y}`;
       })
       .join(',')
   );

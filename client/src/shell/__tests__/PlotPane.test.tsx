@@ -43,19 +43,31 @@ interface FakeUPlotInstance {
   readonly setScale: ReturnType<typeof vi.fn>;
   readonly setSize: ReturnType<typeof vi.fn>;
   readonly destroy: ReturnType<typeof vi.fn>;
+  readonly over: HTMLDivElement;
 }
 
 vi.mock('uplot', () => {
+  // A real (jsdom) element, not a further mock: `PlotChart.tsx` attaches real
+  // listeners to it and appends the tooltip to it, and jsdom's own DOM
+  // implementation is a truer stand-in for that than hand-rolling one more fake.
   class FakeUPlot {
     setData = vi.fn();
     setScale = vi.fn();
     setSize = vi.fn();
     destroy = vi.fn();
+    over = document.createElement('div');
+    rect = { left: 0, top: 0, width: 0, height: 0, bottom: 0, right: 0 } as DOMRect;
+    scales = { x: { min: 0, max: 1 } };
+    cursor = { idx: null as number | null, left: 0, top: 0 };
+    data: unknown[] = [[]];
     constructor() {
       chartInstances.push(this as unknown as FakeUPlotInstance);
     }
     batch(fn: () => void): void {
       fn();
+    }
+    posToVal(): number {
+      return 0;
     }
     static join(tables: unknown[]): unknown {
       return tables[0] ?? [[]];
@@ -419,5 +431,22 @@ describe('value decoding on the chart', () => {
     const [, ys] = chart.setData.mock.calls.at(-1)?.[0] as [number[], number[]];
     expect(ys).toContain(41.5);
     expect(ys).not.toContain(rawWireWord);
+  });
+});
+
+describe('the add-series picker', () => {
+  const MANY_REGISTERS = Array.from({ length: 40 }, (_, i) => `uint32_t REG_${i};`).join('\n');
+
+  it('lists every match rather than capping at a fixed count', async () => {
+    await mapManager.initialize({ ...PROFILE, registersMap: MANY_REGISTERS });
+    const user = userEvent.setup();
+    renderPanes();
+    await settle();
+
+    await user.click(within(paneA()).getByRole('button', { name: /add series/i }));
+    const table = await screen.findByRole('table');
+
+    expect(within(table).getAllByRole('row')).toHaveLength(41); // 40 entries + header row
+    expect(screen.queryByText(/narrow the filter/i)).not.toBeInTheDocument();
   });
 });

@@ -30,9 +30,6 @@ const MIN_POLL_INTERVAL_MS = 10;
 const MAX_POLL_INTERVAL_MS = 10_000;
 const MIN_TIME_SPAN_S = 5;
 
-/** How many picker results to show before asking for a narrower filter. */
-const PICKER_LIMIT = 30;
-
 const SOURCE_LABEL: Readonly<Record<PlottableSpace, string>> = {
   register: 'Register',
   sysRegister: 'System Register',
@@ -246,7 +243,6 @@ export function PlotPane({ paneId, setTitle }: PaneProps): React.JSX.Element {
     const alreadyAdded = new Set(pane.series.map(s => s.name));
     return filterEntries(pickerEntries, pane.pickerQuery).filter(entry => !alreadyAdded.has(entry.name));
   }, [pickerEntries, pane.pickerQuery, pane.series]);
-  const pickerShown = pickerMatches.slice(0, PICKER_LIMIT);
 
   const pickerColumns: readonly Column<MapEntry>[] = [
     { key: 'name', header: 'Name', render: entry => entry.name },
@@ -316,17 +312,12 @@ export function PlotPane({ paneId, setTitle }: PaneProps): React.JSX.Element {
             <div className={styles.pickerTableHost}>
               <Table
                 columns={pickerColumns}
-                rows={pickerShown}
+                rows={pickerMatches}
                 rowKey={entry => entry.name}
                 onSelect={entry => handleAddSeries(entry, pane.pickerSource)}
                 emptyMessage="Nothing matches."
               />
             </div>
-            {pickerMatches.length > pickerShown.length ? (
-              <p className={styles.pickerCap}>
-                Only the first {PICKER_LIMIT} are shown — narrow the filter to reach the rest.
-              </p>
-            ) : null}
           </div>
         </Popover>
 
