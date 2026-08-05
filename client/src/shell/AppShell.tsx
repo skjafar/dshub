@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AddPanelPositionOptions, DockviewApi } from 'dockview';
 import { TooltipProvider } from '../ui';
+import { useBackendPort } from '../contexts/BackendPortContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { AppChrome } from './AppChrome';
 import { SelectionProvider, useSelection } from './SelectionContext';
@@ -8,6 +9,7 @@ import { Workspace } from './Workspace';
 import { kindOfPaneId, paneDefinition, paneId } from './paneRegistry';
 import type { PaneKind } from './paneRegistry';
 import { retainPaneState, snapshotPaneStates, subscribePaneStateChanges } from './paneState';
+import { retainSeriesFor } from './plotStream';
 import {
   DEFAULT_WORKSPACE_ID,
   DEFAULT_WORKSPACE_NAME,
@@ -80,6 +82,7 @@ function WorkspaceShell(): React.JSX.Element {
   const [openKinds, setOpenKinds] = useState<readonly PaneKind[]>([]);
   const { selection, select, retainPanes } = useSelection();
   const { settings, updateSettings } = useSettings();
+  const port = useBackendPort();
 
   // Latest settings/selection, readable from callbacks that outlive the render
   // that created them: dockview's own event handlers and the debounced
@@ -142,8 +145,12 @@ function WorkspaceShell(): React.JSX.Element {
       // in a surface that is no longer on screen.
       retainPaneState(ids);
       retainPanes(ids);
+      // Likewise a closed Plot Pane's series: freed so another Plot Pane can
+      // claim the name, rather than left streaming to a Pane that no longer
+      // exists. A merely backgrounded Pane is still in `ids` and keeps its claim.
+      retainSeriesFor(port, ids);
     },
-    [retainPanes]
+    [retainPanes, port]
   );
 
   /** Persists the active Workspace's current content — dockLayout, Pane state and selection. */

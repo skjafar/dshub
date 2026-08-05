@@ -64,7 +64,7 @@ describe('pane ids', () => {
   });
 
   it('refuses an id whose kind this build does not have', () => {
-    expect(kindOfPaneId('plot#1')).toBeUndefined();
+    expect(kindOfPaneId('registers-from-the-future#1')).toBeUndefined();
     expect(kindOfPaneId('')).toBeUndefined();
   });
 });

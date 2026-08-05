@@ -20,3 +20,24 @@ if (!('ResizeObserver' in globalThis)) {
 if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = function scrollIntoView(): void {};
 }
+
+/**
+ * jsdom implements no `matchMedia` either, and uPlot calls it unconditionally
+ * at module load — to track devicePixelRatio changes — so importing it at all
+ * (not only constructing a chart) throws in every test file that pulls in
+ * `paneRegistry.ts`, whether or not that file's own suite has anything to do
+ * with plotting. The stub is inert, matching the two above: it exists only so
+ * a missing DOM API does not fail tests that are not about it.
+ */
+if (typeof globalThis.matchMedia !== 'function') {
+  globalThis.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof matchMedia;
+}

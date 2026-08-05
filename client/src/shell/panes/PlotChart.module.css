@@ -1,0 +1,18 @@
+/* Sized by the flex layout around it; uPlot reads this element's own measured
+   rect (via `ResizeObserver` in `PlotChart.tsx`) rather than CSS, since its
+   canvas is sized imperatively in JS pixels. */
+.host {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+
+/* uPlot's own stylesheet assumes a light default (grey borders, sans-serif) —
+   this repoints the one structural piece worth keeping, the cursor crosshair,
+   at the theme instead of leaving it a fixed colour. Axis and grid colour are
+   set directly in JS, since uPlot draws those on canvas rather than with CSS. */
+.host :global(.u-cursor-x),
+.host :global(.u-cursor-y) {
+  border-color: var(--ghost-sep) !important;
+}

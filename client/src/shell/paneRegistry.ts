@@ -13,6 +13,7 @@ import { ActivityLogPane } from './panes/ActivityLogPane';
 import { CommandPane } from './panes/CommandPane';
 import { OverviewPane } from './panes/OverviewPane';
 import { ParameterPane } from './panes/ParameterPane';
+import { PlotPane } from './panes/PlotPane';
 import { RegisterPane } from './panes/RegisterPane';
 import { SystemRegisterPane } from './panes/SystemRegisterPane';
 import { InspectorPane } from './panes/InspectorPane';
@@ -23,7 +24,7 @@ import { InspectorPane } from './panes/InspectorPane';
  * the same reason. A panel id carries its space, and a saved layout cannot
  * restore a Pane pointed at a different one than it was saved with.
  */
-export type PaneKind = 'overview' | AddressSpace | 'sysCommand' | 'inspector' | 'activityLog';
+export type PaneKind = 'overview' | AddressSpace | 'sysCommand' | 'inspector' | 'activityLog' | 'plot';
 
 /**
  * What the Workspace hands a Pane.
@@ -105,6 +106,13 @@ export const PANES: readonly PaneDefinition[] = [
     description: 'Connection events, reads, writes and protocol traffic',
     singleton: true,
     component: ActivityLogPane,
+  },
+  {
+    kind: 'plot',
+    title: 'Plot',
+    description: 'Live time-series traces of Registers and System Registers',
+    singleton: false,
+    component: PlotPane,
   },
 ];
 
