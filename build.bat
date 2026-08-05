@@ -55,6 +55,10 @@ goto :eof
 :: Asks whether to close blocking processes and retry. Returns errorlevel 0
 :: if the user agreed (and processes are now closed) or 1 if they declined,
 :: which callers treat as "abort".
+::
+:: A plain `set /p` prompt rather than `choice`: `choice.exe` sounds the
+:: system's default beep when it displays its prompt, and error reporting
+:: here is meant to be visual only.
 :prompt_retry
 echo.
 echo [ERROR] %~1 failed.
@@ -62,8 +66,9 @@ echo A running process ^(this project's own dev server from "npm run dev" /
 echo "cargo tauri dev", or a previously-launched dshub.exe^) may be holding a
 echo file open that this step needs to replace.
 echo.
-choice /C YN /M "Close this project's dev server and dshub.exe, then retry"
-if errorlevel 2 exit /b 1
+set "REPLY="
+set /p "REPLY=Close this project's dev server and dshub.exe, then retry? [Y/N] "
+if /i not "%REPLY%"=="Y" exit /b 1
 call :kill_blocking_processes
 exit /b 0
 
