@@ -1,0 +1,84 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  width: 30rem;
+  max-width: 100%;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.sectionTitle {
+  margin: 0;
+  color: var(--on-surface-variant);
+  font-family: var(--font-headline);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.boundRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.boundText {
+  margin: 0;
+  color: var(--on-surface-variant);
+  font-size: var(--text-sm);
+}
+
+.picker {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.picker > :first-child {
+  flex: 0 0 auto;
+}
+
+.picker > :last-child {
+  flex: 1 1 auto;
+}
+
+.pickerTableHost {
+  height: 10rem;
+  display: flex;
+}
+
+.pickerTableHost > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.rules {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rule {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr auto;
+  align-items: center;
+  gap: var(--space-2xs);
+}
+
+.ruleLabel {
+  color: var(--on-surface-variant);
+  font-size: var(--text-sm);
+}
+
+.ruleValue {
+  width: 100%;
+}

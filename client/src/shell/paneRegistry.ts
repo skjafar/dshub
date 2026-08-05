@@ -11,6 +11,7 @@ import type { ComponentType } from 'react';
 import type { AddressSpace } from './addressSpace';
 import { ActivityLogPane } from './panes/ActivityLogPane';
 import { CommandPane } from './panes/CommandPane';
+import { DashboardPane } from './panes/DashboardPane';
 import { OverviewPane } from './panes/OverviewPane';
 import { ParameterPane } from './panes/ParameterPane';
 import { PlotPane } from './panes/PlotPane';
@@ -24,7 +25,7 @@ import { InspectorPane } from './panes/InspectorPane';
  * the same reason. A panel id carries its space, and a saved layout cannot
  * restore a Pane pointed at a different one than it was saved with.
  */
-export type PaneKind = 'overview' | AddressSpace | 'sysCommand' | 'inspector' | 'activityLog' | 'plot';
+export type PaneKind = 'overview' | AddressSpace | 'sysCommand' | 'inspector' | 'activityLog' | 'plot' | 'dashboard';
 
 /**
  * What the Workspace hands a Pane.
@@ -113,6 +114,13 @@ export const PANES: readonly PaneDefinition[] = [
     description: 'Live time-series traces of Registers and System Registers',
     singleton: false,
     component: PlotPane,
+  },
+  {
+    kind: 'dashboard',
+    title: 'Dashboard',
+    description: 'Composed Widgets bound to addresses, arranged on a grid',
+    singleton: false,
+    component: DashboardPane,
   },
 ];
 

@@ -1,0 +1,42 @@
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: var(--surface);
+  color: var(--on-surface);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  flex-wrap: wrap;
+  padding: var(--space-xs) var(--space-md);
+  border-bottom: 1px solid var(--ghost-sep);
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+.gridHost {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.grid {
+  min-height: 100%;
+}
+
+.notice {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: var(--space-xl) var(--space-md);
+  text-align: center;
+  color: var(--on-surface-variant);
+  font-size: var(--text-sm);
+}

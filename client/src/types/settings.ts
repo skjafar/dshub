@@ -1,4 +1,5 @@
 import { DashboardLayout } from './dashboard';
+import type { ProfileDashboards } from '../shell/widgets/dashboardStore';
 import type { ProfileWorkspaces } from '../shell/workspaceStore';
 
 export interface RegisterMapItem {
@@ -89,12 +90,20 @@ export interface UserSettings {
   mapProfiles: MapProfile[]; // Saved map profiles (not including default)
   activeMapProfileId: string; // Currently active profile ID (default or custom)
   logSettings: LogSettings; // Activity log filtering and retention settings
-  dashboardLayouts: Record<string, DashboardLayout>; // Dashboard layouts per profile ID
+  dashboardLayouts: Record<string, DashboardLayout>; // Dashboard layouts per profile ID (legacy view layer; superseded by dashboardsByProfile)
   /**
    * Named Workspaces per Profile ID. A Workspace is dockview's serialized
    * layout plus each open Pane's own state — see `shell/workspaceStore.ts`.
    */
   workspacesByProfile: Record<string, ProfileWorkspaces>;
+  /**
+   * Dashboards per Profile ID, owned by the Dashboard Pane — see
+   * `shell/widgets/dashboardStore.ts`. Distinct from the legacy
+   * `dashboardLayouts` above: per the rebuild's Out of Scope decisions,
+   * Dashboards are not migrated, so this starts empty and is seeded lazily on
+   * first Dashboard Pane mount rather than read from the old shape.
+   */
+  dashboardsByProfile: Record<string, ProfileDashboards>;
   cncDashboardVersion?: number; // Tracks CNC dashboard template version for auto-reset
   showGettingStarted: boolean; // Show Getting Started dialog on startup
   /**
@@ -140,6 +149,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   },
   dashboardLayouts: {}, // Dashboard layouts per profile (empty by default)
   workspacesByProfile: {}, // Named Workspaces per profile (seeded lazily on first Workspace mount)
+  dashboardsByProfile: {}, // Dashboards per profile (seeded lazily on first Dashboard Pane mount)
   showGettingStarted: true, // Show Getting Started dialog on first launch
   dashboardView: {
     cellSize: 60,
