@@ -132,6 +132,16 @@ export function PlotPane({ paneId, setTitle }: PaneProps): React.JSX.Element {
   }, [registers.entries, sysRegisters.entries]);
 
   /**
+   * The one place a raw wire word becomes the reading it represents. Both the
+   * live chart and the CSV export read through this, so a float series cannot
+   * be decoded one way on screen and another in the file it is exported to.
+   */
+  const decodeSeriesValue = useCallback(
+    (name: string, raw: number) => getPlotValue(raw, entryByName.get(name)),
+    [entryByName]
+  );
+
+  /**
    * Ensures every listed series is claimed and streaming at the current poll
    * interval. Runs whenever the link comes up — covering both a fresh mount
    * while already connected and a reconnect after the backend discarded every
@@ -224,13 +234,12 @@ export function PlotPane({ paneId, setTitle }: PaneProps): React.JSX.Element {
   const handleExport = useCallback(() => {
     const exportSeries = pane.series.map(series => {
       const buffer = bufferOf(series.name);
-      const entry = entryByName.get(series.name);
-      const points = buffer ? buffer.x.map((x, i) => ({ x, y: getPlotValue(buffer.y[i], entry) })) : [];
+      const points = buffer ? buffer.x.map((x, i) => ({ x, y: decodeSeriesValue(series.name, buffer.y[i]) })) : [];
       return { name: series.name, points };
     });
     const { csv, suggestedName } = buildPlotCsv(exportSeries, new Date());
     port.files.saveCsv(csv, suggestedName).catch(console.error);
-  }, [pane.series, entryByName, port]);
+  }, [pane.series, decodeSeriesValue, port]);
 
   const pickerEntries = pane.pickerSource === 'sysRegister' ? sysRegisters.entries : registers.entries;
   const pickerMatches = useMemo(() => {
@@ -247,8 +256,14 @@ export function PlotPane({ paneId, setTitle }: PaneProps): React.JSX.Element {
   const appTheme = useMemo(() => getThemeById(settings.colorThemeId), [settings.colorThemeId]);
 
   const chartSeries = useMemo(
-    () => pane.series.map(s => ({ name: s.name, colorSlot: s.colorSlot, visible: s.visible })),
-    [pane.series]
+    () =>
+      pane.series.map(s => ({
+        name: s.name,
+        colorSlot: s.colorSlot,
+        visible: s.visible,
+        decode: (raw: number) => decodeSeriesValue(s.name, raw),
+      })),
+    [pane.series, decodeSeriesValue]
   );
 
   return (

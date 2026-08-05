@@ -30,12 +30,30 @@ import { PlotPane } from '../panes/PlotPane';
  * export — is ordinary container logic and is pinned here.
  */
 
+/**
+ * Every constructed `FakeUPlot`, in construction order — so a test can reach
+ * the instance a Pane's chart is actually driving and inspect what `setData`
+ * was called with, the same way `recordCommands` in `CommandPane.test.tsx`
+ * reaches into a call the component made rather than only its visible result.
+ */
+const { chartInstances } = vi.hoisted(() => ({ chartInstances: [] as FakeUPlotInstance[] }));
+
+interface FakeUPlotInstance {
+  readonly setData: ReturnType<typeof vi.fn>;
+  readonly setScale: ReturnType<typeof vi.fn>;
+  readonly setSize: ReturnType<typeof vi.fn>;
+  readonly destroy: ReturnType<typeof vi.fn>;
+}
+
 vi.mock('uplot', () => {
   class FakeUPlot {
     setData = vi.fn();
     setScale = vi.fn();
     setSize = vi.fn();
     destroy = vi.fn();
+    constructor() {
+      chartInstances.push(this as unknown as FakeUPlotInstance);
+    }
     batch(fn: () => void): void {
       fn();
     }
@@ -170,7 +188,15 @@ afterEach(() => {
   cleanup();
   retainPaneState([]);
   __resetPlotStreamForTests();
+  chartInstances.length = 0;
 });
+
+/** Lets one real 200 ms redraw tick (`PlotChart.tsx`'s own interval) run. */
+async function waitForRedraw(): Promise<void> {
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 250));
+  });
+}
 
 describe('adding and removing series', () => {
   it('adds a series from the picker, showing it in the legend and starting the Device stream', async () => {
@@ -346,5 +372,52 @@ describe('export', () => {
     expect(saveCsv).toHaveBeenCalledTimes(1);
     const [csv] = saveCsv.mock.calls[0];
     expect(csv).toContain(',41.5');
+  });
+});
+
+describe('value decoding on the chart', () => {
+  /**
+   * Pins a bug from the first cut of this Pane: `plotStream` deliberately
+   * retains exactly the raw wire word the Device sends — it has no notion of
+   * a Map or a type — and only the CSV export path decoded it before this
+   * test existed. The live chart fed that raw word straight to uPlot, so a
+   * float register's IEEE-754 bit pattern was plotted as an enormous integer
+   * rather than the reading it represents. `getPlotValue` has to run on the
+   * chart's own read path, not only on export's.
+   */
+  it('feeds the chart a decoded float reading, not the raw wire word', async () => {
+    const user = userEvent.setup();
+    const fake = createFakeBackendPort({ deliver: fn => fn() });
+    const { port, emit } = withControlledPlotData(fake);
+
+    render(
+      <BackendPortProvider port={port}>
+        <SettingsProvider>
+          <DSHubProvider>
+            <PlotPane paneId={PANE_A} setTitle={vi.fn()} />
+          </DSHubProvider>
+        </SettingsProvider>
+      </BackendPortProvider>
+    );
+    await settle();
+    await connect(fake);
+
+    await user.click(screen.getByRole('button', { name: /add series/i }));
+    const filter = await screen.findByRole('textbox', { name: /filter series to add/i });
+    await user.type(filter, 'COOLANT_TEMP');
+    await user.click(await screen.findByText('COOLANT_TEMP'));
+    await user.keyboard('{Escape}');
+
+    const chart = chartInstances.at(-1);
+    if (!chart) throw new Error('PlotChart did not construct a chart instance');
+
+    const rawWireWord = floatToInt32(41.5);
+    emit('COOLANT_TEMP', { x: 1_700_000_000, y: rawWireWord });
+    await waitForRedraw();
+
+    expect(chart.setData).toHaveBeenCalled();
+    const [, ys] = chart.setData.mock.calls.at(-1)?.[0] as [number[], number[]];
+    expect(ys).toContain(41.5);
+    expect(ys).not.toContain(rawWireWord);
   });
 });

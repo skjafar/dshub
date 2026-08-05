@@ -29,6 +29,15 @@ export interface PlotChartSeries {
   readonly name: string;
   readonly colorSlot: number;
   readonly visible: boolean;
+  /**
+   * The raw wire word `plotStream` retains, decoded to the reading it
+   * represents. `plotStream` deliberately stores exactly what the Device sent —
+   * it has no notion of a Map or a type — so a float series' bit pattern is
+   * only ever a float once this has run. Skipping it is the bug this type
+   * exists to make impossible: a float register's raw int32 plotted as a plain
+   * integer reads as a huge, unrelated number, not as that register's value.
+   */
+  readonly decode: (raw: number) => number;
 }
 
 export interface PlotChartProps {
@@ -53,11 +62,11 @@ function alignedDataFor(visible: readonly PlotChartSeries[]): uPlot.AlignedData 
   if (visible.length === 0) return [[]];
   if (visible.length === 1) {
     const buffer = bufferOf(visible[0].name);
-    return [buffer?.x ?? [], buffer?.y ?? []];
+    return [buffer?.x ?? [], buffer ? buffer.y.map(visible[0].decode) : []];
   }
   const tables: uPlot.AlignedData[] = visible.map(s => {
     const buffer = bufferOf(s.name);
-    return [buffer?.x ?? [], buffer?.y ?? []];
+    return [buffer?.x ?? [], buffer ? buffer.y.map(s.decode) : []];
   });
   return uPlot.join(tables);
 }
