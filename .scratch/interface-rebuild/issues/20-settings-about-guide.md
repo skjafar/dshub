@@ -8,11 +8,11 @@ Settings is where the application's own preferences live, not where Profile cont
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Settings, About and the Guide open as dialogs from the chrome
-- [ ] Settings covers theme, connection behaviour, plot defaults and log filtering and retention
-- [ ] Changing a setting takes effect without a restart
-- [ ] Settings contains no Profile content
-- [ ] A storage failure when saving preferences is reported rather than silently dropped
-- [ ] All three are fully operable by keyboard and trap focus correctly
+- [x] Settings, About and the Guide open as dialogs from the chrome
+- [x] Settings covers theme, connection behaviour, plot defaults and log filtering and retention
+- [x] Changing a setting takes effect without a restart
+- [x] Settings contains no Profile content
+- [x] A storage failure when saving preferences is reported rather than silently dropped
+- [x] All three are fully operable by keyboard and trap focus correctly

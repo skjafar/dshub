@@ -1,5 +1,17 @@
 import { useState } from 'react';
-import { ArrowsOut, Moon, Plugs, PlugsConnected, Stack, Sun, SquaresFour, UsersThree } from '@phosphor-icons/react';
+import {
+  ArrowsOut,
+  BookOpen,
+  Gear,
+  Info,
+  Moon,
+  Plugs,
+  PlugsConnected,
+  Stack,
+  Sun,
+  SquaresFour,
+  UsersThree,
+} from '@phosphor-icons/react';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { APP_THEMES, getThemeById } from '../appThemes';
@@ -8,8 +20,11 @@ import { holdsControl } from './linkState';
 import { Button, Menu, MenuItem, MenuLabel, Tooltip } from '../ui';
 import { PANES } from './paneRegistry';
 import type { PaneKind } from './paneRegistry';
+import { AboutDialog } from './AboutDialog';
 import { ConnectDialog } from './ConnectDialog';
+import { GuideDialog } from './GuideDialog';
 import { ProfilesDialog } from './ProfilesDialog';
+import { SettingsDialog } from './SettingsDialog';
 import { WorkspacesDialog } from './WorkspacesDialog';
 import type { StoredWorkspace } from './workspaceStore';
 import styles from './AppChrome.module.css';
@@ -81,6 +96,9 @@ export function AppChrome({
   const [connectOpen, setConnectOpen] = useState(false);
   const [workspacesOpen, setWorkspacesOpen] = useState(false);
   const [profilesOpen, setProfilesOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
 
   const connected = state.connection?.connected ?? false;
 
@@ -178,6 +196,18 @@ export function AppChrome({
           </Button>
         </Tooltip>
 
+        <Button variant="ghost" size="sm" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+          <Gear size={16} />
+        </Button>
+
+        <Button variant="ghost" size="sm" aria-label="About" onClick={() => setAboutOpen(true)}>
+          <Info size={16} />
+        </Button>
+
+        <Button variant="ghost" size="sm" aria-label="Guide" onClick={() => setGuideOpen(true)}>
+          <BookOpen size={16} />
+        </Button>
+
         {connected ? (
           <Button variant="secondary" size="sm" onClick={() => actions.disconnectDevice()}>
             <Plugs size={16} />
@@ -204,6 +234,9 @@ export function AppChrome({
         onDelete={onDeleteWorkspace}
       />
       <ProfilesDialog open={profilesOpen} onOpenChange={setProfilesOpen} onBeforeProfileChange={onBeforeProfileChange} />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} onOpenGuide={() => setGuideOpen(true)} />
+      <GuideDialog open={guideOpen} onOpenChange={setGuideOpen} />
     </header>
   );
 }

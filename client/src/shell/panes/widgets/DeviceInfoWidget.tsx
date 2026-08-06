@@ -1,7 +1,7 @@
 import { useDSHub } from '../../../contexts/DSHubContext';
 import type { StatusRole } from '../../../design/status';
 import { cx } from '../../../ui';
-import { linkStateOf } from '../../linkState';
+import { linkStateOf, resolveConnectedDevice } from '../../linkState';
 import type { LinkState } from '../../linkState';
 import { useUptime } from '../../useUptime';
 import { formatFirmware } from '../Overview';
@@ -41,11 +41,7 @@ export function DeviceInfoWidget(): React.JSX.Element {
   const link = linkStateOf(state.connection, state.connecting);
   const role = LINK_ROLE[link];
 
-  const connectedIp = state.connection?.ip;
-  const device =
-    (connectedIp !== undefined
-      ? state.discoveredDevices.find(d => d.ip_address === connectedIp)
-      : undefined) ?? null;
+  const device = resolveConnectedDevice(state.connection, state.discoveredDevices);
 
   return (
     <div className={styles.widget}>

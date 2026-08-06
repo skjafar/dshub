@@ -8,9 +8,29 @@
  */
 
 import { ControlInterfaceState, InterfaceType } from '../types/shared';
-import type { DeviceConnection } from '../types/shared';
+import type { DeviceConnection, DiscoveredDevice } from '../types/shared';
 
 export type LinkState = 'online' | 'connecting' | 'reconnecting' | 'disconnected' | 'no device';
+
+/**
+ * The discovery record for the Device on the other end of the link, or null
+ * when there is none — connected by address, or not connected at all.
+ *
+ * Never falls back to "some device found earlier": connecting by address to a
+ * board a scan never reached would otherwise put another board's name, MAC
+ * and firmware under a banner reading online, which is the stale-read-as-
+ * current failure this module exists to prevent everywhere identity is read.
+ * `Overview`, `DeviceInfoWidget` and `AboutDialog` all answer "what Device is
+ * this" from here rather than each re-deriving it, so the three cannot drift.
+ */
+export function resolveConnectedDevice(
+  connection: DeviceConnection | null,
+  discoveredDevices: readonly DiscoveredDevice[]
+): DiscoveredDevice | null {
+  const connectedIp = connection?.ip;
+  if (connectedIp === undefined) return null;
+  return discoveredDevices.find(d => d.ip_address === connectedIp) ?? null;
+}
 
 export function linkStateOf(
   connection: DeviceConnection | null,
