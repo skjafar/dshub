@@ -111,3 +111,27 @@
   align-items: center;
   gap: var(--space-2xs);
 }
+
+.entryRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  padding: var(--space-xs);
+  border: 1px solid var(--ghost-20);
+  border-radius: var(--radius-base);
+}
+
+.entryRowHeader {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: var(--space-2xs);
+}
+
+.entryRowBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding-top: var(--space-2xs);
+  border-top: 1px solid var(--ghost-20);
+}

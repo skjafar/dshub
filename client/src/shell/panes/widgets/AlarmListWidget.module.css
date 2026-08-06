@@ -1,0 +1,93 @@
+.widget {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  gap: var(--space-2xs);
+}
+
+.header {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.count {
+  font-family: var(--font-headline);
+  font-size: clamp(var(--text-xs), 10cqi, var(--text-sm));
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+}
+
+.countOk { color: var(--status-ok); }
+.countActive { color: var(--status-error); }
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  flex: 1 1 auto;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3xs);
+  min-height: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: var(--space-3xs) var(--space-2xs);
+  border-radius: var(--radius-base);
+  border-left: 2px solid var(--ghost-sep);
+  opacity: 0.6;
+}
+
+.rowActive {
+  opacity: 1;
+  background: var(--ghost);
+  border-left-color: var(--status-error);
+}
+
+.dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--on-surface-variant);
+  box-shadow: 0 0 6px currentColor;
+}
+
+.roleOk { color: var(--status-ok); background: var(--status-ok); }
+.roleWarn { color: var(--status-warn); background: var(--status-warn); }
+.roleError { color: var(--status-error); background: var(--status-error); }
+.roleInfo { color: var(--status-info); background: var(--status-info); }
+.roleIdle { color: var(--status-idle); background: var(--status-idle); }
+
+.label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: clamp(var(--text-2xs), 9cqi, var(--text-sm));
+  color: var(--on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.value {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: clamp(var(--text-2xs), 9cqi, var(--text-sm));
+  font-variant-numeric: tabular-nums;
+  color: var(--on-surface-variant);
+}
+
+.notice {
+  margin: 0;
+  padding: var(--space-sm);
+  font-size: var(--text-sm);
+  color: var(--on-surface-variant);
+  text-align: center;
+}

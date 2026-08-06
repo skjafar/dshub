@@ -12,23 +12,11 @@
  */
 
 import type { BoundWidgetKind, WidgetKind } from './widgetRegistry';
-import { isBoundWidgetKind, isKnownWidgetKind } from './widgetRegistry';
-import type { WidgetBinding, WidgetConfig, WidgetTarget } from './widgetConfig';
+import { isBoundWidgetKind, isKnownWidgetKind, widgetDefinition } from './widgetRegistry';
+import type { WidgetBinding, WidgetConfig, WidgetLayout, WidgetTarget, StoredWidget } from './widgetConfig';
 import type { ThresholdRule } from './threshold';
 
-export interface WidgetLayout {
-  readonly x: number;
-  readonly y: number;
-  readonly w: number;
-  readonly h: number;
-}
-
-export interface StoredWidget {
-  readonly id: string;
-  readonly kind: WidgetKind;
-  readonly layout: WidgetLayout;
-  readonly config: WidgetConfig;
-}
+export type { WidgetLayout, StoredWidget } from './widgetConfig';
 
 export interface StoredDashboard {
   readonly id: string;
@@ -62,6 +50,7 @@ const FORMATS = new Set(['decimal', 'hexadecimal', 'binary']);
 const WRITABLE_SPACES = new Set(['register', 'parameter']);
 const DIRECTIONS = new Set(['up', 'down', 'left', 'right', 'upLeft', 'upRight', 'downLeft', 'downRight']);
 const LAYOUTS = new Set(['4way', '8way']);
+const PLOTTABLE_SPACES = new Set(['register', 'sysRegister']);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -192,26 +181,98 @@ function isValidDirectionalControlConfig(value: Record<string, unknown>): boolea
   return true;
 }
 
+/** A Data Table row or Alarm List entry — the same shared bound shape a single-value kind uses, no kind fields of its own. */
+function isValidBoundEntry(value: unknown): boolean {
+  return isPlainObject(value) && isValidSharedConfig(value);
+}
+
+function isValidDataTableConfig(value: Record<string, unknown>): boolean {
+  if (typeof value.label !== 'string') return false;
+  return Array.isArray(value.rows) && value.rows.every(isValidBoundEntry);
+}
+
+function isValidAlarmListConfig(value: Record<string, unknown>): boolean {
+  if (typeof value.label !== 'string') return false;
+  if (!Array.isArray(value.alarms) || !value.alarms.every(isValidBoundEntry)) return false;
+  return typeof value.showInactive === 'boolean';
+}
+
+function isValidDeviceInfoConfig(value: Record<string, unknown>): boolean {
+  return typeof value.label === 'string';
+}
+
+function isValidMiniPlotSeries(value: unknown): value is { space: string; address: number } | null {
+  if (value === null) return true;
+  if (!isPlainObject(value)) return false;
+  if (typeof value.space !== 'string' || !PLOTTABLE_SPACES.has(value.space)) return false;
+  return isFiniteNumber(value.address);
+}
+
+function isValidMiniPlotConfig(value: Record<string, unknown>): boolean {
+  if (typeof value.label !== 'string') return false;
+  if (!isValidMiniPlotSeries(value.series)) return false;
+  return isFiniteNumber(value.pollInterval) && isFiniteNumber(value.timeSpan);
+}
+
+/**
+ * A Container's own child list — the same `StoredWidget` shape a Dashboard's
+ * top-level list is validated with, `allowContainer: false` passed down so a
+ * hand-edited or corrupted settings file cannot smuggle in a nested
+ * Container. `widgetRegistry.ts` already keeps `container` off the kinds a
+ * Container's own add-Widget menu offers; this is the same rule enforced
+ * against data that never went through that menu at all.
+ */
+function isValidContainerConfig(value: Record<string, unknown>): boolean {
+  if (typeof value.label !== 'string') return false;
+  if (!isFiniteNumber(value.padding) || !isFiniteNumber(value.spacing)) return false;
+  return (
+    Array.isArray(value.childWidgets) &&
+    value.childWidgets.every(child => isValidStoredWidget(child, false))
+  );
+}
+
 /**
  * `button` and `directionalControl` carry no `binding`/`format`/`thresholds`
  * — a Button writes a fixed configured value and Directional Control only
  * ever sends Commands, so neither displays a formatted, thresholded reading —
- * and are validated against their own shape rather than the shared one.
- * `isBoundWidgetKind` is the single place that split is recorded; this and
- * `WidgetConfigDialog.tsx` both read it rather than each keeping its own list.
+ * and, along with the five ticket 17 kinds, are validated against their own
+ * shape rather than the shared one. `isBoundWidgetKind` is the single place
+ * that split is recorded; this and `WidgetConfigDialog.tsx` both read it
+ * rather than each keeping its own list.
  */
 function isValidConfig(value: unknown, kind: WidgetKind): value is WidgetConfig {
   if (!isPlainObject(value)) return false;
-  if (!isBoundWidgetKind(kind)) {
-    return kind === 'button' ? isValidButtonConfig(value) : isValidDirectionalControlConfig(value);
+  if (isBoundWidgetKind(kind)) {
+    return isValidSharedConfig(value) && isValidKindFields(kind, value);
   }
-  return isValidSharedConfig(value) && isValidKindFields(kind, value);
+  switch (kind) {
+    case 'button':
+      return isValidButtonConfig(value);
+    case 'directionalControl':
+      return isValidDirectionalControlConfig(value);
+    case 'dataTable':
+      return isValidDataTableConfig(value);
+    case 'alarmList':
+      return isValidAlarmListConfig(value);
+    case 'deviceInfo':
+      return isValidDeviceInfoConfig(value);
+    case 'container':
+      return isValidContainerConfig(value);
+    case 'miniPlot':
+      return isValidMiniPlotConfig(value);
+  }
 }
 
-function isValidStoredWidget(value: unknown): value is StoredWidget {
+/**
+ * `allowContainer` defaults to `true` for a Dashboard's own top-level
+ * widgets and is passed `false` for a Container's own children — see
+ * {@link isValidContainerConfig}.
+ */
+function isValidStoredWidget(value: unknown, allowContainer = true): value is StoredWidget {
   if (!isPlainObject(value)) return false;
   if (typeof value.id !== 'string' || value.id === '') return false;
   if (typeof value.kind !== 'string' || !isKnownWidgetKind(value.kind)) return false;
+  if (!allowContainer && value.kind === 'container') return false;
   if (!isValidLayout(value.layout)) return false;
   if (!isValidConfig(value.config, value.kind)) return false;
   return true;
@@ -221,7 +282,7 @@ export function isValidStoredDashboard(value: unknown): value is StoredDashboard
   if (!isPlainObject(value)) return false;
   if (typeof value.id !== 'string' || value.id === '') return false;
   if (typeof value.name !== 'string' || value.name === '') return false;
-  if (!Array.isArray(value.widgets) || !value.widgets.every(isValidStoredWidget)) return false;
+  if (!Array.isArray(value.widgets) || !value.widgets.every(widget => isValidStoredWidget(widget))) return false;
   return true;
 }
 
@@ -334,4 +395,32 @@ export function nextAvailablePosition(
       y += 1;
     }
   }
+}
+
+/**
+ * A fresh Widget of this kind, at its default size and configuration, placed
+ * at the next free position among `existing` layouts. Null when `kind` names
+ * no known Widget kind.
+ *
+ * `DashboardPane`'s own add-Widget flow and a Container's — adding a child
+ * from directly within itself, ticket 17 — are otherwise the same four
+ * steps (look up the definition, find a free slot, generate an id, build the
+ * `StoredWidget`) with only what the result is placed *into* differing, so
+ * this is the one place that shape is built rather than two copies drifting
+ * apart the way a third Widget-adding surface eventually would.
+ */
+export function createStoredWidget(
+  kind: WidgetKind,
+  existing: readonly WidgetLayout[],
+  cols: number
+): StoredWidget | null {
+  const definition = widgetDefinition(kind);
+  if (!definition) return null;
+  const position = nextAvailablePosition(existing, definition.defaultSize, cols);
+  return {
+    id: createWidgetId(),
+    kind: definition.kind,
+    layout: { x: position.x, y: position.y, w: definition.defaultSize.w, h: definition.defaultSize.h },
+    config: definition.defaultConfig(),
+  };
 }

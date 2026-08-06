@@ -5,14 +5,19 @@ import { ADDRESS_SPACE_NAME } from '../addressSpace';
 import type { AddressSpace, WritableAddressSpace } from '../addressSpace';
 import { filterEntries } from '../entryFilter';
 import type { MapEntry } from '../../maps/mapParser';
+import type { PlottableSpace } from '../plotStream';
 import type { SysCommand } from '../../types/settings';
 import { useMapEntries } from '../useMapEntries';
 import { DISPLAY_FORMATS } from '../valueFormat';
 import type { DisplayFormat } from '../valueFormat';
 import type { ThresholdRule } from '../widgets/threshold';
+import { defaultBoundWidgetConfig } from '../widgets/widgetConfig';
 import type {
+  AlarmListWidgetConfig,
   BoundWidgetConfig,
   ButtonWidgetConfig,
+  ContainerWidgetConfig,
+  DataTableWidgetConfig,
   Direction,
   DirectionalControlEntry,
   DirectionalControlWidgetConfig,
@@ -21,6 +26,7 @@ import type {
   EncoderDisplayWidgetConfig,
   GaugeWidgetConfig,
   LedIndicatorWidgetConfig,
+  MiniPlotWidgetConfig,
   ProgressBarWidgetConfig,
   ValueWriteWidgetConfig,
   WidgetConfig,
@@ -47,6 +53,11 @@ const SPACE_OPTIONS: readonly SelectOption<AddressSpace>[] = (
 /** Register and Parameter only — offered where a write is the point (a Button's address target), since System Registers refuse every write. */
 const WRITABLE_SPACE_OPTIONS: readonly SelectOption<WritableAddressSpace>[] = (
   ['register', 'parameter'] as const
+).map(space => ({ value: space, label: ADDRESS_SPACE_NAME[space] }));
+
+/** Register and System Register only — the two spaces `plotStream` can stream at all, offered to Mini-Plot's own address picker. */
+const PLOTTABLE_SPACE_OPTIONS: readonly SelectOption<PlottableSpace>[] = (
+  ['register', 'sysRegister'] as const
 ).map(space => ({ value: space, label: ADDRESS_SPACE_NAME[space] }));
 
 /**
@@ -368,6 +379,162 @@ function thresholdsApplyTo(kind: BoundWidgetKind): boolean {
 }
 
 /**
+ * The address-picker half of the Binding section, generic over which spaces
+ * are offered — a plain `binding` (every space, or writable-only for a
+ * write-mirroring bound kind) and a Mini-Plot's `series` (register/system
+ * register only, the two `plotStream` can stream) are the same shape with a
+ * different `S`, so this is the one place "pick an address" is built rather
+ * than three call sites each rebuilding their own Select/filter/Table.
+ */
+function BindingPicker<S extends AddressSpace>({
+  binding,
+  spaceOptions,
+  onPick,
+  onClear,
+}: {
+  readonly binding: { readonly space: S; readonly address: number } | null;
+  readonly spaceOptions: readonly SelectOption<S>[];
+  readonly onPick: (entry: MapEntry, space: S) => void;
+  readonly onClear: () => void;
+}): React.JSX.Element {
+  const [space, setSpace] = useState<S>(binding?.space ?? spaceOptions[0].value);
+  const [query, setQuery] = useState('');
+
+  const map = useMapEntries(space);
+  const boundEntry = useMemo(
+    () =>
+      binding && binding.space === space ? (map.entries.find(entry => entry.address === binding.address) ?? null) : null,
+    [binding, map.entries, space]
+  );
+  const matches = useMemo(() => filterEntries(map.entries, query), [map.entries, query]);
+
+  const pickerColumns: readonly Column<MapEntry>[] = [
+    { key: 'name', header: 'Name', render: entry => entry.name },
+    { key: 'address', header: 'Addr', numeric: true, mono: true, width: '5.5rem', render: entry => entry.address },
+  ];
+
+  return (
+    <section className={styles.section}>
+      <h3 className={styles.sectionTitle}>Binding</h3>
+      {binding ? (
+        <div className={styles.boundRow}>
+          <span className={styles.boundText}>
+            Bound to {boundEntry?.name ?? `address ${binding.address}`} · {ADDRESS_SPACE_NAME[binding.space]}
+          </span>
+          <Button variant="ghost" size="sm" onClick={onClear}>
+            Clear
+          </Button>
+        </div>
+      ) : (
+        <p className={styles.boundText}>Not bound to an address.</p>
+      )}
+
+      <div className={styles.picker}>
+        <Select value={space} onValueChange={setSpace} options={spaceOptions} aria-label="Address Space" />
+        <TextField
+          value={query}
+          onChange={event => setQuery(event.target.value)}
+          placeholder="Filter by name or address (0x2A)"
+          aria-label="Filter addresses to bind"
+          spellCheck={false}
+          autoComplete="off"
+        />
+      </div>
+      <div className={styles.pickerTableHost}>
+        <Table
+          columns={pickerColumns}
+          rows={matches}
+          rowKey={entry => entry.name}
+          selectedKey={boundEntry?.name}
+          onSelect={entry => onPick(entry, space)}
+          emptyMessage="Nothing matches."
+        />
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The Thresholds section every bound kind that reads it shares — Data Table
+ * and Alarm List's own per-row/per-alarm thresholds included, which is why
+ * this takes the rule list and a setter rather than a `BoundWidgetConfig`
+ * draft directly.
+ */
+function ThresholdEditor({
+  thresholds,
+  onChange,
+}: {
+  readonly thresholds: readonly ThresholdRule[];
+  readonly onChange: (next: readonly ThresholdRule[]) => void;
+}): React.JSX.Element {
+  const handleAddRule = (): void => {
+    onChange([...thresholds, { id: createThresholdRuleId(), comparator: '>', value: 0, role: 'warn' }]);
+  };
+  const handleRemoveRule = (id: string): void => {
+    onChange(thresholds.filter(rule => rule.id !== id));
+  };
+  const handleUpdateRule = (id: string, patch: Partial<ThresholdRule>): void => {
+    onChange(thresholds.map(rule => (rule.id === id ? { ...rule, ...patch } : rule)));
+  };
+
+  return (
+    <section className={styles.section}>
+      <h3 className={styles.sectionTitle}>Thresholds</h3>
+      {thresholds.length === 0 ? (
+        <p className={styles.boundText}>No thresholds — the reading shows with no condition colouring.</p>
+      ) : (
+        <ul className={styles.rules}>
+          {thresholds.map(rule => (
+            <li key={rule.id} className={styles.rule}>
+              <Select
+                value={rule.comparator}
+                onValueChange={comparator => handleUpdateRule(rule.id, { comparator })}
+                options={COMPARATOR_OPTIONS}
+                aria-label="Comparator"
+              />
+              <NumericInput
+                value={rule.value}
+                onCommit={value => handleUpdateRule(rule.id, { value })}
+                className={styles.ruleValue}
+                aria-label="Threshold value"
+              />
+              <Select
+                value={rule.role}
+                onValueChange={role => handleUpdateRule(rule.id, { role })}
+                options={ROLE_OPTIONS}
+                aria-label="Status when this rule matches"
+              />
+              <TextField
+                value={rule.label ?? ''}
+                onChange={event =>
+                  handleUpdateRule(rule.id, {
+                    label: event.target.value === '' ? undefined : event.target.value,
+                  })
+                }
+                placeholder="Name (optional)"
+                aria-label="Name shown for this rule, used by State LED"
+                className={styles.ruleLabelField}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Remove this threshold rule"
+                onClick={() => handleRemoveRule(rule.id)}
+              >
+                <TrashSimple size={14} />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Button size="sm" onClick={handleAddRule}>
+        <Plus size={14} weight="bold" /> Add rule
+      </Button>
+    </section>
+  );
+}
+
+/**
  * The Binding/Format/Thresholds section every kind in {@link BoundWidgetKind}
  * shares — unchanged since ticket 14 beyond growing the `kind`-specific
  * fields and thresholds-applicability switches above. Extracted so the top
@@ -383,29 +550,11 @@ function BoundFields({
   readonly draft: BoundWidgetConfig;
   readonly onChange: (patch: Partial<BoundWidgetConfig>) => void;
 }): React.JSX.Element {
-  const [space, setSpace] = useState<AddressSpace>(draft.binding?.space ?? 'register');
-  const [query, setQuery] = useState('');
   const spaceOptions: readonly SelectOption<AddressSpace>[] = WRITABLE_BOUND_KINDS.has(kind)
     ? WRITABLE_SPACE_OPTIONS
     : SPACE_OPTIONS;
 
-  const map = useMapEntries(space);
-  const boundEntry = useMemo(
-    () =>
-      draft.binding && draft.binding.space === space
-        ? (map.entries.find(entry => entry.address === draft.binding?.address) ?? null)
-        : null,
-    [draft.binding, map.entries, space]
-  );
-
-  const matches = useMemo(() => filterEntries(map.entries, query), [map.entries, query]);
-
-  const pickerColumns: readonly Column<MapEntry>[] = [
-    { key: 'name', header: 'Name', render: entry => entry.name },
-    { key: 'address', header: 'Addr', numeric: true, mono: true, width: '5.5rem', render: entry => entry.address },
-  ];
-
-  const handlePickEntry = (entry: MapEntry): void => {
+  const handlePickEntry = (entry: MapEntry, space: AddressSpace): void => {
     onChange({
       binding: { space, address: entry.address },
       // Only on the first binding — an Operator who has already bound and
@@ -415,66 +564,14 @@ function BoundFields({
     });
   };
 
-  const handleClearBinding = (): void => {
-    onChange({ binding: null });
-  };
-
-  const handleAddRule = (): void => {
-    onChange({
-      thresholds: [...draft.thresholds, { id: createThresholdRuleId(), comparator: '>', value: 0, role: 'warn' }],
-    });
-  };
-
-  const handleRemoveRule = (id: string): void => {
-    onChange({ thresholds: draft.thresholds.filter(rule => rule.id !== id) });
-  };
-
-  const handleUpdateRule = (id: string, patch: Partial<ThresholdRule>): void => {
-    onChange({
-      thresholds: draft.thresholds.map(rule => (rule.id === id ? { ...rule, ...patch } : rule)),
-    });
-  };
-
   return (
     <>
-      <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>Binding</h3>
-        {draft.binding ? (
-          <div className={styles.boundRow}>
-            <span className={styles.boundText}>
-              Bound to {boundEntry?.name ?? `address ${draft.binding.address}`} ·{' '}
-              {ADDRESS_SPACE_NAME[draft.binding.space]}
-            </span>
-            <Button variant="ghost" size="sm" onClick={handleClearBinding}>
-              Clear
-            </Button>
-          </div>
-        ) : (
-          <p className={styles.boundText}>Not bound to an address.</p>
-        )}
-
-        <div className={styles.picker}>
-          <Select value={space} onValueChange={setSpace} options={spaceOptions} aria-label="Address Space" />
-          <TextField
-            value={query}
-            onChange={event => setQuery(event.target.value)}
-            placeholder="Filter by name or address (0x2A)"
-            aria-label="Filter addresses to bind"
-            spellCheck={false}
-            autoComplete="off"
-          />
-        </div>
-        <div className={styles.pickerTableHost}>
-          <Table
-            columns={pickerColumns}
-            rows={matches}
-            rowKey={entry => entry.name}
-            selectedKey={boundEntry?.name}
-            onSelect={handlePickEntry}
-            emptyMessage="Nothing matches."
-          />
-        </div>
-      </section>
+      <BindingPicker
+        binding={draft.binding}
+        spaceOptions={spaceOptions}
+        onPick={handlePickEntry}
+        onClear={() => onChange({ binding: null })}
+      />
 
       <Select
         value={draft.format}
@@ -493,60 +590,188 @@ function BoundFields({
       ) : null}
 
       {thresholdsApplyTo(kind) ? (
-        <section className={styles.section}>
-          <h3 className={styles.sectionTitle}>Thresholds</h3>
-          {draft.thresholds.length === 0 ? (
-            <p className={styles.boundText}>No thresholds — the reading shows with no condition colouring.</p>
-          ) : (
-            <ul className={styles.rules}>
-              {draft.thresholds.map(rule => (
-                <li key={rule.id} className={styles.rule}>
-                  <Select
-                    value={rule.comparator}
-                    onValueChange={comparator => handleUpdateRule(rule.id, { comparator })}
-                    options={COMPARATOR_OPTIONS}
-                    aria-label="Comparator"
-                  />
-                  <NumericInput
-                    value={rule.value}
-                    onCommit={value => handleUpdateRule(rule.id, { value })}
-                    className={styles.ruleValue}
-                    aria-label="Threshold value"
-                  />
-                  <Select
-                    value={rule.role}
-                    onValueChange={role => handleUpdateRule(rule.id, { role })}
-                    options={ROLE_OPTIONS}
-                    aria-label="Status when this rule matches"
-                  />
-                  <TextField
-                    value={rule.label ?? ''}
-                    onChange={event =>
-                      handleUpdateRule(rule.id, {
-                        label: event.target.value === '' ? undefined : event.target.value,
-                      })
-                    }
-                    placeholder="Name (optional)"
-                    aria-label="Name shown for this rule, used by State LED"
-                    className={styles.ruleLabelField}
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label="Remove this threshold rule"
-                    onClick={() => handleRemoveRule(rule.id)}
-                  >
-                    <TrashSimple size={14} />
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <Button size="sm" onClick={handleAddRule}>
-            <Plus size={14} weight="bold" /> Add rule
-          </Button>
-        </section>
+        <ThresholdEditor thresholds={draft.thresholds} onChange={thresholds => onChange({ thresholds })} />
       ) : null}
+    </>
+  );
+}
+
+/**
+ * One Data Table row or Alarm List entry — a label, a collapsed summary of
+ * its binding, and (expanded) the same `BindingPicker`/format/
+ * `ThresholdEditor` a single-value bound kind's own dialog section uses.
+ * Collapsed by default so a Widget with several rows does not open with
+ * every row's full picker and Table already expanded.
+ */
+function BoundEntryEditor({
+  entry,
+  onChange,
+  onRemove,
+}: {
+  readonly entry: BoundWidgetConfig;
+  readonly onChange: (patch: Partial<BoundWidgetConfig>) => void;
+  readonly onRemove: () => void;
+}): React.JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+
+  const handlePickEntry = (mapEntry: MapEntry, space: AddressSpace): void => {
+    onChange({
+      binding: { space, address: mapEntry.address },
+      label: entry.binding === null ? mapEntry.name : entry.label,
+    });
+  };
+
+  return (
+    <li className={styles.entryRow}>
+      <div className={styles.entryRowHeader}>
+        <TextField
+          value={entry.label}
+          onChange={event => onChange({ label: event.target.value })}
+          placeholder="Label"
+          aria-label="Row label"
+        />
+        <Button variant="ghost" size="sm" onClick={() => setExpanded(value => !value)}>
+          {expanded ? 'Done' : 'Configure'}
+        </Button>
+        <Button variant="ghost" size="sm" aria-label="Remove this row" onClick={onRemove}>
+          <TrashSimple size={14} />
+        </Button>
+      </div>
+      {expanded ? (
+        <div className={styles.entryRowBody}>
+          <BindingPicker
+            binding={entry.binding}
+            spaceOptions={SPACE_OPTIONS}
+            onPick={handlePickEntry}
+            onClear={() => onChange({ binding: null })}
+          />
+          <Select
+            value={entry.format}
+            onValueChange={format => onChange({ format })}
+            options={FORMAT_OPTIONS}
+            aria-label="Display format"
+          />
+          <ThresholdEditor thresholds={entry.thresholds} onChange={thresholds => onChange({ thresholds })} />
+        </div>
+      ) : (
+        <p className={styles.boundText}>
+          {entry.binding
+            ? `Bound to address ${entry.binding.address} · ${ADDRESS_SPACE_NAME[entry.binding.space]}`
+            : 'Not bound to an address.'}
+        </p>
+      )}
+    </li>
+  );
+}
+
+/** The row-list editor Data Table's `rows` and Alarm List's `alarms` both share — the same `BoundWidgetConfig` shape, differing only in what a fresh row is named and what its "add" button reads. */
+function BoundEntryListEditor({
+  entries,
+  onChange,
+  addLabel,
+  defaultLabel,
+}: {
+  readonly entries: readonly BoundWidgetConfig[];
+  readonly onChange: (next: readonly BoundWidgetConfig[]) => void;
+  readonly addLabel: string;
+  readonly defaultLabel: string;
+}): React.JSX.Element {
+  const handleAdd = (): void => {
+    onChange([...entries, defaultBoundWidgetConfig(`${defaultLabel} ${entries.length + 1}`)]);
+  };
+  const handleUpdate = (index: number, patch: Partial<BoundWidgetConfig>): void => {
+    onChange(entries.map((current, i) => (i === index ? { ...current, ...patch } : current)));
+  };
+  const handleRemove = (index: number): void => {
+    onChange(entries.filter((_, i) => i !== index));
+  };
+
+  return (
+    <div className={styles.optionsEditor}>
+      {entries.length === 0 ? (
+        <p className={styles.boundText}>None yet.</p>
+      ) : (
+        <ul className={styles.rules}>
+          {/* Index keys: an entry carries no id of its own, matching `DropdownOption`'s own precedent — order changes only by explicit add/remove. */}
+          {entries.map((entry, index) => (
+            <BoundEntryEditor
+              key={index}
+              entry={entry}
+              onChange={patch => handleUpdate(index, patch)}
+              onRemove={() => handleRemove(index)}
+            />
+          ))}
+        </ul>
+      )}
+      <Button size="sm" onClick={handleAdd}>
+        <Plus size={14} weight="bold" /> {addLabel}
+      </Button>
+    </div>
+  );
+}
+
+function DataTableFields({ draft, onChange }: FieldsProps<DataTableWidgetConfig>): React.JSX.Element {
+  return (
+    <section className={styles.section}>
+      <h3 className={styles.sectionTitle}>Rows</h3>
+      <BoundEntryListEditor entries={draft.rows} onChange={rows => onChange({ rows })} addLabel="Add row" defaultLabel="Row" />
+    </section>
+  );
+}
+
+function AlarmListFields({ draft, onChange }: FieldsProps<AlarmListWidgetConfig>): React.JSX.Element {
+  return (
+    <>
+      <section className={styles.section}>
+        <h3 className={styles.sectionTitle}>Alarms</h3>
+        <BoundEntryListEditor entries={draft.alarms} onChange={alarms => onChange({ alarms })} addLabel="Add alarm" defaultLabel="Alarm" />
+      </section>
+      <label className={styles.switchRow}>
+        <Switch checked={draft.showInactive} onCheckedChange={showInactive => onChange({ showInactive })} />
+        Show clear alarms too, not only active ones
+      </label>
+    </>
+  );
+}
+
+function ContainerFields({ draft, onChange }: FieldsProps<ContainerWidgetConfig>): React.JSX.Element {
+  return (
+    <section className={styles.section}>
+      <h3 className={styles.sectionTitle}>Layout</h3>
+      <div className={styles.kindFields}>
+        <NumericInput label="Padding" value={draft.padding} onCommit={padding => onChange({ padding })} />
+        <NumericInput label="Spacing" value={draft.spacing} onCommit={spacing => onChange({ spacing })} />
+      </div>
+      <p className={styles.boundText}>
+        Widgets inside are added, configured and removed directly on the Container itself, not from here.
+      </p>
+    </section>
+  );
+}
+
+function MiniPlotFields({ draft, onChange }: FieldsProps<MiniPlotWidgetConfig>): React.JSX.Element {
+  const handlePick = (entry: MapEntry, space: PlottableSpace): void => {
+    onChange({
+      series: { space, address: entry.address },
+      label: draft.series === null ? entry.name : draft.label,
+    });
+  };
+
+  return (
+    <>
+      <BindingPicker
+        binding={draft.series}
+        spaceOptions={PLOTTABLE_SPACE_OPTIONS}
+        onPick={handlePick}
+        onClear={() => onChange({ series: null })}
+      />
+      <section className={styles.section}>
+        <h3 className={styles.sectionTitle}>Trace</h3>
+        <div className={styles.kindFields}>
+          <NumericInput label="Poll (ms)" value={draft.pollInterval} onCommit={pollInterval => onChange({ pollInterval })} />
+          <NumericInput label="Span (s)" value={draft.timeSpan} onCommit={timeSpan => onChange({ timeSpan })} />
+        </div>
+      </section>
     </>
   );
 }
@@ -741,14 +966,49 @@ function DirectionalControlFields({ draft, onChange }: FieldsProps<DirectionalCo
 }
 
 /**
+ * The one place a Widget kind decides what beyond the Label field this
+ * dialog shows. `deviceInfo` returns `null` — every field it renders comes
+ * from the connection itself, not from anything an Operator configures, so
+ * Label is the whole of its section.
+ */
+function KindSection({
+  kind,
+  draft,
+  onChange,
+}: {
+  readonly kind: WidgetKind;
+  readonly draft: WidgetConfig;
+  readonly onChange: (patch: Partial<WidgetConfig>) => void;
+}): React.JSX.Element | null {
+  if (isBoundWidgetKind(kind)) {
+    return <BoundFields kind={kind} draft={draft as BoundWidgetConfig} onChange={onChange} />;
+  }
+  switch (kind) {
+    case 'button':
+      return <ButtonFields draft={draft as ButtonWidgetConfig} onChange={onChange} />;
+    case 'directionalControl':
+      return <DirectionalControlFields draft={draft as DirectionalControlWidgetConfig} onChange={onChange} />;
+    case 'dataTable':
+      return <DataTableFields draft={draft as DataTableWidgetConfig} onChange={onChange} />;
+    case 'alarmList':
+      return <AlarmListFields draft={draft as AlarmListWidgetConfig} onChange={onChange} />;
+    case 'deviceInfo':
+      return null;
+    case 'container':
+      return <ContainerFields draft={draft as ContainerWidgetConfig} onChange={onChange} />;
+    case 'miniPlot':
+      return <MiniPlotFields draft={draft as MiniPlotWidgetConfig} onChange={onChange} />;
+  }
+}
+
+/**
  * The one surface every Widget kind configures through, bound and control
  * alike: a label, plus whatever that kind's own write-or-read target needs.
  *
- * A single form for all eleven kinds — not a kind-specific dialog — is the
+ * A single form for all sixteen kinds — not a kind-specific dialog — is the
  * point, "learning one Widget teaches you the others" being a property of
  * this component rather than of any one Widget kind's own code. `kind` only
- * ever decides which of {@link BoundFields}, {@link ButtonFields} or
- * {@link DirectionalControlFields} renders below the Label field.
+ * ever decides what {@link KindSection} renders below the Label field.
  */
 export function WidgetConfigDialog({
   open,
@@ -799,13 +1059,7 @@ export function WidgetConfigDialog({
           onChange={event => setDraft(previous => ({ ...previous, label: event.target.value }))}
         />
 
-        {isBoundWidgetKind(kind) ? (
-          <BoundFields kind={kind} draft={draft as BoundWidgetConfig} onChange={handleChange} />
-        ) : kind === 'button' ? (
-          <ButtonFields draft={draft as ButtonWidgetConfig} onChange={handleChange} />
-        ) : (
-          <DirectionalControlFields draft={draft as DirectionalControlWidgetConfig} onChange={handleChange} />
-        )}
+        <KindSection kind={kind} draft={draft} onChange={handleChange} />
       </div>
     </Dialog>
   );

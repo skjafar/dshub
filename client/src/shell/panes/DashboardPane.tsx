@@ -10,7 +10,7 @@ import {
   addWidget,
   applyWidgetLayouts,
   createDashboardId,
-  createWidgetId,
+  createStoredWidget,
   removeDashboard,
   removeWidget,
   renameDashboard,
@@ -18,12 +18,12 @@ import {
   seedProfileDashboards,
   updateDashboard,
   updateWidgetConfig,
-  nextAvailablePosition,
 } from '../widgets/dashboardStore';
-import type { ProfileDashboards, StoredDashboard, StoredWidget } from '../widgets/dashboardStore';
+import type { ProfileDashboards, StoredDashboard } from '../widgets/dashboardStore';
 import { WIDGETS, widgetDefinition } from '../widgets/widgetRegistry';
 import type { WidgetKind } from '../widgets/widgetRegistry';
 import type { WidgetConfig } from '../widgets/widgetConfig';
+import { FALLBACK_WIDTH, GRID_COLS, GRID_MARGIN, ROW_HEIGHT } from '../widgets/gridLayout';
 import { instanceOfPaneId } from '../paneRegistry';
 import type { PaneProps } from '../paneRegistry';
 import { usePaneState } from '../paneState';
@@ -32,21 +32,6 @@ import { WIDGET_DRAG_CANCEL_CLASS, WidgetShell } from './WidgetShell';
 import styles from './DashboardPane.module.css';
 
 import 'react-grid-layout/css/styles.css';
-
-/**
- * Fixed rather than derived from the measured container width — unlike the
- * legacy Dashboard, where `cols` scaled with pixel width and mounting before
- * measurement risked react-grid-layout's `correctBounds` permanently clamping
- * a saved layout. A fixed column count makes that hazard structural rather
- * than something to work around: `correctBounds` clamps against `cols`, which
- * is now a grid-unit constant no measurement can change, so mounting the grid
- * before the container is measured is safe.
- */
-const GRID_COLS = 12;
-const ROW_HEIGHT = 48;
-const GRID_MARGIN = 8;
-/** Used only until `ResizeObserver` reports the real width; affects visual sizing, not layout correctness. */
-const FALLBACK_WIDTH = 960;
 
 interface DashboardPaneState {
   readonly viewingDashboardId: string | null;
@@ -172,20 +157,8 @@ export function DashboardPane({ paneId, setTitle }: PaneProps): React.JSX.Elemen
   const handleAddWidget = useCallback(
     (kind: WidgetKind) => {
       if (!collection || !activeDashboard) return;
-      const definition = widgetDefinition(kind);
-      if (!definition) return;
-
-      const position = nextAvailablePosition(
-        activeDashboard.widgets.map(w => w.layout),
-        definition.defaultSize,
-        GRID_COLS
-      );
-      const widget: StoredWidget = {
-        id: createWidgetId(),
-        kind: definition.kind,
-        layout: { x: position.x, y: position.y, w: definition.defaultSize.w, h: definition.defaultSize.h },
-        config: definition.defaultConfig(),
-      };
+      const widget = createStoredWidget(kind, activeDashboard.widgets.map(w => w.layout), GRID_COLS);
+      if (!widget) return;
       commit(updateDashboard(collection, activeDashboard.id, d => addWidget(d, widget)));
     },
     [collection, activeDashboard, commit]
@@ -199,12 +172,27 @@ export function DashboardPane({ paneId, setTitle }: PaneProps): React.JSX.Elemen
     [collection, activeDashboard, commit]
   );
 
+  /**
+   * The one place a Widget's config is persisted, by id — shared by the
+   * dialog's own Save (`configuringWidgetId`, closed over below) and by a
+   * Container Widget's `onConfigChange`, which needs to name the Widget it is
+   * updating explicitly rather than relying on whichever one the dialog
+   * currently has open.
+   */
+  const handleUpdateWidgetConfig = useCallback(
+    (widgetId: string, config: WidgetConfig) => {
+      if (!collection || !activeDashboard) return;
+      commit(updateDashboard(collection, activeDashboard.id, d => updateWidgetConfig(d, widgetId, config)));
+    },
+    [collection, activeDashboard, commit]
+  );
+
   const handleSaveWidgetConfig = useCallback(
     (config: WidgetConfig) => {
-      if (!collection || !activeDashboard || configuringWidgetId === null) return;
-      commit(updateDashboard(collection, activeDashboard.id, d => updateWidgetConfig(d, configuringWidgetId, config)));
+      if (configuringWidgetId === null) return;
+      handleUpdateWidgetConfig(configuringWidgetId, config);
     },
-    [collection, activeDashboard, configuringWidgetId, commit]
+    [configuringWidgetId, handleUpdateWidgetConfig]
   );
 
   const handleLayoutChange = useCallback(
@@ -379,7 +367,12 @@ export function DashboardPane({ paneId, setTitle }: PaneProps): React.JSX.Elemen
                         onConfigure={() => setConfiguringWidgetId(widget.id)}
                         onRemove={() => handleRemoveWidget(widget.id)}
                       >
-                        <WidgetComponent config={widget.config} />
+                        <WidgetComponent
+                          config={widget.config}
+                          paneId={paneId}
+                          editing={editing}
+                          onConfigChange={config => handleUpdateWidgetConfig(widget.id, config)}
+                        />
                       </WidgetShell>
                     </div>
                   );

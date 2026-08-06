@@ -28,8 +28,8 @@ function formatUptime(seconds: number): string {
   return [h, m, s].map(n => String(n).padStart(2, '0')).join(':');
 }
 
-/** `1.4.7` from the packed firmware word the Device reports. */
-function formatFirmware(version: number): string {
+/** `1.4.7` from the packed firmware word the Device reports. Exported for `DeviceInfoWidget.tsx`, which renders the same identity at Widget scale. */
+export function formatFirmware(version: number): string {
   return `${(version >> 16) & 0xff}.${(version >> 8) & 0xff}.${version & 0xff}`;
 }
 

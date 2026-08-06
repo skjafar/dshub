@@ -1,0 +1,33 @@
+.host {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  gap: var(--space-2xs);
+  border: 1px solid var(--ghost-20);
+  border-radius: var(--radius-base);
+}
+
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.gridHost {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.notice {
+  flex: 1 1 auto;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-sm);
+  color: var(--on-surface-variant);
+}

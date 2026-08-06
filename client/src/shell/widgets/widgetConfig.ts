@@ -10,8 +10,10 @@
  */
 
 import type { AddressSpace, WritableAddressSpace } from '../addressSpace';
+import type { PlottableSpace } from '../plotStream';
 import type { DisplayFormat } from '../valueFormat';
 import type { ThresholdRule } from './threshold';
+import type { WidgetKind } from './widgetRegistry';
 
 /** Which Device address a Widget reads, and from which Address Space. */
 export interface WidgetBinding {
@@ -177,6 +179,97 @@ export function defaultDirectionalControlWidgetConfig(label: string): Directiona
   return { label, directions: [], layout: '4way' };
 }
 
+// ── Composite family (ticket 17) ─────────────────────────────────────────
+//
+// Data Table and Alarm List are both, at heart, a list of the same
+// {@link BoundWidgetConfig} shape every single-value kind already uses — a
+// row is a label, a binding, a format and thresholds, exactly like a Value
+// Readout. Reusing the shape rather than inventing a row-specific one is what
+// keeps "no duplicated binding or formatting logic" true for a multi-entry
+// kind too. Device Info and Mini-Plot are not bound at all — the former shows
+// the connection's own identity and health rather than any addressed value,
+// the latter names one address but has no formatted text or threshold colour
+// to carry, only a traced line — so both are their own minimal shapes,
+// alongside {@link ButtonWidgetConfig} and {@link DirectionalControlWidgetConfig}.
+
+/** One Data Table row: the same label/binding/format/thresholds every bound kind shares. No id of its own — see `DropdownOption`'s own precedent; a row reorders only by explicit add/remove. */
+export type DataTableRow = BoundWidgetConfig;
+
+export interface DataTableWidgetConfig {
+  readonly label: string;
+  readonly rows: readonly DataTableRow[];
+}
+
+export function defaultDataTableWidgetConfig(label: string): DataTableWidgetConfig {
+  return { label, rows: [] };
+}
+
+/** One Alarm List entry: a condition is "active" whenever its evaluated threshold role is `warn` or `error` — see `AlarmListWidget.tsx`. */
+export type AlarmListEntry = BoundWidgetConfig;
+
+export interface AlarmListWidgetConfig {
+  readonly label: string;
+  readonly alarms: readonly AlarmListEntry[];
+  /** Whether a clear (non-active) alarm still shows in the list, or only active ones do. */
+  readonly showInactive: boolean;
+}
+
+export function defaultAlarmListWidgetConfig(label: string): AlarmListWidgetConfig {
+  return { label, alarms: [], showInactive: true };
+}
+
+/**
+ * Carries nothing beyond the shared `label` — every field it shows (board
+ * identity, link state, uptime) comes from the connection itself, not from an
+ * addressed reading, so there is no binding, format or threshold to
+ * configure. Mirrors `Overview.tsx`'s own identity/health surface at Widget
+ * scale rather than reimplementing it.
+ */
+export interface DeviceInfoWidgetConfig {
+  readonly label: string;
+}
+
+export function defaultDeviceInfoWidgetConfig(label: string): DeviceInfoWidgetConfig {
+  return { label };
+}
+
+/**
+ * Groups other Widgets in their own nested grid — a Dashboard-within-a-
+ * Widget, deliberately: `childWidgets` reuses the exact `StoredWidget` shape
+ * a Dashboard's own top-level list is made of, so placing, resizing,
+ * configuring and removing a child works the same way it does one level up.
+ * Not itself offered as a child kind — see `widgetRegistry.ts` — so nesting
+ * cannot recurse.
+ */
+export interface ContainerWidgetConfig {
+  readonly label: string;
+  readonly padding: number;
+  readonly spacing: number;
+  readonly childWidgets: readonly StoredWidget[];
+}
+
+export function defaultContainerWidgetConfig(label: string): ContainerWidgetConfig {
+  return { label, padding: 8, spacing: 8, childWidgets: [] };
+}
+
+/** The one address a Mini-Plot traces — register or system register, the two spaces `plotStream` can stream at all. */
+export interface MiniPlotSeries {
+  readonly space: PlottableSpace;
+  readonly address: number;
+}
+
+export interface MiniPlotWidgetConfig {
+  readonly label: string;
+  /** Null until an Operator has picked an address — the same starts-unbound convention every bound kind's own `binding` follows. */
+  readonly series: MiniPlotSeries | null;
+  readonly pollInterval: number;
+  readonly timeSpan: number;
+}
+
+export function defaultMiniPlotWidgetConfig(label: string): MiniPlotWidgetConfig {
+  return { label, series: null, pollInterval: 250, timeSpan: 60 };
+}
+
 /** Every kind-specific Widget configuration, `valueRead`/`stateLED`/`statusMatrix`'s bare `BoundWidgetConfig` included. */
 export type WidgetConfig =
   | BoundWidgetConfig
@@ -187,4 +280,31 @@ export type WidgetConfig =
   | ButtonWidgetConfig
   | DropdownWidgetConfig
   | ValueWriteWidgetConfig
-  | DirectionalControlWidgetConfig;
+  | DirectionalControlWidgetConfig
+  | DataTableWidgetConfig
+  | AlarmListWidgetConfig
+  | DeviceInfoWidgetConfig
+  | ContainerWidgetConfig
+  | MiniPlotWidgetConfig;
+
+// ── The stored envelope around one Widget's configuration ────────────────
+//
+// Lives here rather than in `dashboardStore.ts` (which re-exports both)
+// because `ContainerWidgetConfig.childWidgets` needs `StoredWidget` and
+// `dashboardStore.ts` already imports this module for `WidgetConfig` — the
+// dependency has to run one way, and this is the lower-level module of the
+// two.
+
+export interface WidgetLayout {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+export interface StoredWidget {
+  readonly id: string;
+  readonly kind: WidgetKind;
+  readonly layout: WidgetLayout;
+  readonly config: WidgetConfig;
+}
