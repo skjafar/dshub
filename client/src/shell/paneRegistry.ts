@@ -12,6 +12,7 @@ import type { AddressSpace } from './addressSpace';
 import { ActivityLogPane } from './panes/ActivityLogPane';
 import { CommandPane } from './panes/CommandPane';
 import { DashboardPane } from './panes/DashboardPane';
+import { MapEditorPane } from './panes/MapEditorPane';
 import { OverviewPane } from './panes/OverviewPane';
 import { ParameterPane } from './panes/ParameterPane';
 import { PlotPane } from './panes/PlotPane';
@@ -25,7 +26,15 @@ import { InspectorPane } from './panes/InspectorPane';
  * the same reason. A panel id carries its space, and a saved layout cannot
  * restore a Pane pointed at a different one than it was saved with.
  */
-export type PaneKind = 'overview' | AddressSpace | 'sysCommand' | 'inspector' | 'activityLog' | 'plot' | 'dashboard';
+export type PaneKind =
+  | 'overview'
+  | AddressSpace
+  | 'sysCommand'
+  | 'inspector'
+  | 'activityLog'
+  | 'plot'
+  | 'dashboard'
+  | 'mapEditor';
 
 /**
  * What the Workspace hands a Pane.
@@ -121,6 +130,13 @@ export const PANES: readonly PaneDefinition[] = [
     description: 'Composed Widgets bound to addresses, arranged on a grid',
     singleton: false,
     component: DashboardPane,
+  },
+  {
+    kind: 'mapEditor',
+    title: 'Map Editor',
+    description: "Revise the active Profile's Registers, Parameters and Commands",
+    singleton: true,
+    component: MapEditorPane,
   },
 ];
 

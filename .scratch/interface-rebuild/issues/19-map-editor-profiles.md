@@ -8,12 +8,12 @@ Profile files use the existing versioned portable format. Import must reject a m
 
 **Blocked by:** 06
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A Map Editor Pane edits entry names, types, access and metadata alongside other Panes
-- [ ] Entry reordering works as it does today
-- [ ] Profiles can be created, switched, imported and exported
-- [ ] Switching Profile re-skins the application, including its Maps, Commands, Dashboards and Workspaces
-- [ ] Import rejects malformed or unversioned files with a clear reason and applies nothing
-- [ ] Export produces a file the existing versioned format can read back
-- [ ] Map and Command exports go through the port
+- [x] A Map Editor Pane edits entry names, types, access and metadata alongside other Panes
+- [x] Entry reordering works as it does today
+- [x] Profiles can be created, switched, imported and exported
+- [x] Switching Profile re-skins the application, including its Maps, Commands, Dashboards and Workspaces
+- [x] Import rejects malformed or unversioned files with a clear reason and applies nothing
+- [x] Export produces a file the existing versioned format can read back
+- [x] Map and Command exports go through the port

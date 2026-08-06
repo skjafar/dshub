@@ -454,9 +454,18 @@ function WorkspaceShell(): React.JSX.Element {
               onDeleteWorkspace={handleDeleteWorkspace}
               focusTargetDashboardId={focusTargetDashboardId}
               onEnterFocusMode={enterFocusMode}
+              onBeforeProfileChange={flushAutosave}
             />
             <div className={styles.workspaceHost}>
-              <Workspace onReady={handleReady} />
+              {/* Keyed on the Profile: switching one is not a change to what
+                  the current Workspace shows, it is a different Workspace
+                  collection entirely (`workspacesByProfile` is itself keyed by
+                  Profile). Remounting is what makes `handleReady` run again
+                  against the new Profile's own saved layout — or seed one —
+                  rather than leaving the old Profile's Panes on screen
+                  pointed at a Map that no longer describes them. Mirrors
+                  Focus Mode's own unmount-rather-than-hide discipline above. */}
+              <Workspace key={profileId} onReady={handleReady} />
             </div>
           </>
         )}

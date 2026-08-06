@@ -1,0 +1,122 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.createRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: var(--space-sm);
+  align-items: end;
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--ghost);
+}
+
+.hiddenInput {
+  display: none;
+}
+
+.importNotice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+
+  border: 1px solid var(--status-warn);
+  border-radius: var(--radius-base);
+  background: var(--status-warn-wash);
+}
+
+.importNoticeFatal {
+  border-color: var(--status-error);
+  background: var(--status-error-wash);
+}
+
+.importHeading {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--on-surface);
+}
+
+.importList {
+  margin: 0;
+  padding-left: var(--space-md);
+  font-size: var(--text-sm);
+  color: var(--on-surface-variant);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: var(--space-2xs);
+  align-items: center;
+}
+
+.name {
+  composes: ring from '../ui/focusRing.module.css';
+
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  min-width: 0;
+
+  padding: var(--space-sm);
+  background: var(--surface-lowest);
+  border: 1px solid var(--ghost-sep);
+  border-radius: var(--radius-base);
+  color: var(--on-surface);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.name:hover {
+  border-color: var(--primary);
+  background: var(--primary-wash);
+}
+
+.name:disabled {
+  cursor: default;
+}
+
+.active {
+  border-color: var(--primary);
+}
+
+.activeMark {
+  display: inline-flex;
+  flex: none;
+  width: 14px;
+  color: var(--primary);
+}
+
+.nameText {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag {
+  flex: none;
+  padding: 0 var(--space-2xs);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+  border: 1px solid var(--ghost-sep);
+  border-radius: var(--radius-base);
+}

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowsOut, Moon, Plugs, PlugsConnected, Stack, Sun, SquaresFour } from '@phosphor-icons/react';
+import { ArrowsOut, Moon, Plugs, PlugsConnected, Stack, Sun, SquaresFour, UsersThree } from '@phosphor-icons/react';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { APP_THEMES, getThemeById } from '../appThemes';
@@ -9,6 +9,7 @@ import { Button, Menu, MenuItem, MenuLabel, Tooltip } from '../ui';
 import { PANES } from './paneRegistry';
 import type { PaneKind } from './paneRegistry';
 import { ConnectDialog } from './ConnectDialog';
+import { ProfilesDialog } from './ProfilesDialog';
 import { WorkspacesDialog } from './WorkspacesDialog';
 import type { StoredWorkspace } from './workspaceStore';
 import styles from './AppChrome.module.css';
@@ -34,6 +35,12 @@ export interface AppChromeProps {
    */
   readonly focusTargetDashboardId: string | null;
   readonly onEnterFocusMode: (dashboardId: string) => void;
+  /**
+   * Called before any Profiles-dialog action that may change the active
+   * Profile, so the outgoing one's Workspace is saved with what it actually
+   * shows before the switch. See `ProfilesDialog`'s own doc comment.
+   */
+  readonly onBeforeProfileChange: () => void;
 }
 
 /** What the Panes trigger says, so the unread badge it carries is announced too. */
@@ -67,11 +74,13 @@ export function AppChrome({
   onDeleteWorkspace,
   focusTargetDashboardId,
   onEnterFocusMode,
+  onBeforeProfileChange,
 }: AppChromeProps): React.JSX.Element {
   const { state, actions } = useDSHub();
   const { settings, updateSettings } = useSettings();
   const [connectOpen, setConnectOpen] = useState(false);
   const [workspacesOpen, setWorkspacesOpen] = useState(false);
+  const [profilesOpen, setProfilesOpen] = useState(false);
 
   const connected = state.connection?.connected ?? false;
 
@@ -131,6 +140,16 @@ export function AppChrome({
           Workspaces
         </Button>
 
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="Profiles"
+          onClick={() => setProfilesOpen(true)}
+        >
+          <UsersThree size={16} />
+          Profiles
+        </Button>
+
         <Tooltip content={focusTargetDashboardId === null ? 'No Dashboards yet' : 'Show a Dashboard full-canvas, layout locked'}>
           <span>
             <Button
@@ -184,6 +203,7 @@ export function AppChrome({
         onRename={onRenameWorkspace}
         onDelete={onDeleteWorkspace}
       />
+      <ProfilesDialog open={profilesOpen} onOpenChange={setProfilesOpen} onBeforeProfileChange={onBeforeProfileChange} />
     </header>
   );
 }

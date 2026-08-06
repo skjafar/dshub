@@ -87,6 +87,30 @@ function ensureLoaded(profile: MapProfile | null): void {
   });
 }
 
+/**
+ * Tells every Pane reading the Map that its content changed without the
+ * active Profile itself changing — what saving an edit in the Map Editor
+ * Pane does. `mapManager.initialize` re-parses the same Profile in place;
+ * `announce` is what makes that visible to a Register or Parameter Pane that
+ * never re-read `mapManager` on its own, since the manager cannot say so.
+ */
+export function announceMapEdited(profile: MapProfile): void {
+  void mapManager
+    .initialize(profile)
+    .then(
+      () => {
+        failure = null;
+      },
+      (error: unknown) => {
+        failure = {
+          profileId: profile.id,
+          message: error instanceof Error ? error.message : 'The Map could not be reloaded',
+        };
+      }
+    )
+    .finally(announce);
+}
+
 /** Shared so an empty result is the same array every time it is asked for. */
 const NO_ENTRIES: readonly MapEntry[] = [];
 
