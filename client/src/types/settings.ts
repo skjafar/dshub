@@ -73,6 +73,13 @@ export interface LogSettings {
 }
 
 export interface UserSettings {
+  /**
+   * Version marker for this shape, introduced by the interface rebuild's
+   * settings migration (ticket 21). A stored blob without one predates this
+   * marker and is treated as the old, unversioned shape: see
+   * `contexts/settingsMigration.ts`.
+   */
+  schemaVersion: number;
   colorThemeId: string; // ID of the selected app theme (see appThemes.ts)
   lastDeviceIP: string;
   lastDeviceName?: string; // Board name of last connected device
@@ -128,7 +135,11 @@ export interface UserSettings {
 export const DEFAULT_PROFILE_ID = 'default';
 export const CNC_PROFILE_ID = 'cnc_motor_controller';
 
+/** Bump when `UserSettings`'s shape changes in a way that needs a migration. */
+export const SETTINGS_SCHEMA_VERSION = 1;
+
 export const DEFAULT_SETTINGS: UserSettings = {
+  schemaVersion: SETTINGS_SCHEMA_VERSION,
   colorThemeId: 'kinetic-monolith',
   lastDeviceIP: '',
   lastInterfaceType: 'TCP',

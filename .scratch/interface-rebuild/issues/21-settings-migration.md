@@ -8,12 +8,28 @@ A schema marker is introduced at the same time, so the next change to this shape
 
 **Blocked by:** 08, 14
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Existing Profiles load into the rebuilt application unchanged, with Maps, metadata and Commands intact
-- [ ] Dashboards, Workspaces, layouts and preferences reset to defaults
-- [ ] The reset is announced plainly on first launch after upgrade, and reads as intended rather than as loss
-- [ ] A schema marker is written so future changes have a version to migrate from
-- [ ] A stored blob from the old shape never crashes the application, whatever state it is in
-- [ ] Retired theme identifiers land on a surviving theme
-- [ ] Tests cover loading an old-shape blob, an absent blob, and a corrupt blob
+- [x] Existing Profiles load into the rebuilt application unchanged, with Maps, metadata and Commands intact
+- [x] Dashboards, Workspaces, layouts and preferences reset to defaults
+- [x] The reset is announced plainly on first launch after upgrade, and reads as intended rather than as loss
+- [x] A schema marker is written so future changes have a version to migrate from
+- [x] A stored blob from the old shape never crashes the application, whatever state it is in
+- [x] Retired theme identifiers land on a surviving theme
+- [x] Tests cover loading an old-shape blob, an absent blob, and a corrupt blob
+
+## Comments
+
+Implemented in `client/src/contexts/settingsMigration.ts`, which introduces
+`schemaVersion`/`SETTINGS_SCHEMA_VERSION` on `UserSettings` and treats any
+stored blob without the current version as the old, unversioned shape:
+Profiles carry across (with a corrupt individual Profile entry dropped
+rather than costing the whole collection), everything else resets to
+defaults. A distinct `profilesCarriedOver` flag additionally covers the case
+where the blob itself is unparsable or not an object at all — there,
+Profiles are lost too, and `SettingsResetNoticeDialog` (opened once from
+`AppChrome`, seeded from `SettingsContext`'s `justMigrated`) says so plainly
+rather than reusing the "your Profiles are safe" copy that fits the ordinary
+old-shape case. Verified end-to-end against the dev server with Playwright
+(seeded old-shape blob → notice opens → Profiles dialog shows the carried
+Profile → reload does not re-show the notice).

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BackendPortProvider } from '../../contexts/BackendPortContext';
@@ -19,7 +19,17 @@ import type { AppChromeProps } from '../AppChrome';
  * own.
  */
 
-afterEach(cleanup);
+/** Mirrors `SettingsContext`'s own (private) storage key. */
+const STORAGE_KEY = 'dshub_settings';
+
+beforeEach(() => {
+  localStorage.removeItem(STORAGE_KEY);
+});
+
+afterEach(() => {
+  cleanup();
+  localStorage.removeItem(STORAGE_KEY);
+});
 
 async function settle(): Promise<void> {
   await act(async () => {
@@ -107,5 +117,49 @@ describe('AppChrome Focus Mode trigger', () => {
     await user.click(button);
 
     expect(onEnterFocusMode).toHaveBeenCalledWith('dashboard-1');
+  });
+});
+
+describe('AppChrome settings reset notice', () => {
+  it('opens automatically when the stored settings predate schema versioning (ticket 21)', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ mapProfiles: [], activeMapProfileId: 'default' }));
+    const port = createFakeBackendPort({ deliver: fn => fn() });
+    renderChrome(port);
+    await settle();
+
+    expect(screen.getByRole('dialog', { name: 'This is the rebuilt interface' })).toBeInTheDocument();
+  });
+
+  it('stays closed on a fresh install with nothing stored yet', async () => {
+    const port = createFakeBackendPort({ deliver: fn => fn() });
+    renderChrome(port);
+    await settle();
+
+    expect(screen.queryByRole('dialog', { name: 'This is the rebuilt interface' })).not.toBeInTheDocument();
+  });
+
+  it('tells the truth about Profiles when the stored blob was corrupt, not merely old-shaped', async () => {
+    // A corrupt blob loses Profiles too -- the notice must not reuse the
+    // old-shape copy that reassures someone their Profiles survived.
+    localStorage.setItem(STORAGE_KEY, 'not { valid json');
+    const port = createFakeBackendPort({ deliver: fn => fn() });
+    renderChrome(port);
+    await settle();
+
+    expect(screen.getByRole('dialog', { name: 'This is the rebuilt interface' })).toBeInTheDocument();
+    expect(screen.queryByText(/carried across untouched/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/nothing could be carried forward, including profiles/i)).toBeInTheDocument();
+  });
+
+  it('opens Profiles from the reset notice, in one click', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ mapProfiles: [], activeMapProfileId: 'default' }));
+    const user = userEvent.setup();
+    const port = createFakeBackendPort({ deliver: fn => fn() });
+    renderChrome(port);
+    await settle();
+
+    await user.click(screen.getByRole('button', { name: 'Open Profiles' }));
+
+    expect(screen.getByRole('dialog', { name: 'Profiles' })).toBeInTheDocument();
   });
 });

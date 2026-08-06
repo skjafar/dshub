@@ -25,6 +25,7 @@ import { ConnectDialog } from './ConnectDialog';
 import { GuideDialog } from './GuideDialog';
 import { ProfilesDialog } from './ProfilesDialog';
 import { SettingsDialog } from './SettingsDialog';
+import { SettingsResetNoticeDialog } from './SettingsResetNoticeDialog';
 import { WorkspacesDialog } from './WorkspacesDialog';
 import type { StoredWorkspace } from './workspaceStore';
 import styles from './AppChrome.module.css';
@@ -92,13 +93,16 @@ export function AppChrome({
   onBeforeProfileChange,
 }: AppChromeProps): React.JSX.Element {
   const { state, actions } = useDSHub();
-  const { settings, updateSettings } = useSettings();
+  const { settings, updateSettings, justMigrated, profilesCarriedOver } = useSettings();
   const [connectOpen, setConnectOpen] = useState(false);
   const [workspacesOpen, setWorkspacesOpen] = useState(false);
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  // Seeded from `justMigrated`, which is fixed for the session — closing this
+  // once is enough, it never needs to reopen on its own.
+  const [resetNoticeOpen, setResetNoticeOpen] = useState(justMigrated);
 
   const connected = state.connection?.connected ?? false;
 
@@ -237,6 +241,12 @@ export function AppChrome({
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} onOpenGuide={() => setGuideOpen(true)} />
       <GuideDialog open={guideOpen} onOpenChange={setGuideOpen} />
+      <SettingsResetNoticeDialog
+        open={resetNoticeOpen}
+        onOpenChange={setResetNoticeOpen}
+        profilesCarriedOver={profilesCarriedOver}
+        onOpenProfiles={() => setProfilesOpen(true)}
+      />
     </header>
   );
 }

@@ -4,26 +4,30 @@ import { createModernCNCDashboard, CNC_SYS_COMMANDS, CNC_DASHBOARD_VERSION, CNC_
 import { serializeProfile, parseProfileFile, ProfileImportResult } from '../utils/profileFileFormat';
 import { mapManager } from '../maps/mapManager';
 import { logger } from '../utils/logger';
-import { resolveThemeId } from '../appThemes';
+import { DEFAULT_SYSTEM_REGISTERS_MAP, migrateStoredSettings } from './settingsMigration';
 
 const STORAGE_KEY = 'dshub_settings';
-
-// System registers are protocol-fixed (library-managed, read-only over the wire) and
-// identical across every device. They are not part of user customization — every
-// profile carries this same canonical map so the System tab is never empty.
-const DEFAULT_SYSTEM_REGISTERS_MAP = `// System registers are library-managed and read-only from the protocol.
-// Accessed via command byte 6 (READ_SYSTEM_REGISTER).
-// Defined in ds_system_register_names.h from the datastream library.
-
-uint32_t            DS_PACKET_COUNT;
-uint32_t            DS_ERROR_COUNT;
-uint32_t            CONTROL_INTERFACE;
-uint32_t            COUNTER_1HZ;
-`;
 
 interface SettingsContextType {
   settings: UserSettings;
   storageError: boolean; // true when localStorage quota is exceeded and settings cannot be saved
+  /**
+   * True for the life of this session when the stored settings blob
+   * predated schema versioning and was migrated: Dashboards, Workspaces,
+   * layouts and preferences were reset. Fixed at load — see
+   * `settingsMigration.ts` — so a consumer that shows a one-time notice from
+   * it can safely seed its own dismissable state from this value without it
+   * flipping back on mid-session.
+   */
+  justMigrated: boolean;
+  /**
+   * False only when `justMigrated` is true and the stored blob was corrupt
+   * or unreadable rather than merely old-shaped — the case where Profiles
+   * did not, in fact, carry across, because there was nothing left to read
+   * them from. A one-time notice built from `justMigrated` alone would
+   * otherwise tell someone their Profiles survived when they didn't.
+   */
+  profilesCarriedOver: boolean;
   updateSettings: (updates: Partial<UserSettings>) => void;
   resetSettings: () => void;
   exportSettings: () => string;
@@ -52,33 +56,8 @@ export function useSettings() {
   return context;
 }
 
-function loadSettingsFromStorage(): UserSettings {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      // Deep merge nested objects so new fields added to defaults are not lost
-      const merged: UserSettings = {
-        ...DEFAULT_SETTINGS,
-        ...parsed,
-        logSettings: { ...DEFAULT_SETTINGS.logSettings, ...parsed.logSettings },
-        plotDefaults: { ...DEFAULT_SETTINGS.plotDefaults, ...parsed.plotDefaults },
-        dashboardView: { ...DEFAULT_SETTINGS.dashboardView, ...parsed.dashboardView },
-      };
-      // Backfill canonical system registers on legacy user profiles created before
-      // they were populated automatically.
-      merged.mapProfiles = (merged.mapProfiles ?? []).map(p =>
-        p.systemRegistersMap ? p : { ...p, systemRegistersMap: DEFAULT_SYSTEM_REGISTERS_MAP }
-      );
-      // Themes retired in the 0.3 overhaul map to their nearest survivor, so a
-      // saved preference lands somewhere deliberate rather than silently resetting.
-      merged.colorThemeId = resolveThemeId(merged.colorThemeId);
-      return merged;
-    }
-  } catch (error) {
-    console.error('Failed to load settings from localStorage:', error);
-  }
-  return DEFAULT_SETTINGS;
+function loadSettingsFromStorage() {
+  return migrateStoredSettings(localStorage.getItem(STORAGE_KEY));
 }
 
 /**
@@ -105,7 +84,14 @@ interface SettingsProviderProps {
 }
 
 export function SettingsProvider({ children }: SettingsProviderProps) {
-  const [settings, setSettings] = useState<UserSettings>(loadSettingsFromStorage);
+  // Loaded once, lazily, on mount. `settings` is the only piece of this that
+  // ever changes again — `justMigrated` and `profilesCarriedOver` describe
+  // what happened to the blob this session started from, which is fixed for
+  // the life of the provider.
+  const [initialLoad] = useState(loadSettingsFromStorage);
+  const [settings, setSettings] = useState<UserSettings>(initialLoad.settings);
+  const [justMigrated] = useState<boolean>(initialLoad.justMigrated);
+  const [profilesCarriedOver] = useState<boolean>(initialLoad.profilesCarriedOver);
   const [defaultProfile, setDefaultProfile] = useState<MapProfile | null>(null);
   const [cncProfile, setCncProfile] = useState<MapProfile | null>(null);
   const [storageError, setStorageError] = useState(false);
@@ -504,6 +490,8 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   const value = useMemo<SettingsContextType>(() => ({
     settings,
     storageError,
+    justMigrated,
+    profilesCarriedOver,
     updateSettings,
     resetSettings,
     exportSettings,
@@ -521,6 +509,8 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   }), [
     settings,
     storageError,
+    justMigrated,
+    profilesCarriedOver,
     updateSettings,
     resetSettings,
     exportSettings,
