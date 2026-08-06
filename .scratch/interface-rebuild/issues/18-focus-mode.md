@@ -8,11 +8,21 @@ Status semantics carry more weight here than anywhere else in the application, b
 
 **Blocked by:** 14
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A Dashboard can be shown full-canvas with chrome minimised
-- [ ] Layout is locked in Focus Mode; Widgets cannot be moved, resized or reconfigured
-- [ ] Entering and leaving are each a single deliberate action, and leaving is not accidental
-- [ ] Connection and Control state remain visible despite minimised chrome, so a dropped link is never missed
-- [ ] Which Dashboard is shown is remembered across sessions
-- [ ] The mode is fully operable by keyboard, including leaving it
+- [x] A Dashboard can be shown full-canvas with chrome minimised
+- [x] Layout is locked in Focus Mode; Widgets cannot be moved, resized or reconfigured
+- [x] Entering and leaving are each a single deliberate action, and leaving is not accidental
+- [x] Connection and Control state remain visible despite minimised chrome, so a dropped link is never missed
+- [x] Which Dashboard is shown is remembered across sessions
+- [x] The mode is fully operable by keyboard, including leaving it
+
+## Comments
+
+Implemented as a full-canvas view (`shell/FocusModeView.tsx`) that replaces the chrome and Workspace entirely rather than overlaying them — `AppShell.tsx` unmounts `<Workspace>` for as long as Focus Mode is active (flushing the autosave first), so there is never a hidden dockview instance polling the Device behind Focus Mode's own Widget tree, and leaving remounts the Workspace exactly as a fresh launch would restore it.
+
+The Dashboard grid itself is shared with `DashboardPane` via a new `DashboardGrid` component (extracted, no behaviour change) so Focus Mode's locked rendering can never drift from the editable one — Focus Mode simply never offers a way to flip `editing` to `true`. `LinkStatus`/`ControlBadge` were similarly extracted out of `AppChrome` so the minimised strip reads Control and link state through the exact same components as the full chrome.
+
+Two entry points: a "Focus Mode" action on `DashboardPane` itself (picks *which* Dashboard), and a chrome-level "Focus Mode" button that reopens the Profile's remembered Dashboard directly (`focusDashboardIdByProfile` in settings), satisfying "remembered across sessions" even with no Dashboard Pane open. Both go through a `FocusModeContext` so `AppShell` — the only thing that may unmount the Workspace — owns entering, without widening `PaneProps` for every other Pane kind.
+
+Leaving is Escape or an explicit "Exit Focus Mode" button, both single deliberate actions. Escape defers twice before it will exit: to a focused text field (`ValueWriteWidget`/`WriteBar`'s own Escape-abandons-the-draft handling doesn't call `preventDefault`), and to `event.defaultPrevented` generally (Radix's `Select`, under a Dropdown Widget, closes its own open picklist on Escape through a capture-phase handler that runs — and calls `preventDefault` — before this window-level one ever sees the key). Both are pinned by regression tests in `FocusModeView.test.tsx`. The Exit button itself carries its "(Esc)" hint as plain text rather than a `Tooltip`, for the same reason: a `Tooltip` opens on the focus the button gets on mount and dismisses itself on Escape through that identical capture-phase mechanism, which would otherwise cost an Operator's first Escape to closing a tooltip instead of leaving.

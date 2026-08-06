@@ -104,6 +104,13 @@ export interface UserSettings {
    * first Dashboard Pane mount rather than read from the old shape.
    */
   dashboardsByProfile: Record<string, ProfileDashboards>;
+  /**
+   * The Dashboard last shown in Focus Mode, per Profile ID — remembered
+   * across sessions so re-entering Focus Mode (from the chrome, without a
+   * Dashboard Pane necessarily open) returns to the same Dashboard rather than
+   * requiring it to be picked again. See `shell/focusMode.ts`.
+   */
+  focusDashboardIdByProfile: Record<string, string>;
   cncDashboardVersion?: number; // Tracks CNC dashboard template version for auto-reset
   showGettingStarted: boolean; // Show Getting Started dialog on startup
   /**
@@ -150,6 +157,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   dashboardLayouts: {}, // Dashboard layouts per profile (empty by default)
   workspacesByProfile: {}, // Named Workspaces per profile (seeded lazily on first Workspace mount)
   dashboardsByProfile: {}, // Dashboards per profile (seeded lazily on first Dashboard Pane mount)
+  focusDashboardIdByProfile: {}, // Last Dashboard shown in Focus Mode, per profile (empty until Focus Mode is entered once)
   showGettingStarted: true, // Show Getting Started dialog on first launch
   dashboardView: {
     cellSize: 60,

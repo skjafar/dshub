@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act, cleanup, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { BackendPortProvider } from '../../contexts/BackendPortContext';
 import { DSHubProvider } from '../../contexts/DSHubContext';
 import { SettingsProvider } from '../../contexts/SettingsContext';
@@ -9,6 +10,7 @@ import type { BackendPort } from '../../services/backendPort';
 import { InterfaceType } from '../../types/shared';
 import { TooltipProvider } from '../../ui';
 import { AppChrome } from '../AppChrome';
+import type { AppChromeProps } from '../AppChrome';
 
 /**
  * The unread activity badge specifically. Everything else the chrome does —
@@ -25,7 +27,10 @@ async function settle(): Promise<void> {
   });
 }
 
-function renderChrome(port: ReturnType<typeof createFakeBackendPort>): void {
+function renderChrome(
+  port: ReturnType<typeof createFakeBackendPort>,
+  overrides: Partial<AppChromeProps> = {}
+): void {
   render(
     <BackendPortProvider port={port as BackendPort}>
       <SettingsProvider>
@@ -41,6 +46,9 @@ function renderChrome(port: ReturnType<typeof createFakeBackendPort>): void {
               onSaveWorkspaceAs={vi.fn()}
               onRenameWorkspace={vi.fn()}
               onDeleteWorkspace={vi.fn()}
+              focusTargetDashboardId={null}
+              onEnterFocusMode={vi.fn()}
+              {...overrides}
             />
           </TooltipProvider>
         </DSHubProvider>
@@ -75,5 +83,29 @@ describe('AppChrome unread activity badge', () => {
 
     const panesButton = screen.getByRole('button', { name: /1 unread activity log entry/i });
     expect(within(panesButton).getByText('1')).toBeInTheDocument();
+  });
+});
+
+describe('AppChrome Focus Mode trigger', () => {
+  it('is disabled when the Profile has no Dashboard to open', async () => {
+    const port = createFakeBackendPort({ deliver: fn => fn() });
+    renderChrome(port, { focusTargetDashboardId: null });
+    await settle();
+
+    expect(screen.getByRole('button', { name: 'Focus Mode' })).toBeDisabled();
+  });
+
+  it('enters Focus Mode on the resolved Dashboard, in one click', async () => {
+    const user = userEvent.setup();
+    const port = createFakeBackendPort({ deliver: fn => fn() });
+    const onEnterFocusMode = vi.fn();
+    renderChrome(port, { focusTargetDashboardId: 'dashboard-1', onEnterFocusMode });
+    await settle();
+
+    const button = screen.getByRole('button', { name: 'Focus Mode' });
+    expect(button).toBeEnabled();
+    await user.click(button);
+
+    expect(onEnterFocusMode).toHaveBeenCalledWith('dashboard-1');
   });
 });

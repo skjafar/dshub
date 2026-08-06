@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { Moon, Plugs, PlugsConnected, Stack, Sun, SquaresFour } from '@phosphor-icons/react';
+import { ArrowsOut, Moon, Plugs, PlugsConnected, Stack, Sun, SquaresFour } from '@phosphor-icons/react';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { APP_THEMES, getThemeById } from '../appThemes';
-import { controlHolderOf, controlLabel, linkStateOf } from './linkState';
-import type { LinkState } from './linkState';
-import { Button, Menu, MenuItem, MenuLabel, Tooltip, cx } from '../ui';
+import { ControlBadge, LinkStatus } from './LinkStatus';
+import { holdsControl } from './linkState';
+import { Button, Menu, MenuItem, MenuLabel, Tooltip } from '../ui';
 import { PANES } from './paneRegistry';
 import type { PaneKind } from './paneRegistry';
 import { ConnectDialog } from './ConnectDialog';
@@ -25,23 +25,16 @@ export interface AppChromeProps {
   readonly onSaveWorkspaceAs: (name: string) => void;
   readonly onRenameWorkspace: (id: string, name: string) => void;
   readonly onDeleteWorkspace: (id: string) => void;
+  /**
+   * The Dashboard Focus Mode would open on right now — the Profile's
+   * remembered one if it still exists, else its first Dashboard — or null
+   * when the Profile has none at all. Resolved by the shell rather than
+   * here, since it needs `dashboardsByProfile`, which nothing else in the
+   * chrome reads.
+   */
+  readonly focusTargetDashboardId: string | null;
+  readonly onEnterFocusMode: (dashboardId: string) => void;
 }
-
-const LED_CLASS: Readonly<Record<LinkState, string>> = {
-  online: styles.ledOnline,
-  connecting: styles.ledConnecting,
-  reconnecting: styles.ledReconnecting,
-  disconnected: styles.ledDown,
-  'no device': '',
-};
-
-const LINK_LABEL: Readonly<Record<LinkState, string>> = {
-  online: 'Online',
-  connecting: 'Connecting',
-  reconnecting: 'Reconnecting',
-  disconnected: 'Offline',
-  'no device': 'No device',
-};
 
 /** What the Panes trigger says, so the unread badge it carries is announced too. */
 function panesButtonLabel(unreadLogCount: number): string {
@@ -72,14 +65,14 @@ export function AppChrome({
   onSaveWorkspaceAs,
   onRenameWorkspace,
   onDeleteWorkspace,
+  focusTargetDashboardId,
+  onEnterFocusMode,
 }: AppChromeProps): React.JSX.Element {
   const { state, actions } = useDSHub();
   const { settings, updateSettings } = useSettings();
   const [connectOpen, setConnectOpen] = useState(false);
   const [workspacesOpen, setWorkspacesOpen] = useState(false);
 
-  const link = linkStateOf(state.connection, state.connecting);
-  const control = controlHolderOf(state.connection);
   const connected = state.connection?.connected ?? false;
 
   const activeTheme = getThemeById(settings.colorThemeId);
@@ -90,35 +83,10 @@ export function AppChrome({
     <header className={styles.chrome}>
       <span className={styles.brand}>DSHUB</span>
 
-      <div className={styles.link} role="status" aria-label="Device link">
-        <span className={cx(styles.led, LED_CLASS[link])} aria-hidden />
-        {/* The state is always shown, never replaced by the Device's name. A
-            drop that is signalled only by an LED colour is a drop an Operator
-            can look straight at and miss. */}
-        <span className={cx(styles.linkLabel, link !== 'online' && styles.linkLabelAlert)}>
-          {LINK_LABEL[link]}
-        </span>
-        {state.connection ? (
-          <>
-            <span className={styles.deviceName}>{state.connection.deviceName}</span>
-            <span className={styles.address}>
-              {state.connection.ip}:{state.connection.port}
-            </span>
-          </>
-        ) : null}
-      </div>
+      <LinkStatus />
+      <ControlBadge />
 
-      <span
-        className={cx(
-          styles.control,
-          control.kind === 'ours' && styles.controlHeld,
-          control.kind === 'elsewhere' && styles.controlElsewhere
-        )}
-      >
-        {controlLabel(control)}
-      </span>
-
-      {connected && control.kind !== 'ours' ? (
+      {connected && !holdsControl(state.connection) ? (
         <Button variant="primary" size="sm" onClick={() => actions.takeControl()}>
           Take Control
         </Button>
@@ -162,6 +130,23 @@ export function AppChrome({
           <Stack size={16} />
           Workspaces
         </Button>
+
+        <Tooltip content={focusTargetDashboardId === null ? 'No Dashboards yet' : 'Show a Dashboard full-canvas, layout locked'}>
+          <span>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Focus Mode"
+              disabled={focusTargetDashboardId === null}
+              onClick={() => {
+                if (focusTargetDashboardId !== null) onEnterFocusMode(focusTargetDashboardId);
+              }}
+            >
+              <ArrowsOut size={16} />
+              Focus Mode
+            </Button>
+          </span>
+        </Tooltip>
 
         <Tooltip content={`Switch to ${nextTheme.name}`}>
           <Button

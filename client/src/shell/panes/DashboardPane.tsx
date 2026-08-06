@@ -1,9 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import GridLayout from 'react-grid-layout';
-import type { Layout } from 'react-grid-layout';
-import { Check, PencilSimple, Plus, TrashSimple, X } from '@phosphor-icons/react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowsOut, Check, PencilSimple, Plus, TrashSimple, X } from '@phosphor-icons/react';
 import { useSettings } from '../../contexts/SettingsContext';
-import { Button, Menu, MenuItem, TabPanel, Tabs, TextField, cx } from '../../ui';
+import { Button, Menu, MenuItem, TabPanel, Tabs, TextField } from '../../ui';
 import type { TabDefinition } from '../../ui';
 import {
   addDashboard,
@@ -14,24 +12,23 @@ import {
   removeDashboard,
   removeWidget,
   renameDashboard,
-  sanitizeProfileDashboards,
   seedProfileDashboards,
   updateDashboard,
   updateWidgetConfig,
 } from '../widgets/dashboardStore';
-import type { ProfileDashboards, StoredDashboard } from '../widgets/dashboardStore';
-import { WIDGETS, widgetDefinition } from '../widgets/widgetRegistry';
+import type { ProfileDashboards, StoredDashboard, WidgetLayout } from '../widgets/dashboardStore';
+import { useProfileDashboards } from '../widgets/useProfileDashboards';
+import { WIDGETS } from '../widgets/widgetRegistry';
 import type { WidgetKind } from '../widgets/widgetRegistry';
 import type { WidgetConfig } from '../widgets/widgetConfig';
-import { FALLBACK_WIDTH, GRID_COLS, GRID_MARGIN, ROW_HEIGHT } from '../widgets/gridLayout';
+import { GRID_COLS } from '../widgets/gridLayout';
+import { useFocusMode } from '../FocusModeContext';
 import { instanceOfPaneId } from '../paneRegistry';
 import type { PaneProps } from '../paneRegistry';
 import { usePaneState } from '../paneState';
+import { DashboardGrid } from './DashboardGrid';
 import { WidgetConfigDialog } from './WidgetConfigDialog';
-import { WIDGET_DRAG_CANCEL_CLASS, WidgetShell } from './WidgetShell';
 import styles from './DashboardPane.module.css';
-
-import 'react-grid-layout/css/styles.css';
 
 interface DashboardPaneState {
   readonly viewingDashboardId: string | null;
@@ -59,12 +56,9 @@ function newDashboard(name: string): StoredDashboard {
  */
 export function DashboardPane({ paneId, setTitle }: PaneProps): React.JSX.Element {
   const { settings, updateSettings } = useSettings();
+  const { enter: enterFocusMode } = useFocusMode();
   const profileId = settings.activeMapProfileId;
-  const rawCollection = settings.dashboardsByProfile[profileId];
-  const collection = useMemo(
-    () => (rawCollection === undefined ? undefined : sanitizeProfileDashboards(rawCollection)),
-    [rawCollection]
-  );
+  const collection = useProfileDashboards(profileId);
 
   const [pane, updatePane] = usePaneState<DashboardPaneState>(paneId, () => ({ viewingDashboardId: null }));
   const [editing, setEditing] = useState(false);
@@ -196,45 +190,11 @@ export function DashboardPane({ paneId, setTitle }: PaneProps): React.JSX.Elemen
   );
 
   const handleLayoutChange = useCallback(
-    (layout: readonly Layout[]) => {
-      if (!editing || !collection || !activeDashboard) return;
-      const layouts = new Map(layout.map(l => [l.i, { x: l.x, y: l.y, w: l.w, h: l.h }]));
+    (layouts: ReadonlyMap<string, WidgetLayout>) => {
+      if (!collection || !activeDashboard) return;
       commit(updateDashboard(collection, activeDashboard.id, d => applyWidgetLayouts(d, layouts)));
     },
-    [editing, collection, activeDashboard, commit]
-  );
-
-  // ── Grid sizing ───────────────────────────────────────────────────────────
-
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [containerWidth, setContainerWidth] = useState(FALLBACK_WIDTH);
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const measure = (): void => {
-      if (el.clientWidth > 0) setContainerWidth(el.clientWidth);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  const rglLayout = useMemo<Layout[]>(
-    () =>
-      activeDashboard?.widgets.map(w => {
-        const definition = widgetDefinition(w.kind);
-        return {
-          i: w.id,
-          x: w.layout.x,
-          y: w.layout.y,
-          w: w.layout.w,
-          h: w.layout.h,
-          minW: definition?.defaultSize.minW ?? 1,
-          minH: definition?.defaultSize.minH ?? 1,
-        };
-      }) ?? [],
-    [activeDashboard]
+    [collection, activeDashboard, commit]
   );
 
   const configuringWidget = useMemo(
@@ -314,6 +274,18 @@ export function DashboardPane({ paneId, setTitle }: PaneProps): React.JSX.Elemen
 
           <span className={styles.spacer} />
 
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`Focus ${activeDashboard?.name ?? 'Dashboard'}`}
+            onClick={() => {
+              if (activeDashboard) enterFocusMode(activeDashboard.id);
+            }}
+          >
+            <ArrowsOut size={14} />
+            Focus Mode
+          </Button>
+
           <Button variant={editing ? 'primary' : 'secondary'} size="sm" onClick={() => setEditing(v => !v)}>
             {editing ? 'Done Editing' : 'Edit'}
           </Button>
@@ -335,51 +307,18 @@ export function DashboardPane({ paneId, setTitle }: PaneProps): React.JSX.Elemen
         </div>
 
         <TabPanel value={activeDashboard?.id ?? ''}>
-          <div ref={containerRef} className={styles.gridHost}>
-            {activeDashboard && activeDashboard.widgets.length === 0 ? (
-              <p className={styles.notice}>
-                {editing ? 'Add a Widget above to start building this Dashboard.' : 'This Dashboard has no Widgets yet.'}
-              </p>
-            ) : (
-              <GridLayout
-                className={cx('layout', styles.grid)}
-                layout={rglLayout}
-                cols={GRID_COLS}
-                rowHeight={ROW_HEIGHT}
-                width={containerWidth}
-                margin={[GRID_MARGIN, GRID_MARGIN]}
-                isDraggable={editing}
-                isResizable={editing}
-                onLayoutChange={handleLayoutChange}
-                compactType={null}
-                preventCollision={false}
-                draggableCancel={`.${WIDGET_DRAG_CANCEL_CLASS}`}
-              >
-                {activeDashboard?.widgets.map(widget => {
-                  const definition = widgetDefinition(widget.kind);
-                  if (!definition) return null;
-                  const WidgetComponent = definition.component;
-                  return (
-                    <div key={widget.id}>
-                      <WidgetShell
-                        label={widget.config.label}
-                        editing={editing}
-                        onConfigure={() => setConfiguringWidgetId(widget.id)}
-                        onRemove={() => handleRemoveWidget(widget.id)}
-                      >
-                        <WidgetComponent
-                          config={widget.config}
-                          paneId={paneId}
-                          editing={editing}
-                          onConfigChange={config => handleUpdateWidgetConfig(widget.id, config)}
-                        />
-                      </WidgetShell>
-                    </div>
-                  );
-                })}
-              </GridLayout>
-            )}
-          </div>
+          <DashboardGrid
+            dashboard={activeDashboard}
+            paneId={paneId}
+            editing={editing}
+            emptyMessage={
+              editing ? 'Add a Widget above to start building this Dashboard.' : 'This Dashboard has no Widgets yet.'
+            }
+            onLayoutChange={handleLayoutChange}
+            onConfigureWidget={setConfiguringWidgetId}
+            onRemoveWidget={handleRemoveWidget}
+            onUpdateWidgetConfig={handleUpdateWidgetConfig}
+          />
         </TabPanel>
       </Tabs>
 

@@ -22,16 +22,6 @@
   flex: 1 1 auto;
 }
 
-.gridHost {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-}
-
-.grid {
-  min-height: 100%;
-}
-
 .notice {
   flex: 1 1 auto;
   margin: 0;

@@ -1,15 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AddPanelPositionOptions, DockviewApi } from 'dockview';
 import { TooltipProvider } from '../ui';
 import { useBackendPort } from '../contexts/BackendPortContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { AppChrome } from './AppChrome';
+import { FocusModeProvider } from './FocusModeContext';
+import { FocusModeView } from './FocusModeView';
+import { resolveFocusDashboard } from './focusMode';
 import { SelectionProvider, useSelection } from './SelectionContext';
 import { Workspace } from './Workspace';
 import { kindOfPaneId, paneDefinition, paneId } from './paneRegistry';
 import type { PaneKind } from './paneRegistry';
 import { retainPaneState, snapshotPaneStates, subscribePaneStateChanges } from './paneState';
 import { retainSeriesFor } from './plotStream';
+import { sanitizeProfileDashboards } from './widgets/dashboardStore';
 import {
   DEFAULT_WORKSPACE_ID,
   DEFAULT_WORKSPACE_NAME,
@@ -80,6 +84,11 @@ const DEFAULT_LAYOUT: readonly DefaultPane[] = [
 function WorkspaceShell(): React.JSX.Element {
   const apiRef = useRef<DockviewApi | null>(null);
   const [openKinds, setOpenKinds] = useState<readonly PaneKind[]>([]);
+  // Null outside Focus Mode. The Workspace unmounts for as long as this is
+  // set — see `enterFocusMode` — rather than sitting hidden behind it, so
+  // there is never a backgrounded dockview instance polling the Device
+  // alongside Focus Mode's own Widget tree.
+  const [focusDashboardId, setFocusDashboardId] = useState<string | null>(null);
   const { selection, select, retainPanes } = useSelection();
   const { settings, updateSettings } = useSettings();
   const port = useBackendPort();
@@ -185,6 +194,51 @@ function WorkspaceShell(): React.JSX.Element {
       cancelPendingAutosave();
     };
   }, [flushAutosave, scheduleAutosave, cancelPendingAutosave]);
+
+  /**
+   * Enters Focus Mode on the named Dashboard — the one trigger both
+   * `DashboardPane` (through `FocusModeProvider`, below) and the chrome's own
+   * "Focus Mode" button call.
+   *
+   * Flushes first so nothing debounced is lost to the Workspace unmounting
+   * out from under it, the same reasoning `flushAutosave` already documents
+   * for quit. `apiRef` is cleared alongside: the live api it pointed at is
+   * about to be disposed by dockview itself as `<Workspace>` unmounts, and
+   * nothing should reach for it while Focus Mode is showing.
+   */
+  const enterFocusMode = useCallback(
+    (dashboardId: string) => {
+      flushAutosave();
+      apiRef.current = null;
+      updateSettings({
+        focusDashboardIdByProfile: {
+          ...settingsRef.current.focusDashboardIdByProfile,
+          [profileIdRef.current]: dashboardId,
+        },
+      });
+      setFocusDashboardId(dashboardId);
+    },
+    [flushAutosave, updateSettings]
+  );
+
+  /** Leaves Focus Mode, remounting the Workspace — which restores from settings exactly as a fresh launch would. */
+  const exitFocusMode = useCallback(() => {
+    setFocusDashboardId(null);
+  }, []);
+
+  /**
+   * The Dashboard the chrome's "Focus Mode" button would open — the
+   * Profile's remembered one if it still exists, else its first, or null
+   * with nothing to offer at all. Recomputed from `dashboardsByProfile`
+   * directly rather than through a Dashboard Pane, since the chrome must
+   * offer this even when no Dashboard Pane is currently open.
+   */
+  const focusTargetDashboardId = useMemo(() => {
+    const rawCollection = settings.dashboardsByProfile[profileId];
+    const collection = rawCollection === undefined ? undefined : sanitizeProfileDashboards(rawCollection);
+    const remembered = settings.focusDashboardIdByProfile[profileId] ?? null;
+    return resolveFocusDashboard(collection?.dashboards ?? [], remembered)?.id ?? null;
+  }, [settings.dashboardsByProfile, settings.focusDashboardIdByProfile, profileId]);
 
   /** Restores a Workspace onto the live api, following its selection and re-syncing what is open. */
   const applyWorkspace = useCallback(
@@ -382,22 +436,32 @@ function WorkspaceShell(): React.JSX.Element {
   const collection: ProfileWorkspaces | undefined = settings.workspacesByProfile[profileId];
 
   return (
-    <div className={styles.shell}>
-      <AppChrome
-        openKinds={openKinds}
-        onOpenPane={handleOpenPane}
-        workspaces={collection?.workspaces ?? []}
-        activeWorkspaceId={collection?.activeWorkspaceId ?? ''}
-        defaultWorkspaceId={collection?.defaultWorkspaceId ?? ''}
-        onSwitchWorkspace={handleSwitchWorkspace}
-        onSaveWorkspaceAs={handleSaveWorkspaceAs}
-        onRenameWorkspace={handleRenameWorkspace}
-        onDeleteWorkspace={handleDeleteWorkspace}
-      />
-      <div className={styles.workspaceHost}>
-        <Workspace onReady={handleReady} />
+    <FocusModeProvider enter={enterFocusMode}>
+      <div className={styles.shell}>
+        {focusDashboardId !== null ? (
+          <FocusModeView dashboardId={focusDashboardId} onExit={exitFocusMode} />
+        ) : (
+          <>
+            <AppChrome
+              openKinds={openKinds}
+              onOpenPane={handleOpenPane}
+              workspaces={collection?.workspaces ?? []}
+              activeWorkspaceId={collection?.activeWorkspaceId ?? ''}
+              defaultWorkspaceId={collection?.defaultWorkspaceId ?? ''}
+              onSwitchWorkspace={handleSwitchWorkspace}
+              onSaveWorkspaceAs={handleSaveWorkspaceAs}
+              onRenameWorkspace={handleRenameWorkspace}
+              onDeleteWorkspace={handleDeleteWorkspace}
+              focusTargetDashboardId={focusTargetDashboardId}
+              onEnterFocusMode={enterFocusMode}
+            />
+            <div className={styles.workspaceHost}>
+              <Workspace onReady={handleReady} />
+            </div>
+          </>
+        )}
       </div>
-    </div>
+    </FocusModeProvider>
   );
 }
 
