@@ -8,11 +8,11 @@ The frozen data path is not touched. If deleting a view surface appears to requi
 
 **Blocked by:** 09, 10, 11, 13, 15, 16, 17, 18, 19, 20, 21
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The old panels, the old shell and the old theme module are deleted
-- [ ] The component library, its icon set, its styling runtime, the charting stack, the chart date adapter and the date library are removed as dependencies
-- [ ] No source file imports any removed library
-- [ ] The frozen data path is unchanged
-- [ ] Build, typecheck, lint and the full test suite pass
-- [ ] The application is verified end to end against the Device emulator, and in a browser against the fake adapter
+- [x] The old panels, the old shell and the old theme module are deleted
+- [x] The component library, its icon set, its styling runtime, the charting stack, the chart date adapter and the date library are removed as dependencies
+- [x] No source file imports any removed library
+- [x] The frozen data path is unchanged
+- [x] Build, typecheck, lint and the full test suite pass
+- [x] The application is verified end to end against the Device emulator, and in a browser against the fake adapter

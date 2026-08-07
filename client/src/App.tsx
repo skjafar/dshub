@@ -1,14 +1,13 @@
-import { ThemeProvider, CssBaseline } from '@mui/material';
 import { useMemo, useEffect } from 'react';
 import { BackendPortProvider } from './contexts/BackendPortContext';
 import { createBackendPort } from './services/createBackendPort';
 import { DSHubProvider } from './contexts/DSHubContext';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { ToastProvider, useToast } from './components/ToastNotification';
+import { ErrorBoundary } from './shell/ErrorBoundary';
+import { ToastProvider, useToast } from './shell/ToastNotification';
 import { AppShell } from './shell/AppShell';
-import AutoScanManager from './components/AutoScanManager';
-import { buildMuiTheme, getThemeById } from './appThemes';
+import AutoScanManager from './shell/AutoScanManager';
+import { getThemeById } from './appThemes';
 import { applyThemeVariables } from './design/themeVariables';
 
 function ThemedApp() {
@@ -26,7 +25,6 @@ function ThemedApp() {
     () => getThemeById(settings.colorThemeId),
     [settings.colorThemeId]
   );
-  const theme = useMemo(() => buildMuiTheme(appTheme), [appTheme]);
 
   // The design tokens reach every stylesheet through custom properties on the
   // root element. This is the only mechanism; nothing imports a palette.
@@ -35,16 +33,10 @@ function ThemedApp() {
   }, [appTheme]);
 
   return (
-    // MUI is still mounted for the toast and the top-level error boundary. Both
-    // are ported when the old view layer is removed; until then the theme has to
-    // reach them, which is what this provider is still doing here.
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <DSHubProvider>
-        <AutoScanManager />
-        <AppShell />
-      </DSHubProvider>
-    </ThemeProvider>
+    <DSHubProvider>
+      <AutoScanManager />
+      <AppShell />
+    </DSHubProvider>
   );
 }
 

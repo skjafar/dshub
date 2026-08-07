@@ -68,8 +68,6 @@ code,
 
 /* ─── Tabular numbers in data contexts ───────────────────────────────────── */
 
-.MuiTableCell-root,
-.MuiChip-label,
 input[type='number'] {
   font-feature-settings: 'tnum';
   font-variant-numeric: tabular-nums;

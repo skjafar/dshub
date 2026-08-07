@@ -1,0 +1,89 @@
+/*
+ * Every custom property below carries a literal fallback in the Kinetic
+ * Monolith dark palette, matching the precedent `index.css` sets for `body`.
+ * This boundary is the one surface that must still read correctly when the
+ * crash happens before `ThemedApp` ever mounts to publish the theme — the
+ * worst case for an error boundary is looking broken itself.
+ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay, 1000);
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl, 24px);
+
+  background: var(--surface, #0b0d1a);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg, 16px);
+
+  width: 100%;
+  max-width: 600px;
+  padding: var(--space-xl, 24px);
+
+  background: var(--surface-container, #0f1628);
+  border: 1px solid var(--ghost-20, rgba(30, 48, 72, 0.28));
+  border-radius: var(--radius-large, 8px);
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm, 8px);
+  margin: 0;
+
+  font-family: var(--font-headline, 'Space Grotesk Variable', 'Space Grotesk', sans-serif);
+  font-size: var(--text-xl, 1.25rem);
+  font-weight: var(--weight-semibold, 600);
+  letter-spacing: var(--tracking-tight, -0.01em);
+  color: var(--status-error, #ff6b6b);
+}
+
+.alert {
+  padding: var(--space-md, 12px);
+
+  background: var(--status-error-wash, rgba(255, 107, 107, 0.14));
+  border: 1px solid var(--status-error, #ff6b6b);
+  border-radius: var(--radius-base, 4px);
+}
+
+.alertTitle {
+  margin: 0 0 var(--space-2xs, 4px);
+  font-size: var(--text-sm, 0.75rem);
+  font-weight: var(--weight-semibold, 600);
+  color: var(--status-error, #ff6b6b);
+}
+
+.detail {
+  margin: 0;
+  max-width: 100%;
+  overflow-x: auto;
+
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+  font-size: var(--text-sm, 0.75rem);
+  color: var(--on-surface, #e5e2e1);
+  white-space: pre-wrap;
+}
+
+.body {
+  margin: 0;
+  font-size: var(--text-base, 0.8125rem);
+  line-height: var(--leading-relaxed, 1.6);
+  color: var(--on-surface-variant, #bac9cc);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-md, 12px);
+}
+
+.actions > * {
+  flex: 1;
+}

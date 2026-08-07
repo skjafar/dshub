@@ -161,38 +161,3 @@ export const EASING = 'cubic-bezier(0.2, 0, 0.2, 1)';
 
 /** Focus ring width. One value everywhere, so focus is never ambiguous. */
 export const FOCUS_RING_WIDTH = '2px';
-
-// ─── Structural component bases (no colour) ──────────────────────────────────
-
-export const buttonBase = {
-  root: {
-    borderRadius: RADIUS.base,
-    padding: '6px 14px',
-    boxShadow: 'none',
-    fontWeight: 600,
-    fontSize: '0.8125rem',
-    letterSpacing: '0.03em',
-    '&:hover': { boxShadow: 'none' },
-  },
-  sizeSmall: { padding: '4px 10px', fontSize: '0.75rem' },
-} as const;
-
-export const chipBase = {
-  root: {
-    borderRadius: RADIUS.sharp,
-    fontWeight: 500,
-    height: 22,
-    fontSize: '0.6875rem',
-  },
-  sizeSmall: { height: 20, fontSize: '0.625rem' },
-} as const;
-
-export const tableCellBase = {
-  root: { padding: '6px 12px', fontSize: '0.8125rem' },
-  head: {
-    fontWeight: 600,
-    fontSize: '0.6875rem',
-    letterSpacing: '0.05em',
-    textTransform: 'uppercase' as const,
-  },
-} as const;

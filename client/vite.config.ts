@@ -23,11 +23,6 @@ export default defineConfig({
     target: ['chrome110', 'safari15'],
     // Optimize chunk size
     chunkSizeWarningLimit: 1000,
-    // No manualChunks: React, MUI and Emotion are mutually entangled, and forcing
-    // them into separate chunks produces a chunk-initialisation cycle that throws
-    // "Cannot access '…' before initialization" at runtime — a failure the build
-    // itself does not catch. Vite's default splitting keeps the order correct, and
-    // the panels are already code-split via React.lazy.
   },
 
   // Path resolution
@@ -39,6 +34,6 @@ export default defineConfig({
 
   // Optimize dependencies
   optimizeDeps: {
-    include: ['react', 'react-dom', '@mui/material', '@mui/icons-material'],
+    include: ['react', 'react-dom'],
   },
 });
