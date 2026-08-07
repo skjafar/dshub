@@ -130,6 +130,46 @@ describe('theme palettes', () => {
   });
 });
 
+describe('dockview surfaces (third-party-drawn)', () => {
+  // Mirrors the `--dv-*` mapping in `Workspace.module.css`. Dockview paints its
+  // own tab strip and context menu from these custom properties rather than
+  // shipping a palette of its own, so the specific pairs it actually renders
+  // are pinned here explicitly rather than left to be covered incidentally by
+  // the generic surface sweep above. Keep the two files in sync.
+  it('reads the active tab and the context menu (onSurface on surfaceHigh)', () => {
+    for (const theme of APP_THEMES) {
+      const c = theme.colors;
+      expect(contrastRatio(c.onSurface, c.surfaceHigh), `${theme.id} onSurface on surfaceHigh`)
+        .toBeGreaterThanOrEqual(AA_NORMAL);
+    }
+  });
+
+  it('reads inactive and background tabs (onSurfaceVar on surfaceContainer)', () => {
+    for (const theme of APP_THEMES) {
+      const c = theme.colors;
+      expect(contrastRatio(c.onSurfaceVar, c.surfaceContainer), `${theme.id} onSurfaceVar on surfaceContainer`)
+        .toBeGreaterThanOrEqual(AA_NORMAL);
+    }
+  });
+});
+
+describe('focus ring', () => {
+  it('clears non-text contrast against every surface it can outline', () => {
+    // `--focus-ring` is `primary` (themeVariables.ts), drawn as a 2px outline —
+    // a UI component boundary, not text, so WCAG 1.4.11's 3:1 is the bar, not
+    // 4.5:1. Asserted directly rather than inferred from the stricter
+    // text-contrast check above: the two exist for different reasons and
+    // either could relax independently of the other.
+    for (const theme of APP_THEMES) {
+      const c = theme.colors;
+      for (const bg of [c.surfaceLowest, c.surface, c.surfaceContainer, c.surfaceHigh, c.surfaceHighest]) {
+        expect(contrastRatio(c.primary, bg), `${theme.id} focus ring on ${bg}`)
+          .toBeGreaterThanOrEqual(AA_NON_TEXT);
+      }
+    }
+  });
+});
+
 describe('data colours', () => {
   it('renders plot series legibly against their own mode', () => {
     for (const bg of surfacesFor('dark')) {

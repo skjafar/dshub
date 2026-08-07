@@ -46,6 +46,10 @@ import type { WidgetKind } from '../widgets/widgetRegistry';
  * threshold evaluation, the stale state, and the Dashboard collection
  * operations — is pinned here and, for the collection operations, unit-tested
  * directly in `widgets/__tests__/dashboardStore.test.ts`.
+ *
+ * Ticket 23's keyboard audit revisited this and reached the same conclusion:
+ * grid placement stays pointer-only rather than growing a bespoke keyboard
+ * move/resize mode. See the doc comment on `DashboardGrid.tsx` itself.
  */
 
 const STORAGE_KEY = 'dshub_settings';

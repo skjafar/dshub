@@ -27,6 +27,11 @@ import 'react-grid-layout/css/styles.css';
  * Dashboard's own stored state, since a Container's children are not
  * individually visible to `DashboardPane`'s own single-selection
  * `configuringWidgetId`.
+ *
+ * Placing and resizing a child is pointer-only, the same accepted gap
+ * `DashboardGrid.tsx` documents for the top-level grid — both nest the
+ * identical `react-grid-layout` mechanism, so the same absence of a keyboard
+ * equivalent applies one level down.
  */
 export function ContainerWidget({ config, paneId, editing, onConfigChange }: WidgetProps): React.JSX.Element {
   const containerConfig = config as ContainerWidgetConfig;

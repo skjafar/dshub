@@ -42,6 +42,19 @@ export interface DashboardGridProps {
  * differently — the same grid math, the same Widget lookup, the same empty
  * state, rather than a second implementation Focus Mode's locked view could
  * drift out of sync with.
+ *
+ * Placing and resizing a Widget is pointer-only: `react-grid-layout` supplies
+ * no keyboard equivalent for its own drag and resize handles. This is the
+ * Widget grid's counterpart to dockview's own spatial rearrangement — dragging
+ * a Pane to a new edge, resizing it by its sash — which is pointer-only in
+ * exactly the same way and for which this codebase has never built or
+ * required a keyboard alternative either; ticket 23's own "Dock manipulation"
+ * requirement reaches only switching, closing and reopening Panes, not
+ * dragging one to a new position. Ticket 23 considered building a keyboard
+ * move/resize mode for the grid and declined, a deliberate call confirmed
+ * during that ticket's implementation rather than a gap left unnoticed. Every
+ * Widget's own reading, writing and configuring stays fully keyboard-operable;
+ * only its position on the grid does not.
  */
 export function DashboardGrid({
   dashboard,

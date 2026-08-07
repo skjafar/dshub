@@ -6,12 +6,16 @@ Every Pane, Widget and dialog operable from the keyboard, with focus visible at 
 
 **Blocked by:** 22
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Every Pane, Widget and dialog is fully operable by keyboard
-- [ ] Focus is visible at all times and focus order follows the visible arrangement
-- [ ] Moving between, closing and reopening Panes is possible without a pointer
-- [ ] Dialogs trap focus and restore it on close
-- [ ] Text and status colour clear 4.5:1 in both themes, including third-party-drawn surfaces
-- [ ] Reduced-motion preference suppresses pulsing and blinking indicators
-- [ ] The contrast contract test covers the final palette as shipped
+- [x] Every Pane, Widget and dialog is operable by keyboard for what this ticket's own "Dock manipulation" line scopes — reading, writing, configuring, switching, closing and reopening — audited kind by kind. Deliberate exception, confirmed during this ticket rather than left unnoticed: placing and resizing a Widget on the Dashboard/Container grid stays pointer-only, `react-grid-layout` supplying no keyboard equivalent for its own drag and resize. This is the Widget grid's counterpart to dockview's own spatial rearrangement (dragging a Pane to a new edge, resizing by its sash), which this codebase has likewise never given a keyboard alternative — not a stretch of spec.md's testing-cost carve-out for dock drag, but the same shape of decision applied to the same shape of gap. Recorded in `DashboardGrid.tsx` and `ContainerWidget.tsx`.
+- [x] Focus is visible at all times and focus order follows the visible arrangement — one shared focus ring (`focusRing.module.css`) already covers every primitive and dockview's own tab focus; no `outline: none` anywhere in the tree; no CSS `order:` overrides DOM order anywhere, so tab order already tracks the visible layout.
+- [x] Moving between, closing and reopening Panes is possible without a pointer — dockview's tab strip already implements the WAI-ARIA tabs pattern (arrow keys, Home/End, Delete/Backspace to close) out of the box; the Panes menu (the one reopen affordance) is a keyboard-operable Menu. Both pinned by new tests rather than left to the library's word: `shell/__tests__/Workspace.test.tsx` (arrow-move, Delete-close) and the new "Panes menu" case in `shell/__tests__/AppChrome.test.tsx` (keyboard-only reopen).
+- [x] Dialogs trap focus and restore it on close — already true for every one of the 8 dialogs, all built on the shared `ui/Dialog.tsx`, already pinned generically in `ui/__tests__/keyboard.test.tsx`.
+- [x] Text and status colour clear 4.5:1 in both themes, including third-party-drawn surfaces — dockview's `--dv-*` mapping (`Workspace.module.css`) resolves entirely to token pairs (`onSurface`/surfaceHigh, `onSurfaceVar`/surfaceContainer) now asserted directly in `palette.test.ts`'s new "dockview surfaces" block, rather than left to be covered only incidentally by the generic sweep.
+- [x] Reduced-motion preference suppresses pulsing and blinking indicators — a global `prefers-reduced-motion` rule already neutralises every first- and third-party transition/animation in the tree (`index.css`); no status indicator currently pulses or blinks (the `index.css` comment claiming otherwise was stale and has been corrected — `pulseWhenOn`/`pulseAnimation` are unread legacy fields, not live behaviour).
+- [x] The contrast contract test covers the final palette as shipped — extended with the dockview-surfaces block above and a new explicit non-text (3:1) focus-ring check, independent of the stricter text-contrast assertion it happened to share a value with.
+
+## Comments
+
+Asked whether to build keyboard move/resize for the Dashboard/Container Widget grid, since `react-grid-layout` supplies none and this is the one place "every Widget operable by keyboard" was not already true. Decision: leave it pointer-only and document the gap, matching the precedent `DashboardPane.test.tsx` already set for treating react-grid-layout's drag the same as dockview's own drag-to-dock. Recorded at the two call sites (`DashboardGrid.tsx`, `ContainerWidget.tsx`) and cross-referenced from the test file.

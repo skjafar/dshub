@@ -120,6 +120,34 @@ describe('AppChrome Focus Mode trigger', () => {
   });
 });
 
+describe('AppChrome Panes menu', () => {
+  it('reopens a Pane from the keyboard alone, with no pointer involved', async () => {
+    // Ticket 23: the Panes menu is the Workspace's one and only reopen
+    // affordance (`Workspace.tsx`'s watermark points here), so it has to be
+    // reachable without a pointer end to end — Tab from the top of the page
+    // to the trigger itself, not a `.focus()` call that assumes the trigger
+    // is reachable and only checks what happens once it already has focus.
+    const user = userEvent.setup();
+    const port = createFakeBackendPort({ deliver: fn => fn() });
+    const onOpenPane = vi.fn();
+    renderChrome(port, { onOpenPane });
+    await settle();
+
+    const panesButton = screen.getByRole('button', { name: /panes/i });
+    const MAX_TAB_STOPS = 20;
+    for (let i = 0; i < MAX_TAB_STOPS && document.activeElement !== panesButton; i++) {
+      await user.tab();
+    }
+    expect(panesButton).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+    await screen.findByRole('menu');
+    await user.keyboard('{ArrowDown}{Enter}');
+
+    expect(onOpenPane).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('AppChrome settings reset notice', () => {
   it('opens automatically when the stored settings predate schema versioning (ticket 21)', async () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ mapProfiles: [], activeMapProfileId: 'default' }));

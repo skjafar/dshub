@@ -117,7 +117,10 @@ input[type='number'] {
 }
 
 /* ─── Reduced motion ──────────────────────────────────────────────────────── */
-/* Status LEDs pulse and blink; honour the OS preference to stop them. */
+/* Dialogs, menus, tooltips and other transient chrome animate open and closed;
+   honour the OS preference to stop that motion. Status indicators do not
+   currently pulse or blink — legibility comes from colour and a label, not
+   motion — but this rule covers that too if one is ever added. */
 
 @media (prefers-reduced-motion: reduce) {
   *,
