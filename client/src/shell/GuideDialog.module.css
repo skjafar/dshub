@@ -61,11 +61,92 @@
   gap: var(--space-2xs);
 }
 
-.hint {
+/* The tag every short technical label in this dialog is built from — a step's
+   surface hints, and a keyboard entry's keys. */
+.chip {
   padding: 0 var(--space-2xs);
   border: 1px solid var(--ghost-sep);
   border-radius: var(--radius-base);
-  color: var(--on-surface-variant);
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
+}
+
+.hint {
+  composes: chip;
+  color: var(--on-surface-variant);
+}
+
+/* ── Reference and Keyboard tabs: grouped sections of entries ─────────────── */
+
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.section + .section {
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--ghost);
+}
+
+.sectionHeading {
+  margin: 0 0 var(--space-sm);
+  font-family: var(--font-headline);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+}
+
+.refList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin: 0;
+}
+
+.refEntry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3xs);
+}
+
+.refTitle {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--on-surface);
+}
+
+.refDescription {
+  margin: 0;
+  color: var(--on-surface-variant);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.keyList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  margin: 0;
+}
+
+.keyRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.keyAction {
+  font-size: var(--text-sm);
+  color: var(--on-surface-variant);
+}
+
+.keyKeys {
+  composes: chip;
+  flex: none;
+  margin: 0;
+  color: var(--on-surface);
+  text-align: right;
+  white-space: nowrap;
 }

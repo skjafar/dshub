@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { GuideDialog } from '../GuideDialog';
 
 afterEach(cleanup);
 
-describe('GuideDialog', () => {
-  it('walks through the workflow from an empty Profile to a controllable Device', () => {
+describe('GuideDialog workflow tab', () => {
+  it('is open by default, and walks through the workflow from an empty Profile to a controllable Device', () => {
     render(<GuideDialog open onOpenChange={() => {}} />);
 
     // Every step is a numbered heading naming the surface that handles it.
@@ -27,5 +28,36 @@ describe('GuideDialog', () => {
     expect(screen.getByText('Connect')).toBeInTheDocument();
     expect(screen.getByText('Map Editor')).toBeInTheDocument();
     expect(screen.getByText('Focus Mode')).toBeInTheDocument();
+  });
+});
+
+describe('GuideDialog reference tab', () => {
+  it('covers what the rebuild added beyond the onboarding flow', async () => {
+    const user = userEvent.setup();
+    render(<GuideDialog open onOpenChange={() => {}} />);
+
+    await user.click(screen.getByRole('tab', { name: 'Reference' }));
+
+    expect(screen.getByText('Several Panes of a kind, at once')).toBeInTheDocument();
+    expect(screen.getByText('Named Workspaces')).toBeInTheDocument();
+    expect(screen.getByText('Cursor sync')).toBeInTheDocument();
+    expect(screen.getByText('Sixteen Widget kinds')).toBeInTheDocument();
+    // Radix unmounts an inactive TabPanel, so this is unambiguous even though
+    // the Workflow tab's own hint chip carries the same text.
+    expect(screen.getByText('Focus Mode')).toBeInTheDocument();
+  });
+});
+
+describe('GuideDialog keyboard tab', () => {
+  it('documents dockview and the shared primitives’ existing keyboard behaviour, not a new shortcut scheme', async () => {
+    const user = userEvent.setup();
+    render(<GuideDialog open onOpenChange={() => {}} />);
+
+    await user.click(screen.getByRole('tab', { name: 'Keyboard' }));
+
+    expect(screen.getByText('Close the focused Pane')).toBeInTheDocument();
+    expect(screen.getByText('Delete or Backspace')).toBeInTheDocument();
+    expect(screen.getByText('Reopen a closed Pane')).toBeInTheDocument();
+    expect(screen.getByText('Panes menu, in the chrome')).toBeInTheDocument();
   });
 });
