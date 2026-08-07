@@ -59,67 +59,109 @@ hardcode hex values:
 - **`status.ts`** — the semantic ramp (`ok`/`warn`/`error`/`info`/`idle`).
   Deliberately **theme-invariant**: an operator's read of machine state must not
   change meaning when the theme changes. Reach for this for anything that encodes
-  a condition. MUI's `success`/`warning`/`error`/`info` palette slots map here.
+  a condition.
 - **`dataColors.ts`** — plot series and widget defaults. Series store a palette
   *slot*, not a hex, so identity survives a theme switch while lightness adapts.
 
-`appThemes.ts` owns the four themes (Kinetic Monolith, Void Violet, Blueprint,
-Arctic) and controls brand/chrome accents only. Retired theme ids are remapped by
-`LEGACY_THEME_IDS`, so removing a theme must not orphan a saved preference.
+`appThemes.ts` owns the two themes — Kinetic Monolith (dark, default) and
+Blueprint (light) — and controls brand/chrome accents only. They are the two
+faces of one visual language, not two languages: Blueprint holds the same
+cyan/lime/gold accent family at the lightness a light surface needs, rather
+than a different palette. Ids retired across two roster cuts (four themes
+before this interface rebuild, two more during it) are remapped by
+`LEGACY_THEME_IDS` onto the survivor of their own mode, so removing a theme
+never orphans a saved preference or moves someone from light to dark on
+upgrade.
 
 `src/design/__tests__/palette.test.ts` enforces WCAG contrast and hue separation
 across every theme. Adding a theme or changing a palette value means running
 `npm test` — the suite will reject combinations that are illegible or that let a
 brand accent collide with the error colour.
 
-## Layout
+## Workspace and Panes
 
-Panel controls belong in that panel's `PanelHeader`, never in the global AppBar.
-The AppBar carries app identity, device connection/control state, and help only.
-`PanelHeader` collapses secondary actions into an overflow menu at narrow widths;
-the primary action never collapses.
+A dockview-driven **Workspace** (`shell/Workspace.tsx`, `shell/AppShell.tsx`)
+replaced the old sidebar and view router: a dockable arrangement of **Panes**
+(`shell/panes/`), several of the same kind open at once, each with its own
+filter and selection. `shell/paneRegistry.ts` is the one list a Pane kind has
+to join to be restorable from a saved layout, offered by the reopen menu, and
+part of the default arrangement. A Profile owns several named Workspaces, one
+marked default.
+
+There is no shared panel-header component — a Pane's own controls (filter,
+refresh, live toggle) render inline in that Pane, never hoisted into the
+global chrome. `AppChrome.tsx` carries app identity, Device connection/Control
+state, Pane/Workspace/Profile management (its "Panes" menu is the only way to
+open or reopen one), Focus Mode, and Settings/About/Guide — never a Pane's own
+controls.
 
 ## Device Communication
 
-- `services/pollRegistry.ts` coalesces all periodic reads. Widgets and panels
-  declare interest via `useAutoRefresh`; the registry issues one request per
-  distinct address at the fastest requested interval. Never call
-  `invoke('read_register')` on a timer directly — the link is strictly
-  request/response, so duplicate polls directly cost latency.
+- The **device port** (`services/backendPort.ts`) is the single seam between
+  the interface and the Device: every device operation and host file write
+  goes through the `BackendPort` interface it defines.
+  `services/createBackendPort.ts` chooses the implementation — the real Tauri
+  transport (`tauriBackendPort.ts`) inside the desktop app, or the fake
+  (`fakeBackendPort.ts`) in a plain browser and in every test — so nothing
+  above it has to know which one it is talking to.
+- `services/pollRegistry.ts` coalesces all periodic reads, issued through the
+  port. Widgets and Panes declare interest via `useAutoRefresh`; the registry
+  issues one request per distinct address at the fastest requested interval.
+  Never issue a periodic device read outside the registry — the link is
+  strictly request/response, so duplicate polls directly cost latency. This
+  and the point below are frozen: the interface rebuild's only permitted
+  change to either was the mechanical substitution of port calls for direct
+  transport calls, never a change in logic.
 - The Rust communicator correlates each response to its request by address
   (`response_matches`). Do not remove this: without it, one timed-out request
   permanently shifts every later value onto the wrong register.
 
 ## Playwright / Browser Screenshots
 
-The MCP Playwright plugin expects Chrome at `/opt/google/chrome/chrome` which doesn't exist on this system. Instead, use the Playwright-core Chromium binary directly via a Node script:
+No system Chrome install is assumed — resolve the Chromium binary Playwright
+installs and drive it directly. Run from the Bash tool (Git Bash); the paths
+are resolved through PowerShell since that is where npm and Playwright cache
+their downloads on Windows. Requires the app already running (`npm run dev`,
+port 3000).
 
 ```bash
-CHROMIUM="/home/sofian/.npm/_npx/e41f203b7505f1fb/node_modules/playwright-core/.local-browsers/chromium-1208/chrome-linux64/chrome"
+npx -y playwright install chromium
+
+export CHROMIUM=$(powershell -NoProfile -Command "(Get-ChildItem \"\$env:LOCALAPPDATA\ms-playwright\chromium-*\chrome-win64\chrome.exe\" | Select-Object -First 1).FullName")
+export PLAYWRIGHT_CORE=$(powershell -NoProfile -Command "(Get-ChildItem \"\$env:LOCALAPPDATA\npm-cache\_npx\*\node_modules\playwright-core\" -Directory | Select-Object -First 1).FullName")
 
 # Simple single-page screenshot:
-$CHROMIUM --headless --no-sandbox --screenshot=/tmp/screenshot.png --window-size=1440,900 http://localhost:3000
+"$CHROMIUM" --headless --no-sandbox --screenshot=/tmp/screenshot.png --window-size=1440,900 http://localhost:3000
 
-# Multi-view screenshots with navigation (use Playwright API):
-node -e "
-const { chromium } = require('/home/sofian/.npm/_npx/e41f203b7505f1fb/node_modules/playwright-core');
+# Multi-view screenshots with navigation (Playwright API). Written to a real
+# script file rather than an inline `node -e` string — the resolved paths
+# carry backslashes that break once quoted through one.
+cat > /tmp/shot.js <<'JS'
+const { chromium } = require(process.env.PLAYWRIGHT_CORE);
 (async () => {
-  const browser = await chromium.launch({ executablePath: '$CHROMIUM', args: ['--no-sandbox'] });
+  const browser = await chromium.launch({ executablePath: process.env.CHROMIUM, args: ['--no-sandbox'] });
   // Use colorScheme: 'dark' for dark mode
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
   const page = await ctx.newPage();
   await page.goto('http://localhost:3000');
   await page.waitForLoadState('networkidle');
-  await page.click('text=Settings', { timeout: 3000 });
+  await page.getByRole('button', { name: 'Settings' }).click();
   await page.waitForTimeout(500);
-  await page.screenshot({ path: '/tmp/dshub-settings.png' });
+  await page.screenshot({ path: process.env.OUT_PATH });
   await browser.close();
 })();
-"
+JS
+OUT_PATH=/tmp/dshub-settings.png node /tmp/shot.js
 ```
 
-If the Chromium binary is missing, reinstall with: `npx -y playwright install chromium`
-Firefox is also installed at: `/home/sofian/.cache/ms-playwright/firefox-1509/`
+For protocol-level verification against a real backend rather than the fake
+adapter, run the Python Device emulator from the repo root —
+`python3 emulator/dshub_emulator.py` — then run the actual desktop app
+(`cargo tauri dev` from `src-tauri/`, or `build.bat dev`), not `npm run dev`:
+`createBackendPort.ts` serves the fake port to any browser session regardless
+of whether an emulator happens to be running, real Tauri transport only when
+Tauri is actually present. Click **Connect**, which scans and lists it. See
+`emulator/README.md`.
 
 ## Design Context
 
@@ -140,7 +182,7 @@ DSHub is an expert co-pilot — smart, composed, always showing you what matters
 ### Aesthetic Direction
 Dark-first. Industrial precision with editorial restraint. Minimal surface, maximum information density.
 
-**Existing system:** 5-level surface hierarchy (tonal, not shadow-based), cyan/lime/gold accents, ghost borders at 15–40% opacity, 2–4px radius, Inter + Space Grotesk, tabular numerics.
+**Existing system:** 5-level surface hierarchy (tonal, not shadow-based), cyan/lime/gold accents, ghost borders at 12–45% opacity, 2–8px radius, Inter + Space Grotesk, tabular numerics. Two themes ship — one dark (Kinetic Monolith, default), one light (Blueprint) — not four; `src/design/__tests__/palette.test.ts` enforces 4.5:1 text contrast and hue separation between ok/warn/error/info on every surface of both, and would fail on a third.
 
 **Avoid:** Generic enterprise SaaS, consumer/app-store roundness, retro terminal pastiche, gamer RGB neon excess.
 
