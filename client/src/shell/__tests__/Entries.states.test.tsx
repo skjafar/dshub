@@ -42,7 +42,6 @@ function props(map: MapView, overrides: Partial<EntriesProps> = {}): EntriesProp
     onSelect: vi.fn(),
     live: false,
     onLiveChange: vi.fn(),
-    followedCount: map.entries.length,
     onRead: vi.fn(),
     link: 'online',
     map,

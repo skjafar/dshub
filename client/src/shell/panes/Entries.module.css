@@ -77,10 +77,6 @@
   color: var(--status-info);
 }
 
-.capNote {
-  color: var(--status-warn);
-}
-
 /* Staleness carries its own weight rather than sitting in the note voice: a
    value that stopped updating must never be read as a current one. */
 .staleNote {

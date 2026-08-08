@@ -49,12 +49,6 @@ export interface EntriesProps {
   readonly onSelect: (entry: MapEntry) => void;
   readonly live: boolean;
   readonly onLiveChange: (live: boolean) => void;
-  /**
-   * How many of `rows` this Pane will actually read, which is fewer than all of
-   * them once the filter is wide. The link answers one request at a time, so
-   * this is a real limit rather than a rendering one.
-   */
-  readonly followedCount: number;
   readonly onRead: () => void;
   readonly link: LinkState;
   /** The Map this Pane is listing, and whether it has arrived. */
@@ -128,7 +122,6 @@ export function Entries({
   onSelect,
   live,
   onLiveChange,
-  followedCount,
   onRead,
   link,
   map,
@@ -245,16 +238,7 @@ export function Entries({
           {rows.length} of {map.entries.length} {spaceName.toLowerCase()}
         </span>
         {live && connected ? (
-          <span className={styles.liveNote}>live · following {followedCount}</span>
-        ) : null}
-        {connected && followedCount < rows.length ? (
-          // Said out loud rather than silently truncated. The link answers one
-          // request at a time, so a Pane that quietly read the first fifty of
-          // four hundred would leave the rest showing a dash that reads as "the
-          // Device has nothing to say" rather than "nobody asked".
-          <span className={styles.capNote}>
-            Only the first {followedCount} are read — narrow the filter to reach the rest.
-          </span>
+          <span className={styles.liveNote}>live · following {rows.length}</span>
         ) : null}
         {stale ? (
           <span className={styles.staleNote}>

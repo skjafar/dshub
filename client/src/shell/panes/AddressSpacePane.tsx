@@ -17,16 +17,6 @@ import { Entries } from './Entries';
 import type { EntryRow } from './Entries';
 import type { WriteBarProps } from './WriteBar';
 
-/**
- * How many addresses one Pane will read at a time.
- *
- * The link is strictly request/response, so every address followed is latency
- * charged to every other. A Pane whose filter is empty is showing the whole Map,
- * and reading all of it would saturate the link with values nobody is looking
- * at — the filter is how you say which ones you mean.
- */
-const FOLLOW_LIMIT = 50;
-
 /** How often a live Pane asks. Coalesced with every other watcher by address. */
 const LIVE_INTERVAL_MS = 1000;
 
@@ -142,8 +132,6 @@ export function AddressSpacePane({
     [filtered, readings]
   );
 
-  const followed = useMemo(() => filtered.slice(0, FOLLOW_LIMIT), [filtered]);
-
   const title = useMemo(
     () => spacePaneTitle(space, instanceOfPaneId(paneId), pane.query),
     [space, paneId, pane.query]
@@ -159,8 +147,8 @@ export function AddressSpacePane({
   // Declared through the shared poller rather than by owning a timer, so two
   // Panes watching the same address cost one round-trip rather than two.
   const targets = useMemo(
-    () => followed.map(entry => ({ source: space, address: entry.address, name: entry.name })),
-    [space, followed]
+    () => filtered.map(entry => ({ source: space, address: entry.address, name: entry.name })),
+    [space, filtered]
   );
 
   usePolledTargets(targets, LIVE_INTERVAL_MS, pane.live && connected);
@@ -168,10 +156,10 @@ export function AddressSpacePane({
   // ── Actions ───────────────────────────────────────────────────────────────
 
   const handleRead = useCallback(() => {
-    for (const entry of followed) {
+    for (const entry of filtered) {
       read(entry.address, entry.name);
     }
-  }, [followed, read]);
+  }, [filtered, read]);
 
   const handleSelect = useCallback(
     (entry: MapEntry) => {
@@ -315,7 +303,6 @@ export function AddressSpacePane({
       onSelect={handleSelect}
       live={pane.live}
       onLiveChange={handleLiveChange}
-      followedCount={followed.length}
       onRead={handleRead}
       link={link}
       map={map}
