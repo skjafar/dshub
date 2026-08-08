@@ -1,9 +1,12 @@
 .root {
   composes: ring from './focusRing.module.css';
 
+  display: inline-flex;
+  align-items: center;
   position: relative;
   width: 32px;
   height: 18px;
+  padding: 0;
   flex: none;
 
   background: var(--surface-container-highest);
@@ -29,20 +32,28 @@
 
 .thumb {
   display: block;
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
 
   background: var(--on-surface);
   border-radius: 50%;
-  transform: translateX(2px);
+  transform: translateX(1px);
   transition: transform var(--duration-instant) var(--easing),
               background-color var(--duration-instant) var(--easing);
   will-change: transform;
 }
 
+/* Same ink-on-primary pairing Button.module.css uses for its accent variant:
+   --surface-lowest reads dark in dark mode (light primary, needs dark ink)
+   and light in light mode (dark primary, needs light ink), so it stays
+   legible against --primary either way. This only works because the thumb
+   now fills almost the full track (see width/height above) — at the old,
+   under-sized proportions this same pairing left enough track-coloured
+   margin around the thumb to blend into the page background it was sitting
+   on, rather than reading as ink against the track it was actually inside. */
 .root[data-state='checked'] .thumb {
   background: var(--surface-lowest);
-  transform: translateX(16px);
+  transform: translateX(15px);
 }
 
 @media (prefers-reduced-motion: reduce) {
