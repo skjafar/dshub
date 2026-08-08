@@ -56,18 +56,22 @@ export function MiniPlotWidget({ config, paneId }: WidgetProps): React.JSX.Eleme
     claimSeries(port, paneId, { name: entry.name, source: series.space, address: series.address }, pollInterval);
   }, [connected, series, entry, pollInterval, port, paneId]);
 
+  const chartSeries = useMemo<readonly PlotChartSeries[]>(() => {
+    if (entry === null) return [];
+    return [
+      {
+        name: entry.name,
+        colorSlot: SERIES_COLOR_SLOT,
+        visible: true,
+        decode: (raw: number) => getPlotValue(raw, entry),
+      },
+    ];
+  }, [entry]);
+
   if (series === null) return <WidgetStatusNotice status="unbound" />;
   if (entry === null) return <WidgetStatusNotice status="not-found" />;
 
   const appTheme = getThemeById(settings.colorThemeId);
-  const chartSeries: readonly PlotChartSeries[] = [
-    {
-      name: entry.name,
-      colorSlot: SERIES_COLOR_SLOT,
-      visible: true,
-      decode: (raw: number) => getPlotValue(raw, entry),
-    },
-  ];
 
   return (
     <div className={styles.widget}>
