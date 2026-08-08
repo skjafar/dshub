@@ -363,7 +363,8 @@ interface DSHubContextType {
   state: DSHubState;
   actions: {
     startScan: () => void;
-    connectDevice: (ip: string, interfaceType: InterfaceType, deviceName?: string) => void;
+    /** Resolves `true` once the request to connect succeeds, `false` if it fails — never rejects. */
+    connectDevice: (ip: string, interfaceType: InterfaceType, deviceName?: string) => Promise<boolean>;
     disconnectDevice: () => void;
     takeControl: () => void;
     readRegister: (address: number, name?: string) => void;
@@ -410,7 +411,7 @@ interface DSHubProviderProps {
 }
 
 export function DSHubProvider({ children }: DSHubProviderProps) {
-  const { settings } = useSettings();
+  const { settings, updateSettings } = useSettings();
   const port = useBackendPort();
 
   const logSettingsRef = React.useRef(settings.logSettings);
@@ -505,6 +506,15 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
           dispatch({ type: 'SET_CONNECTION', payload: status });
           if (status.connected) {
             dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'success', category: 'connection', message: `Connected to device at ${status.ip}:${status.port} via ${status.interface}`, timestamp: Date.now() } });
+            // Remembered so a later session's "auto-connect to the last device"
+            // (AutoConnectManager) has somewhere to read an address from — this
+            // is the one place a connection is confirmed to have actually
+            // succeeded, rather than merely requested.
+            updateSettings({
+              lastDeviceIP: status.ip,
+              lastDeviceName: status.deviceName,
+              lastInterfaceType: status.interface === InterfaceType.UDP ? 'UDP' : 'TCP',
+            });
             // Read CONTROL_INTERFACE system register (addr 2) to update control state display
             setTimeout(() => {
               port.device.readSystemRegister(2, 'CONTROL_INTERFACE').catch(console.error);
@@ -652,10 +662,14 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
       const displayName = deviceName ? `${deviceName} (${ip})` : ip;
       dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'info', category: 'connection', message: `Connecting to ${displayName} via ${interfaceType}...`, timestamp: Date.now() } });
       dispatch({ type: 'SET_CONNECTING', payload: true });
-      port.device.connect(ip, interfaceType, deviceName).catch(err => {
-        dispatch({ type: 'SET_CONNECTING', payload: false });
-        dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'error', category: 'connection', message: `Connect failed: ${err}`, timestamp: Date.now() } });
-      });
+      return port.device
+        .connect(ip, interfaceType, deviceName)
+        .then(() => true)
+        .catch(err => {
+          dispatch({ type: 'SET_CONNECTING', payload: false });
+          dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'error', category: 'connection', message: `Connect failed: ${err}`, timestamp: Date.now() } });
+          return false;
+        });
     },
 
     disconnectDevice: () => {

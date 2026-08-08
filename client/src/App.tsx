@@ -7,6 +7,7 @@ import { ErrorBoundary } from './shell/ErrorBoundary';
 import { ToastProvider, useToast } from './shell/ToastNotification';
 import { AppShell } from './shell/AppShell';
 import AutoScanManager from './shell/AutoScanManager';
+import AutoConnectManager from './shell/AutoConnectManager';
 import { getThemeById } from './appThemes';
 import { applyThemeVariables } from './design/themeVariables';
 
@@ -35,6 +36,7 @@ function ThemedApp() {
   return (
     <DSHubProvider>
       <AutoScanManager />
+      <AutoConnectManager />
       <AppShell />
     </DSHubProvider>
   );
