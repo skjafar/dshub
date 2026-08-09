@@ -35,6 +35,15 @@ export interface PlotSeriesRef {
 export interface PlotBuffer {
   readonly x: number[];
   readonly y: number[];
+  /**
+   * Bumped on every point appended, including once retention is capped and
+   * old points are evicted one-for-one with new ones — unlike `x.length`,
+   * which then stays pinned at {@link MAX_RETAINED_POINTS} forever. A reader
+   * that needs to know whether a capped buffer actually changed since it last
+   * looked (`PlotChart`'s redraw tick) has no other signal available: the
+   * array's own length stops moving right when its content keeps sliding.
+   */
+  readonly revision: number;
 }
 
 /**
@@ -46,15 +55,15 @@ export interface PlotBuffer {
 export const MAX_RETAINED_POINTS = 20_000;
 
 const owners = new Map<string, string>(); // series name -> owning pane id
-const buffers = new Map<string, { x: number[]; y: number[] }>();
+const buffers = new Map<string, { x: number[]; y: number[]; revision: number }>();
 
 let subscribedPort: BackendPort | null = null;
 let unlisten: (() => void) | null = null;
 
-function bufferFor(name: string): { x: number[]; y: number[] } {
+function bufferFor(name: string): { x: number[]; y: number[]; revision: number } {
   let buffer = buffers.get(name);
   if (!buffer) {
-    buffer = { x: [], y: [] };
+    buffer = { x: [], y: [], revision: 0 };
     buffers.set(name, buffer);
   }
   return buffer;
@@ -73,6 +82,7 @@ function append(name: string, x: number, y: number): void {
     buffer.x.splice(0, overflow);
     buffer.y.splice(0, overflow);
   }
+  buffer.revision++;
 }
 
 /**

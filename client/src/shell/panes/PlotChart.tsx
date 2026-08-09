@@ -305,7 +305,7 @@ export function PlotChart({
   const hostRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<uPlot | null>(null);
   const sizeRef = useRef(FALLBACK_SIZE);
-  const lastLengthsRef = useRef<Map<string, number>>(new Map());
+  const lastRevisionsRef = useRef<Map<string, number>>(new Map());
 
   // Mirrored into refs so the redraw tick — set up once, on mount — always
   // reads the latest value rather than the one in scope when it was created.
@@ -363,7 +363,7 @@ export function PlotChart({
     const options = buildOptions(width, height, visible, mode, textColor, gridColor, handleUserScale, handleCursorMove);
     const chart = new uPlot(options, alignedDataFor(visible), host);
     chartRef.current = chart;
-    lastLengthsRef.current.clear();
+    lastRevisionsRef.current.clear();
     tooltipRef.current = buildTooltip(chart.over, visible, mode);
 
     const over = chart.over;
@@ -470,12 +470,16 @@ export function PlotChart({
 
   // The redraw tick: the one thing that runs on a fixed clock rather than in
   // response to a prop change. Rebuilding the aligned data table is skipped
-  // unless a buffer's length actually changed since the last tick — cheap for
-  // the common single-series case regardless, and what keeps a multi-series
-  // Plot from re-joining tens of thousands of retained points many times a
-  // second once history has built up. A manual zoom or pan (`zoomRef`) is
-  // honoured here too, including while paused — the whole point of being able
-  // to zoom into a frozen trace is that this tick must not fight it.
+  // unless a buffer's revision actually changed since the last tick — cheap
+  // for the common single-series case regardless, and what keeps a
+  // multi-series Plot from re-joining tens of thousands of retained points
+  // many times a second once history has built up. Revision rather than
+  // `x.length`: once a buffer hits its retention cap, every new point evicts
+  // an old one and length stops moving, which would otherwise read as
+  // "nothing changed" forever and freeze the trace while the window kept
+  // scrolling past it. A manual zoom or pan (`zoomRef`) is honoured here too,
+  // including while paused — the whole point of being able to zoom into a
+  // frozen trace is that this tick must not fight it.
   useEffect(() => {
     const id = setInterval(() => {
       const chart = chartRef.current;
@@ -493,9 +497,9 @@ export function PlotChart({
 
       let dirty = false;
       for (const s of visibleRef.current) {
-        const length = bufferOf(s.name)?.x.length ?? 0;
-        if (lastLengthsRef.current.get(s.name) !== length) {
-          lastLengthsRef.current.set(s.name, length);
+        const revision = bufferOf(s.name)?.revision ?? 0;
+        if (lastRevisionsRef.current.get(s.name) !== revision) {
+          lastRevisionsRef.current.set(s.name, revision);
           dirty = true;
         }
       }

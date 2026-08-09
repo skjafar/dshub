@@ -160,4 +160,22 @@ describe('bufferOf', () => {
 
     expect(bufferOf('SPINDLE_RPM')?.x.length).toBe(MAX_RETAINED_POINTS);
   });
+
+  it('keeps bumping revision past the cap, where length alone stops moving', async () => {
+    // A capped buffer evicts one old point for every new one, so `x.length`
+    // pins at MAX_RETAINED_POINTS forever — PlotChart's redraw tick relies on
+    // `revision` instead to tell a genuinely stale buffer from one that is
+    // still sliding, and this is the case that would otherwise fool it.
+    const port = await connected();
+    claimSeries(port, 'plot#1', SPINDLE_RPM, 10);
+
+    await vi.advanceTimersByTimeAsync((MAX_RETAINED_POINTS + 50) * 10);
+    const revisionAtCap = bufferOf('SPINDLE_RPM')?.revision ?? 0;
+    const lengthAtCap = bufferOf('SPINDLE_RPM')?.x.length;
+
+    await vi.advanceTimersByTimeAsync(100 * 10);
+
+    expect(bufferOf('SPINDLE_RPM')?.x.length).toBe(lengthAtCap);
+    expect(bufferOf('SPINDLE_RPM')?.revision ?? 0).toBeGreaterThan(revisionAtCap);
+  });
 });
