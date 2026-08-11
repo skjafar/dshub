@@ -482,28 +482,35 @@ function WorkspaceShell(): React.JSX.Element {
         });
       }
 
+      // A Daughter Window that loses its last Pane closes itself (spec.md) —
+      // checked on every layout change, not only `onDidRemovePanel`: dragging
+      // a Pane out of a popout and back into the Main Window (or into another
+      // Daughter Window) empties that popout exactly as closing its last tab
+      // does, but it is a *move*, not a removal, and fires no
+      // `onDidRemovePanel` at all — confirmed by hand, the earlier
+      // `onDidRemovePanel`-only version left a dragged-empty popout sitting
+      // open and blank. `onDidLayoutChange` is the one event every path that
+      // can empty a popout — close, drag out, drag elsewhere — is guaranteed
+      // to fire. Closing an already-empty popout has nothing left to
+      // relocate, so no destroy-on-close override is needed here — only
+      // `closeDaughterWindow` itself, since a raw `window.close()` cannot
+      // reach a Tauri window's own native frame.
+      const closeEmptyPopouts = (): void => {
+        for (const popout of api.getPopouts()) {
+          const stillOccupied = api.groups.some(g => g.api.getWindow() === popout.window);
+          if (!stillOccupied) void closeDaughterWindow(popout.window);
+        }
+      };
+
       // Closing, opening, moving or resizing a Pane changes what the reopen
       // menu should offer and what the active Workspace should be saved as, so
       // the shell follows dockview rather than trying to predict it.
       api.onDidLayoutChange(() => {
         syncOpenPanes(api);
         scheduleAutosave();
+        closeEmptyPopouts();
       });
       syncOpenPanes(api);
-
-      // A Daughter Window that loses its last Pane closes itself (spec.md) —
-      // checked after every panel removal, anywhere, since there is no
-      // narrower "this popout's count changed" event to listen for instead.
-      // Closing an already-empty popout has nothing left to relocate, so no
-      // destroy-on-close override is needed here — only `closeDaughterWindow`
-      // itself, since a raw `window.close()` cannot reach a Tauri window's
-      // own native frame.
-      api.onDidRemovePanel(() => {
-        for (const popout of api.getPopouts()) {
-          const stillOccupied = api.groups.some(g => g.api.getWindow() === popout.window);
-          if (!stillOccupied) void closeDaughterWindow(popout.window);
-        }
-      });
 
       // The only novel gesture dockview does not have: a Pane's tab dragged
       // outside every open Window's bounds becomes a new Daughter Window.
