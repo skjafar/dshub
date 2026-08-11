@@ -40,8 +40,8 @@ export type { TabDefinition, TabPanelProps, TabsProps } from './Tabs';
 export { Table } from './Table';
 export type { Column, TableProps } from './Table';
 
-export { ThemeScope, usePortalContainer } from './ThemeScope';
-export type { ThemeScopeProps } from './ThemeScope';
+export { PortalContainerScope, ThemeScope, usePortalContainer } from './ThemeScope';
+export type { PortalContainerScopeProps, ThemeScopeProps } from './ThemeScope';
 
 export { TextField } from './TextField';
 export type { TextFieldProps } from './TextField';

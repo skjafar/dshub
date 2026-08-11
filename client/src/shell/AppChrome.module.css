@@ -30,12 +30,33 @@
   flex: none;
 }
 
-/* ── Unread activity ──────────────────────────────────────────────────────── */
-/* Lives on the Panes trigger rather than only inside the menu, so a new alert
-   is noticeable while the Activity Log Pane is closed or docked out of sight —
-   the exact "attention is elsewhere" case it exists for. */
+/* ── Daughter Windows list ────────────────────────────────────────────────── */
 
-.unreadBadge {
+.windowList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3xs);
+  min-width: 12rem;
+}
+
+.windowRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3xs);
+}
+
+.windowRow > button:first-child {
+  flex: 1 1 auto;
+  justify-content: flex-start;
+}
+
+/* ── Small count badges ───────────────────────────────────────────────────── */
+/* Shared by the unread-activity count on the Panes trigger — living there
+   rather than only inside the menu, so a new alert is noticeable while the
+   Activity Log Pane is closed or docked out of sight — and the open-Daughter-
+   Window count on the Windows trigger. Same shape, two different counts. */
+
+.countBadge {
   display: inline-flex;
   align-items: center;
   justify-content: center;

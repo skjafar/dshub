@@ -47,11 +47,23 @@ _Avoid_: map profile, user profile, preset, configuration
 ### Interface
 
 **Workspace**:
-A named, saved arrangement of Panes belonging to a Profile — which surfaces are open, where they sit, how they are sized, and what each is showing. A Profile has several, one of them default, so rearranging for one task never destroys the arrangement for another.
+A named, saved arrangement of Panes belonging to a Profile — which surfaces are open, where they sit, how they are sized, and what each is showing, across every Window it spans. A Profile has several, one of them default, so rearranging for one task never destroys the arrangement for another.
 _Avoid_: layout, desktop, perspective
 
+**Window**:
+One operating-system window displaying some of a Workspace's Panes. Exactly one is the Main Window; any other is a Daughter Window. A Workspace with no Daughter Windows spans exactly one.
+_Avoid_: screen, monitor, view
+
+**Main Window**:
+The Window carrying app identity, Device connection and Control, and Pane/Workspace/Profile management. Every session has exactly one, and it is what a Workspace opens into first.
+_Avoid_: primary window, home window
+
+**Daughter Window**:
+Any Window that is not the Main Window. Shows the Device's link and Control state read-only, offers a control to add a Pane, and otherwise holds nothing but Panes — never Connect, Control, Workspace, Profile, theme or Settings. Belongs to the Workspace, not the Profile: switching Workspace closes the outgoing one's Daughter Windows and opens the incoming one's.
+_Avoid_: popout, secondary window, child window
+
 **Pane**:
-A single dockable surface within a Workspace, holding one tool. Several Panes of the same kind can be open at once, each with its own filter and selection, so two subsystems can be compared side by side.
+A single dockable surface within a Workspace, holding one tool. Several Panes of the same kind can be open at once, each with its own filter and selection, so two subsystems can be compared side by side. A Pane belongs to a Workspace, not to whichever Window currently shows it — dragging it to another Window changes nothing about what it is.
 _Avoid_: panel, view, window, tab
 
 **Dashboard**:
@@ -67,7 +79,7 @@ The fixed, unauthored surface reporting a Device's own health — identity, upti
 _Avoid_: Status, Device Dashboard, home
 
 **Focus Mode**:
-The application showing a single Dashboard full-canvas with its layout locked and chrome minimised — the state you leave running beside the equipment.
+One Window showing a single Dashboard full-canvas with its layout locked and chrome minimised — the state you leave running beside the equipment. Entered from a Dashboard, it affects only the Window it was entered from; every other open Window, including the Main Window, keeps working normally.
 _Avoid_: kiosk mode, fullscreen, presentation mode
 
 **Status Semantics**:

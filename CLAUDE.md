@@ -78,7 +78,7 @@ across every theme. Adding a theme or changing a palette value means running
 `npm test` — the suite will reject combinations that are illegible or that let a
 brand accent collide with the error colour.
 
-## Workspace and Panes
+## Workspace, Windows and Panes
 
 A dockview-driven **Workspace** (`shell/Workspace.tsx`, `shell/AppShell.tsx`)
 replaced the old sidebar and view router: a dockable arrangement of **Panes**
@@ -92,8 +92,67 @@ There is no shared panel-header component — a Pane's own controls (filter,
 refresh, live toggle) render inline in that Pane, never hoisted into the
 global chrome. `AppChrome.tsx` carries app identity, Device connection/Control
 state, Pane/Workspace/Profile management (its "Panes" menu is the only way to
-open or reopen one), Focus Mode, and Settings/About/Guide — never a Pane's own
-controls.
+open or reopen one), and Settings/About/Guide — never a Pane's own controls.
+Focus Mode is not among them: it is entered only from a Dashboard Pane's own
+button, and is per-Window presentation state rather than an application-wide
+mode — see `shell/focusMode.ts` and below.
+
+### Daughter Windows
+
+A Workspace can span more than one operating-system **Window** (ADR 0004,
+`CONTEXT.md`). The **Main Window** carries Connect, Control, and
+Pane/Workspace/Profile/Settings management; any other is a **Daughter
+Window** — read-only link/Control state plus one control to add a Pane, and
+nothing else. A Pane is dragged out of a Window to create one, or sent out by
+"Move to new window" on its tab; both funnel through `AppShell.tsx`'s
+`openAsPopout`, the one place a popout is actually created so the
+window-count warning and the destroy-on-close override (below) can never be
+reached by one path and skipped by another.
+
+The mechanism is dockview 7's popout windows (`DockviewApi.addPopoutGroup`),
+not a second Tauri `WebviewWindow`: a popout is a separate OS window but the
+*same* JavaScript realm, so there is exactly one `pollRegistry`, one
+`DSHubProvider` and one `paneState` store across every Window — ADR 0003's
+frozen data path is untouched, and a second Tauri webview would have been a
+second realm with duplicate polls. `popout.html` (a second Vite build input)
+is the scriptless document dockview opens a Daughter Window onto; dockview
+adopts the popped-out group's DOM into it and copies the opener's
+stylesheets, but nothing else about the application renders there except
+`shell/DaughterWindowRoot.tsx`'s chrome, portalled in by hand since dockview
+only adopts dock content, never surrounding chrome.
+
+Two behaviours deliberately override dockview's defaults. A Daughter Window
+losing its last Pane closes itself — wired in `AppShell.tsx`'s `handleReady`
+(`onDidRemovePanel` watching `getPopouts()` for a now-empty member set).
+Closing one destroys its Panes rather than relocating them to the main grid
+— dockview's own default — via `onWillClose`, supplied by `reallyOpenPopout`
+every time *this session* creates a popout: from `handleReady`'s drag-out
+listener and from the "Move to new window" tab command alike, since both
+funnel through the same `openAsPopout`. A restored Daughter Window closed by
+its native OS control falls back to dockview's relocate-to-main-grid
+default instead, since `skipPopoutReturn` is not reachable through the
+public api and there is no reliable pre-disposal hook for dockview's own
+restoration path — a known, narrow gap, not an oversight.
+
+Restoring a Workspace at launch has no user gesture behind it, so a popout
+can be blocked — dockview redocks the orphaned groups into the main grid,
+and autosave would otherwise overwrite the stored Workspace with that
+arrangement within `AUTOSAVE_DEBOUNCE_MS`. `workspaceStore.ts`'s
+`RestoreGuard` (`createRestoreGuard`) is what freezes autosave until an
+explicit "Reopen windows" retry succeeds — this is the one seam
+`workspaceStore.test.ts` pins the data-loss path against, deliberately
+without a real dockview instance (ADR-0001).
+
+Per-Window state — which Window a Pane currently renders in, Focus Mode's
+own per-Window tracking, the label a menu shows for a Daughter Window —
+resolves from the live dock api rather than being cached, since a plain drag
+can move a Pane between Windows without any of the surrounding React state
+changing: see `shell/focusMode.ts`'s `windowIdForPane` and
+`shell/daughterWindows.ts`. A Radix overlay opened inside a Daughter Window
+portals into that Window's own document via `ui/ThemeScope.tsx`'s
+`PortalContainerScope`, resolved the same way — `Workspace.tsx`'s Pane
+wrapper re-reads it from `onDidLocationChange`, not from where the Pane
+happened to open.
 
 ## Device Communication
 

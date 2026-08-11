@@ -1,7 +1,15 @@
+/* Fixed rather than a normal-flow block: in a Daughter Window this has to
+   cover that Window's own dock, which — unlike the Main Window's — is
+   dockview's own adopted DOM and not something this component's sibling in
+   the React tree can be told to hide (`AppShell.tsx` docs the split). A fixed
+   overlay achieves the same outcome — the dock is fully covered rather than
+   unmounted — without either Window needing to know which case it is. */
 .focus {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
   display: flex;
   flex-direction: column;
-  height: 100vh;
   min-height: 0;
   background: var(--surface);
   color: var(--on-surface);

@@ -35,9 +35,11 @@ export interface ThemeScopeProps {
  * Anything portalled from inside is rendered into this element too, so an
  * overlay opened here carries this theme rather than the document's.
  *
- * The application itself publishes to the document root and does not need this;
- * it exists because the primitives page shows both themes at once, which is the
- * case that proved the portals were escaping their theme.
+ * The Main Window publishes to its own document root and does not need this
+ * — it exists because the primitives page shows both themes at once, which is
+ * the case that proved the portals were escaping their theme. A Daughter
+ * Window needs the same escape-proofing for a different reason: see
+ * {@link PortalContainerScope}.
  */
 export function ThemeScope({ theme, children, className }: ThemeScopeProps): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -58,4 +60,30 @@ export function ThemeScope({ theme, children, className }: ThemeScopeProps): Rea
       </PortalContainerContext.Provider>
     </div>
   );
+}
+
+export interface PortalContainerScopeProps {
+  readonly container: HTMLElement | null;
+  readonly children: ReactNode;
+}
+
+/**
+ * Supplies the portal container directly, for a subtree whose theme is
+ * already correct but whose floating primitives must still portal into a
+ * specific document rather than default to `document.body`.
+ *
+ * This is the other half of what a Pane rendered inside a Daughter Window
+ * needs. Its theme comes from that popout document's own root, applied once
+ * directly (`applyThemeVariables`, called against the whole document rather
+ * than through `ThemeScope`, since a Daughter Window has no un-themed
+ * surface to scope around) — but a Radix menu or dialog it opens still
+ * portals to `document.body` by default, which without this would be the
+ * *Main* Window's `document.body` on another monitor, not the Window the
+ * click happened in. `Workspace.tsx` wraps every docked Pane in this,
+ * resolving `container` from the Pane's own rendered DOM node rather than
+ * from which Window it opened in, since dockview relocates that DOM by drag
+ * without remounting the Pane that owns it.
+ */
+export function PortalContainerScope({ container, children }: PortalContainerScopeProps): React.JSX.Element {
+  return <PortalContainerContext.Provider value={container}>{children}</PortalContainerContext.Provider>;
 }

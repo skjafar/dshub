@@ -220,10 +220,21 @@ export function activeWorkspaceOf(collection: ProfileWorkspaces): StoredWorkspac
 // operations below can be pinned against a fake rather than a live dockview
 // instance.
 
+export interface DockSubscription {
+  dispose(): void;
+}
+
 export interface WorkspaceDockApi {
   toJSON(): SerializedDockview;
   fromJSON(data: SerializedDockview): void;
   readonly panels: ReadonlyArray<{ readonly id: string }>;
+  /**
+   * Fires when a popout window fails to open — normal for a Workspace
+   * restored at launch, since nothing has yet supplied the user gesture
+   * `window.open` needs. dockview redocks the orphaned groups into the main
+   * grid on its own; this is only the notification, not an action to take.
+   */
+  onDidOpenPopoutWindowFail(callback: () => void): DockSubscription;
 }
 
 export function snapshotWorkspace(
@@ -252,4 +263,63 @@ export function snapshotWorkspace(
 export function restoreWorkspace(api: WorkspaceDockApi, workspace: StoredWorkspace): void {
   loadPaneStates(workspace.paneStates);
   api.fromJSON(workspace.dockLayout);
+}
+
+// ── Blocked restore ──────────────────────────────────────────────────────
+//
+// The data-loss path (spec.md). A popout blocked while restoring — the
+// ordinary case at launch, since nothing has been clicked yet — makes
+// dockview redock its groups into the main grid, which fires a layout change,
+// which schedules autosave, which would overwrite the stored Workspace with
+// an arrangement missing the Daughter Windows it just failed to reopen. A
+// `RestoreGuard` is what autosave checks before it actually writes.
+
+/**
+ * Tracks whether the current restore attempt has been blocked, without
+ * forcing every caller to juggle dockview's own delayed failure signal.
+ *
+ * dockview discovers a blocked popout asynchronously — its own restoration
+ * delay (`DESERIALIZATION_POPOUT_DELAY_MS`, 100ms, staggered per popout) means
+ * `onDidOpenPopoutWindowFail` can fire well after `fromJSON` has already
+ * returned — so nothing synchronous after calling `restoreWorkspace` can know
+ * the outcome. This subscribes once for the dock api's whole lifetime and
+ * exposes a flag instead: `AppShell`'s autosave reads it at the moment it
+ * would actually persist (`AUTOSAVE_DEBOUNCE_MS`, 400ms after the layout
+ * settles) — comfortably after dockview's own window, so the flag can never
+ * be read before a blocked popout could have set it.
+ */
+export interface RestoreGuard {
+  /** True once a popout has failed to open since the last {@link RestoreGuard.reset}. */
+  readonly blocked: boolean;
+  /** Clears the flag. Call before every restore attempt, including a retry — a stale `true` from a previous, already-handled failure must not linger onto the next one. */
+  reset(): void;
+  dispose(): void;
+}
+
+/**
+ * Subscribes to the dock api's popout-failure signal and returns a live
+ * guard, calling `onBlocked` the moment a failure is first observed since the
+ * last {@link RestoreGuard.reset} — the shell's cue to offer the "Reopen
+ * windows" retry. One subscription for the api's whole lifetime rather than
+ * one per restore, since the failure can arrive after any restore has already
+ * returned.
+ */
+export function createRestoreGuard(api: WorkspaceDockApi, onBlocked: () => void): RestoreGuard {
+  let blocked = false;
+  const subscription = api.onDidOpenPopoutWindowFail(() => {
+    if (blocked) return;
+    blocked = true;
+    onBlocked();
+  });
+  return {
+    get blocked() {
+      return blocked;
+    },
+    reset() {
+      blocked = false;
+    },
+    dispose() {
+      subscription.dispose();
+    },
+  };
 }

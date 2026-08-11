@@ -4,10 +4,13 @@
  *
  * `DashboardPane`'s own "Focus Mode" action is the natural place to pick
  * *which* Dashboard — it is, after all, already showing the one meant —
- * but the shell (`AppShell.tsx`) is what actually owns entering it: doing
- * so unmounts the Workspace, and a Pane has no business unmounting its own
- * container. A context carries the trigger down without widening
- * `PaneProps`, which every other Pane kind would otherwise have to ignore.
+ * but the shell (`AppShell.tsx`) is what actually owns entering it: it is the
+ * one place holding the live dock api Focus Mode needs to resolve *which
+ * Window* the calling Dashboard Pane lives in (issue 02 — Focus Mode is
+ * per-Window state, and a popped-out Dashboard Pane's own `paneId` says
+ * nothing about that on its own; see `windowIdForPane`). A context carries
+ * the trigger down without widening `PaneProps`, which every other Pane kind
+ * would otherwise have to ignore.
  *
  * Defaults to a no-op rather than throwing outside a real Provider, unlike
  * `SelectionContext`. A missing selection silently mis-describes what is
@@ -21,8 +24,12 @@ import { createContext, useContext, useMemo } from 'react';
 import type { ReactNode } from 'react';
 
 interface FocusModeContextValue {
-  /** Enters Focus Mode, showing the named Dashboard full-canvas. */
-  readonly enter: (dashboardId: string) => void;
+  /**
+   * Enters Focus Mode, showing the named Dashboard full-canvas in whichever
+   * Window `paneId` — the calling Dashboard Pane's own instance id —
+   * currently lives in.
+   */
+  readonly enter: (dashboardId: string, paneId: string) => void;
 }
 
 const noop = (): void => {};
@@ -30,7 +37,7 @@ const noop = (): void => {};
 const FocusModeContext = createContext<FocusModeContextValue>({ enter: noop });
 
 export interface FocusModeProviderProps {
-  readonly enter: (dashboardId: string) => void;
+  readonly enter: (dashboardId: string, paneId: string) => void;
   readonly children: ReactNode;
 }
 

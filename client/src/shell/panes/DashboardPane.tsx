@@ -279,7 +279,7 @@ export function DashboardPane({ paneId, setTitle }: PaneProps): React.JSX.Elemen
             size="sm"
             aria-label={`Focus ${activeDashboard?.name ?? 'Dashboard'}`}
             onClick={() => {
-              if (activeDashboard) enterFocusMode(activeDashboard.id);
+              if (activeDashboard) enterFocusMode(activeDashboard.id, paneId);
             }}
           >
             <ArrowsOut size={14} />

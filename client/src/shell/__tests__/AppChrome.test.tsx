@@ -11,6 +11,7 @@ import { InterfaceType } from '../../types/shared';
 import { TooltipProvider } from '../../ui';
 import { AppChrome } from '../AppChrome';
 import type { AppChromeProps } from '../AppChrome';
+import { PANES } from '../paneRegistry';
 
 /**
  * The unread activity badge specifically. Everything else the chrome does —
@@ -47,7 +48,7 @@ function renderChrome(
         <DSHubProvider>
           <TooltipProvider>
             <AppChrome
-              openKinds={[]}
+              paneMenuEntries={[]}
               onOpenPane={vi.fn()}
               workspaces={[]}
               activeWorkspaceId=""
@@ -56,8 +57,9 @@ function renderChrome(
               onSaveWorkspaceAs={vi.fn()}
               onRenameWorkspace={vi.fn()}
               onDeleteWorkspace={vi.fn()}
-              focusTargetDashboardId={null}
-              onEnterFocusMode={vi.fn()}
+              daughterWindows={[]}
+              onFocusDaughterWindow={vi.fn()}
+              onCloseDaughterWindow={vi.fn()}
               {...overrides}
             />
           </TooltipProvider>
@@ -96,30 +98,6 @@ describe('AppChrome unread activity badge', () => {
   });
 });
 
-describe('AppChrome Focus Mode trigger', () => {
-  it('is disabled when the Profile has no Dashboard to open', async () => {
-    const port = createFakeBackendPort({ deliver: fn => fn() });
-    renderChrome(port, { focusTargetDashboardId: null });
-    await settle();
-
-    expect(screen.getByRole('button', { name: 'Focus Mode' })).toBeDisabled();
-  });
-
-  it('enters Focus Mode on the resolved Dashboard, in one click', async () => {
-    const user = userEvent.setup();
-    const port = createFakeBackendPort({ deliver: fn => fn() });
-    const onEnterFocusMode = vi.fn();
-    renderChrome(port, { focusTargetDashboardId: 'dashboard-1', onEnterFocusMode });
-    await settle();
-
-    const button = screen.getByRole('button', { name: 'Focus Mode' });
-    expect(button).toBeEnabled();
-    await user.click(button);
-
-    expect(onEnterFocusMode).toHaveBeenCalledWith('dashboard-1');
-  });
-});
-
 describe('AppChrome Panes menu', () => {
   it('reopens a Pane from the keyboard alone, with no pointer involved', async () => {
     // Ticket 23: the Panes menu is the Workspace's one and only reopen
@@ -130,7 +108,8 @@ describe('AppChrome Panes menu', () => {
     const user = userEvent.setup();
     const port = createFakeBackendPort({ deliver: fn => fn() });
     const onOpenPane = vi.fn();
-    renderChrome(port, { onOpenPane });
+    const paneMenuEntries = PANES.map(pane => ({ kind: pane.kind, title: pane.title, disabledLocation: null }));
+    renderChrome(port, { onOpenPane, paneMenuEntries });
     await settle();
 
     const panesButton = screen.getByRole('button', { name: /panes/i });

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  ArrowsOut,
+  AppWindow,
   BookOpen,
   Gear,
   Info,
@@ -11,14 +11,16 @@ import {
   Sun,
   SquaresFour,
   UsersThree,
+  X,
 } from '@phosphor-icons/react';
 import { useDSHub } from '../contexts/DSHubContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { APP_THEMES, getThemeById } from '../appThemes';
 import { ControlBadge, LinkStatus } from './LinkStatus';
 import { holdsControl } from './linkState';
-import { Button, Menu, MenuItem, MenuLabel, Tooltip } from '../ui';
-import { PANES } from './paneRegistry';
+import { Button, Menu, Popover, Tooltip } from '../ui';
+import type { PaneMenuEntry } from './daughterWindows';
+import { PaneMenuItems } from './PaneMenuItems';
 import type { PaneKind } from './paneRegistry';
 import { AboutDialog } from './AboutDialog';
 import { ConnectDialog } from './ConnectDialog';
@@ -30,9 +32,15 @@ import { WorkspacesDialog } from './WorkspacesDialog';
 import type { StoredWorkspace } from './workspaceStore';
 import styles from './AppChrome.module.css';
 
+/** One open Daughter Window, as the Main Window's own list needs it. */
+export interface DaughterWindowSummary {
+  readonly id: string;
+  readonly label: string;
+}
+
 export interface AppChromeProps {
-  /** Pane kinds currently open, so the menu can say which are already there. */
-  readonly openKinds: readonly PaneKind[];
+  /** What the Panes menu offers — resolved by the shell, since it needs the live dock api to know where an already-open singleton actually is. */
+  readonly paneMenuEntries: readonly PaneMenuEntry[];
   readonly onOpenPane: (kind: PaneKind) => void;
   /** The active Profile's named Workspaces, for the Workspaces dialog. */
   readonly workspaces: readonly StoredWorkspace[];
@@ -43,20 +51,15 @@ export interface AppChromeProps {
   readonly onRenameWorkspace: (id: string, name: string) => void;
   readonly onDeleteWorkspace: (id: string) => void;
   /**
-   * The Dashboard Focus Mode would open on right now — the Profile's
-   * remembered one if it still exists, else its first Dashboard — or null
-   * when the Profile has none at all. Resolved by the shell rather than
-   * here, since it needs `dashboardsByProfile`, which nothing else in the
-   * chrome reads.
-   */
-  readonly focusTargetDashboardId: string | null;
-  readonly onEnterFocusMode: (dashboardId: string) => void;
-  /**
    * Called before any Profiles-dialog action that may change the active
    * Profile, so the outgoing one's Workspace is saved with what it actually
    * shows before the switch. See `ProfilesDialog`'s own doc comment.
    */
   readonly onBeforeProfileChange: () => void;
+  /** The Workspace's currently open Daughter Windows, so a window buried behind another application is still reachable (spec.md). */
+  readonly daughterWindows: readonly DaughterWindowSummary[];
+  readonly onFocusDaughterWindow: (id: string) => void;
+  readonly onCloseDaughterWindow: (id: string) => void;
 }
 
 /** What the Panes trigger says, so the unread badge it carries is announced too. */
@@ -79,7 +82,7 @@ function panesButtonLabel(unreadLogCount: number): string {
  * something nobody returns to once they are connected.
  */
 export function AppChrome({
-  openKinds,
+  paneMenuEntries,
   onOpenPane,
   workspaces,
   activeWorkspaceId,
@@ -88,9 +91,10 @@ export function AppChrome({
   onSaveWorkspaceAs,
   onRenameWorkspace,
   onDeleteWorkspace,
-  focusTargetDashboardId,
-  onEnterFocusMode,
   onBeforeProfileChange,
+  daughterWindows,
+  onFocusDaughterWindow,
+  onCloseDaughterWindow,
 }: AppChromeProps): React.JSX.Element {
   const { state, actions } = useDSHub();
   const { settings, updateSettings, justMigrated, profilesCarriedOver } = useSettings();
@@ -133,23 +137,14 @@ export function AppChrome({
               <SquaresFour size={16} />
               Panes
               {state.unreadLogCount > 0 ? (
-                <span className={styles.unreadBadge} aria-hidden>
+                <span className={styles.countBadge} aria-hidden>
                   {state.unreadLogCount > 99 ? '99+' : state.unreadLogCount}
                 </span>
               ) : null}
             </Button>
           }
         >
-          <MenuLabel>Open a pane</MenuLabel>
-          {PANES.map(pane => {
-            const alreadyOpen = pane.singleton && openKinds.includes(pane.kind);
-            return (
-              <MenuItem key={pane.kind} onSelect={() => onOpenPane(pane.kind)}>
-                {pane.title}
-                {alreadyOpen ? ' — already open' : ''}
-              </MenuItem>
-            );
-          })}
+          <PaneMenuItems entries={paneMenuEntries} onOpenPane={onOpenPane} />
         </Menu>
 
         <Button
@@ -162,6 +157,38 @@ export function AppChrome({
           Workspaces
         </Button>
 
+        {daughterWindows.length > 0 ? (
+          <Popover
+            trigger={
+              <Button variant="ghost" size="sm" aria-label="Daughter Windows">
+                <AppWindow size={16} />
+                Windows
+                <span className={styles.countBadge} aria-hidden>
+                  {daughterWindows.length}
+                </span>
+              </Button>
+            }
+          >
+            <div className={styles.windowList}>
+              {daughterWindows.map(win => (
+                <div key={win.id} className={styles.windowRow}>
+                  <Button variant="ghost" size="sm" onClick={() => onFocusDaughterWindow(win.id)}>
+                    {win.label}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Close ${win.label}`}
+                    onClick={() => onCloseDaughterWindow(win.id)}
+                  >
+                    <X size={14} />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </Popover>
+        ) : null}
+
         <Button
           variant="ghost"
           size="sm"
@@ -171,23 +198,6 @@ export function AppChrome({
           <UsersThree size={16} />
           Profiles
         </Button>
-
-        <Tooltip content={focusTargetDashboardId === null ? 'No Dashboards yet' : 'Show a Dashboard full-canvas, layout locked'}>
-          <span>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Focus Mode"
-              disabled={focusTargetDashboardId === null}
-              onClick={() => {
-                if (focusTargetDashboardId !== null) onEnterFocusMode(focusTargetDashboardId);
-              }}
-            >
-              <ArrowsOut size={16} />
-              Focus Mode
-            </Button>
-          </span>
-        </Tooltip>
 
         <Tooltip content={`Switch to ${nextTheme.name}`}>
           <Button
