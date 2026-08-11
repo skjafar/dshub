@@ -134,6 +134,28 @@ default instead, since `skipPopoutReturn` is not reachable through the
 public api and there is no reliable pre-disposal hook for dockview's own
 restoration path — a known, narrow gap, not an oversight.
 
+Both of those close paths, the Main Window's own "close a Daughter Window"
+list entry, and focusing one from that same list all go through
+`daughterWindowNative.ts` rather than the raw DOM `Window.close()`/
+`Window.focus()` dockview itself calls. Under Tauri a Daughter Window is a
+full `WebviewWindow` (`lib.rs`'s `on_new_window` builds one, not a bare
+WebView2 popup), with its own native title bar, close button and z-order
+entirely separate from whatever WebView2 does with a script-opened window's
+raw DOM methods — calling `close()` raw only unloads the webview content and
+leaves the native frame around it open and blank; `focus()` raw is the same
+risk the other way, failing silently rather than visibly if it only focuses
+content instead of raising the native frame. `daughterWindowNative.ts`
+recovers the window's Tauri label from `__TAURI_INTERNALS__` (injected into
+every window Tauri manages, popouts included, regardless of `popout.html`
+carrying no script of its own) and calls `@tauri-apps/api/window`'s
+`Window.getByLabel(label).close()`/`.setFocus()` instead, falling back to
+the raw DOM method if that rejects or outside Tauri, where the raw method is
+correct. The Tauri calls need `core:window:allow-close` and
+`core:window:allow-set-focus` in `capabilities/default.json` — without
+them the call rejects with a `core:window:allow-*` permission error, which
+is exactly what the fallback exists to survive rather than leaving the
+button silently inert.
+
 Restoring a Workspace at launch has no user gesture behind it, so a popout
 can be blocked — dockview redocks the orphaned groups into the main grid,
 and autosave would otherwise overwrite the stored Workspace with that

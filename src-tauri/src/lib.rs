@@ -164,6 +164,7 @@ pub fn run() {
                         next_popout_id.fetch_add(1, Ordering::Relaxed)
                     );
                     match WebviewWindowBuilder::new(&app_handle, label, WebviewUrl::External(url))
+                        .title(WINDOW_TITLE)
                         .window_features(features)
                         .build()
                     {

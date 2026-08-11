@@ -7,6 +7,7 @@ import { useBackendPort } from '../contexts/BackendPortContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { getThemeById } from '../appThemes';
 import { AppChrome } from './AppChrome';
+import { closeDaughterWindow, focusDaughterWindow } from './daughterWindowNative';
 import {
   DAUGHTER_WINDOW_DEFAULT_HEIGHT,
   DAUGHTER_WINDOW_DEFAULT_WIDTH,
@@ -493,12 +494,14 @@ function WorkspaceShell(): React.JSX.Element {
       // A Daughter Window that loses its last Pane closes itself (spec.md) —
       // checked after every panel removal, anywhere, since there is no
       // narrower "this popout's count changed" event to listen for instead.
-      // `window.close()` on an already-empty popout has nothing left to
-      // relocate, so no destroy-on-close override is needed here.
+      // Closing an already-empty popout has nothing left to relocate, so no
+      // destroy-on-close override is needed here — only `closeDaughterWindow`
+      // itself, since a raw `window.close()` cannot reach a Tauri window's
+      // own native frame.
       api.onDidRemovePanel(() => {
         for (const popout of api.getPopouts()) {
           const stillOccupied = api.groups.some(g => g.api.getWindow() === popout.window);
-          if (!stillOccupied) popout.window.close();
+          if (!stillOccupied) void closeDaughterWindow(popout.window);
         }
       });
 
@@ -643,13 +646,21 @@ function WorkspaceShell(): React.JSX.Element {
     applyWorkspace(api, target);
   }, [applyWorkspace]);
 
-  const handleFocusDaughterWindow = useCallback((windowId: string) => {
-    openPopouts.find(p => p.id === windowId)?.window.focus();
-  }, [openPopouts]);
+  const handleFocusDaughterWindow = useCallback(
+    (windowId: string) => {
+      const target = openPopouts.find(p => p.id === windowId)?.window;
+      if (target) void focusDaughterWindow(target);
+    },
+    [openPopouts]
+  );
 
-  const handleCloseDaughterWindow = useCallback((windowId: string) => {
-    openPopouts.find(p => p.id === windowId)?.window.close();
-  }, [openPopouts]);
+  const handleCloseDaughterWindow = useCallback(
+    (windowId: string) => {
+      const target = openPopouts.find(p => p.id === windowId)?.window;
+      if (target) void closeDaughterWindow(target);
+    },
+    [openPopouts]
+  );
 
   // Each Daughter Window's own chrome — its top bar and, when applicable,
   // its Focus Mode overlay — portals into that popout's own document
