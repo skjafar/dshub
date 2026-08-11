@@ -151,10 +151,26 @@ carrying no script of its own) and calls `@tauri-apps/api/window`'s
 `Window.getByLabel(label).close()`/`.setFocus()` instead, falling back to
 the raw DOM method if that rejects or outside Tauri, where the raw method is
 correct. The Tauri calls need `core:window:allow-close` and
-`core:window:allow-set-focus` in `capabilities/default.json` — without
-them the call rejects with a `core:window:allow-*` permission error, which
-is exactly what the fallback exists to survive rather than leaving the
-button silently inert.
+`core:window:allow-set-focus` — but *where* that permission has to be
+granted depends on which origin the Main Window is actually running from,
+and the two builds differ. `cargo tauri dev` loads the app's configured
+`devUrl`, which Tauri gives the same implicit trust as the bundled origin,
+so `capabilities/default.json`'s static grant applies and is enough on its
+own. Every other build serves over the phase-2 localhost origin (`lib.rs`,
+above), which is a `remote` origin as far as the ACL is concerned and gets
+*none* of that implicit trust — `capabilities/default.json` has no `remote`
+entry, so it does not apply there at all. The dynamically-added "localhost"
+capability in `lib.rs` is the *only* grant that origin gets, which is why it
+repeats every permission the Main Window needs (`core:default` included) —
+`invoke` on this project's own commands works either way, since custom
+commands are not capability-gated at all, but Tauri's own event system is,
+and a missing permission there fails silently: `listen()` calls resolve
+and nothing ever arrives, rather than throwing. This is exactly how the
+localhost-origin build once ran with device discovery invisibly broken —
+scanning worked (an `invoke`), the results just never reached the frontend
+(an event) — until `core:default` was added to that capability too. Add a
+permission to one and forget the other, and whichever build does not use
+`devUrl` gets the same silent gap again.
 
 Restoring a Workspace at launch has no user gesture behind it, so a popout
 can be blocked — dockview redocks the orphaned groups into the main grid,

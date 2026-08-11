@@ -113,13 +113,27 @@ pub fn run() {
                     .parse()
                     .expect("a port number always parses into a valid localhost URL");
                 // The localhost origin is a "remote" one as far as Tauri's IPC
-                // allowlist is concerned — without this the window loads but
-                // every `invoke` the frontend makes is silently refused, since
-                // `capabilities/default.json` only names the app's own origin.
+                // allowlist is concerned. `capabilities/default.json`'s static
+                // grant does not reach it: that file has no `remote` origin of
+                // its own, so it only ever matches the app's own bundled
+                // origin — which is also why `cargo tauri dev` never needed
+                // this at all, dev mode gives its configured `devUrl` the same
+                // implicit trust the bundled origin gets. This picked port
+                // gets none of that, so every permission the app needs on the
+                // Main Window has to be repeated here explicitly — miss one
+                // and it fails silently rather than with an error, exactly as
+                // `core:event:default`'s absence once did: `invoke` calls kept
+                // working (custom commands are not capability-gated at all),
+                // but every event the backend pushes — device discovery
+                // among them — never reached the frontend. Keep this list in
+                // step with `capabilities/default.json`'s own.
                 app.add_capability(
                     CapabilityBuilder::new("localhost")
                         .remote(url.to_string())
-                        .window(MAIN_WINDOW_LABEL),
+                        .window(MAIN_WINDOW_LABEL)
+                        .permission("core:default")
+                        .permission("core:window:allow-close")
+                        .permission("core:window:allow-set-focus"),
                 )?;
                 WebviewUrl::External(url)
             };
