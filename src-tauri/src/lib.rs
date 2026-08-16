@@ -56,6 +56,17 @@ const WINDOW_HEIGHT: f64 = 900.0;
 const WINDOW_MIN_WIDTH: f64 = 1024.0;
 const WINDOW_MIN_HEIGHT: f64 = 600.0;
 
+/// The phase-2 localhost origin's preferred port — fixed, not freshly picked
+/// per launch. `localStorage`, where every Setting, Profile, Workspace and
+/// Dashboard lives, is scoped to the browser origin, and
+/// `http://localhost:<port>` *is* that origin. A port picked fresh every
+/// launch is a fresh, empty origin every launch — indistinguishable from
+/// nothing ever having been saved. Falls back to a freely-chosen port only
+/// if this one is already taken (logged, since that machine's persistence
+/// stays broken until it is free again) — trading persistence for at least
+/// being able to start, rather than failing outright over an unlucky port.
+const LOCALHOST_PORT: u16 = 47990;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Issue 01's popout spike reports its verdict through the host, which is
@@ -86,8 +97,16 @@ pub fn run() {
     // assertion, and spinning up a second HTTP server on top of it would add
     // nothing.
     #[cfg(not(dev))]
-    let localhost_port =
-        portpicker::pick_unused_port().expect("failed to find an unused localhost port");
+    let localhost_port = if std::net::TcpListener::bind(("127.0.0.1", LOCALHOST_PORT)).is_ok() {
+        LOCALHOST_PORT
+    } else {
+        log::warn!(
+            "Port {LOCALHOST_PORT} is already in use — falling back to a freshly \
+             picked port. Settings, Profiles and Workspaces will not persist \
+             across launches until port {LOCALHOST_PORT} is free again."
+        );
+        portpicker::pick_unused_port().expect("failed to find an unused localhost port")
+    };
 
     let mut builder = tauri::Builder::default();
     #[cfg(not(dev))]

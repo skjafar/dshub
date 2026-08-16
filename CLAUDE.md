@@ -122,10 +122,13 @@ stylesheets, but nothing else about the application renders there except
 only adopts dock content, never surrounding chrome.
 
 Two behaviours deliberately override dockview's defaults. A Daughter Window
-losing its last Pane closes itself — wired in `AppShell.tsx`'s `handleReady`
-(`onDidRemovePanel` watching `getPopouts()` for a now-empty member set).
-Closing one destroys its Panes rather than relocating them to the main grid
-— dockview's own default — via `onWillClose`, supplied by `reallyOpenPopout`
+losing its last Pane closes itself — wired in `AppShell.tsx`'s `handleReady`,
+checked on every `onDidLayoutChange` rather than only `onDidRemovePanel`:
+dragging a Pane out of a popout and back into the Main Window empties it
+exactly as closing its last tab does, but is a *move*, not a removal, and
+never fires `onDidRemovePanel` at all. Closing one destroys its Panes rather
+than relocating them to the main grid — dockview's own default — via
+`onWillClose`, supplied by `reallyOpenPopout`
 every time *this session* creates a popout: from `handleReady`'s drag-out
 listener and from the "Move to new window" tab command alike, since both
 funnel through the same `openAsPopout`. A restored Daughter Window closed by
@@ -171,6 +174,16 @@ scanning worked (an `invoke`), the results just never reached the frontend
 (an event) — until `core:default` was added to that capability too. Add a
 permission to one and forget the other, and whichever build does not use
 `devUrl` gets the same silent gap again.
+
+The phase-2 localhost origin also has to be the *same* origin every launch,
+not merely a valid one. `localStorage` — where every Setting, Profile,
+Workspace and Dashboard lives — is scoped to the origin, and
+`http://localhost:<port>` *is* the origin; a port picked fresh each launch
+is a fresh, empty origin each launch, indistinguishable from nothing ever
+having been saved. `LOCALHOST_PORT` in `lib.rs` is fixed for exactly this
+reason, falling back to a freely-chosen port (logged) only if that one is
+already taken — trading persistence for at least starting, on whichever
+machine hits that collision, rather than failing outright.
 
 Restoring a Workspace at launch has no user gesture behind it, so a popout
 can be blocked — dockview redocks the orphaned groups into the main grid,
