@@ -1,0 +1,7 @@
+# Shell scripts carry a #!/bin/bash shebang and are run directly under WSL/Linux/macOS —
+# CRLF breaks the shebang and every line after it. Force LF regardless of the
+# checking-out machine's core.autocrlf so a Windows clone stays runnable elsewhere.
+*.sh text eol=lf
+
+# Batch files are cmd.exe-only; keep CRLF explicit rather than leaving it to autocrlf.
+*.bat text eol=crlf
