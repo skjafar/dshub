@@ -318,7 +318,6 @@ fn spawn_heartbeat(tx: mpsc::Sender<DeviceRequest>) -> JoinHandle<()> {
         // Never replay missed ticks: the default Burst behaviour would fire them
         // back-to-back and flood the request queue after any device stall.
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        ticker.tick().await; // skip the immediate first tick
         loop {
             ticker.tick().await;
             let req = DeviceRequest {
@@ -972,5 +971,31 @@ pub async fn save_csv(content: String, suggested_name: String, state: State<'_, 
                 .map_err(|e| e.to_string())
         }
         None => Ok(false), // User cancelled
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // `spawn_heartbeat` runs on `tauri::async_runtime`'s own global runtime
+    // (a real, separate Tokio runtime — see `default_runtime` in the `tauri`
+    // crate), not on whatever runtime this test function itself runs on, so
+    // there is no virtual clock to pause here. A short real-time timeout,
+    // well under the old skipped-tick's ~1s delay, is what actually
+    // distinguishes "sent immediately" from "sent after the first interval".
+    #[tokio::test]
+    async fn heartbeat_sends_its_first_request_without_waiting_for_an_interval() {
+        let (tx, mut rx) = mpsc::channel::<DeviceRequest>(10);
+        let _handle = spawn_heartbeat(tx);
+
+        let first = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv())
+            .await
+            .expect("heartbeat did not send its first request promptly — is the first tick still being skipped?")
+            .expect("heartbeat's channel closed before sending anything");
+
+        assert_eq!(first.command, CMD_READ_SYS_REG);
+        assert_eq!(first.address, 2);
+        assert_eq!(first.name.as_deref(), Some("CONTROL_INTERFACE"));
     }
 }

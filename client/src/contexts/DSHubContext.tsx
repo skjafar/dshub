@@ -515,10 +515,9 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
               lastDeviceName: status.deviceName,
               lastInterfaceType: status.interface === InterfaceType.UDP ? 'UDP' : 'TCP',
             });
-            // Read CONTROL_INTERFACE system register (addr 2) to update control state display
-            setTimeout(() => {
-              port.device.readSystemRegister(2, 'CONTROL_INTERFACE').catch(console.error);
-            }, 500);
+            // Control state itself arrives from the heartbeat's own first tick,
+            // which fires immediately on connect rather than after its normal
+            // interval — no separate read needed here to get it sooner.
           } else if (status.reconnecting) {
             dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'warning', category: 'connection', message: `Device unresponsive — reconnecting to ${status.ip}:${status.port}…`, timestamp: Date.now() } });
           } else {
