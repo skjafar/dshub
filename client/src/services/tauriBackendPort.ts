@@ -12,6 +12,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { InterfaceType } from '../types/shared';
 import type { LogSettings } from '../types/settings';
+import type { DataSource } from '../types/dashboard';
 import type {
   BackendEventMap,
   BackendEventName,
@@ -51,6 +52,11 @@ export function createTauriBackendPort(): BackendPort {
         invoke('start_plotting_sys_register', { registerName, pollInterval, address }),
       stopPlotting: (registerName: string) =>
         invoke('stop_plotting', { registerName }),
+
+      subscribeAddress: (source: DataSource, address: number, name: string, intervalMs: number) =>
+        invoke<number>('subscribe_address', { source, address, name, intervalMs }),
+      unsubscribeAddress: (id: number) =>
+        invoke('unsubscribe_address', { id }),
 
       updateLogSettings: (settings: LogSettings) =>
         invoke('update_log_settings', { settings }),

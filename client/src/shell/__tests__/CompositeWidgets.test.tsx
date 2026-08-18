@@ -291,6 +291,10 @@ describe('Alarm List', () => {
     const harness = renderDashboard();
     await settle();
     await connect(harness.fake);
+    // SPEED's own default signal already sits well above the threshold below,
+    // so "clear" has to be established with an explicit reading rather than
+    // asserted against whatever the very first poll happens to return.
+    await writeRegister(harness.fake, SPEED_ADDRESS, 10);
 
     expect(screen.getByText('OK')).toBeInTheDocument();
 

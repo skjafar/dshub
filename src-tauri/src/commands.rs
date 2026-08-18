@@ -50,7 +50,7 @@ impl RateLimiter {
     }
 
     /// Waits until one request may be sent. A `limit` of 0 disables limiting.
-    async fn acquire(&self, limit: u32) {
+    pub async fn acquire(&self, limit: u32) {
         if limit == 0 {
             return;
         }
@@ -105,6 +105,14 @@ pub struct AppState {
     pub connection_token: tokio::sync::Mutex<Arc<AtomicBool>>,
     /// Parameters of the last successful connection, used by the reconnect loop
     pub reconnect_params: tokio::sync::Mutex<Option<ReconnectParams>>,
+    /// Per-address poll subscriber bookkeeping (`.scratch/rust-owned-polling`
+    /// issue 03) — which widgets want which addresses, at what rate. Survives
+    /// every connect, disconnect and reconnect; only an explicit unsubscribe
+    /// removes an entry.
+    pub poll_subscriptions: tokio::sync::Mutex<crate::poll::PollSubscriptions>,
+    /// Live poll tasks for `poll_subscriptions`' current entries, aborted on
+    /// disconnect and respawned by `poll::resume_poll_subscriptions`.
+    pub poll_tasks: tokio::sync::Mutex<crate::poll::PollTasks>,
 }
 
 impl AppState {
@@ -120,6 +128,8 @@ impl AppState {
             last_save_dir: tokio::sync::Mutex::new(None),
             connection_token: tokio::sync::Mutex::new(Arc::new(AtomicBool::new(true))),
             reconnect_params: tokio::sync::Mutex::new(None),
+            poll_subscriptions: tokio::sync::Mutex::new(crate::poll::PollSubscriptions::new()),
+            poll_tasks: tokio::sync::Mutex::new(HashMap::new()),
         }
     }
 }
@@ -133,6 +143,16 @@ async fn disconnect_internal(state: &State<'_, AppState>) {
         handle.abort();
     }
     drop(plots);
+
+    // Abort all active address-poll tasks. Their subscriber bookkeeping
+    // (`poll_subscriptions`) is untouched — unlike `active_plots` below, it is
+    // not cleared here, so `resume_poll_subscriptions` can respawn every entry
+    // once a connection exists again.
+    let mut polls = state.poll_tasks.lock().await;
+    for (_, (handle, _)) in polls.drain() {
+        handle.abort();
+    }
+    drop(polls);
 
     // Drop the main sender → background task's rx will return None → task exits
     let mut tx = state.communicator_tx.lock().await;
@@ -196,11 +216,13 @@ async fn reconnect_loop(app: AppHandle, params: ReconnectParams, stop: Arc<Atomi
                         let state = app.state::<AppState>();
                         let heartbeat_tx = tx.clone();
                         let plot_tx = tx.clone();
+                        let poll_tx = tx.clone();
                         *state.communicator_tx.lock().await = Some(tx);
                         *state.connection.lock().await = Some(connection.clone());
                         let heartbeat = spawn_heartbeat(heartbeat_tx);
                         state.plot_tasks.lock().await.insert("__heartbeat__".into(), heartbeat);
                         resume_active_plots(&app, &plot_tx).await;
+                        crate::poll::resume_poll_subscriptions(&app, &poll_tx).await;
 
                         if let Err(e) = app.emit("connectionStatus", &connection) {
                             log::warn!("Failed to emit connectionStatus event: {}", e);
@@ -241,11 +263,13 @@ async fn reconnect_loop(app: AppHandle, params: ReconnectParams, stop: Arc<Atomi
                         let state = app.state::<AppState>();
                         let heartbeat_tx = tx.clone();
                         let plot_tx = tx.clone();
+                        let poll_tx = tx.clone();
                         *state.communicator_tx.lock().await = Some(tx);
                         *state.connection.lock().await = Some(connection.clone());
                         let heartbeat = spawn_heartbeat(heartbeat_tx);
                         state.plot_tasks.lock().await.insert("__heartbeat__".into(), heartbeat);
                         resume_active_plots(&app, &plot_tx).await;
+                        crate::poll::resume_poll_subscriptions(&app, &poll_tx).await;
 
                         if let Err(e) = app.emit("connectionStatus", &connection) {
                             log::warn!("Failed to emit connectionStatus event: {}", e);
@@ -574,6 +598,7 @@ pub async fn connect_device(
     // reads connection then communicator_tx never sees one without the other.
     let heartbeat_tx = tx.clone();
     let plot_tx = tx.clone();
+    let poll_tx = tx.clone();
     *state.communicator_tx.lock().await = Some(tx);
     *state.connection.lock().await = Some(connection);
 
@@ -583,6 +608,12 @@ pub async fn connect_device(
 
     // Resume any plots that were running before this (re)connect
     resume_active_plots(&app, &plot_tx).await;
+    // Poll subscriptions are never cleared by an explicit connect (unlike
+    // active_plots, just above — a subscription belongs to a mounted widget,
+    // not to whichever device happens to answer it), so this always has every
+    // subscription made since the app started to resume, not only ones from
+    // an interrupted connection to this same device.
+    crate::poll::resume_poll_subscriptions(&app, &poll_tx).await;
 
     Ok(())
 }

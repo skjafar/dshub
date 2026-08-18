@@ -1,18 +1,20 @@
 import { useEffect, useMemo } from 'react';
+import { useBackendPort } from '../contexts/BackendPortContext';
 import { useDSHub } from '../contexts/DSHubContext';
 import { mapManager } from '../maps/mapManager';
-import { pollRegistry } from '../services/pollRegistry';
 import type { PollTarget } from '../services/pollRegistry';
 import type { DataSource } from '../types/dashboard';
 
 /**
  * Declares interest in a set of already-resolved addresses.
  *
- * The one place a surface subscribes to the shared poller. Widgets reach it
- * through `useAutoRefresh`/`useAutoRefreshMulti`, which look a name up from an
- * address first; a Pane listing entries from the Map already holds the names and
- * calls this directly. Either way there is a single subscribe-and-release path,
- * so "how does a surface declare interest" has one answer.
+ * The one place a surface subscribes to the backend's per-address poll
+ * subscription mechanism (`src-tauri/src/poll.rs`, `.scratch/rust-owned-polling`
+ * issue 03). Widgets reach it through `useAutoRefresh`/`useAutoRefreshMulti`,
+ * which look a name up from an address first; a Pane listing entries from the
+ * Map already holds the names and calls this directly. Either way there is a
+ * single subscribe-and-release path, so "how does a surface declare interest"
+ * has one answer.
  *
  * Callers may rebuild `targets` on every render — the subscription only restarts
  * when the addresses themselves change. Re-subscribing on each arriving value
@@ -23,6 +25,7 @@ export function usePolledTargets(
   intervalMs: number,
   enabled: boolean
 ): void {
+  const port = useBackendPort();
   const key = targets.map(t => `${t.source}:${t.address}:${t.name}`).join(',');
 
   const stable = useMemo(
@@ -33,9 +36,38 @@ export function usePolledTargets(
 
   useEffect(() => {
     if (!enabled || stable.length === 0) return;
-    const unsubscribes = stable.map(target => pollRegistry.subscribe(target, intervalMs));
-    return () => unsubscribes.forEach(unsubscribe => unsubscribe());
-  }, [stable, intervalMs, enabled]);
+
+    // Subscribing is asynchronous (it crosses the IPC boundary) but this
+    // effect's cleanup is not, so a fast mount/unmount — React StrictMode's
+    // double-invoke included — can run the cleanup before any subscription id
+    // has come back. Without this guard a subscription that resolved after
+    // unmount would never be released. Mirrors the same race
+    // `DSHubContext.tsx`'s event-listener registration guards against
+    // (ADR 0003's second amendment).
+    let cancelled = false;
+    let subscriptionIds: number[] = [];
+
+    const setup = async () => {
+      const ids = await Promise.all(
+        stable.map(target => port.device.subscribeAddress(target.source, target.address, target.name, intervalMs))
+      );
+      if (cancelled) {
+        // Cleaned up while subscribing. Undo it here, since the cleanup that
+        // would have done so has already run.
+        ids.forEach(id => { port.device.unsubscribeAddress(id).catch(console.error); });
+        return;
+      }
+      subscriptionIds = ids;
+    };
+
+    setup().catch(console.error);
+
+    return () => {
+      cancelled = true;
+      subscriptionIds.forEach(id => { port.device.unsubscribeAddress(id).catch(console.error); });
+      subscriptionIds = [];
+    };
+  }, [stable, intervalMs, enabled, port]);
 }
 
 interface UseAutoRefreshOptions {
@@ -61,21 +93,22 @@ function lookupName(source: DataSource, address: number): string | undefined {
 /**
  * Subscribes a widget to periodic refresh of a single register/parameter.
  *
- * Subscriptions are coalesced by `pollRegistry`, so N widgets bound to the same
- * address produce one device read rather than N. Previously each hook instance
- * owned its own `setInterval` and issued its own `invoke`.
+ * Subscriptions are coalesced address-side, so N widgets bound to the same
+ * address produce one device read rather than N. Delegates to
+ * `usePolledTargets` — the one place a surface actually subscribes — rather
+ * than declaring interest a second way.
  */
 export function useAutoRefresh({ source, address, refreshInterval, isEditMode }: UseAutoRefreshOptions): AutoRefreshStatus {
   const { state } = useDSHub();
   const connected = !!state.connection?.connected;
   const actualName = lookupName(source, address);
 
-  useEffect(() => {
-    if (isEditMode || !connected) return;
-    if (!mapManager.isInitialized() || !actualName) return;
+  const targets = useMemo(
+    () => (actualName ? [{ source, address, name: actualName }] : []),
+    [source, address, actualName]
+  );
 
-    return pollRegistry.subscribe({ source, address, name: actualName }, refreshInterval);
-  }, [source, address, refreshInterval, isEditMode, connected, actualName]);
+  usePolledTargets(targets, refreshInterval, !isEditMode && connected && mapManager.isInitialized());
 
   if (!isEditMode && connected) {
     if (!mapManager.isInitialized()) {

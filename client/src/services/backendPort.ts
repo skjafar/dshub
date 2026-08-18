@@ -24,6 +24,7 @@ import type {
   RegisterData,
 } from '../types/shared';
 import type { LogSettings } from '../types/settings';
+import type { DataSource } from '../types/dashboard';
 
 /** A host save dialog request. These four always travel together. */
 export interface SaveTextRequest {
@@ -64,6 +65,23 @@ export interface DevicePort {
   startPlotting(registerName: string, pollInterval: number, address: number): Promise<void>;
   startPlottingSysRegister(registerName: string, pollInterval: number, address: number): Promise<void>;
   stopPlotting(registerName: string): Promise<void>;
+
+  /**
+   * Registers interest in an address with the backend's own per-address poll
+   * subscription mechanism — Rust in the real transport, a mirroring
+   * mechanism in the fake. N callers subscribed to the same address cost one
+   * device read, at the fastest currently-requested interval among them, and
+   * a brand-new address is read immediately rather than waiting for its
+   * first natural tick.
+   *
+   * Resolves once the subscription is registered, with the id
+   * {@link unsubscribeAddress} needs to release it — mirrors
+   * `pollRegistry.ts`'s subscribe()-returns-an-unsubscriber shape, just
+   * across the IPC boundary, where a closure cannot cross.
+   */
+  subscribeAddress(source: DataSource, address: number, name: string, intervalMs: number): Promise<number>;
+  /** Releases a subscription. Safe to call more than once. */
+  unsubscribeAddress(id: number): Promise<void>;
 
   updateLogSettings(settings: LogSettings): Promise<void>;
 }

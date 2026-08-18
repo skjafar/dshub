@@ -315,6 +315,122 @@ describe('fake backend port — plotting', () => {
   });
 });
 
+describe('fake backend port — address subscriptions', () => {
+  /** A port whose repeating timers the test fires by hand. */
+  function withTimers() {
+    const clock = { ms: 1_700_000_000_000 };
+    const timers: Array<{ fn: () => void; ms: number }> = [];
+    const port = createFakeBackendPort({
+      deliver: fn => fn(),
+      now: () => clock.ms,
+      scheduleRepeating: (fn, ms) => {
+        const timer = { fn, ms };
+        timers.push(timer);
+        return () => { timers.splice(timers.indexOf(timer), 1); };
+      },
+    });
+    return { port, clock, timers };
+  }
+
+  it('reads a brand-new subscription immediately, without waiting for the first tick', async () => {
+    const { port, timers } = withTimers();
+    const updates: RegisterData[] = [];
+    await port.events.on('registerUpdate', r => updates.push(r));
+    await port.device.connect('10.0.0.7', InterfaceType.TCP);
+
+    await port.device.subscribeAddress('register', 4, 'SPINDLE_RPM', 500);
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({ address: 4, name: 'SPINDLE_RPM' });
+    expect(timers).toHaveLength(1);
+    expect(timers[0].ms).toBe(500);
+  });
+
+  it('coalesces several subscriptions to one address into a single timer, at the fastest requested rate', async () => {
+    const { port, timers } = withTimers();
+    await port.device.connect('10.0.0.7', InterfaceType.TCP);
+
+    await port.device.subscribeAddress('register', 4, 'SPINDLE_RPM', 1000);
+    await port.device.subscribeAddress('register', 4, 'SPINDLE_RPM', 100);
+    await port.device.subscribeAddress('register', 4, 'SPINDLE_RPM', 500);
+
+    expect(timers).toHaveLength(1);
+    expect(timers[0].ms).toBe(100);
+  });
+
+  it('reverts to what remains once the fastest subscriber unsubscribes', async () => {
+    const { port, timers } = withTimers();
+    await port.device.connect('10.0.0.7', InterfaceType.TCP);
+
+    const slow = await port.device.subscribeAddress('register', 4, 'SPINDLE_RPM', 1000);
+    const fast = await port.device.subscribeAddress('register', 4, 'SPINDLE_RPM', 100);
+    expect(timers[0].ms).toBe(100);
+
+    await port.device.unsubscribeAddress(fast);
+    expect(timers[0].ms).toBe(1000);
+
+    await port.device.unsubscribeAddress(slow);
+    expect(timers).toHaveLength(0);
+  });
+
+  it('unsubscribing more than once is safe', async () => {
+    const { port, timers } = withTimers();
+    await port.device.connect('10.0.0.7', InterfaceType.TCP);
+
+    const id = await port.device.subscribeAddress('register', 4, 'SPINDLE_RPM', 500);
+    await port.device.unsubscribeAddress(id);
+    expect(timers).toHaveLength(0);
+
+    await expect(port.device.unsubscribeAddress(id)).resolves.toBeUndefined();
+    expect(timers).toHaveLength(0);
+  });
+
+  it('keeps the same numeric address on different sources independent', async () => {
+    const { port, timers } = withTimers();
+    const registers: RegisterData[] = [];
+    const sysRegisters: RegisterData[] = [];
+    await port.events.on('registerUpdate', r => registers.push(r));
+    await port.events.on('sysRegisterUpdate', r => sysRegisters.push(r));
+    await port.device.connect('10.0.0.7', InterfaceType.TCP);
+
+    await port.device.subscribeAddress('register', 2, 'R', 500);
+    await port.device.subscribeAddress('sysRegister', 2, 'S', 200);
+
+    expect(timers).toHaveLength(2);
+    expect(registers).toHaveLength(1);
+    expect(sysRegisters).toHaveLength(1);
+  });
+
+  it('holds the backend\'s 50 ms floor on the subscription interval', async () => {
+    const { port, timers } = withTimers();
+    await port.device.connect('10.0.0.7', InterfaceType.TCP);
+
+    await port.device.subscribeAddress('register', 4, 'SPINDLE_RPM', 1);
+
+    expect(timers[0]?.ms).toBe(50);
+  });
+
+  it('resumes a still-registered subscription after a reconnect, with no need to subscribe again', async () => {
+    const { port, timers } = withTimers();
+    const updates: RegisterData[] = [];
+    await port.events.on('registerUpdate', r => updates.push(r));
+    await port.device.connect('10.0.0.7', InterfaceType.TCP);
+
+    await port.device.subscribeAddress('register', 4, 'SPINDLE_RPM', 500);
+    expect(timers).toHaveLength(1);
+    updates.length = 0;
+
+    // The link drops — subscriptions stop producing, but stay registered.
+    port.faults.dropLink();
+    expect(timers).toHaveLength(0);
+
+    // Reconnecting resumes it on its own: a fresh read, and its timer back.
+    await port.device.connect('10.0.0.7', InterfaceType.TCP);
+    expect(updates).toHaveLength(1);
+    expect(timers).toHaveLength(1);
+  });
+});
+
 describe('fake backend port — Commands', () => {
   it('acknowledges a Command with a log entry naming it', async () => {
     const port = immediate();

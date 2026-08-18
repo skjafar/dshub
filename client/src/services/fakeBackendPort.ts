@@ -15,6 +15,7 @@ import {
   InterfaceType,
 } from '../types/shared';
 import type { DeviceConnection, DiscoveredDevice, RegisterData } from '../types/shared';
+import type { DataSource } from '../types/dashboard';
 import { floatToInt32 } from '../utils/floatConversion';
 import type {
   BackendEventMap,
@@ -228,6 +229,134 @@ class FakeEventBus {
   }
 }
 
+/** The backend's own floor (`poll.rs`'s `MIN_INTERVAL_MS`), matched here so a
+ *  fast subscription behaves identically against the fake and the real link. */
+const ADDRESS_POLL_FLOOR_MS = 50;
+
+/**
+ * Mirrors `src-tauri/src/poll.rs`'s per-address subscription mechanism
+ * closely enough that behaviour observed against the fake matches the real
+ * backend: N subscribers to one address cost one scheduled read, at the
+ * fastest currently-requested interval among them; a brand-new address reads
+ * immediately; and subscriber bookkeeping survives a dropped and
+ * re-established link untouched — only an explicit unsubscribe removes an
+ * entry, exactly as the real subscriber list outlives a reconnect.
+ *
+ * Deliberately its own implementation rather than an instance of
+ * `PollRegistry` (`pollRegistry.ts`) wearing this shape — the two solve the
+ * same coalescing problem, but this is the fake's stand-in for what Rust now
+ * owns, and `pollRegistry.ts` is on its way out once every caller has moved
+ * off it (`.scratch/rust-owned-polling` issue 05).
+ */
+class AddressSubscriptions {
+  private nextId = 1;
+  private subscribers = new Map<number, { addressKey: string; intervalMs: number }>();
+  private addresses = new Map<
+    string,
+    {
+      source: DataSource;
+      address: number;
+      name: string;
+      subscriberIds: Set<number>;
+      currentIntervalMs: number | null;
+      cancel: (() => void) | null;
+    }
+  >();
+  private enabled = false;
+
+  constructor(
+    private readonly emitReading: (source: DataSource, address: number, name: string) => void,
+    private readonly scheduleRepeating: ScheduleRepeating
+  ) {}
+
+  /** Toggled alongside the link — connect/disconnect/dropLink all call this. */
+  setEnabled(enabled: boolean): void {
+    if (this.enabled === enabled) return;
+    this.enabled = enabled;
+    for (const [addressKey, entry] of this.addresses) {
+      this.reschedule(addressKey, entry);
+      // Resuming behaves like the real backend's task respawn: a fresh timer
+      // reads at once rather than waiting out its first period.
+      if (enabled) this.emitReading(entry.source, entry.address, entry.name);
+    }
+  }
+
+  subscribe(source: DataSource, address: number, name: string, intervalMs: number): number {
+    const addressKey = `${source}:${address}`;
+    const id = this.nextId++;
+    this.subscribers.set(id, { addressKey, intervalMs: Math.max(ADDRESS_POLL_FLOOR_MS, intervalMs) });
+
+    let entry = this.addresses.get(addressKey);
+    const isNewAddress = !entry;
+    if (!entry) {
+      entry = { source, address, name, subscriberIds: new Set(), currentIntervalMs: null, cancel: null };
+      this.addresses.set(addressKey, entry);
+    }
+    entry.subscriberIds.add(id);
+
+    this.reschedule(addressKey, entry);
+    // A brand-new address reads immediately rather than waiting for its first
+    // tick; an address that already had subscribers already has a recent
+    // reading on screen, so no separate immediate read is needed for it.
+    if (isNewAddress && this.enabled) this.emitReading(entry.source, entry.address, entry.name);
+
+    return id;
+  }
+
+  unsubscribe(id: number): void {
+    const sub = this.subscribers.get(id);
+    if (!sub) return; // unknown or already-removed id — safe to call more than once
+    this.subscribers.delete(id);
+
+    const entry = this.addresses.get(sub.addressKey);
+    if (!entry) return;
+    entry.subscriberIds.delete(id);
+
+    if (entry.subscriberIds.size === 0) {
+      entry.cancel?.();
+      this.addresses.delete(sub.addressKey);
+      return;
+    }
+    this.reschedule(sub.addressKey, entry);
+  }
+
+  private fastestInterval(entry: { subscriberIds: Set<number> }): number | null {
+    let fastest: number | null = null;
+    for (const id of entry.subscriberIds) {
+      const intervalMs = this.subscribers.get(id)?.intervalMs;
+      if (intervalMs !== undefined && (fastest === null || intervalMs < fastest)) fastest = intervalMs;
+    }
+    return fastest;
+  }
+
+  /** Spawns, respawns or stops an address's timer to match its current
+   *  fastest requested interval. A no-op when nothing has actually changed. */
+  private reschedule(
+    addressKey: string,
+    entry: {
+      source: DataSource;
+      address: number;
+      name: string;
+      subscriberIds: Set<number>;
+      currentIntervalMs: number | null;
+      cancel: (() => void) | null;
+    }
+  ): void {
+    const interval = this.enabled ? this.fastestInterval(entry) : null;
+    if (interval === entry.currentIntervalMs) return;
+
+    entry.cancel?.();
+    entry.cancel = null;
+    entry.currentIntervalMs = interval;
+    if (interval === null) return;
+
+    entry.cancel = this.scheduleRepeating(
+      () => this.emitReading(entry.source, entry.address, entry.name),
+      interval
+    );
+  }
+}
+
 /**
  * The fake's misbehaviour switches.
  *
@@ -395,6 +524,17 @@ export function createFakeBackendPort(options: FakeBackendPortOptions = {}): Fak
     });
   };
 
+  const addressSubscriptions = new AddressSubscriptions((source, address, name) => {
+    if (source !== 'register' && source !== 'parameter' && source !== 'sysRegister') {
+      throw new Error(`subscribeAddress: '${source}' is a Command, not a pollable Address Space`);
+    }
+    deliver(() => {
+      const event =
+        source === 'register' ? 'registerUpdate' : source === 'parameter' ? 'parameterUpdate' : 'sysRegisterUpdate';
+      bus.emit(event, reading(source, address, name));
+    });
+  }, scheduleRepeating);
+
   return {
     device: {
       startScan: async () => {
@@ -417,6 +557,13 @@ export function createFakeBackendPort(options: FakeBackendPortOptions = {}): Fak
           controlState,
           deviceName: deviceName ?? device.board_name,
         };
+        // Unlike plots (stopped on disconnect, cleared here, not resumed),
+        // address subscriptions are never cleared by connect/disconnect — a
+        // subscription belongs to a mounted widget, not to whichever device
+        // answers it, mirroring `poll.rs`'s `resume_poll_subscriptions`. This
+        // is what "resuming across a simulated reconnect" means for the fake:
+        // enabling delivery again resumes every subscription still registered.
+        addressSubscriptions.setEnabled(true);
         deliver(announceLink);
       },
 
@@ -425,6 +572,7 @@ export function createFakeBackendPort(options: FakeBackendPortOptions = {}): Fak
         // An explicit disconnect discards plot registrations, as the backend's
         // does; only an automatic reconnect of the same connection resumes them.
         stopAllPlots();
+        addressSubscriptions.setEnabled(false);
         link = { ...link, connected: false, reconnecting: false };
         deliver(announceLink);
       },
@@ -536,6 +684,12 @@ export function createFakeBackendPort(options: FakeBackendPortOptions = {}): Fak
         plots.delete(registerName);
       },
 
+      subscribeAddress: async (source: DataSource, address: number, name: string, intervalMs: number) =>
+        addressSubscriptions.subscribe(source, address, name, intervalMs),
+      unsubscribeAddress: async (id: number) => {
+        addressSubscriptions.unsubscribe(id);
+      },
+
       updateLogSettings: async () => {},
     },
 
@@ -565,6 +719,9 @@ export function createFakeBackendPort(options: FakeBackendPortOptions = {}): Fak
         // and leaving them running would keep drawing through the outage.
         for (const cancel of plots.values()) cancel();
         plots.clear();
+        // Address subscriptions stop producing too, but stay registered — a
+        // later `connect()` resumes them, same as a real reconnect.
+        addressSubscriptions.setEnabled(false);
         // The backend reports an unresponsive Device as reconnecting rather than
         // cleanly disconnected, which is a different state on screen.
         link = { ...link, connected: false, reconnecting: true };

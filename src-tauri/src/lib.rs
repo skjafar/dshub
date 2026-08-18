@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod communicator;
+pub mod poll;
 pub mod poll_spike;
 pub mod scanner;
 pub mod spike;
@@ -43,6 +44,8 @@ macro_rules! invoke_handler {
             commands::save_csv,
             commands::save_text_file,
             commands::save_pdf_file,
+            poll::subscribe_address,
+            poll::unsubscribe_address,
             $($extra,)*
         ]
     };
