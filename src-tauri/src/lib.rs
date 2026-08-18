@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod communicator;
+pub mod poll_spike;
 pub mod scanner;
 pub mod spike;
 pub mod types;
@@ -78,7 +79,13 @@ pub fn run() {
     // pin that parameter against until the builder sees it.
     type Handler = fn(tauri::ipc::Invoke<tauri::Wry>) -> bool;
     #[cfg(debug_assertions)]
-    let handler: Handler = invoke_handler![spike::spike_report];
+    let handler: Handler = invoke_handler![
+        spike::spike_report,
+        poll_spike::spike_start_poll_load,
+        poll_spike::spike_poll_load_status,
+        poll_spike::spike_resume_poll_load,
+        poll_spike::spike_stop_poll_load,
+    ];
     #[cfg(not(debug_assertions))]
     let handler: Handler = invoke_handler![];
 

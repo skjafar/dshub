@@ -31,6 +31,11 @@ if (import.meta.env.VITE_DSHUB_SPIKE === 'popout') {
   void import('./spike/PopoutSpike').then(({ PopoutSpike }) => {
     root.render(<PopoutSpike />);
   });
+} else if (import.meta.env.VITE_DSHUB_SPIKE === 'poll-load') {
+  // `.scratch/rust-owned-polling` issue 01 — see `spike/PollLoadSpike.tsx`.
+  void import('./spike/PollLoadSpike').then(({ PollLoadSpike }) => {
+    root.render(<PollLoadSpike />);
+  });
 } else {
   root.render(
     <React.StrictMode>
