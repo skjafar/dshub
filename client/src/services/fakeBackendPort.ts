@@ -242,11 +242,11 @@ const ADDRESS_POLL_FLOOR_MS = 50;
  * re-established link untouched — only an explicit unsubscribe removes an
  * entry, exactly as the real subscriber list outlives a reconnect.
  *
- * Deliberately its own implementation rather than an instance of
- * `PollRegistry` (`pollRegistry.ts`) wearing this shape — the two solve the
- * same coalescing problem, but this is the fake's stand-in for what Rust now
- * owns, and `pollRegistry.ts` is on its way out once every caller has moved
- * off it (`.scratch/rust-owned-polling` issue 05).
+ * Deliberately its own implementation rather than sharing code with
+ * `poll.rs` — this is the fake's stand-in for what Rust now owns, mirroring
+ * its behaviour rather than reusing its implementation, since the two run in
+ * different languages either side of the IPC boundary this class stands in
+ * for.
  */
 class AddressSubscriptions {
   private nextId = 1;

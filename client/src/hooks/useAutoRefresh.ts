@@ -2,8 +2,14 @@ import { useEffect, useMemo } from 'react';
 import { useBackendPort } from '../contexts/BackendPortContext';
 import { useDSHub } from '../contexts/DSHubContext';
 import { mapManager } from '../maps/mapManager';
-import type { PollTarget } from '../services/pollRegistry';
 import type { DataSource } from '../types/dashboard';
+
+export interface PollTarget {
+  source: DataSource;
+  address: number;
+  /** Resolved register/parameter name, required by the backend read commands. */
+  name: string;
+}
 
 /**
  * Declares interest in a set of already-resolved addresses.

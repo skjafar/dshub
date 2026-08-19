@@ -112,6 +112,32 @@ than through `DSHubContext` — the device half of the application context stays
 untouched by this ticket, since the Pane needing the answer is reason enough to
 read it at the boundary without adding a case to frozen reducer state for it.
 
+## Amendment — poll coalescing moves from the browser to Rust
+
+`.scratch/rust-owned-polling` is a separate initiative from the interface
+rebuild, but it changes an invariant this ADR names directly, so the change is
+recorded here rather than only in that effort's own tickets.
+
+`services/pollRegistry.ts` — the frozen module this ADR's opening paragraph
+named as holding "correctness a visual review cannot catch" — coalesced every
+periodic read in the browser: one `setInterval` per distinct address, at the
+fastest interval any subscriber asked for. That ownership has moved. Issue 03
+gave the backend its own per-address subscription mechanism
+(`src-tauri/src/poll.rs`), reached through the device port's
+`subscribeAddress`/`unsubscribeAddress`; issue 04 moved bulk auto-refresh onto
+the same mechanism; this ticket (issue 05) deleted `pollRegistry.ts` once
+nothing remaining called it, `useAutoRefresh.ts`'s `usePolledTargets` now
+being the one place a surface declares interest. `fakeBackendPort.ts` mirrors
+`poll.rs`'s coalescing behaviour for browser development and tests, the same
+role the fake port plays for every other device operation.
+
+What did not move: response correlation (`response_matches`, matching each
+reply to its request by address), request serialization (the link is still
+strictly request/response, one in flight at a time), and the rate limiter.
+Coalescing which reads get *issued* is a different concern from *how* an
+issued read is sent and matched to its answer, and only the former changed
+hands.
+
 ## Consequences
 
 The presentation semantics that happened to live outside `components/` are *in* scope, despite sitting in the same directories as frozen code: the widget config schema in `types/dashboard.ts`, the `UserSettings` shape, the canned CNC dashboard, and the widget icon map. The boundary is what the code means, not where it sits.

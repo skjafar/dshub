@@ -214,17 +214,22 @@ happened to open.
   transport (`tauriBackendPort.ts`) inside the desktop app, or the fake
   (`fakeBackendPort.ts`) in a plain browser and in every test — so nothing
   above it has to know which one it is talking to.
-- `services/pollRegistry.ts` coalesces all periodic reads, issued through the
-  port. Widgets and Panes declare interest via `useAutoRefresh`; the registry
-  issues one request per distinct address at the fastest requested interval.
-  Never issue a periodic device read outside the registry — the link is
-  strictly request/response, so duplicate polls directly cost latency. This
-  and the point below are frozen: the interface rebuild's only permitted
-  change to either was the mechanical substitution of port calls for direct
-  transport calls, never a change in logic.
+- Periodic reads are coalesced by the backend's own per-address subscription
+  mechanism (`src-tauri/src/poll.rs`), reached through the port's
+  `subscribeAddress`/`unsubscribeAddress`; `fakeBackendPort.ts` mirrors it for
+  browser development and tests. Widgets and Panes declare interest via
+  `useAutoRefresh`'s `usePolledTargets` (`hooks/useAutoRefresh.ts`) — the one
+  place a surface subscribes — which issues one request per distinct address
+  at the fastest requested interval. Never issue a periodic device read
+  outside this mechanism — the link is strictly request/response, so
+  duplicate polls directly cost latency. This used to be a browser-side
+  module, `services/pollRegistry.ts`; `.scratch/rust-owned-polling` moved the
+  coalescing itself to Rust and the module is gone (ADR 0003's amendment).
 - The Rust communicator correlates each response to its request by address
   (`response_matches`). Do not remove this: without it, one timed-out request
-  permanently shifts every later value onto the wrong register.
+  permanently shifts every later value onto the wrong register. Response
+  correlation, request serialization and the rate limiter are frozen and were
+  untouched by the poll-coalescing migration above.
 
 ## Playwright / Browser Screenshots
 

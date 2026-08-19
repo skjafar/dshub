@@ -4,8 +4,9 @@
  * A bare address is meaningless without knowing which space it belongs to —
  * address 2 is a different thing in each — so every selection, every read and
  * every Inspector reading carries one. The discriminants match the `DataSource`
- * strings `pollRegistry` already keys by, so a Pane's space passes straight
- * through to a poll subscription without a translation table in between.
+ * strings the backend's per-address poll subscription mechanism already keys
+ * by, so a Pane's space passes straight through to a poll subscription
+ * without a translation table in between.
  */
 
 import { DataAccessPermit } from '../maps/mapParser';

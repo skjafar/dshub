@@ -6,8 +6,7 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { BackendPortProvider } from '../../contexts/BackendPortContext';
 import { createFakeBackendPort } from '../../services/fakeBackendPort';
 import type { BackendPort } from '../../services/backendPort';
-import type { PollTarget } from '../../services/pollRegistry';
-import { usePolledTargets } from '../useAutoRefresh';
+import { usePolledTargets, type PollTarget } from '../useAutoRefresh';
 
 afterEach(cleanup);
 

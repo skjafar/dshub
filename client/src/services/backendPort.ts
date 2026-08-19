@@ -75,9 +75,9 @@ export interface DevicePort {
    * first natural tick.
    *
    * Resolves once the subscription is registered, with the id
-   * {@link unsubscribeAddress} needs to release it — mirrors
-   * `pollRegistry.ts`'s subscribe()-returns-an-unsubscriber shape, just
-   * across the IPC boundary, where a closure cannot cross.
+   * {@link unsubscribeAddress} needs to release it — a subscribe()-returns-
+   * an-unsubscriber shape carried across the IPC boundary, where a closure
+   * cannot cross.
    */
   subscribeAddress(source: DataSource, address: number, name: string, intervalMs: number): Promise<number>;
   /** Releases a subscription. Safe to call more than once. */
