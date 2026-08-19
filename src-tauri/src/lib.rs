@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod communicator;
+pub mod daughter_window_spike;
 pub mod poll;
 pub mod poll_spike;
 pub mod scanner;
@@ -88,6 +89,7 @@ pub fn run() {
         poll_spike::spike_poll_load_status,
         poll_spike::spike_resume_poll_load,
         poll_spike::spike_stop_poll_load,
+        daughter_window_spike::spike_open_daughter_windows,
     ];
     #[cfg(not(debug_assertions))]
     let handler: Handler = invoke_handler![];

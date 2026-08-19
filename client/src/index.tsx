@@ -36,6 +36,11 @@ if (import.meta.env.VITE_DSHUB_SPIKE === 'popout') {
   void import('./spike/PollLoadSpike').then(({ PollLoadSpike }) => {
     root.render(<PollLoadSpike />);
   });
+} else if (import.meta.env.VITE_DSHUB_SPIKE === 'daughter-window') {
+  // `.scratch/daughter-windows-native` issue 01 — see `spike/DaughterWindowSpike.tsx`.
+  void import('./spike/DaughterWindowSpike').then(({ DaughterWindowSpike }) => {
+    root.render(<DaughterWindowSpike />);
+  });
 } else {
   root.render(
     <React.StrictMode>
