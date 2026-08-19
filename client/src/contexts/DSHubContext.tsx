@@ -12,7 +12,6 @@ import {
 } from '../types/shared';
 import { LogSettings } from '../types/settings';
 import { useSettings } from './SettingsContext';
-import { pollRegistry } from '../services/pollRegistry';
 
 // Helper function to check if a log category should be logged based on settings
 function shouldLogCategory(category: LogCategory, logSettings: LogSettings): boolean {
@@ -52,13 +51,6 @@ interface DSHubState {
   plotTimeSpans: Map<string, number>;
   plotPaused: boolean;
   connecting: boolean;
-  autoRefresh: {
-    enabled: boolean;
-    interval: number;
-    activeAddresses: Set<number>;
-    activeParameterAddresses: Set<number>;
-    activeSystemAddresses: Set<number>;
-  };
 }
 
 type DSHubAction =
@@ -84,14 +76,6 @@ type DSHubAction =
   | { type: 'CLEAR_REGISTERS' }
   | { type: 'CLEAR_PARAMETERS' }
   | { type: 'CLEAR_SYSTEM_REGISTERS' }
-  | { type: 'SET_AUTO_REFRESH'; payload: { enabled: boolean; interval?: number } }
-  | { type: 'ADD_AUTO_REFRESH_REGISTER'; payload: number }
-  | { type: 'REMOVE_AUTO_REFRESH_REGISTER'; payload: number }
-  | { type: 'ADD_AUTO_REFRESH_PARAMETER'; payload: number }
-  | { type: 'REMOVE_AUTO_REFRESH_PARAMETER'; payload: number }
-  | { type: 'ADD_AUTO_REFRESH_SYSTEM_REGISTER'; payload: number }
-  | { type: 'REMOVE_AUTO_REFRESH_SYSTEM_REGISTER'; payload: number }
-  | { type: 'CLEAR_AUTO_REFRESH_ADDRESSES' }
   | { type: 'SET_CONNECTING'; payload: boolean };
 
 const initialState: DSHubState = {
@@ -111,13 +95,6 @@ const initialState: DSHubState = {
   plotTimeSpans: new Map(),
   plotPaused: false,
   connecting: false,
-  autoRefresh: {
-    enabled: false,
-    interval: 1000,
-    activeAddresses: new Set<number>(),
-    activeParameterAddresses: new Set<number>(),
-    activeSystemAddresses: new Set<number>(),
-  },
 };
 
 function createDSHubReducer(getLogSettings: () => LogSettings) {
@@ -278,81 +255,6 @@ function createDSHubReducer(getLogSettings: () => LogSettings) {
         if (state.systemRegisters.size === 0) return state;
         return { ...state, systemRegisters: new Map() };
 
-      case 'SET_AUTO_REFRESH': {
-        const nextInterval = action.payload.interval ?? state.autoRefresh.interval;
-        if (state.autoRefresh.enabled === action.payload.enabled && state.autoRefresh.interval === nextInterval) {
-          return state;
-        }
-        return {
-          ...state,
-          autoRefresh: {
-            ...state.autoRefresh,
-            enabled: action.payload.enabled,
-            interval: nextInterval,
-          },
-        };
-      }
-
-      case 'ADD_AUTO_REFRESH_REGISTER': {
-        if (state.autoRefresh.activeAddresses.has(action.payload)) return state;
-        const newActiveAddresses = new Set(state.autoRefresh.activeAddresses);
-        newActiveAddresses.add(action.payload);
-        return { ...state, autoRefresh: { ...state.autoRefresh, activeAddresses: newActiveAddresses } };
-      }
-
-      case 'REMOVE_AUTO_REFRESH_REGISTER': {
-        if (!state.autoRefresh.activeAddresses.has(action.payload)) return state;
-        const filteredAddresses = new Set(state.autoRefresh.activeAddresses);
-        filteredAddresses.delete(action.payload);
-        return { ...state, autoRefresh: { ...state.autoRefresh, activeAddresses: filteredAddresses } };
-      }
-
-      case 'ADD_AUTO_REFRESH_PARAMETER': {
-        if (state.autoRefresh.activeParameterAddresses.has(action.payload)) return state;
-        const newActiveParamAddresses = new Set(state.autoRefresh.activeParameterAddresses);
-        newActiveParamAddresses.add(action.payload);
-        return { ...state, autoRefresh: { ...state.autoRefresh, activeParameterAddresses: newActiveParamAddresses } };
-      }
-
-      case 'REMOVE_AUTO_REFRESH_PARAMETER': {
-        if (!state.autoRefresh.activeParameterAddresses.has(action.payload)) return state;
-        const filteredParamAddresses = new Set(state.autoRefresh.activeParameterAddresses);
-        filteredParamAddresses.delete(action.payload);
-        return { ...state, autoRefresh: { ...state.autoRefresh, activeParameterAddresses: filteredParamAddresses } };
-      }
-
-      case 'ADD_AUTO_REFRESH_SYSTEM_REGISTER': {
-        if (state.autoRefresh.activeSystemAddresses.has(action.payload)) return state;
-        const s = new Set(state.autoRefresh.activeSystemAddresses);
-        s.add(action.payload);
-        return { ...state, autoRefresh: { ...state.autoRefresh, activeSystemAddresses: s } };
-      }
-
-      case 'REMOVE_AUTO_REFRESH_SYSTEM_REGISTER': {
-        if (!state.autoRefresh.activeSystemAddresses.has(action.payload)) return state;
-        const s = new Set(state.autoRefresh.activeSystemAddresses);
-        s.delete(action.payload);
-        return { ...state, autoRefresh: { ...state.autoRefresh, activeSystemAddresses: s } };
-      }
-
-      case 'CLEAR_AUTO_REFRESH_ADDRESSES':
-        if (
-          state.autoRefresh.activeAddresses.size === 0 &&
-          state.autoRefresh.activeParameterAddresses.size === 0 &&
-          state.autoRefresh.activeSystemAddresses.size === 0
-        ) {
-          return state;
-        }
-        return {
-          ...state,
-          autoRefresh: {
-            ...state.autoRefresh,
-            activeAddresses: new Set<number>(),
-            activeParameterAddresses: new Set<number>(),
-            activeSystemAddresses: new Set<number>(),
-          },
-        };
-
       default:
         return state;
     }
@@ -383,16 +285,8 @@ interface DSHubContextType {
     markLogsRead: () => void;
     clearRegisters: () => void;
     clearParameters: () => void;
-    setAutoRefresh: (enabled: boolean, interval?: number) => void;
-    addAutoRefreshRegister: (address: number) => void;
-    removeAutoRefreshRegister: (address: number) => void;
-    addAutoRefreshParameter: (address: number) => void;
-    removeAutoRefreshParameter: (address: number) => void;
     readSystemRegister: (address: number, name?: string) => void;
     writeSystemRegister: (address: number, value: number) => void;
-    addAutoRefreshSystemRegister: (address: number) => void;
-    removeAutoRefreshSystemRegister: (address: number) => void;
-    clearAutoRefreshAddresses: () => void;
   };
 }
 
@@ -424,14 +318,8 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
 
   const [state, dispatch] = useReducer(dsHubReducer, initialState);
   const connectionRef = React.useRef<DeviceConnection | null>(null);
-  const registersRef = React.useRef<Map<number, RegisterData>>(new Map());
-  const parametersRef = React.useRef<Map<number, ParameterData>>(new Map());
-  const systemRegistersRef = React.useRef<Map<number, RegisterData>>(new Map());
 
   React.useEffect(() => { connectionRef.current = state.connection; }, [state.connection]);
-  React.useEffect(() => { registersRef.current = state.registers; }, [state.registers]);
-  React.useEffect(() => { parametersRef.current = state.parameters; }, [state.parameters]);
-  React.useEffect(() => { systemRegistersRef.current = state.systemRegisters; }, [state.systemRegisters]);
 
   // ── Log batching ──────────────────────────────────────────────────────────
   // A busy link produces a log entry per response. Dispatching each one
@@ -583,68 +471,10 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
     port.device.updateLogSettings(settings.logSettings).catch(console.error);
   }, [port, settings.logSettings]);
 
-  // ── Polling ───────────────────────────────────────────────────────────────
-  // Panel and widget refreshes share one coalesced poller, so a register watched
-  // from several places costs one device round-trip rather than one per watcher.
-  // See services/pollRegistry.ts.
-
-  useEffect(() => {
-    pollRegistry.setReader((source, address, name) => {
-      if (!connectionRef.current?.connected) return;
-      const read =
-        source === 'register'
-          ? port.device.readRegister(address, name)
-          : source === 'sysRegister'
-            ? port.device.readSystemRegister(address, name)
-            : port.device.readParameter(address, name);
-      read.catch(console.error);
-    });
-  }, [port]);
-
-  useEffect(() => {
-    pollRegistry.setEnabled(!!state.connection?.connected);
-  }, [state.connection?.connected]);
-
-  // The Registers and Parameters panels express their auto-refresh selection as
-  // address sets in state; mirror those into the shared registry.
-  useEffect(() => {
-    if (!state.autoRefresh.enabled) return;
-
-    const unsubscribes: Array<() => void> = [];
-    const interval = state.autoRefresh.interval;
-
-    const subscribeAll = (
-      addresses: Set<number>,
-      source: 'register' | 'parameter' | 'sysRegister',
-      lookup: Map<number, { name: string }>
-    ) => {
-      addresses.forEach(address => {
-        const name = lookup.get(address)?.name ?? '';
-        if (!name) return;
-        unsubscribes.push(pollRegistry.subscribe({ source, address, name }, interval));
-      });
-    };
-
-    subscribeAll(state.autoRefresh.activeAddresses, 'register', registersRef.current);
-    subscribeAll(state.autoRefresh.activeParameterAddresses, 'parameter', parametersRef.current);
-    subscribeAll(state.autoRefresh.activeSystemAddresses, 'sysRegister', systemRegistersRef.current);
-
-    return () => unsubscribes.forEach(u => u());
-  }, [
-    state.autoRefresh.enabled,
-    state.autoRefresh.interval,
-    state.autoRefresh.activeAddresses,
-    state.autoRefresh.activeParameterAddresses,
-    state.autoRefresh.activeSystemAddresses,
-  ]);
-
   // ── Actions ───────────────────────────────────────────────────────────────
   // Memoised once for the provider's lifetime. `dispatch` is stable and every
   // action closes only over it (or over a ref), so consumers can safely list
   // `actions` in effect dependency arrays without re-running every render.
-
-  const autoRefreshIntervalRef = React.useRef(state.autoRefresh.interval);
-  autoRefreshIntervalRef.current = state.autoRefresh.interval;
 
   const actions = useMemo<DSHubContextType['actions']>(() => ({
     startScan: () => {
@@ -753,21 +583,6 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
     clearRegisters: () => dispatch({ type: 'CLEAR_REGISTERS' }),
     clearParameters: () => dispatch({ type: 'CLEAR_PARAMETERS' }),
 
-    setAutoRefresh: (enabled: boolean, interval?: number) => {
-      dispatch({ type: 'SET_AUTO_REFRESH', payload: { enabled, interval } });
-      dispatch({ type: 'ADD_LOG_ENTRY', payload: {
-        level: 'info',
-        category: 'autoRefresh',
-        message: enabled ? `Auto-refresh enabled (${interval || autoRefreshIntervalRef.current}ms interval)` : 'Auto-refresh disabled',
-        timestamp: Date.now()
-      }});
-    },
-
-    addAutoRefreshRegister: (address: number) => dispatch({ type: 'ADD_AUTO_REFRESH_REGISTER', payload: address }),
-    removeAutoRefreshRegister: (address: number) => dispatch({ type: 'REMOVE_AUTO_REFRESH_REGISTER', payload: address }),
-    addAutoRefreshParameter: (address: number) => dispatch({ type: 'ADD_AUTO_REFRESH_PARAMETER', payload: address }),
-    removeAutoRefreshParameter: (address: number) => dispatch({ type: 'REMOVE_AUTO_REFRESH_PARAMETER', payload: address }),
-
     readSystemRegister: (address: number, name?: string) => {
       port.device.readSystemRegister(address, name ?? '').catch(console.error);
     },
@@ -777,10 +592,6 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
         dispatch({ type: 'ADD_LOG_ENTRY', payload: { level: 'error', category: 'register', message: `Write system register failed: ${err}`, timestamp: Date.now() } })
       );
     },
-
-    addAutoRefreshSystemRegister: (address: number) => dispatch({ type: 'ADD_AUTO_REFRESH_SYSTEM_REGISTER', payload: address }),
-    removeAutoRefreshSystemRegister: (address: number) => dispatch({ type: 'REMOVE_AUTO_REFRESH_SYSTEM_REGISTER', payload: address }),
-    clearAutoRefreshAddresses: () => dispatch({ type: 'CLEAR_AUTO_REFRESH_ADDRESSES' }),
   }), [port]);
 
   const value = useMemo<DSHubContextType>(() => ({ state, actions }), [state, actions]);

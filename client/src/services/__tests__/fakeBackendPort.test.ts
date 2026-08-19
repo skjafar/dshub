@@ -332,6 +332,29 @@ describe('fake backend port — address subscriptions', () => {
     return { port, clock, timers };
   }
 
+  it('registers interest before any connection exists, and only starts reading once one does', async () => {
+    // `.scratch/rust-owned-polling` issue 04: a Pane's bulk "Live" refresh (and
+    // any individually-bound widget) may declare interest before the Device is
+    // ever reached — `poll.rs`'s own `subscribe_address` never requires a link,
+    // only `reschedule_address`'s actual read does. Every other case in this
+    // describe block connects before subscribing; this one deliberately does
+    // not.
+    const { port, timers } = withTimers();
+    const updates: RegisterData[] = [];
+    await port.events.on('registerUpdate', r => updates.push(r));
+
+    const id = await port.device.subscribeAddress('register', 4, 'SPINDLE_RPM', 500);
+    expect(id).toEqual(expect.any(Number));
+    expect(updates).toHaveLength(0);
+    expect(timers).toHaveLength(0);
+
+    await port.device.connect('10.0.0.7', InterfaceType.TCP);
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({ address: 4, name: 'SPINDLE_RPM' });
+    expect(timers).toHaveLength(1);
+  });
+
   it('reads a brand-new subscription immediately, without waiting for the first tick', async () => {
     const { port, timers } = withTimers();
     const updates: RegisterData[] = [];

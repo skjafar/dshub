@@ -12,11 +12,13 @@ import type { MapProfile } from '../../types/settings';
 import { SelectionProvider } from '../SelectionContext';
 import type { AddressSpace } from '../addressSpace';
 import { retainPaneState } from '../paneState';
+import { announceMapEdited } from '../useMapEntries';
 import { InspectorPane } from '../panes/InspectorPane';
 import { ParameterPane } from '../panes/ParameterPane';
 import { RegisterPane } from '../panes/RegisterPane';
 import { SystemRegisterPane } from '../panes/SystemRegisterPane';
 import type { PaneProps } from '../paneRegistry';
+import { recordSubscriptions } from './subscriptionRecorder';
 import { recordWrites } from './writeRecorder';
 import type { RecordedWrite } from './writeRecorder';
 
@@ -357,6 +359,118 @@ describe.each(CASES)('$heading Pane', testCase => {
     );
     const identity = within(inspector()).getByRole('region', { name: /identity/i });
     expect(identity).toHaveTextContent(testCase.heading.replace(/s$/, ''));
+  });
+});
+
+/**
+ * `.scratch/rust-owned-polling` issue 04: a Pane's own "Live" toggle is the
+ * Registers/Parameters panel's bulk auto-refresh — it declares interest in
+ * every row the filter currently leaves visible, through the same per-address
+ * subscription mechanism (`subscribeAddress`/`unsubscribeAddress`) an
+ * individually-bound widget uses via `usePolledTargets`. Pinned once, against
+ * the Register space: the mechanism does not know which space it is serving,
+ * so a second copy of this against Parameters or System Registers would only
+ * prove the per-space wiring the suite above already covers.
+ */
+describe('bulk "Live" refresh', () => {
+  const REGISTERS = CASES[0];
+
+  function renderOnePane(port: ReturnType<typeof recordSubscriptions>['port']) {
+    const titleA = vi.fn();
+    render(
+      <BackendPortProvider port={port}>
+        <SettingsProvider>
+          <DSHubProvider>
+            <SelectionProvider>
+              <section aria-label="Pane A">
+                <RegisterPane paneId="register#live" setTitle={titleA} />
+              </section>
+            </SelectionProvider>
+          </DSHubProvider>
+        </SettingsProvider>
+      </BackendPortProvider>
+    );
+  }
+
+  it('subscribes every visible row when turned on, and releases every one when turned off', async () => {
+    const user = userEvent.setup();
+    const fake = createFakeBackendPort({ deliver: fn => fn() });
+    const { port, subscriptions, unsubscribedIds } = recordSubscriptions(fake);
+    renderOnePane(port);
+    await settle();
+    await act(async () => {
+      await fake.device.connect('192.168.1.42', InterfaceType.TCP, 'SESAME-CTRL-01');
+    });
+
+    await user.click(within(paneA()).getByRole('switch', { name: /live/i }));
+    await settle();
+
+    expect(subscriptions.map(s => s.name).sort()).toEqual([...REGISTERS.entryNames].sort());
+    expect(unsubscribedIds).toEqual([]);
+
+    await user.click(within(paneA()).getByRole('switch', { name: /live/i }));
+    await settle();
+
+    expect(unsubscribedIds.length).toBe(subscriptions.length);
+  });
+
+  it('drops a filtered-out row and keeps subscribing what the filter still matches', async () => {
+    const user = userEvent.setup();
+    const fake = createFakeBackendPort({ deliver: fn => fn() });
+    const { port, subscriptions, unsubscribedIds } = recordSubscriptions(fake);
+    renderOnePane(port);
+    await settle();
+    await act(async () => {
+      await fake.device.connect('192.168.1.42', InterfaceType.TCP, 'SESAME-CTRL-01');
+    });
+
+    await user.click(within(paneA()).getByRole('switch', { name: /live/i }));
+    await settle();
+    const subscribedBeforeFilter = subscriptions.length;
+    expect(subscribedBeforeFilter).toBe(REGISTERS.entryNames.length);
+
+    await user.type(filterIn(paneA(), REGISTERS.filterLabel), REGISTERS.filterTo.fragment);
+    await settle();
+
+    // Narrowing the filter changes the whole target set the Pane hands the
+    // shared subscription hook, so every previous subscription is released...
+    expect(unsubscribedIds.length).toBe(subscribedBeforeFilter);
+    // ...and what is subscribed afterwards is exactly the one row that still
+    // matches, not the two the filter dropped.
+    const afterFilter = subscriptions.slice(subscribedBeforeFilter);
+    expect(afterFilter.map(s => s.name)).toEqual([REGISTERS.filterTo.name]);
+  });
+
+  it('drops every subscription when the Map underneath a live Pane changes, and subscribes to what replaces it', async () => {
+    // A Profile switch and a Map Editor save both replace the active Profile's
+    // Map through the same path — `mapManager.initialize` plus the `announce()`
+    // that tells a mounted Pane to re-read it (`useMapEntries.ts`). Driving a
+    // real Profile switch here would mean rendering the Profiles dialog just to
+    // reach the same signal this already exercises directly.
+    const user = userEvent.setup();
+    const fake = createFakeBackendPort({ deliver: fn => fn() });
+    const { port, subscriptions, unsubscribedIds } = recordSubscriptions(fake);
+    renderOnePane(port);
+    await settle();
+    await act(async () => {
+      await fake.device.connect('192.168.1.42', InterfaceType.TCP, 'SESAME-CTRL-01');
+    });
+
+    await user.click(within(paneA()).getByRole('switch', { name: /live/i }));
+    await settle();
+    const subscribedBeforeSwitch = subscriptions.length;
+    expect(subscribedBeforeSwitch).toBe(REGISTERS.entryNames.length);
+
+    await act(async () => {
+      announceMapEdited({ ...PROFILE, id: 'space-test-board-v2', registersMap: 'uint32_t RPM_NEW;\n' });
+    });
+    await settle();
+
+    // Every row from the old Map is released...
+    expect(unsubscribedIds.length).toBe(subscribedBeforeSwitch);
+    // ...and only the new Map's one row is subscribed in its place.
+    const afterSwitch = subscriptions.slice(subscribedBeforeSwitch);
+    expect(afterSwitch.map(s => s.name)).toEqual(['RPM_NEW']);
   });
 });
 
