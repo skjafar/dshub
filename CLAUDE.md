@@ -232,7 +232,15 @@ aggregates every Window's most recent announcement into one local
 `paneId → WindowId` map. Eventually consistent, not always-live — the
 accepted cost of the realm split — and pruned against `daughterWindowNative.ts`'s
 `useDaughterWindows` (via `daughterWindows.ts`'s own `knownWindowIds`), so a
-Window's last-known panel set does not linger once it closes.
+Window's last-known panel set does not linger once it closes. A pure push
+broadcast alone left a freshly-mounted Window with nothing to catch it up on
+a Window that already announced its panes before the new one existed —
+found by hand: a singleton opened before a Daughter Window existed did not
+show as disabled there until something unrelated changed in the other
+Window. `usePaneLocations` also registers a request/response listener for
+exactly this: a Window asks once, right after both its listeners are
+confirmed registered, and every Window (including itself, harmlessly)
+answers by re-announcing its current panes — no Rust-held registry needed.
 `daughterWindows.ts`'s `paneMenuEntries` reads this map to tell a singleton
 open in the asking Window (clickable — focuses it) from one open in another
 (disabled, labelled with that Window's name via `windowLabel`), the same

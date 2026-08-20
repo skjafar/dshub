@@ -71,8 +71,19 @@ announcement into one local `paneId → WindowId` map via `usePaneLocations`.
 This is eventually consistent, not always-live — the accepted cost of the
 realm split — and it prunes a Window's entry once `useDaughterWindows`
 reports it closed, so a stale announcement from a since-closed Window cannot
-linger forever. `daughterWindows.ts`'s `paneMenuEntries` reads this map to
-tell a singleton open in this Window (clickable — focuses it) from one open
+linger forever. A pure push broadcast alone left one gap, found by hand
+rather than by the checklist: a freshly-mounted Window's own `listen` has
+nothing to catch it up on a Window that already announced its panes
+*before* the new one existed, so a singleton opened before a Daughter
+Window existed never showed as disabled there until something unrelated
+changed in the other Window and re-announced it. `usePaneLocations` also
+registers a second, request/response listener for this: a Window asks,
+once, right after both its listeners are confirmed registered, and every
+Window (including itself, harmlessly) answers by re-announcing its current
+panes — closing the gap without a Rust-held registry, staying inside
+spec.md's "no new Rust command" decision. `daughterWindows.ts`'s
+`paneMenuEntries` reads this map to tell a singleton open in this Window
+(clickable — focuses it) from one open
 in another (disabled, labelled with that Window's name), in both the Main
 Window's own menu and every Daughter Window's. Per-Window Focus Mode
 isolation needed no part of this broadcast: each Window already composes
@@ -174,8 +185,21 @@ opened with `?restore=<index>` reproduces it.
 Issue 04's own addition: `paneLocations.ts`'s `usePaneLocations`, mocking
 `@tauri-apps/api/event`'s `emit`/`listen` the same way `daughterWindowNative.test.ts`
 already does for `listen` alone — own-entry-always-current, another Window's
-broadcast merging in, and pruning on a `stillOpen` change are each pinned
-directly against the hook via `renderHook`, no real dockview instance
-needed. `daughterWindows.ts`'s `paneMenuEntries` and new `knownWindowIds`
-stay plain data-in-data-out functions over a hand-built
-`ReadonlyMap<WindowId, readonly string[]>`, same as before.
+broadcast merging in, pruning on a `stillOpen` change, and the catch-up
+request/response handshake itself are each pinned directly against the hook
+via `renderHook`, no real dockview instance needed. The handshake test runs
+two real `usePaneLocations` instances against a shared in-memory event-bus
+test double, the way two real Windows would talk to each other — its first
+draft used plain array literals inline as the two instances' own
+`ownPaneIds`, which crashed the test worker with an out-of-memory infinite
+loop: each instance's own broadcast-triggered re-render recreated a "new"
+array reference every time, which the hook's own change-detection cannot
+tell apart from an actual change, so each instance kept re-announcing in
+response to the other's re-announcement, forever. Fixed by hoisting those
+arrays to stable `const`s in the test; real callers never hit this, since
+`AppShell.tsx`/`DaughterWindowShell.tsx` only ever produce a fresh
+`openPaneIds` array from dockview's own `onDidLayoutChange`, an external
+event untouched by this hook's own state. `daughterWindows.ts`'s
+`paneMenuEntries` and new `knownWindowIds` stay plain data-in-data-out
+functions over a hand-built `ReadonlyMap<WindowId, readonly string[]>`, same
+as before.

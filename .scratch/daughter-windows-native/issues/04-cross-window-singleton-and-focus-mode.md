@@ -36,6 +36,40 @@ that would otherwise call `setState` synchronously from a purely-derived
 value never exists in the first place (`react-hooks/set-state-in-effect`'s
 own backlog, which this addition keeps at zero net new rather than growing).
 
+**Found by hand after the first pass, not by the checklist itself: a
+late-joiner gap.** A pure push broadcast has no persistent registry
+anywhere, so a freshly-mounted Window's own `listen` has nothing to catch
+it up on a Window that already announced its panes *before* the new one
+existed — reproduced by hand: open a singleton in the Main Window, then
+open a Daughter Window, and its own menu did not show that singleton as
+disabled until *something else* in the Main Window changed and re-announced
+it. `usePaneLocations` now also registers a second listener, for
+`PANE_LOCATIONS_REQUEST_EVENT`, and — only once both listeners are
+confirmed registered — emits one request of its own; every Window
+(including itself, harmlessly, since the "changed" listener's own
+self-check still filters that out) answers by re-announcing its current
+panes. This closes the gap without a Rust-held registry, staying inside
+spec.md's "no new Rust command" decision. Covered by two new tests:
+one asserting the request itself goes out once listening is confirmed, and
+one running two real `usePaneLocations` instances against a shared in-
+memory event-bus stand-in (`paneLocations.test.ts`'s own `installEventBus`)
+to exercise the actual catch-up handshake end to end — a late-mounted
+"Window B" instance ends up correctly reporting an already-open Window's
+panes with no interaction anywhere else. That second test's first draft
+crashed the test worker with an out-of-memory infinite loop: passing plain
+array literals inline as `ownPaneIds`/`stillOpen` to two *simultaneously
+live* hook instances meant each instance's own broadcast-triggered
+re-render recreated a "new" (but content-identical) array reference every
+time, which `usePaneLocations`'s own `[ownWindowId, ownPaneIds]` change
+detection cannot tell apart from an actual change — each instance kept
+re-announcing in response to the other's re-announcement, forever. Fixed by
+hoisting those arrays to stable `const`s outside the render callback in
+that one test; real callers never hit this, since `AppShell.tsx`/
+`DaughterWindowShell.tsx` only ever produce a fresh `openPaneIds` array from
+dockview's own `onDidLayoutChange` — an external event untouched by this
+hook's own state changes, so nothing in production ever feeds back into
+itself the way two unstable inline literals did here.
+
 `daughterWindows.ts`'s `paneMenuEntries` dropped its old `api: WindowLocatable`
 and `openKinds` parameters for a single `paneLocations` map — a singleton's
 panel id is its bare kind (`paneRegistry.ts`), so `pane.kind` doubles as the
@@ -80,14 +114,16 @@ around.
 **Verification.** Typecheck, lint (0 new errors or warnings — net *fewer*
 warnings than baseline, per the `react-hooks/refs` fix above and one stale
 test fixture removed with the old `windowIdForPane` tests) and the full
-Vitest suite (62 files, 758 tests, up from 61/753 at issue 03 —
+Vitest suite (62 files, 760 tests, up from 61/753 at issue 03 —
 `paneLocations.test.ts` pins `usePaneLocations` directly via `renderHook`, mocking
 `@tauri-apps/api/event` the same way `daughterWindowNative.test.ts` already
 does for `listen` alone: this Window's own entry staying current outside
-Tauri, broadcasting on mount and on change, merging another Window's
-broadcast, ignoring a broadcast carrying this Window's own id, pruning a
-Window once it drops out of `stillOpen`, and unsubscribing on unmount)
-all clean. `daughterWindows.test.ts`'s `paneMenuEntries` suite rewritten
+Tauri, broadcasting on mount and on change, the catch-up request firing
+once listening is confirmed, merging another Window's broadcast, ignoring a
+broadcast carrying this Window's own id, pruning a Window once it drops out
+of `stillOpen`, unsubscribing both listeners on unmount, and the two-
+instance catch-up handshake itself) all clean. `daughterWindows.test.ts`'s
+`paneMenuEntries` suite rewritten
 against a hand-built `ReadonlyMap` fixture instead of the deleted
 `fakeWindowLocatable`, plus new coverage for `knownWindowIds`. **Not
 hand-verified against a packaged binary** — confirming the broadcast

@@ -14,15 +14,30 @@
  * for the brief gap between a change and its broadcast landing everywhere,
  * an accepted consequence of the realm split. Issue 05's own cross-window
  * "Move to Window" handoff reuses this same broadcast.
+ *
+ * A freshly-mounted Window's own `listen` has nothing to catch it up on a
+ * Window that already announced its panes *before* the new one existed —
+ * pure push, with no persistent registry anywhere, means a late joiner
+ * would otherwise never learn what every already-open Window currently
+ * holds until one of them happens to change again for an unrelated reason
+ * (found by hand: opening a Daughter Window while a singleton was already
+ * open in the Main Window left it un-disabled there until *something* in
+ * the Main Window's own layout changed). `PANE_LOCATIONS_REQUEST_EVENT`
+ * closes that gap: a Window asks, once, right after its own "changed"
+ * listener is confirmed registered; every Window (including itself,
+ * harmlessly) answers by re-announcing its current panes.
  */
 
 import { isTauri } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WindowId } from './focusMode';
 
 /** Exported so `paneLocations.test.ts` asserts against this module's own constant rather than re-typing the string. */
 export const PANE_LOCATIONS_EVENT = 'window-panes-changed';
+
+/** A late-joining Window's own catch-up request — see this module's own doc comment. Carries no payload; every listener answers with its own `PANE_LOCATIONS_EVENT`. */
+export const PANE_LOCATIONS_REQUEST_EVENT = 'window-panes-request';
 
 /** Exported for the same reason as {@link PANE_LOCATIONS_EVENT} — one payload shape, not a second one redeclared in the test file. */
 export interface PaneLocationsAnnouncement {
@@ -66,25 +81,60 @@ export function usePaneLocations(
 ): ReadonlyMap<WindowId, readonly string[]> {
   const [otherLocations, setOtherLocations] = useState<ReadonlyMap<WindowId, readonly string[]>>(() => new Map());
 
+  // Read from the catch-up request handler below, which is registered once
+  // per `ownWindowId` (not re-registered on every `ownPaneIds` change) but
+  // must always answer with this Window's *current* panes, not whatever
+  // they were the render it was registered. Synced from its own effect
+  // rather than during render: an effect still lands well before any
+  // external Tauri event could possibly arrive to read it (IPC delivery is
+  // inherently asynchronous), and keeps this module clear of
+  // `react-hooks/refs`' "cannot update ref during render" warning.
+  const ownPaneIdsRef = useRef(ownPaneIds);
+  useEffect(() => {
+    ownPaneIdsRef.current = ownPaneIds;
+  }, [ownPaneIds]);
+
   useEffect(() => {
     if (!isTauri()) return;
     let cancelled = false;
-    let unlisten: (() => void) | null = null;
-    void listen<PaneLocationsAnnouncement>(PANE_LOCATIONS_EVENT, event => {
-      const { windowId, paneIds } = event.payload;
-      if (windowId === ownWindowId) return; // this Window's own entry comes from `ownPaneIds` below, always current already
-      setOtherLocations(prev => {
-        const next = new Map(prev);
-        next.set(windowId, paneIds);
-        return next;
-      });
-    }).then(fn => {
-      if (cancelled) fn();
-      else unlisten = fn;
+    let unlistenChanged: (() => void) | null = null;
+    let unlistenRequest: (() => void) | null = null;
+
+    void Promise.all([
+      listen<PaneLocationsAnnouncement>(PANE_LOCATIONS_EVENT, event => {
+        const { windowId, paneIds } = event.payload;
+        if (windowId === ownWindowId) return; // this Window's own entry comes from `ownPaneIds` below, always current already
+        setOtherLocations(prev => {
+          const next = new Map(prev);
+          next.set(windowId, paneIds);
+          return next;
+        });
+      }),
+      // Answers another Window's catch-up request (see this module's own
+      // doc comment) by re-announcing this Window's current panes — the
+      // exact same shape as the change-driven announce below, just
+      // triggered by a different event.
+      listen(PANE_LOCATIONS_REQUEST_EVENT, () => {
+        announceOwnPanes(ownWindowId, ownPaneIdsRef.current);
+      }),
+    ]).then(([changedFn, requestFn]) => {
+      if (cancelled) {
+        changedFn();
+        requestFn();
+        return;
+      }
+      unlistenChanged = changedFn;
+      unlistenRequest = requestFn;
+      // Only sent once both listeners above are confirmed registered, so
+      // this Window is guaranteed to hear every reply, including one an
+      // already-open Window answers with immediately.
+      void emit(PANE_LOCATIONS_REQUEST_EVENT);
     });
+
     return () => {
       cancelled = true;
-      unlisten?.();
+      unlistenChanged?.();
+      unlistenRequest?.();
     };
   }, [ownWindowId]);
 
