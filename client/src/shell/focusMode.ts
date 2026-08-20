@@ -12,49 +12,22 @@
 import type { StoredDashboard } from './widgets/dashboardStore';
 
 /**
- * Identifies one operating-system Window: the Main Window, or one Daughter
- * Window (dockview's popout group id).
+ * Identifies one operating-system Window: the Main Window
+ * ({@link MAIN_WINDOW_ID}), or one Daughter Window — its real Tauri window
+ * label (ADR 0005; `windowRole.ts`'s `MAIN_TAURI_WINDOW_LABEL` is the same
+ * `'main'` string as {@link MAIN_WINDOW_ID}, so a Window's own
+ * `getCurrentWindow().label` is always directly usable as its `WindowId`).
  *
  * Focus Mode is per-Window presentation state (issue 02) rather than the
  * single application-wide mode it used to be, so anything that used to be
  * a bare constant because there was only ever one Focus Mode active now needs
- * to be told which Window it belongs to.
+ * to be told which Window it belongs to. `paneLocations.ts`'s cross-window
+ * broadcast (issue 04) is also keyed by this same id.
  */
 export type WindowId = string;
 
 /** The sentinel identifying the Main Window, as opposed to any Daughter Window. */
 export const MAIN_WINDOW_ID: WindowId = 'main';
-
-/**
- * The narrow slice of a live dock api {@link windowIdForPane} needs — enough
- * to resolve a panel to the `Window` it renders in without depending on the
- * rest of `WorkspaceDockApi` or a real dockview instance, so this stays
- * testable against a hand-built fake.
- */
-export interface WindowLocatable {
-  getPanel(id: string): { readonly group: { readonly api: { getWindow(): Window } } } | undefined;
-  getPopouts(): ReadonlyArray<{ readonly id: string; readonly window: Window }>;
-}
-
-/**
- * Which Window a Pane instance is currently rendered in.
- *
- * A Pane's own `paneId` says nothing about this: dockview adopts a group's
- * DOM into whichever native window it was dragged or popped into, and the one
- * React tree rendering every Pane runs entirely in the Main Window's realm
- * regardless (ADR 0004) — so the only way to find out is to ask the live dock
- * api what window the panel's *group* currently reports. Falls back to the
- * Main Window for an id the api does not recognise, which is what keeps a
- * Pane mid-close or not yet mounted from resolving to nothing.
- */
-export function windowIdForPane(api: WindowLocatable, paneId: string): WindowId {
-  const panel = api.getPanel(paneId);
-  if (panel === undefined) return MAIN_WINDOW_ID;
-
-  const panelWindow = panel.group.api.getWindow();
-  const popout = api.getPopouts().find(p => p.window === panelWindow);
-  return popout?.id ?? MAIN_WINDOW_ID;
-}
 
 /**
  * The `paneId` a Window's own Focus Mode Widget tree claims plot series

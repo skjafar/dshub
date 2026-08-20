@@ -2,13 +2,18 @@ import { describe, it, expect } from 'vitest';
 import {
   DAUGHTER_WINDOW_WARNING_THRESHOLD,
   dragOutTarget,
+  knownWindowIds,
   paneMenuEntries,
   shouldWarnBeforeNewDaughterWindow,
   windowLabel,
 } from '../daughterWindows';
 import { MAIN_WINDOW_ID } from '../focusMode';
+import type { WindowId } from '../focusMode';
 import { PANES } from '../paneRegistry';
-import { fakeWindowLocatable as fakeDockApi } from './fakeWindowLocatable';
+
+function locations(entries: Record<string, readonly string[]>): ReadonlyMap<WindowId, readonly string[]> {
+  return new Map(Object.entries(entries));
+}
 
 describe('shouldWarnBeforeNewDaughterWindow', () => {
   it('does not warn below the threshold', () => {
@@ -68,44 +73,58 @@ describe('windowLabel', () => {
   });
 });
 
+describe('knownWindowIds', () => {
+  it('always includes the Main Window, even with no Daughter Windows open', () => {
+    expect(knownWindowIds([])).toEqual([MAIN_WINDOW_ID]);
+  });
+
+  it('lists the Main Window plus every open Daughter Window, in order', () => {
+    expect(knownWindowIds(['daughter-1', 'daughter-2'])).toEqual([MAIN_WINDOW_ID, 'daughter-1', 'daughter-2']);
+  });
+});
+
 describe('paneMenuEntries', () => {
   const inspector = PANES.find(p => p.kind === 'inspector');
   const register = PANES.find(p => p.kind === 'register');
   if (inspector === undefined || register === undefined) throw new Error('fixture Pane kinds missing from PANES');
 
   it('offers a Pane normally when it is not open at all', () => {
-    const api = fakeDockApi({}, []);
-    const entries = paneMenuEntries([inspector], [], api, MAIN_WINDOW_ID, []);
+    const entries = paneMenuEntries([inspector], locations({}), MAIN_WINDOW_ID, []);
     expect(entries).toEqual([{ kind: 'inspector', title: inspector.title, disabledLocation: null }]);
   });
 
   it('never disables a non-singleton kind, open or not', () => {
-    const main = {} as Window;
-    const api = fakeDockApi({ register: { window: main } }, []);
-    const entries = paneMenuEntries([register], ['register'], api, MAIN_WINDOW_ID, []);
+    const entries = paneMenuEntries([register], locations({ [MAIN_WINDOW_ID]: ['register#1'] }), MAIN_WINDOW_ID, []);
     expect(entries[0]?.disabledLocation).toBeNull();
   });
 
   it('leaves a singleton open in the same Window as the menu clickable', () => {
-    const main = {} as Window;
-    const api = fakeDockApi({ inspector: { window: main } }, []);
-    const entries = paneMenuEntries([inspector], ['inspector'], api, MAIN_WINDOW_ID, []);
+    const entries = paneMenuEntries([inspector], locations({ [MAIN_WINDOW_ID]: ['inspector'] }), MAIN_WINDOW_ID, []);
     expect(entries[0]?.disabledLocation).toBeNull();
   });
 
   it('disables and labels a singleton open in a different Window', () => {
-    const main = {} as Window;
-    const daughter = {} as Window;
-    const api = fakeDockApi({ inspector: { window: daughter } }, [{ id: 'popout-1', window: daughter }]);
-    const entries = paneMenuEntries([inspector], ['inspector'], api, MAIN_WINDOW_ID, ['popout-1']);
+    const entries = paneMenuEntries(
+      [inspector],
+      locations({ 'popout-1': ['inspector'] }),
+      MAIN_WINDOW_ID,
+      ['popout-1']
+    );
     expect(entries[0]?.disabledLocation).toBe('Daughter Window 1');
   });
 
-  it('labels the same singleton as open in Main Window, from a Daughter Window\'s own menu', () => {
-    const main = {} as Window;
-    const daughter = {} as Window;
-    const api = fakeDockApi({ inspector: { window: main } }, [{ id: 'popout-1', window: daughter }]);
-    const entries = paneMenuEntries([inspector], ['inspector'], api, 'popout-1', ['popout-1']);
+  it("labels the same singleton as open in Main Window, from a Daughter Window's own menu", () => {
+    const entries = paneMenuEntries(
+      [inspector],
+      locations({ [MAIN_WINDOW_ID]: ['inspector'] }),
+      'popout-1',
+      ['popout-1']
+    );
     expect(entries[0]?.disabledLocation).toBe('Main Window');
+  });
+
+  it('offers a singleton normally when no Window currently reports it open', () => {
+    const entries = paneMenuEntries([inspector], locations({ 'popout-1': ['register#1'] }), MAIN_WINDOW_ID, ['popout-1']);
+    expect(entries[0]?.disabledLocation).toBeNull();
   });
 });

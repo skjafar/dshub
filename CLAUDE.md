@@ -222,17 +222,28 @@ mechanism's `window.open` needed a user gesture at launch, which
 
 Per-Window state that used to resolve from a live shared dock api —
 `windowIdForPane` (`shell/focusMode.ts`), the label a menu shows for a
-Daughter Window — degrades to a deliberate, graceful no-op rather than being
-rebuilt cross-window: each Window's own "add a Pane" menu is computed from
-only its own local `api`, always passing `MAIN_WINDOW_ID` as the comparison
-identity regardless of which Window is actually asking, since that
-comparison can now only ever be true. A singleton Pane open in a
-*different* Window will not show as disabled there until
-`.scratch/daughter-windows-native` issue 04 builds the cross-window
-broadcast this needs. Each Window also composes its own, independent
-`FocusModeProvider`/`FocusModeView` now — a Daughter Window only ever has
-itself as a `WindowId`, so there is no per-Window `Record` to keep in step,
-just a plain boolean/dashboard-id local to that Window's own shell.
+Daughter Window — has no live cross-realm query to fall back on (ADR 0005),
+so `.scratch/daughter-windows-native` issue 04 replaced it with an explicit
+broadcast instead: `shell/paneLocations.ts`'s `usePaneLocations` has every
+Window emit its own open panel ids (`@tauri-apps/api/event`, already covered
+by `capabilities/default.json`'s `core:default` grant — no new Rust command)
+whenever they change, and every Window, including the one emitting,
+aggregates every Window's most recent announcement into one local
+`paneId → WindowId` map. Eventually consistent, not always-live — the
+accepted cost of the realm split — and pruned against `daughterWindowNative.ts`'s
+`useDaughterWindows` (via `daughterWindows.ts`'s own `knownWindowIds`), so a
+Window's last-known panel set does not linger once it closes.
+`daughterWindows.ts`'s `paneMenuEntries` reads this map to tell a singleton
+open in the asking Window (clickable — focuses it) from one open in another
+(disabled, labelled with that Window's name via `windowLabel`), the same
+rule and the same words in the Main Window's own Panes menu and every
+Daughter Window's own add-Pane menu. Focus Mode isolation needed none of
+this: each Window already composes its own, independent
+`FocusModeProvider`/`FocusModeView` — a Daughter Window only ever has itself
+as a `WindowId`, so there is no per-Window `Record` to keep in step, just a
+plain boolean/dashboard-id local to that Window's own shell, and a Dashboard
+Pane entering Focus Mode is, by construction, always acting on the Window it
+already renders in.
 
 ## Device Communication
 

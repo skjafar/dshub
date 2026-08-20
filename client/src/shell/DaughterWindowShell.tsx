@@ -7,14 +7,14 @@ import { Button, Dialog, TooltipProvider } from '../ui';
 import { useBackendPort } from '../contexts/BackendPortContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { DaughterWindowChrome } from './DaughterWindowChrome';
-import { DAUGHTER_WINDOW_DEFAULT_HEIGHT, DAUGHTER_WINDOW_DEFAULT_WIDTH, paneMenuEntries } from './daughterWindows';
-import { closeDaughterWindow, readOwnWindowBounds } from './daughterWindowNative';
+import { DAUGHTER_WINDOW_DEFAULT_HEIGHT, DAUGHTER_WINDOW_DEFAULT_WIDTH, knownWindowIds, paneMenuEntries } from './daughterWindows';
+import { closeDaughterWindow, readOwnWindowBounds, useDaughterWindows } from './daughterWindowNative';
 import { FocusModeProvider } from './FocusModeContext';
 import { FocusModeView } from './FocusModeView';
-import { MAIN_WINDOW_ID } from './focusMode';
+import { usePaneLocations } from './paneLocations';
 import { SelectionProvider, useSelection } from './SelectionContext';
 import { Workspace } from './Workspace';
-import { PANES, isKnownPaneKind, kindOfPaneId, paneDefinition, paneId } from './paneRegistry';
+import { PANES, isKnownPaneKind, paneDefinition, paneId } from './paneRegistry';
 import type { PaneKind } from './paneRegistry';
 import { retainPaneState, snapshotPaneStates, subscribePaneStateChanges } from './paneState';
 import { retainSeriesFor } from './plotStream';
@@ -68,7 +68,7 @@ function initialRestoreIndex(): number | null {
 
 function DaughterWindowShellInner(): React.JSX.Element {
   const apiRef = useRef<DockviewApi | null>(null);
-  const [openKinds, setOpenKinds] = useState<readonly PaneKind[]>([]);
+  const [openPaneIds, setOpenPaneIds] = useState<readonly string[]>([]);
   const [focusDashboardId, setFocusDashboardId] = useState<string | null>(null);
   const { retainPanes } = useSelection();
   const { settings, updateSettings } = useSettings();
@@ -82,16 +82,27 @@ function DaughterWindowShellInner(): React.JSX.Element {
   const restoreIndexAtLaunch = useMemo(() => initialRestoreIndex(), []);
   const restoreIndexRef = useRef<number | null>(restoreIndexAtLaunch);
 
-  /** This Window's own identity for Focus Mode's plot-series ownership key
-   *  — distinct from `paneMenuEntries`' use of `MAIN_WINDOW_ID` below, which
-   *  is a deliberate no-op simplification for a different concern (see
-   *  that call site's own comment). This shell only ever mounts under real
-   *  Tauri (`App.tsx`'s `isMainWindow()` routes everywhere else to
-   *  `AppShell`), but the `isTauri()` guard is kept anyway, matching
-   *  `windowRole.ts`'s own pattern, rather than assuming: a test rendering
-   *  this component directly has no such guarantee. Also this window's own
-   *  key into `daughterWindows`' `label` field, once it starts saving. */
+  /** This Window's own identity — for Focus Mode's plot-series ownership key
+   *  below, and for `paneMenuEntries`' own cross-window singleton dedup
+   *  (issue 04), which needs to tell this Window apart from every other one.
+   *  This shell only ever mounts under real Tauri (`App.tsx`'s
+   *  `isMainWindow()` routes everywhere else to `AppShell`), but the
+   *  `isTauri()` guard is kept anyway, matching `windowRole.ts`'s own
+   *  pattern, rather than assuming: a test rendering this component directly
+   *  has no such guarantee. Also this window's own key into
+   *  `daughterWindows`' `label` field, once it starts saving. */
   const windowId = useMemo(() => (isTauri() ? getCurrentWindow().label : 'daughter'), []);
+
+  // The other currently-open Daughter Windows, for `paneMenuEntries`' own
+  // numbering and for pruning a stale broadcast from one that has since
+  // closed (`usePaneLocations`'s own `stillOpen`) — `useDaughterWindows`
+  // reports every open Daughter Window including this one, unlike
+  // `AppShell.tsx`'s own use of it for its "Daughter Windows" list, which
+  // only ever needs *other* windows since the Main Window is never in that
+  // list to begin with.
+  const openDaughterWindows = useDaughterWindows();
+  const stillOpenWindowIds = useMemo(() => knownWindowIds(openDaughterWindows), [openDaughterWindows]);
+  const paneLocations = usePaneLocations(windowId, openPaneIds, stillOpenWindowIds);
 
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
@@ -229,8 +240,9 @@ function DaughterWindowShellInner(): React.JSX.Element {
   const syncOpenPanes = useCallback(
     (api: DockviewApi) => {
       const ids = api.panels.map(panel => panel.id);
-      const kinds = ids.map(id => kindOfPaneId(id)).filter((kind): kind is PaneKind => kind !== undefined);
-      setOpenKinds([...new Set(kinds)]);
+      // Fed to `usePaneLocations` above, broadcast to every other Window
+      // (issue 04).
+      setOpenPaneIds(ids);
       retainPaneState(ids);
       retainPanes(ids);
       retainSeriesFor(port, ids);
@@ -346,7 +358,7 @@ function DaughterWindowShellInner(): React.JSX.Element {
           <FocusModeView dashboardId={focusDashboardId} windowId={windowId} onExit={exitFocusMode} />
         ) : (
           <DaughterWindowChrome
-            entries={apiRef.current ? paneMenuEntries(PANES, openKinds, apiRef.current, MAIN_WINDOW_ID, []) : []}
+            entries={paneMenuEntries(PANES, paneLocations, windowId, openDaughterWindows)}
             onOpenPane={handleOpenPane}
           />
         )}

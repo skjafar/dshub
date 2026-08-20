@@ -4,8 +4,8 @@
  * own functions and tested the same way.
  */
 
-import { MAIN_WINDOW_ID, windowIdForPane } from './focusMode';
-import type { WindowId, WindowLocatable } from './focusMode';
+import { MAIN_WINDOW_ID } from './focusMode';
+import type { WindowId } from './focusMode';
 import type { PaneDefinition, PaneKind } from './paneRegistry';
 
 // ── The window-count warning ─────────────────────────────────────────────
@@ -95,6 +95,20 @@ export function windowLabel(windowId: WindowId, openPopoutIds: readonly string[]
   return index === -1 ? 'a Daughter Window' : `Daughter Window ${index + 1}`;
 }
 
+/**
+ * Every Window currently known to be open — the Main Window (always open,
+ * and never itself part of the Rust-owned Daughter Window list) plus every
+ * currently-open Daughter Window (`daughterWindowNative.ts`'s
+ * `useDaughterWindows`). Both `usePaneLocations` (pruning a stale broadcast
+ * from a Window that has since closed) and `windowLabel` (numbering) read
+ * this same list, so a closed Window's last-known location never lingers and
+ * the numbering the Main Window's and every Daughter Window's own menu shows
+ * always agrees.
+ */
+export function knownWindowIds(openDaughterWindowLabels: readonly string[]): readonly WindowId[] {
+  return [MAIN_WINDOW_ID, ...openDaughterWindowLabels];
+}
+
 // ── The "open a Pane" menu, shared by the Main Window and every Daughter ──
 
 export interface PaneMenuEntry {
@@ -115,21 +129,31 @@ export interface PaneMenuEntry {
  * What the Panes menu should show, resolved once per open so both menus —
  * the Main Window's and any Daughter Window's — read the same open/closed
  * state through the same rule and describe it in the same words.
+ *
+ * `paneLocations` is `usePaneLocations`'s own aggregated, cross-window view
+ * (issue 04) — a singleton's panel id is its bare kind (`paneRegistry.ts`'s
+ * `paneId`), so `pane.kind` doubles as the panel id to look for in it.
  */
 export function paneMenuEntries(
   panes: readonly PaneDefinition[],
-  openKinds: readonly PaneKind[],
-  api: WindowLocatable,
+  paneLocations: ReadonlyMap<WindowId, readonly string[]>,
   menuWindowId: WindowId,
   openPopoutIds: readonly string[]
 ): readonly PaneMenuEntry[] {
   return panes.map((pane): PaneMenuEntry => {
-    if (!pane.singleton || !openKinds.includes(pane.kind)) {
-      return { kind: pane.kind, title: pane.title, disabledLocation: null };
-    }
-    // A singleton's panel id is its bare kind (`paneRegistry.ts`'s `paneId`).
-    const paneWindowId = windowIdForPane(api, pane.kind);
-    const disabledLocation = paneWindowId === menuWindowId ? null : windowLabel(paneWindowId, openPopoutIds);
+    if (!pane.singleton) return { kind: pane.kind, title: pane.title, disabledLocation: null };
+
+    const paneWindowId = locateOpenPane(paneLocations, pane.kind);
+    const disabledLocation =
+      paneWindowId === null || paneWindowId === menuWindowId ? null : windowLabel(paneWindowId, openPopoutIds);
     return { kind: pane.kind, title: pane.title, disabledLocation };
   });
+}
+
+/** Which Window's aggregated panel-id list contains `paneId`, or null if no Window currently reports it open. */
+function locateOpenPane(paneLocations: ReadonlyMap<WindowId, readonly string[]>, paneId: string): WindowId | null {
+  for (const [windowId, paneIds] of paneLocations) {
+    if (paneIds.includes(paneId)) return windowId;
+  }
+  return null;
 }

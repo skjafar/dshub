@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentProps } from 'react';
 import type { AddPanelPositionOptions, DockviewApi } from 'dockview';
 import { Button, Dialog, TooltipProvider } from '../ui';
@@ -6,14 +6,15 @@ import { useBackendPort } from '../contexts/BackendPortContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { AppChrome } from './AppChrome';
 import { closeDaughterWindow, focusDaughterWindow } from './daughterWindowNative';
-import { paneMenuEntries } from './daughterWindows';
+import { knownWindowIds, paneMenuEntries } from './daughterWindows';
 import { useDaughterWindowLifecycle } from './useDaughterWindowLifecycle';
 import { FocusModeProvider } from './FocusModeContext';
 import { FocusModeView } from './FocusModeView';
 import { MAIN_WINDOW_ID } from './focusMode';
+import { usePaneLocations } from './paneLocations';
 import { SelectionProvider, useSelection } from './SelectionContext';
 import { Workspace } from './Workspace';
-import { PANES, kindOfPaneId, paneDefinition, paneId } from './paneRegistry';
+import { PANES, paneDefinition, paneId } from './paneRegistry';
 import type { PaneKind } from './paneRegistry';
 import { retainPaneState, snapshotPaneStates, subscribePaneStateChanges } from './paneState';
 import { retainSeriesFor } from './plotStream';
@@ -97,20 +98,22 @@ const DEFAULT_LAYOUT: readonly DefaultPane[] = [
  */
 function WorkspaceShell(): React.JSX.Element {
   const apiRef = useRef<DockviewApi | null>(null);
-  const [openKinds, setOpenKinds] = useState<readonly PaneKind[]>([]);
+  const [openPaneIds, setOpenPaneIds] = useState<readonly string[]>([]);
   const { openDaughterWindows, openWorkspaceDaughterWindows, closeAllDaughterWindows, switchDaughterWindows } =
     useDaughterWindowLifecycle();
+  const stillOpenWindowIds = useMemo(() => knownWindowIds(openDaughterWindows), [openDaughterWindows]);
+  const paneLocations = usePaneLocations(MAIN_WINDOW_ID, openPaneIds, stillOpenWindowIds);
   const moveToNewWindow = useMoveToNewDaughterWindow(apiRef);
   // Which Dashboard, if any, the Main Window is showing full-canvas. A
   // single value rather than the `Record<WindowId, string>` this used to be
   // (issue 02) — every Daughter Window now composes its own, independent
   // `FocusModeProvider`/`FocusModeView` (`DaughterWindowShell.tsx`), so this
-  // Window's own dock api never resolves a Dashboard Pane to any Window but
-  // itself (`windowIdForPane` falls back to `MAIN_WINDOW_ID` for anything
-  // not in `api.getPopouts()`, which is now always empty — nothing here has
-  // popouts of its own anymore). `<Workspace>` stays mounted regardless of
-  // Focus Mode — hiding the dock rather than unmounting it is the whole
-  // point, since unmounting it would destroy this Window's in-session state.
+  // Window's own Focus Mode state never needs to resolve which Window a
+  // Dashboard Pane lives in at all: a Dashboard Pane rendering here is, by
+  // construction, always in the Main Window. `<Workspace>` stays mounted
+  // regardless of Focus Mode — hiding the dock rather than unmounting it is
+  // the whole point, since unmounting it would destroy this Window's
+  // in-session state.
   const [mainFocusDashboardId, setMainFocusDashboardId] = useState<string | null>(null);
 
   const { selection, select, retainPanes } = useSelection();
@@ -168,10 +171,10 @@ function WorkspaceShell(): React.JSX.Element {
     (api: DockviewApi) => {
       const ids = api.panels.map(panel => panel.id);
 
-      const kinds = ids
-        .map(id => kindOfPaneId(id))
-        .filter((kind): kind is PaneKind => kind !== undefined);
-      setOpenKinds([...new Set(kinds)]);
+      // Fed to `usePaneLocations` below, which broadcasts it to every other
+      // Window so a singleton open here shows correctly as "already open in
+      // Main Window" from a Daughter Window's own menu (issue 04).
+      setOpenPaneIds(ids);
 
       // A closed Pane is gone: its filter must not come back with the next Pane
       // of its kind, and the Inspector must not keep describing a selection made
@@ -544,17 +547,7 @@ function WorkspaceShell(): React.JSX.Element {
             daughterWindows={openDaughterWindows.map((label, index) => ({ id: label, label: `Daughter Window ${index + 1}` }))}
             onFocusDaughterWindow={handleFocusDaughterWindow}
             onCloseDaughterWindow={handleCloseDaughterWindow}
-            paneMenuEntries={
-              // `MAIN_WINDOW_ID`, never this window's own real identity (it
-              // has none besides "the Main Window") and never a real list of
-              // other windows: `windowIdForPane` always falls back to
-              // `MAIN_WINDOW_ID` for a panel not found in `api.getPopouts()`,
-              // which is every panel in this window's own local `api` now
-              // (nothing has popouts of its own anymore) — so the
-              // cross-window "open elsewhere" check is a deliberate no-op
-              // here, not a bug, pending issue 04's own broadcast.
-              apiRef.current ? paneMenuEntries(PANES, openKinds, apiRef.current, MAIN_WINDOW_ID, []) : []
-            }
+            paneMenuEntries={paneMenuEntries(PANES, paneLocations, MAIN_WINDOW_ID, openDaughterWindows)}
           />
         )}
         {/* Always mounted. Hidden rather than unmounted while the Main

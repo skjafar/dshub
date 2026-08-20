@@ -58,15 +58,27 @@ origin never does:
 ## Consequences
 
 **No free cross-window object access.** Anything that used to reach directly
-into a live shared `DockviewApi` no longer can. `windowIdForPane`
-(`focusMode.ts`) still resolves correctly, but only in the narrow sense that
-it now always falls back to the Main Window's own id for any panel not in
-that window's own (now permanently empty) `getPopouts()` list — a Daughter
-Window's singleton-elsewhere labelling and cross-window Focus Mode isolation
-are deferred to `.scratch/daughter-windows-native` issue 04's own broadcast
-(`paneId → windowId`, aggregated locally by every window), not rebuilt here.
-Each window computing its own "add a Pane" menu from only its own local
-`api` is a deliberate, graceful no-op in the interim, not a bug.
+into a live shared `DockviewApi` no longer can — `windowIdForPane`
+(`focusMode.ts`), which resolved a panel to its Window by asking a single
+realm's own `getPopouts()`, has no equivalent once Windows are separate
+processes, and was deleted outright rather than left as a permanent no-op.
+**Issue 04 closed this gap** with `paneLocations.ts`'s own broadcast: every
+Window emits its own open panel ids (`@tauri-apps/api/event`'s `emit`,
+already covered by `capabilities/default.json`'s existing `core:default`
+grant — no new Rust command needed) whenever they change, and every Window,
+including the one emitting, aggregates every Window's most recent
+announcement into one local `paneId → WindowId` map via `usePaneLocations`.
+This is eventually consistent, not always-live — the accepted cost of the
+realm split — and it prunes a Window's entry once `useDaughterWindows`
+reports it closed, so a stale announcement from a since-closed Window cannot
+linger forever. `daughterWindows.ts`'s `paneMenuEntries` reads this map to
+tell a singleton open in this Window (clickable — focuses it) from one open
+in another (disabled, labelled with that Window's name), in both the Main
+Window's own menu and every Daughter Window's. Per-Window Focus Mode
+isolation needed no part of this broadcast: each Window already composes
+its own, independent `FocusModeProvider`/`FocusModeView`
+(`DaughterWindowShell.tsx`), so a Dashboard Pane entering Focus Mode is, by
+construction, always acting on the Window it is already rendered in.
 
 **A Pane's own state does not survive being moved to a new window.**
 `paneState.ts`'s store is a module-level in-memory `Map` — correct and
@@ -158,3 +170,12 @@ the actual restore-at-launch and autosave round trip is exercised
 end-to-end — create content in one mounted window, let its own debounced
 autosave reach `localStorage`, then confirm a second, freshly-mounted window
 opened with `?restore=<index>` reproduces it.
+
+Issue 04's own addition: `paneLocations.ts`'s `usePaneLocations`, mocking
+`@tauri-apps/api/event`'s `emit`/`listen` the same way `daughterWindowNative.test.ts`
+already does for `listen` alone — own-entry-always-current, another Window's
+broadcast merging in, and pruning on a `stillOpen` change are each pinned
+directly against the hook via `renderHook`, no real dockview instance
+needed. `daughterWindows.ts`'s `paneMenuEntries` and new `knownWindowIds`
+stay plain data-in-data-out functions over a hand-built
+`ReadonlyMap<WindowId, readonly string[]>`, same as before.
