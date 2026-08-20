@@ -113,6 +113,18 @@ pub struct AppState {
     /// Live poll tasks for `poll_subscriptions`' current entries, aborted on
     /// disconnect and respawned by `poll::resume_poll_subscriptions`.
     pub poll_tasks: tokio::sync::Mutex<crate::poll::PollTasks>,
+    /// Which Daughter Windows are open, and the next label to mint
+    /// (`.scratch/daughter-windows-native` issue 02) — a plain
+    /// `std::sync::Mutex`, deliberately not `tokio::sync::Mutex` like this
+    /// struct's other fields. `WebviewWindow::on_window_event`'s callback
+    /// (`daughter_windows.rs`) is synchronous
+    /// (`Fn(&WindowEvent) + Send + 'static`), so an async mutex here would
+    /// need `.blocking_lock()` (panics on a Tokio worker thread) or a
+    /// spawned task for a critical section that is only ever a
+    /// push/retain/clone — never worth the ceremony. Do not "fix" this to
+    /// match its neighbors; that reintroduces the exact deadlock shape
+    /// issue 01's spike spent effort ruling out.
+    pub daughter_windows: std::sync::Mutex<crate::daughter_windows::DaughterWindowRegistry>,
 }
 
 impl AppState {
@@ -130,6 +142,7 @@ impl AppState {
             reconnect_params: tokio::sync::Mutex::new(None),
             poll_subscriptions: tokio::sync::Mutex::new(crate::poll::PollSubscriptions::new()),
             poll_tasks: tokio::sync::Mutex::new(HashMap::new()),
+            daughter_windows: std::sync::Mutex::new(crate::daughter_windows::DaughterWindowRegistry::new()),
         }
     }
 }
@@ -628,6 +641,19 @@ pub async fn disconnect_device(state: State<'_, AppState>) -> Result<(), String>
     state.active_plots.lock().await.clear();
     *state.connection.lock().await = None;
     Ok(())
+}
+
+/// A newly-mounted `DSHubProvider` — a Daughter Window's own, per
+/// `.scratch/daughter-windows-native` issue 02 — has no way to learn whether
+/// the device is already connected: `connectionStatus` only broadcasts on a
+/// state *transition*, never on demand, so a provider that mounts after the
+/// transition already happened would otherwise show "disconnected"
+/// indefinitely. This is that on-demand read, called once from
+/// `DSHubContext.tsx`'s setup effect alongside subscribing to future
+/// transitions (ADR 0003's amendment).
+#[tauri::command]
+pub async fn get_connection_status(state: State<'_, AppState>) -> Result<Option<DeviceConnection>, String> {
+    Ok(state.connection.lock().await.clone())
 }
 
 #[tauri::command]

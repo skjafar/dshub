@@ -302,9 +302,21 @@ export function useDSHub() {
 
 interface DSHubProviderProps {
   children: ReactNode;
+  /**
+   * Whether this provider instance disconnects the device when it unmounts.
+   * Defaults to `true` — the Main Window's own instance, which owns the
+   * device connection's lifecycle for the app's whole run. A Daughter
+   * Window's own instance (`.scratch/daughter-windows-native` issue 02)
+   * passes `false`: closing a Daughter Window must never disconnect the
+   * Main Window from the device just because *a* `DSHubProvider` unmounted
+   * — before this ticket there was only ever one instance for the app's
+   * entire lifetime, so this distinction never had to exist (ADR 0003's
+   * amendment).
+   */
+  ownsDeviceLifecycle?: boolean;
 }
 
-export function DSHubProvider({ children }: DSHubProviderProps) {
+export function DSHubProvider({ children, ownsDeviceLifecycle = true }: DSHubProviderProps) {
   const { settings, updateSettings } = useSettings();
   const port = useBackendPort();
 
@@ -444,6 +456,19 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
         }),
       ];
 
+      // Seeds current connection state rather than waiting for the next
+      // transition, which may never come this session. `connectionStatus`
+      // only ever announces a *change* — a provider mounting after the
+      // device already connected (a Daughter Window opened mid-session,
+      // `.scratch/daughter-windows-native` issue 02) would otherwise show
+      // "disconnected" indefinitely despite a live connection. Harmless for
+      // the Main Window's own instance too: at true app launch this simply
+      // resolves to nothing connected yet.
+      const status = await port.device.getConnectionStatus();
+      if (!cancelled && status !== null) {
+        dispatch({ type: 'SET_CONNECTION', payload: status });
+      }
+
       if (cancelled) {
         // Cleaned up while registering. Undo it here, since the cleanup that
         // would have done so has already run.
@@ -459,12 +484,16 @@ export function DSHubProvider({ children }: DSHubProviderProps) {
       cancelled = true;
       unlisteners.forEach(u => u());
       unlisteners = [];
-      // Disconnect from device if still connected
-      if (connectionRef.current?.connected) {
+      // Disconnect from device if still connected — only for the instance
+      // that owns the connection's lifecycle. A Daughter Window's own
+      // instance (`ownsDeviceLifecycle={false}`) must never disconnect the
+      // whole app from the device just because that one window closed.
+      if (ownsDeviceLifecycle && connectionRef.current?.connected) {
         port.device.disconnect().catch(console.error);
       }
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownsDeviceLifecycle]);
 
   // Send log settings updates to backend when they change
   useEffect(() => {

@@ -1,5 +1,14 @@
 # Panes pop out through dockview's popout windows, or not at all
 
+> **Superseded by [ADR 0005](0005-daughter-windows-are-genuine-webviewwindows.md).**
+> `.scratch/rust-owned-polling` removed the reason this decision ruled out a
+> second `WebviewWindow` in the first place — no realm independently decides
+> polling cadence anymore — and the localhost server this mechanism required
+> caused two production bugs (`c44120f`, `83d6577`). Left intact below as
+> history: what the popout mechanism was, why it was chosen over a genuine
+> second window at the time, and what issue 01's spike actually found on
+> Windows.
+
 A Workspace is currently one arrangement in one window. Both personas want more: an Operator parks a Plot and a status Pane on a second monitor for a shift, and an Engineer breaks a Pane out to see it large and re-docks it. The requirement that decides the design is that a Pane must be draggable from one window into another, and that whatever windows exist are part of the Workspace — saved with it, restored with it, and gone when a different Workspace is loaded.
 
 This introduces three terms. A **Window** is one operating-system window displaying some of a Workspace's Panes. The **Main Window** is the one carrying app identity, Device connection and Control, and Pane/Workspace/Profile management. A **Daughter Window** is any other: it shows the Device's link and Control state read-only, offers a control to add Panes, and otherwise contains nothing but Panes. A Daughter Window belongs to the Workspace, not to the Profile and not to the session, so switching Workspace closes the outgoing Workspace's Daughter Windows and opens the incoming one's. These terms are deliberately not yet in `CONTEXT.md`; that file describes what DSHub is, and this decision is gated on a spike that may end with none of it existing.

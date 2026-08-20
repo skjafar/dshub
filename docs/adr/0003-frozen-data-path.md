@@ -138,6 +138,63 @@ Coalescing which reads get *issued* is a different concern from *how* an
 issued read is sent and matched to its answer, and only the former changed
 hands.
 
+## Amendment — a Daughter Window's own provider must not disconnect the whole app
+
+`.scratch/daughter-windows-native` issue 02 is a separate initiative from
+the interface rebuild, on the same grounds as the amendment above: it
+changes an invariant of frozen code directly, so the change is recorded here.
+
+`DSHubContext.tsx`'s setup effect has always disconnected the device in its
+cleanup if still connected — `if (connectionRef.current?.connected) port.device.disconnect()`.
+This was effectively dead code before this ticket: exactly one
+`DSHubProvider` ever existed, for the app's entire run, so the cleanup ran
+only on a genuine app teardown. A Daughter Window is a genuinely separate
+`WebviewWindow` with its own React tree, and every Pane it can host reads
+`useDSHub()`, so it needs its own `DSHubProvider` instance — the first time
+more than one has ever existed at once. Unamended, closing *any* Daughter
+Window would run this same cleanup and disconnect the Main Window from the
+device too, just because one of possibly several provider instances
+unmounted.
+
+The fix is a new `ownsDeviceLifecycle` prop, default `true` — the Main
+Window's own usage, unchanged. `DaughterWindowShell.tsx` passes `false`: its
+own `DSHubProvider` still listens for every backend event (Panes it hosts
+need live values), it simply never disconnects the shared connection on its
+own unmount. Nothing about sequencing, response correlation, poll
+coalescing or error handling changes — only which instance is allowed to
+end the connection when it unmounts.
+
+## Amendment — a newly-mounted provider seeds its current connection state
+
+A second, related edit to the same effect, for the same reason: a defect
+that only exists once more than one `DSHubProvider` instance can exist.
+
+`connectionStatus` is a pure state-*transition* event — the backend emits it
+when a connect or disconnect actually happens, never on demand. The Main
+Window's own provider never needed anything more, because it has existed
+since before any connection could possibly have been made. A Daughter
+Window's provider can mount *after* the device already connected — opened
+mid-session, once the user is already connected — and without a way to ask
+"what is true right now," it would show "disconnected" indefinitely, having
+missed the one event that would have told it otherwise.
+
+`commands::get_connection_status` is the fix: a new, trivial, infallible
+command reading `AppState.connection` — the same field the reconnect loop
+and `take_control` already read — and returning it as-is. `DSHubContext.tsx`'s
+setup effect calls it once, alongside registering the `connectionStatus`
+listener for future transitions, and dispatches `SET_CONNECTION` if it
+returns something. Harmless for the Main Window's own instance too: at true
+app launch this simply resolves to nothing connected yet, the same state it
+already starts in.
+
+Register, parameter and system register values need no equivalent seed —
+`subscribeAddress` already reads an address immediately upon subscribing
+(`.scratch/rust-owned-polling`), so a Daughter Window's own Panes catch up
+the moment they mount, same as any widget always has. Control state needs
+none either — the heartbeat re-broadcasts `sysRegisterUpdate` every second
+regardless of when a listener joined, so the worst case is a one-second-old
+badge, self-correcting on its own.
+
 ## Consequences
 
 The presentation semantics that happened to live outside `components/` are *in* scope, despite sitting in the same directories as frozen code: the widget config schema in `types/dashboard.ts`, the `UserSettings` shape, the canned CNC dashboard, and the widget icon map. The boundary is what the code means, not where it sits.

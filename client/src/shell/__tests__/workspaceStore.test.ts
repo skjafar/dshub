@@ -68,6 +68,28 @@ describe('validating a stored Workspace', () => {
     expect(isValidStoredWorkspace(bad)).toBe(false);
   });
 
+  it('rejects a dockLayout saved under the pre-native dockview-popout mechanism', () => {
+    // ADR 0004 (superseded by ADR 0005): real `popoutGroups` entries mean
+    // dockview's own `fromJSON` would try to reopen them via `window.open`,
+    // which `.scratch/daughter-windows-native` issue 02 made fail
+    // unconditionally by removing the handler that ever made it succeed.
+    // Rejecting here routes this through the existing drop-and-fall-back
+    // path instead of a stuck "Reopen windows" banner.
+    const bad = workspace({
+      dockLayout: { ...validDockLayout(), popoutGroups: [{ id: 'popout-1' }] } as unknown as SerializedDockview,
+    });
+    expect(isValidStoredWorkspace(bad)).toBe(false);
+  });
+
+  it('accepts a dockLayout with an empty popoutGroups array', () => {
+    // dockview may still serialize the field even with nothing in it —
+    // only a *populated* list is the old-format signal.
+    const ok = workspace({
+      dockLayout: { ...validDockLayout(), popoutGroups: [] } as unknown as SerializedDockview,
+    });
+    expect(isValidStoredWorkspace(ok)).toBe(true);
+  });
+
   it('rejects garbage of every shape without throwing', () => {
     for (const candidate of [null, undefined, 42, 'a string', [], {}, { id: 1 }]) {
       expect(() => isValidStoredWorkspace(candidate)).not.toThrow();

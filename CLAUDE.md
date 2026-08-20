@@ -99,111 +99,105 @@ mode — see `shell/focusMode.ts` and below.
 
 ### Daughter Windows
 
-A Workspace can span more than one operating-system **Window** (ADR 0004,
+A Workspace can span more than one operating-system **Window** (ADR 0005,
 `CONTEXT.md`). The **Main Window** carries Connect, Control, and
 Pane/Workspace/Profile/Settings management; any other is a **Daughter
 Window** — read-only link/Control state plus one control to add a Pane, and
-nothing else. A Pane is dragged out of a Window to create one, or sent out by
-"Move to new window" on its tab; both funnel through `AppShell.tsx`'s
-`openAsPopout`, the one place a popout is actually created so the
-window-count warning and the destroy-on-close override (below) can never be
-reached by one path and skipped by another.
+nothing else. "Move to new window" on a Pane's tab, from either kind of
+Window, is currently the only way to create one — dragging a tab past a
+Window's edge (the original gesture) is not yet rebuilt against this
+mechanism.
 
-The mechanism is dockview 7's popout windows (`DockviewApi.addPopoutGroup`),
-not a second Tauri `WebviewWindow`: a popout is a separate OS window but the
-*same* JavaScript realm, so there is exactly one `pollRegistry`, one
-`DSHubProvider` and one `paneState` store across every Window — ADR 0003's
-frozen data path is untouched, and a second Tauri webview would have been a
-second realm with duplicate polls. `popout.html` (a second Vite build input)
-is the scriptless document dockview opens a Daughter Window onto; dockview
-adopts the popped-out group's DOM into it and copies the opener's
-stylesheets, but nothing else about the application renders there except
-`shell/DaughterWindowRoot.tsx`'s chrome, portalled in by hand since dockview
-only adopts dock content, never surrounding chrome.
+The mechanism is a genuine, independent Tauri `WebviewWindow`, not dockview's
+`addPopoutGroup` adopting DOM into a same-realm popout (ADR 0004, superseded
+by ADR 0005): each Daughter Window runs its own React tree
+(`shell/DaughterWindowShell.tsx`, mounted instead of `AppShell.tsx` — see
+`App.tsx`'s branch on `shell/windowRole.ts`'s `isMainWindow()`) and its own
+dockview instance, with no shared `DockviewApi` between Windows at all. Only
+`AutoScanManager`/`AutoConnectManager` and `AppShell.tsx` itself stay
+Main-Window-exclusive; a Daughter Window still gets its own
+`BackendPortProvider`/`SettingsProvider`/`DSHubProvider`, since every Pane
+reads `useDSHub()` and needs live values. `src-tauri/src/daughter_windows.rs`'s
+`open_daughter_window` is the one place a Daughter Window is actually
+created: it mints a never-reused label (`daughter-{n}`), builds the window
+against Tauri's own local protocol carrying the one Pane to open as a query
+string (`?pane=<kind>` — the frontend reads `window.location.search` once on
+mount), and registers a `WindowEvent::Destroyed` handler that updates an
+`AppState`-held registry and broadcasts the change — the one mechanism that
+handles every closure path uniformly (native OS close, the Main Window's own
+"close a Daughter Window" list, or a Daughter Window closing itself on
+losing its last Pane), rather than needing separate bookkeeping per path.
+`async fn` on that command is load-bearing: a *sync* Tauri command runs
+inline on whatever thread dispatched it, which for a `WebviewWindowBuilder`
+call is the main/event-loop thread itself, and `.build()` needs that same
+thread's message loop to cycle again to finish — calling it from a sync
+command deadlocks the app against itself (`.scratch/daughter-windows-native`
+issue 01's finding).
 
-Two behaviours deliberately override dockview's defaults. A Daughter Window
-losing its last Pane closes itself — wired in `AppShell.tsx`'s `handleReady`,
-checked on every `onDidLayoutChange` rather than only `onDidRemovePanel`:
-dragging a Pane out of a popout and back into the Main Window empties it
-exactly as closing its last tab does, but is a *move*, not a removal, and
-never fires `onDidRemovePanel` at all. Closing one destroys its Panes rather
-than relocating them to the main grid — dockview's own default — via
-`onWillClose`, supplied by `reallyOpenPopout`
-every time *this session* creates a popout: from `handleReady`'s drag-out
-listener and from the "Move to new window" tab command alike, since both
-funnel through the same `openAsPopout`. A restored Daughter Window closed by
-its native OS control falls back to dockview's relocate-to-main-grid
-default instead, since `skipPopoutReturn` is not reachable through the
-public api and there is no reliable pre-disposal hook for dockview's own
-restoration path — a known, narrow gap, not an oversight.
+`capabilities/default.json`'s `windows` list is `["main", "daughter-*"]` — a
+plain static glob, confirmed (not assumed) to grant `invoke` and broadcast
+`listen` access to a window whose exact label was never declared anywhere,
+for a second *and* third window, not only the first. No `dynamic-acl`/
+`add_capability` call is needed for these: unlike the deleted localhost
+origin, a Daughter Window loads over the *local* protocol, which a static
+capability already covers.
 
-Both of those close paths, the Main Window's own "close a Daughter Window"
-list entry, and focusing one from that same list all go through
-`daughterWindowNative.ts` rather than the raw DOM `Window.close()`/
-`Window.focus()` dockview itself calls. Under Tauri a Daughter Window is a
-full `WebviewWindow` (`lib.rs`'s `on_new_window` builds one, not a bare
-WebView2 popup), with its own native title bar, close button and z-order
-entirely separate from whatever WebView2 does with a script-opened window's
-raw DOM methods — calling `close()` raw only unloads the webview content and
-leaves the native frame around it open and blank; `focus()` raw is the same
-risk the other way, failing silently rather than visibly if it only focuses
-content instead of raising the native frame. `daughterWindowNative.ts`
-recovers the window's Tauri label from `__TAURI_INTERNALS__` (injected into
-every window Tauri manages, popouts included, regardless of `popout.html`
-carrying no script of its own) and calls `@tauri-apps/api/window`'s
-`Window.getByLabel(label).close()`/`.setFocus()` instead, falling back to
-the raw DOM method if that rejects or outside Tauri, where the raw method is
-correct. The Tauri calls need `core:window:allow-close` and
-`core:window:allow-set-focus` — but *where* that permission has to be
-granted depends on which origin the Main Window is actually running from,
-and the two builds differ. `cargo tauri dev` loads the app's configured
-`devUrl`, which Tauri gives the same implicit trust as the bundled origin,
-so `capabilities/default.json`'s static grant applies and is enough on its
-own. Every other build serves over the phase-2 localhost origin (`lib.rs`,
-above), which is a `remote` origin as far as the ACL is concerned and gets
-*none* of that implicit trust — `capabilities/default.json` has no `remote`
-entry, so it does not apply there at all. The dynamically-added "localhost"
-capability in `lib.rs` is the *only* grant that origin gets, which is why it
-repeats every permission the Main Window needs (`core:default` included) —
-`invoke` on this project's own commands works either way, since custom
-commands are not capability-gated at all, but Tauri's own event system is,
-and a missing permission there fails silently: `listen()` calls resolve
-and nothing ever arrives, rather than throwing. This is exactly how the
-localhost-origin build once ran with device discovery invisibly broken —
-scanning worked (an `invoke`), the results just never reached the frontend
-(an event) — until `core:default` was added to that capability too. Add a
-permission to one and forget the other, and whichever build does not use
-`devUrl` gets the same silent gap again.
+A Daughter Window that loses its last Pane closes itself — a purely local
+check now (`DaughterWindowShell.tsx`'s own `onDidLayoutChange`,
+`api.panels.length === 0`), unlike the old cross-window
+`api.getPopouts()`-based sweep, since nothing has popouts of its own to
+sweep anymore. Closing one destroys its Panes rather than relocating them
+anywhere: that used to be an explicit override of dockview's own default;
+now it needs no code at all; a real OS window closing inherently tears down
+its own separate React tree and dockview instance, and there is no shared
+instance left for anything to relocate *into*.
 
-The phase-2 localhost origin also has to be the *same* origin every launch,
-not merely a valid one. `localStorage` — where every Setting, Profile,
-Workspace and Dashboard lives — is scoped to the origin, and
-`http://localhost:<port>` *is* the origin; a port picked fresh each launch
-is a fresh, empty origin each launch, indistinguishable from nothing ever
-having been saved. `LOCALHOST_PORT` in `lib.rs` is fixed for exactly this
-reason, falling back to a freely-chosen port (logged) only if that one is
-already taken — trading persistence for at least starting, on whichever
-machine hits that collision, rather than failing outright.
+The Main Window's own "close a Daughter Window"/"focus a Daughter Window"
+list entries go through `daughterWindowNative.ts` rather than a raw DOM
+`Window.close()`/`Window.focus()` — a Daughter Window's native title bar,
+close button and z-order are a separate `WebviewWindow` Tauri manages,
+unreachable from either raw call; `close()` raw only unloads webview
+content, leaving the native frame open and blank, and `focus()` raw fails
+silently rather than visibly if it only focuses content. `daughterWindowNative.ts`
+calls `@tauri-apps/api/window`'s `Window.getByLabel(label).close()`/
+`.setFocus()` directly, by label — no DOM `Window` object to resolve a label
+from anymore, since Rust hands the Main Window a live label list directly
+(`list_daughter_windows` for the initial read, a `daughter-windows-changed`
+broadcast for every change after — the listener is registered *before* the
+initial read, so a late-resolving initial fetch can never clobber a fresher
+broadcast). The Tauri calls need `core:window:allow-close`/
+`core:window:allow-set-focus`, both already in `capabilities/default.json`'s
+static grant — no per-origin capability story to keep in step anymore, since
+every Window loads over the same local protocol the Main Window always has.
 
-Restoring a Workspace at launch has no user gesture behind it, so a popout
-can be blocked — dockview redocks the orphaned groups into the main grid,
-and autosave would otherwise overwrite the stored Workspace with that
-arrangement within `AUTOSAVE_DEBOUNCE_MS`. `workspaceStore.ts`'s
-`RestoreGuard` (`createRestoreGuard`) is what freezes autosave until an
-explicit "Reopen windows" retry succeeds — this is the one seam
-`workspaceStore.test.ts` pins the data-loss path against, deliberately
-without a real dockview instance (ADR-0001).
+A Pane's own filter/selection state does not survive "Move to new window" —
+`paneState.ts`'s in-memory `Map` is per-realm, so a moved Pane opens fresh
+in the new Window rather than carrying its prior state across; preserving it
+is `.scratch/daughter-windows-native` issue 05's own job, for its own
+mechanism (relocating into an *already-open* Window). A Daughter Window's
+own arrangement is not saved across an app restart either — every Pane it
+holds starts fresh from the one kind it was opened with; the new,
+per-window persistence shape that needs is issue 03's job.
+`workspaceStore.ts`'s `RestoreGuard`/"Reopen windows" banner is still wired
+but should now be effectively inert: `isValidDockLayout` rejects a stored
+`dockLayout` carrying real `popoutGroups` entries (the pre-native format's
+signature) before it ever reaches `fromJSON`, and nothing in the new
+mechanism populates that field on save — removing the guard outright is
+also issue 03's job, once the shape it exists to protect no longer exists.
 
-Per-Window state — which Window a Pane currently renders in, Focus Mode's
-own per-Window tracking, the label a menu shows for a Daughter Window —
-resolves from the live dock api rather than being cached, since a plain drag
-can move a Pane between Windows without any of the surrounding React state
-changing: see `shell/focusMode.ts`'s `windowIdForPane` and
-`shell/daughterWindows.ts`. A Radix overlay opened inside a Daughter Window
-portals into that Window's own document via `ui/ThemeScope.tsx`'s
-`PortalContainerScope`, resolved the same way — `Workspace.tsx`'s Pane
-wrapper re-reads it from `onDidLocationChange`, not from where the Pane
-happened to open.
+Per-Window state that used to resolve from a live shared dock api —
+`windowIdForPane` (`shell/focusMode.ts`), the label a menu shows for a
+Daughter Window — degrades to a deliberate, graceful no-op rather than being
+rebuilt cross-window: each Window's own "add a Pane" menu is computed from
+only its own local `api`, always passing `MAIN_WINDOW_ID` as the comparison
+identity regardless of which Window is actually asking, since that
+comparison can now only ever be true. A singleton Pane open in a
+*different* Window will not show as disabled there until
+`.scratch/daughter-windows-native` issue 04 builds the cross-window
+broadcast this needs. Each Window also composes its own, independent
+`FocusModeProvider`/`FocusModeView` now — a Daughter Window only ever has
+itself as a `WindowId`, so there is no per-Window `Record` to keep in step,
+just a plain boolean/dashboard-id local to that Window's own shell.
 
 ## Device Communication
 

@@ -577,6 +577,8 @@ export function createFakeBackendPort(options: FakeBackendPortOptions = {}): Fak
         deliver(announceLink);
       },
 
+      getConnectionStatus: async () => link,
+
       takeControl: async () => {
         requireLink();
         if (!link) return;

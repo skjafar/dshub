@@ -1,6 +1,0 @@
-/* Takes its natural (chrome-bar) height and never grows — `popout.html`'s
-   global stylesheet makes `.dv-popout-window`, dockview's own adopted
-   container and this element's sibling, the one that fills the rest. */
-.root {
-  flex: none;
-}

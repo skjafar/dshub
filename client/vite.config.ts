@@ -23,17 +23,6 @@ export default defineConfig({
     target: ['chrome110', 'safari15'],
     // Optimize chunk size
     chunkSizeWarningLimit: 1000,
-    rollupOptions: {
-      // A second entry point, not a second app: `popout.html` is the
-      // deliberately scriptless document dockview opens a Daughter Window
-      // onto (ADR 0004) — it needs to exist in `build/` for Tauri to bundle
-      // and for dockview's own same-origin check to resolve, but nothing
-      // here ever navigates to it as a page in its own right.
-      input: {
-        index: path.resolve(__dirname, 'index.html'),
-        popout: path.resolve(__dirname, 'popout.html'),
-      },
-    },
   },
 
   // Path resolution

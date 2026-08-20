@@ -46,6 +46,15 @@ export interface DevicePort {
   connect(ip: string, interfaceType: InterfaceType, deviceName?: string): Promise<void>;
   disconnect(): Promise<void>;
   takeControl(): Promise<void>;
+  /**
+   * The current connection, or null if none — an on-demand read rather than
+   * a pushed event. `connectionStatus` only broadcasts on a state
+   * *transition*, so a `DSHubProvider` that mounts after the transition
+   * already happened (a Daughter Window opened while already connected,
+   * `.scratch/daughter-windows-native` issue 02) has no other way to learn
+   * what is already true.
+   */
+  getConnectionStatus(): Promise<DeviceConnection | null>;
 
   readRegister(address: number, name: string): Promise<void>;
   writeRegister(address: number, value: number): Promise<void>;

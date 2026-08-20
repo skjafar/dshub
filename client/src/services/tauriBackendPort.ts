@@ -10,7 +10,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { InterfaceType } from '../types/shared';
+import type { DeviceConnection, InterfaceType } from '../types/shared';
 import type { LogSettings } from '../types/settings';
 import type { DataSource } from '../types/dashboard';
 import type {
@@ -29,6 +29,7 @@ export function createTauriBackendPort(): BackendPort {
         invoke('connect_device', { ip, interfaceType, deviceName }),
       disconnect: () => invoke('disconnect_device'),
       takeControl: () => invoke('take_control'),
+      getConnectionStatus: () => invoke<DeviceConnection | null>('get_connection_status'),
 
       readRegister: (address: number, name: string) =>
         invoke('read_register', { address, name }),

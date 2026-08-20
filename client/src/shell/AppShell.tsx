@@ -1,33 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ComponentProps } from 'react';
-import { createPortal } from 'react-dom';
-import type { AddPanelPositionOptions, DockviewApi, DockviewGroupPanel, IDockviewPanel } from 'dockview';
+import type { AddPanelPositionOptions, DockviewApi } from 'dockview';
 import { Button, Dialog, TooltipProvider } from '../ui';
 import { useBackendPort } from '../contexts/BackendPortContext';
 import { useSettings } from '../contexts/SettingsContext';
-import { getThemeById } from '../appThemes';
 import { AppChrome } from './AppChrome';
-import { closeDaughterWindow, focusDaughterWindow } from './daughterWindowNative';
-import {
-  DAUGHTER_WINDOW_DEFAULT_HEIGHT,
-  DAUGHTER_WINDOW_DEFAULT_WIDTH,
-  dragOutTarget,
-  paneMenuEntries,
-  shouldWarnBeforeNewDaughterWindow,
-} from './daughterWindows';
-import type { WindowBounds } from './daughterWindows';
-import { DaughterWindowRoot } from './DaughterWindowRoot';
+import { closeDaughterWindow, focusDaughterWindow, useDaughterWindows } from './daughterWindowNative';
+import { paneMenuEntries } from './daughterWindows';
 import { FocusModeProvider } from './FocusModeContext';
 import { FocusModeView } from './FocusModeView';
-import { MAIN_WINDOW_ID, windowIdForPane } from './focusMode';
-import type { WindowId } from './focusMode';
+import { MAIN_WINDOW_ID } from './focusMode';
 import { SelectionProvider, useSelection } from './SelectionContext';
 import { Workspace } from './Workspace';
 import { PANES, kindOfPaneId, paneDefinition, paneId } from './paneRegistry';
 import type { PaneKind } from './paneRegistry';
 import { retainPaneState, snapshotPaneStates, subscribePaneStateChanges } from './paneState';
 import { retainSeriesFor } from './plotStream';
-import { useDaughterWindowChrome } from './useDaughterWindowChrome';
+import { useMoveToNewDaughterWindow } from './useMoveToNewDaughterWindow';
 import {
   DEFAULT_WORKSPACE_ID,
   DEFAULT_WORKSPACE_NAME,
@@ -84,18 +73,6 @@ const DEFAULT_LAYOUT: readonly DefaultPane[] = [
   { kind: 'inspector', direction: 'right', initialWidth: INSPECTOR_WIDTH },
 ];
 
-/** One open Daughter Window, as far as the shell needs to track it. */
-interface OpenPopout {
-  readonly id: string;
-  readonly window: Window;
-}
-
-/** A popped-out group or panel awaiting confirmation past the window-count warning. */
-interface PendingPopout {
-  readonly item: IDockviewPanel | DockviewGroupPanel;
-  readonly position?: WindowBounds;
-}
-
 /**
  * The application shell: chrome above, Workspace below.
  *
@@ -108,32 +85,36 @@ interface PendingPopout {
  * (ADR-0001) plus whatever the shared Inspector was following — see
  * `workspaceStore.ts` for the shape and the corruption-handling contract.
  *
- * Since issue 03, it also owns the Daughter Windows a Workspace can hold: it
- * tracks which are open, portals each one's chrome into its own document, and
- * is where every decision `workspaceStore.ts` cannot make on its own —
- * creating a popout, warning before a fifth, destroying its Panes when it
- * closes — is wired to the live dock api.
+ * It is also where "Move to new window" and the 5th-window warning are
+ * wired for the Main Window's own tabs (`useMoveToNewDaughterWindow.ts`,
+ * shared with `DaughterWindowShell.tsx`) — but owns nothing else about
+ * Daughter Windows themselves. Each is a genuinely separate `WebviewWindow`
+ * with its own React tree and dockview instance (ADR 0005); this component
+ * only reads the live, Rust-owned list of which ones are open
+ * (`useDaughterWindows`) for its own "Daughter Windows" list UI.
  */
 function WorkspaceShell(): React.JSX.Element {
   const apiRef = useRef<DockviewApi | null>(null);
   const [openKinds, setOpenKinds] = useState<readonly PaneKind[]>([]);
-  const [openPopouts, setOpenPopouts] = useState<readonly OpenPopout[]>([]);
-  // Which Dashboard, if any, each Window is showing full-canvas — issue 02.
-  // Keyed by `WindowId` rather than a single value because more than one
-  // Window can have Focus Mode active at once: the Main Window's own entry is
-  // `focusByWindow[MAIN_WINDOW_ID]`. `<Workspace>` stays mounted regardless —
-  // hiding a Window's dock rather than unmounting it is the whole point, since
-  // unmounting the one shared dockview instance would destroy every Daughter
-  // Window along with it, not just the Window Focus Mode was entered from.
-  const [focusByWindow, setFocusByWindow] = useState<Readonly<Record<WindowId, string>>>({});
+  const openDaughterWindows = useDaughterWindows();
+  const moveToNewWindow = useMoveToNewDaughterWindow(apiRef);
+  // Which Dashboard, if any, the Main Window is showing full-canvas. A
+  // single value rather than the `Record<WindowId, string>` this used to be
+  // (issue 02) — every Daughter Window now composes its own, independent
+  // `FocusModeProvider`/`FocusModeView` (`DaughterWindowShell.tsx`), so this
+  // Window's own dock api never resolves a Dashboard Pane to any Window but
+  // itself (`windowIdForPane` falls back to `MAIN_WINDOW_ID` for anything
+  // not in `api.getPopouts()`, which is now always empty — nothing here has
+  // popouts of its own anymore). `<Workspace>` stays mounted regardless of
+  // Focus Mode — hiding the dock rather than unmounting it is the whole
+  // point, since unmounting it would destroy this Window's in-session state.
+  const [mainFocusDashboardId, setMainFocusDashboardId] = useState<string | null>(null);
   // True once a restore's popout was blocked (spec.md's data-loss path) —
   // mirrors `restoreGuardRef.current.blocked` as React state purely so the
   // "Reopen windows" banner below can react to it; the guard itself is what
   // autosave actually checks, synchronously, with no render involved.
   const [restoreBlocked, setRestoreBlocked] = useState(false);
-  const [pendingPopout, setPendingPopout] = useState<PendingPopout | null>(null);
   const restoreGuardRef = useRef<RestoreGuard | null>(null);
-  const draggedPanelRef = useRef<IDockviewPanel | null>(null);
 
   const { selection, select, retainPanes } = useSelection();
   const { settings, updateSettings } = useSettings();
@@ -194,7 +175,6 @@ function WorkspaceShell(): React.JSX.Element {
         .map(id => kindOfPaneId(id))
         .filter((kind): kind is PaneKind => kind !== undefined);
       setOpenKinds([...new Set(kinds)]);
-      setOpenPopouts(api.getPopouts().map(popout => ({ id: popout.id, window: popout.window })));
 
       // A closed Pane is gone: its filter must not come back with the next Pane
       // of its kind, and the Inspector must not keep describing a selection made
@@ -250,35 +230,28 @@ function WorkspaceShell(): React.JSX.Element {
   }, [flushAutosave, scheduleAutosave, cancelPendingAutosave]);
 
   /**
-   * Enters Focus Mode on the named Dashboard, in whichever Window the calling
-   * Dashboard Pane instance (`paneId`) currently lives in — the one trigger
-   * `DashboardPane` calls through `FocusModeProvider`, below.
+   * Enters Focus Mode on the named Dashboard — the one trigger `DashboardPane`
+   * calls through `FocusModeProvider`, below. `paneId` is part of the shared
+   * trigger signature (a Daughter Window's own `FocusModeProvider`,
+   * `DaughterWindowShell.tsx`, uses the same one) but unused here: this
+   * provider only ever wraps the Main Window's own tree, so a Dashboard Pane
+   * calling it is, by construction, always in the Main Window.
    *
    * Flushes first as ordinary autosave hygiene, matching `flushAutosave`'s own
    * reasoning for quit — not, as before issue 02, because entering is about to
    * unmount the Workspace out from under an in-flight debounced save.
-   * `apiRef` stays live: dockview keeps running underneath, since hiding one
-   * Window's dock must not disturb what every other Window is doing,
-   * including polling the Device.
+   * `apiRef` stays live: dockview keeps running underneath, since hiding the
+   * dock must not disturb what else is going on, including polling the Device.
    */
   const enterFocusMode = useCallback(
-    (dashboardId: string, paneId: string) => {
+    (dashboardId: string) => {
       flushAutosave();
-      const api = apiRef.current;
-      const windowId = api ? windowIdForPane(api, paneId) : MAIN_WINDOW_ID;
-      setFocusByWindow(previous => ({ ...previous, [windowId]: dashboardId }));
+      setMainFocusDashboardId(dashboardId);
     },
     [flushAutosave]
   );
 
-  /** Leaves Focus Mode for one Window, restoring that Window's normal dock. */
-  const exitFocusMode = useCallback((windowId: WindowId) => {
-    setFocusByWindow(previous => {
-      if (!(windowId in previous)) return previous;
-      const { [windowId]: _removed, ...rest } = previous;
-      return rest;
-    });
-  }, []);
+  const exitFocusMode = useCallback(() => setMainFocusDashboardId(null), []);
 
   /**
    * Restores a Workspace onto the live api, following its selection and
@@ -348,90 +321,6 @@ function WorkspaceShell(): React.JSX.Element {
     []
   );
 
-  /**
-   * Opens a Pane into a specific Daughter Window rather than wherever
-   * dockview would otherwise place it — what that Window's own add-Pane
-   * control needs (spec.md: "a Pane I add from a Daughter Window opens in
-   * that Daughter Window"). Positioned against any existing panel in that
-   * Window; a Window can never be empty while this runs (it would already
-   * have closed itself — see `handleReady`'s last-panel watch), so there is
-   * always a reference panel to place against.
-   */
-  const openPaneInWindow = useCallback(
-    (kind: PaneKind, windowId: WindowId) => {
-      const api = apiRef.current;
-      if (!api) return;
-      const reference = api.panels.find(panel => windowIdForPane(api, panel.id) === windowId);
-      if (!reference) return;
-      openPane(kind, { referencePanel: reference.id, direction: 'within' });
-    },
-    [openPane]
-  );
-
-  /**
-   * Destroys every Pane in `window`'s member groups — the override
-   * `disposePopoutWindow`'s default (relocate to the main grid) needs, since
-   * the spec wants a closed Daughter Window's Panes gone, not reappearing in
-   * the Main Window. `removePanel` rather than the dockview-internal
-   * `skipPopoutReturn` flag: the latter is not reachable through the public
-   * `DockviewApi.removeGroup`, but emptying every member group achieves the
-   * same outcome — there is nothing left for the default relocate to move.
-   */
-  const destroyMembersOnClose = useCallback((api: DockviewApi, closingWindow: Window) => {
-    for (const group of api.groups.filter(g => g.api.getWindow() === closingWindow)) {
-      for (const panel of [...group.panels]) {
-        api.removePanel(panel);
-      }
-    }
-  }, []);
-
-  /**
-   * Actually opens `item` as a popout, wiring the destroy-on-close override.
-   *
-   * Only reaches dockview's own `window.open` after {@link openAsPopout} (or
-   * the pending-popout confirmation) has already decided the count warning
-   * does not apply or has been passed — this is the one place that call
-   * happens, so the override is never accidentally skipped for one creation
-   * path and not another.
-   */
-  const reallyOpenPopout = useCallback(
-    (api: DockviewApi, item: IDockviewPanel | DockviewGroupPanel, position?: PendingPopout['position']) => {
-      void api.addPopoutGroup(item, {
-        position,
-        onWillClose: ({ window: closingWindow }) => destroyMembersOnClose(api, closingWindow),
-      });
-    },
-    [destroyMembersOnClose]
-  );
-
-  /**
-   * Pops `item` out into a new Daughter Window, or holds it for confirmation
-   * first once creating one more would be the fifth (spec.md, story 28).
-   *
-   * The one entry point for popping something out — drag-out and "Move to
-   * new window" both call this — so the warning and the destroy-on-close
-   * wiring apply identically regardless of which gesture asked for it.
-   */
-  const openAsPopout = useCallback(
-    (item: IDockviewPanel | DockviewGroupPanel, position?: PendingPopout['position']) => {
-      const api = apiRef.current;
-      if (!api) return;
-      if (shouldWarnBeforeNewDaughterWindow(api.getPopouts().length)) {
-        setPendingPopout({ item, position });
-        return;
-      }
-      reallyOpenPopout(api, item, position);
-    },
-    [reallyOpenPopout]
-  );
-
-  const confirmPendingPopout = useCallback(() => {
-    const api = apiRef.current;
-    if (!api || !pendingPopout) return;
-    reallyOpenPopout(api, pendingPopout.item, pendingPopout.position);
-    setPendingPopout(null);
-  }, [pendingPopout, reallyOpenPopout]);
-
   const handleReady = useCallback(
     (api: DockviewApi) => {
       apiRef.current = api;
@@ -482,73 +371,28 @@ function WorkspaceShell(): React.JSX.Element {
         });
       }
 
-      // A Daughter Window that loses its last Pane closes itself (spec.md) —
-      // checked on every layout change, not only `onDidRemovePanel`: dragging
-      // a Pane out of a popout and back into the Main Window (or into another
-      // Daughter Window) empties that popout exactly as closing its last tab
-      // does, but it is a *move*, not a removal, and fires no
-      // `onDidRemovePanel` at all — confirmed by hand, the earlier
-      // `onDidRemovePanel`-only version left a dragged-empty popout sitting
-      // open and blank. `onDidLayoutChange` is the one event every path that
-      // can empty a popout — close, drag out, drag elsewhere — is guaranteed
-      // to fire. Closing an already-empty popout has nothing left to
-      // relocate, so no destroy-on-close override is needed here — only
-      // `closeDaughterWindow` itself, since a raw `window.close()` cannot
-      // reach a Tauri window's own native frame.
-      const closeEmptyPopouts = (): void => {
-        for (const popout of api.getPopouts()) {
-          const stillOccupied = api.groups.some(g => g.api.getWindow() === popout.window);
-          if (!stillOccupied) void closeDaughterWindow(popout.window);
-        }
-      };
-
       // Closing, opening, moving or resizing a Pane changes what the reopen
       // menu should offer and what the active Workspace should be saved as, so
       // the shell follows dockview rather than trying to predict it.
+      //
+      // A Daughter Window that loses its last Pane closes itself — that is
+      // now `DaughterWindowShell.tsx`'s own, purely local concern against
+      // its own dockview instance, not this one's: a Daughter Window is a
+      // genuinely separate `WebviewWindow` (issue 02), not a dockview
+      // popout `api.getPopouts()` would still know about.
       api.onDidLayoutChange(() => {
         syncOpenPanes(api);
         scheduleAutosave();
-        closeEmptyPopouts();
       });
       syncOpenPanes(api);
 
-      // The only novel gesture dockview does not have: a Pane's tab dragged
-      // outside every open Window's bounds becomes a new Daughter Window.
-      // `onWillDragPanel` fires at drag start (dockview has no "did drag
-      // end" event of its own), so the native `dragend` — the only signal
-      // for where the pointer actually let go — is attached by hand, to the
-      // dragged element's own document since the drag may have started
-      // inside a Daughter Window rather than the Main Window.
-      api.onWillDragPanel(({ panel, nativeEvent }) => {
-        draggedPanelRef.current = panel;
-        if (!(nativeEvent instanceof DragEvent)) return;
-        const doc = nativeEvent.target instanceof Node ? nativeEvent.target.ownerDocument : document;
-
-        const handleDragEnd = (event: DragEvent): void => {
-          doc.removeEventListener('dragend', handleDragEnd);
-          const dragged = draggedPanelRef.current;
-          draggedPanelRef.current = null;
-          const currentApi = apiRef.current;
-          if (!dragged || !currentApi) return;
-
-          const openWindows = [window, ...currentApi.getPopouts().map(p => p.window)];
-          const bounds = openWindows.map(w => ({
-            left: w.screenX,
-            top: w.screenY,
-            width: w.outerWidth,
-            height: w.outerHeight,
-          }));
-          const target = dragOutTarget({ x: event.screenX, y: event.screenY }, bounds);
-          if (target === null) return;
-          openAsPopout(dragged, {
-            left: target.left,
-            top: target.top,
-            width: DAUGHTER_WINDOW_DEFAULT_WIDTH,
-            height: DAUGHTER_WINDOW_DEFAULT_HEIGHT,
-          });
-        };
-        doc.addEventListener('dragend', handleDragEnd);
-      });
+      // Dragging a Pane's tab outside every open Window's bounds to create
+      // a new Daughter Window is issue 07's own rebuild against the new
+      // mechanism — dockview's own DOM-adoption drag-out (formerly wired
+      // here) cannot work unchanged now that a Daughter Window is a
+      // genuinely separate process rather than an adopted-DOM popout.
+      // "Move to new window" (the tab-context-menu command below) is the
+      // only way to create one for now.
 
       // Reachable from the browser console during development, alongside
       // `window.dshubFaults`. An arrangement is the thing this shell is for, and
@@ -559,7 +403,7 @@ function WorkspaceShell(): React.JSX.Element {
         (window as unknown as { dshubWorkspace?: DockviewApi }).dshubWorkspace = api;
       }
     },
-    [applyWorkspace, openAsPopout, openPane, syncOpenPanes, scheduleAutosave, updateSettings]
+    [applyWorkspace, openPane, syncOpenPanes, scheduleAutosave, updateSettings]
   );
 
   const handleOpenPane = useCallback((kind: PaneKind) => openPane(kind), [openPane]);
@@ -570,9 +414,9 @@ function WorkspaceShell(): React.JSX.Element {
       'closeOthers',
       'closeAll',
       'separator',
-      { label: 'Move to new window', action: () => openAsPopout(panel) },
+      { label: 'Move to new window', action: () => moveToNewWindow.requestMove(panel) },
     ],
-    [openAsPopout]
+    [moveToNewWindow]
   );
 
   const handleSwitchWorkspace = useCallback(
@@ -653,35 +497,19 @@ function WorkspaceShell(): React.JSX.Element {
     applyWorkspace(api, target);
   }, [applyWorkspace]);
 
-  const handleFocusDaughterWindow = useCallback(
-    (windowId: string) => {
-      const target = openPopouts.find(p => p.id === windowId)?.window;
-      if (target) void focusDaughterWindow(target);
-    },
-    [openPopouts]
-  );
+  // Labels, not `Window` objects — Rust is the only thing that knows which
+  // Daughter Windows actually exist now (`useDaughterWindows`), so closing
+  // and focusing one is a direct label-based Tauri call rather than a lookup
+  // against anything dockview or this component's own state ever tracked.
+  const handleFocusDaughterWindow = useCallback((label: string) => {
+    void focusDaughterWindow(label);
+  }, []);
 
-  const handleCloseDaughterWindow = useCallback(
-    (windowId: string) => {
-      const target = openPopouts.find(p => p.id === windowId)?.window;
-      if (target) void closeDaughterWindow(target);
-    },
-    [openPopouts]
-  );
-
-  // Each Daughter Window's own chrome — its top bar and, when applicable,
-  // its Focus Mode overlay — portals into that popout's own document
-  // (`DaughterWindowRoot.tsx`); dockview only adopts a group's dock content
-  // there, never surrounding chrome. Theme reaching every open Window at
-  // once (spec.md, story 37) is the other half of the same "each popout
-  // document needs upkeep the Main Window gets for free" concern.
-  const activeTheme = useMemo(() => getThemeById(settings.colorThemeId), [settings.colorThemeId]);
-  const chromeContainers = useDaughterWindowChrome(openPopouts, activeTheme);
-
-  const openPopoutIds = useMemo(() => openPopouts.map(p => p.id), [openPopouts]);
+  const handleCloseDaughterWindow = useCallback((label: string) => {
+    void closeDaughterWindow(label);
+  }, []);
 
   const collection: ProfileWorkspaces | undefined = settings.workspacesByProfile[profileId];
-  const mainFocusDashboardId = focusByWindow[MAIN_WINDOW_ID] ?? null;
 
   return (
     <FocusModeProvider enter={enterFocusMode}>
@@ -695,11 +523,7 @@ function WorkspaceShell(): React.JSX.Element {
           </div>
         ) : null}
         {mainFocusDashboardId !== null ? (
-          <FocusModeView
-            dashboardId={mainFocusDashboardId}
-            windowId={MAIN_WINDOW_ID}
-            onExit={() => exitFocusMode(MAIN_WINDOW_ID)}
-          />
+          <FocusModeView dashboardId={mainFocusDashboardId} windowId={MAIN_WINDOW_ID} onExit={exitFocusMode} />
         ) : (
           <AppChrome
             onOpenPane={handleOpenPane}
@@ -711,20 +535,26 @@ function WorkspaceShell(): React.JSX.Element {
             onRenameWorkspace={handleRenameWorkspace}
             onDeleteWorkspace={handleDeleteWorkspace}
             onBeforeProfileChange={flushAutosave}
-            daughterWindows={openPopouts.map((popout, index) => ({ id: popout.id, label: `Daughter Window ${index + 1}` }))}
+            daughterWindows={openDaughterWindows.map((label, index) => ({ id: label, label: `Daughter Window ${index + 1}` }))}
             onFocusDaughterWindow={handleFocusDaughterWindow}
             onCloseDaughterWindow={handleCloseDaughterWindow}
             paneMenuEntries={
-              apiRef.current ? paneMenuEntries(PANES, openKinds, apiRef.current, MAIN_WINDOW_ID, openPopoutIds) : []
+              // `MAIN_WINDOW_ID`, never this window's own real identity (it
+              // has none besides "the Main Window") and never a real list of
+              // other windows: `windowIdForPane` always falls back to
+              // `MAIN_WINDOW_ID` for a panel not found in `api.getPopouts()`,
+              // which is every panel in this window's own local `api` now
+              // (nothing has popouts of its own anymore) — so the
+              // cross-window "open elsewhere" check is a deliberate no-op
+              // here, not a bug, pending issue 04's own broadcast.
+              apiRef.current ? paneMenuEntries(PANES, openKinds, apiRef.current, MAIN_WINDOW_ID, []) : []
             }
           />
         )}
-        {/* Always mounted — issue 02. Hidden rather than unmounted while the
-            Main Window is in Focus Mode, so the one shared dockview instance
-            (and any Daughter Windows it owns) keeps running underneath
-            exactly as it does when Focus Mode is showing in a *different*
-            Window instead. Keyed on the Profile regardless: switching one is
-            a different Workspace collection entirely
+        {/* Always mounted. Hidden rather than unmounted while the Main
+            Window is in Focus Mode, so this Window's own in-session
+            arrangement survives the toggle. Keyed on the Profile regardless:
+            switching one is a different Workspace collection entirely
             (`workspacesByProfile` is itself keyed by Profile), and
             remounting is what makes `handleReady` run again against the new
             Profile's own saved layout — or seed one — rather than leaving
@@ -735,38 +565,19 @@ function WorkspaceShell(): React.JSX.Element {
         </div>
       </div>
 
-      {apiRef.current &&
-        openPopouts.map(popout => {
-          const container = chromeContainers.get(popout.id);
-          const api = apiRef.current;
-          if (!container || !api) return null;
-          return createPortal(
-            <DaughterWindowRoot
-              key={popout.id}
-              windowId={popout.id}
-              portalContainer={popout.window.document.body}
-              entries={paneMenuEntries(PANES, openKinds, api, popout.id, openPopoutIds)}
-              onOpenPane={kind => openPaneInWindow(kind, popout.id)}
-              focusDashboardId={focusByWindow[popout.id] ?? null}
-              onExitFocusMode={() => exitFocusMode(popout.id)}
-            />,
-            container
-          );
-        })}
-
       <Dialog
-        open={pendingPopout !== null}
+        open={moveToNewWindow.pendingPanel !== null}
         onOpenChange={open => {
-          if (!open) setPendingPopout(null);
+          if (!open) moveToNewWindow.cancel();
         }}
         title="Open another Daughter Window?"
         description="You already have several Daughter Windows open."
         footer={
           <>
-            <Button variant="secondary" size="sm" onClick={() => setPendingPopout(null)}>
+            <Button variant="secondary" size="sm" onClick={moveToNewWindow.cancel}>
               Cancel
             </Button>
-            <Button variant="primary" size="sm" onClick={confirmPendingPopout}>
+            <Button variant="primary" size="sm" onClick={moveToNewWindow.confirm}>
               Open window
             </Button>
           </>

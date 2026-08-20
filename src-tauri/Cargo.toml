@@ -13,12 +13,13 @@ name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
-# Tauri's own convention, previously unused by this project: `cargo tauri
-# build` passes `--features custom-protocol`, `cargo tauri dev` does not, and
-# `tauri`'s own build script turns that into the `dev`/`not(dev)` cfg alias
-# `lib.rs` now branches on for ADR 0004's phase 2. Without this declared here
-# to forward it, a "production" build would still compile as `dev` and load
-# the custom-protocol origin dockview's popout rejects.
+# Tauri's own convention: `cargo tauri build` passes `--features
+# custom-protocol`, `cargo tauri dev` does not. Declared here so
+# `cargo build --features custom-protocol` (no tauri-cli needed) also
+# produces a build that loads over the custom-protocol origin, exactly as
+# `cargo tauri build` does — used by `.scratch/daughter-windows-native`
+# issue 01's spike to test against a packaged binary without a full bundle.
+
 custom-protocol = ["tauri/custom-protocol"]
 
 [build-dependencies]
@@ -28,19 +29,9 @@ tauri-build = { version = "2.5.6", features = [] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-# "dynamic-acl" is what lets the localhost window's origin be granted IPC
-# access at runtime (`add_capability` in `lib.rs`) instead of only through the
-# static `capabilities/*.json` files, which cannot express a port picked at
-# startup.
-tauri = { version = "2.10.3", features = ["dynamic-acl"] }
+tauri = { version = "2.10.3" }
 tauri-plugin-log = "2"
 tokio = { version = "1", features = ["full"] }
 rfd = "0.15"
 if-addrs = "0.13"
 base64 = "0.22"
-# ADR 0004's phase-2 candidate: serves the built frontend over real HTTP
-# instead of Tauri's custom protocol, which is what dockview's popout windows
-# need — `assertSameOriginPopoutUrl` rejects `tauri://`/`https://tauri.localhost`
-# unconditionally. Wired in `lib.rs`, non-dev builds only.
-tauri-plugin-localhost = "2"
-portpicker = "0.1"

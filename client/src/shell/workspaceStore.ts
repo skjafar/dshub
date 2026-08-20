@@ -70,6 +70,22 @@ function isValidDockLayout(value: unknown): value is SerializedDockview {
     if (typeof kind !== 'string' || !isKnownPaneKind(kind)) return false;
   }
 
+  // A layout saved under the pre-native dockview-popout mechanism (ADR
+  // 0004, superseded by ADR 0005) carries real `popoutGroups` entries.
+  // `restoreWorkspace`'s `fromJSON` would still hand those to dockview,
+  // which would still try to reopen them via its own internal
+  // `window.open` — and since `.scratch/daughter-windows-native` issue 02
+  // removed the `on_new_window` handler that ever made that succeed, the
+  // attempt now fails unconditionally, tripping the *existing*
+  // `onDidOpenPopoutWindowFail`/`RestoreGuard` path into a "Reopen windows"
+  // banner whose retry is a permanent dead end. Rejecting here instead
+  // routes an old-format Workspace through the already-tested
+  // graceful-degradation path below (drop it, fall back to the next
+  // candidate, or reseed the default) rather than shipping a stuck banner —
+  // the narrow slice of "resets cleanly rather than erroring" issue 02
+  // itself needs; the new persistence shape is issue 03's own job.
+  if (Array.isArray(value.popoutGroups) && value.popoutGroups.length > 0) return false;
+
   return true;
 }
 
