@@ -157,3 +157,35 @@ function locateOpenPane(paneLocations: ReadonlyMap<WindowId, readonly string[]>,
   }
   return null;
 }
+
+// ── "Move to Window", relocating a Pane into an already-open Window ───────
+
+/** One choice in a Pane's "Move to Window" list. */
+export interface MoveTarget {
+  readonly windowId: WindowId;
+  readonly label: string;
+}
+
+/**
+ * Every open Window `pane` could move into right now (issue 05) — every
+ * Window `knownWindowIds` reports, minus the one the Pane is already in
+ * (moving to yourself is not a move), minus, for a singleton, any Window
+ * that already has one open (`paneLocations`, the same cross-window view
+ * `paneMenuEntries` reads — landing a second Inspector in a Window that
+ * already has one would collide). Non-singleton kinds never exclude a
+ * target this way: several Panes of the same kind coexisting in one Window
+ * is the ordinary case, not a collision. Takes the whole `PaneDefinition`
+ * rather than its `kind`/`singleton` fields split apart, matching
+ * `paneMenuEntries`'s own convention just above.
+ */
+export function moveTargets(
+  pane: Pick<PaneDefinition, 'kind' | 'singleton'>,
+  sourceWindowId: WindowId,
+  paneLocations: ReadonlyMap<WindowId, readonly string[]>,
+  openDaughterWindowLabels: readonly string[]
+): readonly MoveTarget[] {
+  return knownWindowIds(openDaughterWindowLabels)
+    .filter(windowId => windowId !== sourceWindowId)
+    .filter(windowId => !pane.singleton || !(paneLocations.get(windowId) ?? []).includes(pane.kind))
+    .map(windowId => ({ windowId, label: windowLabel(windowId, openDaughterWindowLabels) }));
+}

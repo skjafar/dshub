@@ -113,3 +113,16 @@ export function loadPaneStates(paneStates: Readonly<Record<string, unknown>>): v
     states.set(id, value);
   }
 }
+
+/**
+ * Seeds exactly one Pane's own state ahead of its first mount, without
+ * touching any other entry — unlike {@link loadPaneStates}'s whole-store
+ * replace, which is right for loading a Workspace wholesale but would
+ * destroy every other open Pane's state here. A Pane moved into this Window
+ * from another (`.scratch/daughter-windows-native` issue 05) needs exactly
+ * this: the receiving Window already has its own open Panes' state in the
+ * store, and the moved Pane is joining them, not replacing them.
+ */
+export function restorePaneState(paneId: string, value: unknown): void {
+  states.set(paneId, value);
+}

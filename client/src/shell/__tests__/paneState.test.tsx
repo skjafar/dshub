@@ -4,6 +4,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   loadPaneStates,
+  restorePaneState,
   retainPaneState,
   snapshotPaneStates,
   subscribePaneStateChanges,
@@ -174,5 +175,29 @@ describe('snapshotting and restoring Pane state for a Workspace', () => {
     listener.mockClear();
     await user.type(filter(), 'O');
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `.scratch/daughter-windows-native` issue 05: a Pane moved into this Window
+ * from another needs its state seeded before it mounts too, the same
+ * contract `loadPaneStates` already has — but scoped to just the one moved
+ * Pane's own id, since a Window receiving a move already has other open
+ * Panes' state in the store that a whole-store replace would destroy.
+ */
+describe('restorePaneState', () => {
+  it("seeds exactly one Pane's state ahead of its first mount, without touching any other", () => {
+    loadPaneStates({ 'register#1': { query: 'ALREADY-HERE' } });
+    restorePaneState('register#2', { query: 'MOVED-IN' });
+
+    render(
+      <>
+        <section aria-label="A"><FilterPane paneId="register#1" /></section>
+        <section aria-label="B"><FilterPane paneId="register#2" /></section>
+      </>
+    );
+    const [a, b] = screen.getAllByRole('textbox', { name: 'Filter' });
+    expect(a).toHaveValue('ALREADY-HERE');
+    expect(b).toHaveValue('MOVED-IN');
   });
 });

@@ -91,15 +91,50 @@ its own, independent `FocusModeProvider`/`FocusModeView`
 (`DaughterWindowShell.tsx`), so a Dashboard Pane entering Focus Mode is, by
 construction, always acting on the Window it is already rendered in.
 
-**A Pane's own state does not survive being moved to a new window.**
+**A Pane's own state does not survive "Move to new window."**
 `paneState.ts`'s store is a module-level in-memory `Map` — correct and
 sufficient when there was one realm, but it cannot cross into a genuinely
 separate one without new serialization machinery. "Move to new window" (the
 existing tab-context-menu command, now creating a real window instead of a
 same-realm popout) opens a fresh Pane of the same kind; the moved Pane's
-filter and selection reset. Preserving them is `.scratch/daughter-windows-
-native` issue 05's own stated job for *its* move mechanism (relocating into
-an *already-open* window), not this one's.
+filter and selection reset. This is deliberate, not a placeholder: a
+genuinely new window has nothing to hand a serialized blob to yet, and
+`open_daughter_window` already carries the one thing that matters for a
+fresh window, the Pane's own kind, over its `?pane=<kind>` query string.
+
+**Issue 05 closed the gap for "Move to Window,"** the sibling command that
+relocates a Pane into a Window that is *already open* rather than a new
+one. `paneHandoff.ts` reuses issue 04's own `@tauri-apps/api/event`
+broadcast rather than building a second mechanism: the sending Window reads
+`paneState.ts`'s `snapshotPaneStates` for the moved panel id, emits it
+addressed to the target's `WindowId`, and only calls `removePanel` once
+that emit is confirmed sent (mirroring "Move to new window"'s own
+only-remove-after-success reasoning) — no request/response catch-up
+handshake needed here, unlike issue 04's own, since a Window only ever
+appears as a move target (`daughterWindows.ts`'s `moveTargets`) once it is
+already running and already listening. The receiving Window seeds
+`paneState.ts` via a new `restorePaneState` (an exact-one-id write, unlike
+`loadPaneStates`' whole-store replace for a Workspace load) *before*
+calling `addPanel`, so the Pane's own `usePaneState` reads it on its very
+first mount. **A tab's own display title is never part of this payload** —
+confirmed against a real dockview instance, not assumed: every Pane kind
+that shows one (`AddressSpacePane.tsx`'s instance number and filter query,
+`InspectorPane.tsx`'s described entry, and so on) recomputes its own title
+from its own state in its own `useEffect` on every mount, so whatever title
+`addPanel` was given is superseded immediately regardless — carrying one
+across the wire was dead weight from an earlier draft, caught by
+`DaughterWindowShell.test.tsx`'s own end-to-end assertion actually
+disagreeing with what a real dockview instance produced. Moving the last
+Pane out of a Daughter Window closes it through the exact same
+`onDidLayoutChange`/`closeIfEmpty` path issue 02 already built for any
+other last-Pane close — `removePanel` does not know or care which UI
+action asked for it.
+
+dockview's own tab context menu has no native submenu primitive
+(`ContextMenuItemConfig` is flat: a label, an action, nothing nested), so
+"Move to [Window]" is one flat entry per open target rather than a genuine
+"Move to Window ▸ target" flyout — the same words, the same choice, just
+without a UI mechanism this library gives no seam to build.
 
 **Settings, Profiles and Workspaces are automatically shared again, with no
 new plumbing**, the moment the localhost server is gone: every window is
@@ -223,3 +258,26 @@ event untouched by this hook's own state. `daughterWindows.ts`'s
 `paneMenuEntries` and new `knownWindowIds` stay plain data-in-data-out
 functions over a hand-built `ReadonlyMap<WindowId, readonly string[]>`, same
 as before.
+
+Issue 05's own additions: `daughterWindows.ts`'s new `moveTargets` is
+another plain data-in-data-out function, pinned the same way
+`paneMenuEntries` already is. `paneHandoff.ts` (`sendPaneHandoff`,
+`useIncomingPaneHandoffs`) is mocked the same way `paneLocations.ts` is
+elsewhere. `useMoveToWindow.ts` itself mocks `paneHandoff.ts` wholesale
+(the same pattern `useMoveToNewDaughterWindow.test.ts` already uses for
+`daughterWindowNative.ts`) to pin `targetsFor`/`requestMove`/the incoming-
+handoff callback in isolation. The one thing none of that isolation can
+confirm — a real `addPanel` call and a real `usePaneState` mount actually
+cooperating with `restorePaneState`'s "seed before mount" contract — is
+exercised end to end in `DaughterWindowShell.test.tsx` by invoking the
+mocked `listen` handler directly to simulate an incoming handoff against
+its real, already-rendered `<Workspace>`; this is also what caught the
+dead `title` field described above, a defect no isolated mock of either
+half could have surfaced since each was internally consistent about a
+title that a real Pane component silently discards. A genuine two-Window
+round trip — the sending half's own tab-context-menu action, actually
+clicked, actually relocating a Pane into a second real `WebviewWindow` —
+has no test seam in this file (`getCurrentWindow` is one global mocked
+return value, unable to tell two simultaneously-live instances apart) and
+is left to hand verification against a packaged binary, the same as this
+directory's other real-OS-window mechanics.

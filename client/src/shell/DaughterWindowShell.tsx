@@ -16,9 +16,10 @@ import { SelectionProvider, useSelection } from './SelectionContext';
 import { Workspace } from './Workspace';
 import { PANES, isKnownPaneKind, paneDefinition, paneId } from './paneRegistry';
 import type { PaneKind } from './paneRegistry';
-import { retainPaneState, snapshotPaneStates, subscribePaneStateChanges } from './paneState';
+import { restorePaneState, retainPaneState, snapshotPaneStates, subscribePaneStateChanges } from './paneState';
 import { retainSeriesFor } from './plotStream';
 import { useMoveToNewDaughterWindow } from './useMoveToNewDaughterWindow';
+import { useMoveToWindow } from './useMoveToWindow';
 import {
   activeWorkspaceOf,
   restoreDaughterWindowContent,
@@ -250,26 +251,46 @@ function DaughterWindowShellInner(): React.JSX.Element {
     [retainPanes, port]
   );
 
-  const openPane = useCallback((kind: PaneKind) => {
+  const openPane = useCallback((kind: PaneKind, paneState?: unknown) => {
     const api = apiRef.current;
     const definition = paneDefinition(kind);
     if (!api || !definition) return;
 
     if (definition.singleton) {
+      // `paneState` arriving for a singleton already open here is a stale
+      // or racing handoff — `moveTargets` (`useMoveToWindow.ts`) already
+      // excludes a Window in this state from the sender's own menu, so
+      // this is a defensive fallback, not the expected path.
       const existing = api.getPanel(paneId(kind));
       if (existing) {
         existing.api.setActive();
         return;
       }
-      api.addPanel({ id: paneId(kind), component: kind, title: definition.title });
+      const id = paneId(kind);
+      if (paneState !== undefined) restorePaneState(id, paneState);
+      api.addPanel({ id, component: kind, title: definition.title });
       return;
     }
 
+    // A Pane moved in from another Window gets a fresh instance number the
+    // same way any other new Pane of this kind would — its numeric suffix
+    // was never meaningful outside the Window it was minted in, and its tab
+    // title needs no special handling either: every Pane kind that shows
+    // one recomputes it from its own state on mount regardless
+    // (`paneHandoff.ts`'s own doc comment).
     const taken = new Set(api.panels.map(panel => panel.id));
     let instance = 1;
     while (taken.has(paneId(kind, instance))) instance += 1;
-    api.addPanel({ id: paneId(kind, instance), component: kind, title: `${definition.title} ${instance}` });
+    const id = paneId(kind, instance);
+    if (paneState !== undefined) restorePaneState(id, paneState);
+    api.addPanel({ id, component: kind, title: `${definition.title} ${instance}` });
   }, []);
+
+  // `openPane` already takes `(kind, paneState?)` — exactly what
+  // `useMoveToWindow` needs to open a Pane handed off from another Window —
+  // so unlike `AppShell.tsx`'s own wider signature (position/width for its
+  // default-layout seeding), no adapter is needed here.
+  const moveToWindow = useMoveToWindow(apiRef, windowId, openDaughterWindows, paneLocations, openPane);
 
   /**
    * A Daughter Window that loses its last Pane closes itself (spec.md) —
@@ -335,14 +356,29 @@ function DaughterWindowShellInner(): React.JSX.Element {
 
   const handleTabContextMenuItems: NonNullable<ComponentProps<typeof Workspace>['getTabContextMenuItems']> =
     useCallback(
-      ({ panel }) => [
-        'close',
-        'closeOthers',
-        'closeAll',
-        'separator',
-        { label: 'Move to new window', action: () => moveToNewWindow.requestMove(panel) },
-      ],
-      [moveToNewWindow]
+      ({ panel }) => {
+        const targets = moveToWindow.targetsFor(panel);
+        return [
+          'close',
+          'closeOthers',
+          'closeAll',
+          'separator',
+          { label: 'Move to new window', action: () => moveToNewWindow.requestMove(panel) },
+          // Only present when another Window is actually open to move into —
+          // see `AppShell.tsx`'s own identical comment on why this is flat
+          // entries rather than a nested submenu.
+          ...(targets.length > 0
+            ? [
+                'separator' as const,
+                ...targets.map(target => ({
+                  label: `Move to ${target.label}`,
+                  action: () => moveToWindow.requestMove(panel, target.windowId),
+                })),
+              ]
+            : []),
+        ];
+      },
+      [moveToNewWindow, moveToWindow]
     );
 
   const enterFocusMode = useCallback((dashboardId: string) => {

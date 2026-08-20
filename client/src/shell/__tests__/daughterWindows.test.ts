@@ -3,6 +3,7 @@ import {
   DAUGHTER_WINDOW_WARNING_THRESHOLD,
   dragOutTarget,
   knownWindowIds,
+  moveTargets,
   paneMenuEntries,
   shouldWarnBeforeNewDaughterWindow,
   windowLabel,
@@ -126,5 +127,57 @@ describe('paneMenuEntries', () => {
   it('offers a singleton normally when no Window currently reports it open', () => {
     const entries = paneMenuEntries([inspector], locations({ 'popout-1': ['register#1'] }), MAIN_WINDOW_ID, ['popout-1']);
     expect(entries[0]?.disabledLocation).toBeNull();
+  });
+});
+
+describe('moveTargets', () => {
+  const registerPane = { kind: 'register' as const, singleton: false };
+  const inspectorPane = { kind: 'inspector' as const, singleton: true };
+
+  it('lists every open Window except the one the Pane is already in', () => {
+    const targets = moveTargets(registerPane, MAIN_WINDOW_ID, locations({}), ['daughter-1', 'daughter-2']);
+    expect(targets).toEqual([
+      { windowId: 'daughter-1', label: 'Daughter Window 1' },
+      { windowId: 'daughter-2', label: 'Daughter Window 2' },
+    ]);
+  });
+
+  it('includes the Main Window as a target from a Daughter Window', () => {
+    const targets = moveTargets(registerPane, 'daughter-1', locations({}), ['daughter-1']);
+    expect(targets).toEqual([{ windowId: MAIN_WINDOW_ID, label: 'Main Window' }]);
+  });
+
+  it('is empty when no other Window is open', () => {
+    expect(moveTargets(registerPane, MAIN_WINDOW_ID, locations({}), [])).toEqual([]);
+  });
+
+  it('never excludes a target for a non-singleton kind, whatever is open there', () => {
+    const targets = moveTargets(
+      registerPane,
+      MAIN_WINDOW_ID,
+      locations({ 'daughter-1': ['register#1'] }),
+      ['daughter-1']
+    );
+    expect(targets).toEqual([{ windowId: 'daughter-1', label: 'Daughter Window 1' }]);
+  });
+
+  it('excludes a Window that already has this singleton open — moving there would collide', () => {
+    const targets = moveTargets(
+      inspectorPane,
+      MAIN_WINDOW_ID,
+      locations({ 'daughter-1': ['inspector'] }),
+      ['daughter-1', 'daughter-2']
+    );
+    expect(targets).toEqual([{ windowId: 'daughter-2', label: 'Daughter Window 2' }]);
+  });
+
+  it('still offers a Window that has other Panes open but not this singleton', () => {
+    const targets = moveTargets(
+      inspectorPane,
+      MAIN_WINDOW_ID,
+      locations({ 'daughter-1': ['register#1'] }),
+      ['daughter-1']
+    );
+    expect(targets).toEqual([{ windowId: 'daughter-1', label: 'Daughter Window 1' }]);
   });
 });

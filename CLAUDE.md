@@ -106,7 +106,14 @@ Window** — read-only link/Control state plus one control to add a Pane, and
 nothing else. "Move to new window" on a Pane's tab, from either kind of
 Window, is currently the only way to create one — dragging a tab past a
 Window's edge (the original gesture) is not yet rebuilt against this
-mechanism.
+mechanism. A tab also offers "Move to [Window]" (`.scratch/daughter-windows-native`
+issue 05, `shell/useMoveToWindow.ts`) for every already-open Window besides
+its own, relocating the Pane there — its own `paneState.ts` filter/selection
+carried across via `shell/paneHandoff.ts`'s own `@tauri-apps/api/event`
+broadcast (reusing issue 04's mechanism, not a second one), rather than
+opening a fresh empty Pane the way "Move to new window" does. One flat entry
+per target, not a nested submenu: dockview's own tab context menu has no
+native submenu primitive to build one against.
 
 The mechanism is a genuine, independent Tauri `WebviewWindow`, not dockview's
 `addPopoutGroup` adopting DOM into a same-realm popout (ADR 0004, superseded

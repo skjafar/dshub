@@ -13,6 +13,7 @@ import type { BackendPort } from '../../services/backendPort';
 import { DEFAULT_SETTINGS } from '../../types/settings';
 import type { UserSettings } from '../../types/settings';
 import { DaughterWindowShell } from '../DaughterWindowShell';
+import { PANE_HANDOFF_EVENT } from '../paneHandoff';
 import type { ProfileWorkspaces } from '../workspaceStore';
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -327,5 +328,76 @@ describe('DaughterWindowShell pruning its own entry on close', () => {
     expect(readActiveWorkspace().daughterWindows).toEqual([]);
 
     vi.useRealTimers();
+  });
+});
+
+/**
+ * `.scratch/daughter-windows-native` issue 05: "Move to Window" relocates a
+ * Pane into an already-open Window. `useMoveToWindow.test.ts` and
+ * `paneHandoff.test.ts` already pin the sending and receiving halves of the
+ * mechanism in isolation against mocked collaborators; this exercises the
+ * *receiving* half end to end against a real dockview instance instead — a
+ * real `addPanel` call and a real `usePaneState` mount actually cooperating
+ * with `restorePaneState`'s "seed before mount" contract, not a fake
+ * standing in for either. Driven by invoking the mocked `listen` handler
+ * directly (the same technique `paneHandoff.test.ts` uses) rather than a
+ * second, simultaneously-mounted `DaughterWindowShell` instance: this file's
+ * own `getCurrentWindow` mock is a single global return value with no way to
+ * tell two instances apart, so a genuine two-Window round trip is left to
+ * hand verification against a packaged binary, the same as this directory's
+ * other real-OS-window mechanics.
+ */
+describe('DaughterWindowShell receiving a "Move to Window" handoff', () => {
+  it('opens the handed-off Pane with its filter state already restored', async () => {
+    let deliverHandoff: (event: { payload: unknown }) => void = () => {};
+    vi.mocked(listen).mockImplementation(async (event, handler) => {
+      if (event === PANE_HANDOFF_EVENT) deliverHandoff = handler as never;
+      return vi.fn();
+    });
+
+    renderShell('?pane=overview'); // already has a Pane open, so it is a valid move target
+    await settle();
+
+    act(() => {
+      deliverHandoff({
+        payload: {
+          targetWindowId: 'daughter-1', // this beforeEach's own getCurrentWindow label
+          kind: 'register',
+          paneState: { query: 'MOTOR', format: 'decimal', selectedAddress: null, live: false },
+        },
+      });
+    });
+    await settle();
+
+    // AddressSpacePane.tsx computes its own tab title from its instance
+    // number and current filter query — "My Registers" or any other
+    // carried-over title would only ever be overwritten on the very next
+    // render, so this is the *correct* outcome, not a missing feature; see
+    // paneHandoff.ts's own doc comment for why no title crosses the wire at
+    // all.
+    const tab = screen.getByRole('tab', { name: 'Registers 1 · MOTOR' });
+    await userEvent.click(tab);
+
+    expect(screen.getByRole('textbox', { name: 'Filter registers by name or address' })).toHaveValue('MOTOR');
+  });
+
+  it('ignores a handoff addressed to a different Window', async () => {
+    let deliverHandoff: (event: { payload: unknown }) => void = () => {};
+    vi.mocked(listen).mockImplementation(async (event, handler) => {
+      if (event === PANE_HANDOFF_EVENT) deliverHandoff = handler as never;
+      return vi.fn();
+    });
+
+    renderShell('?pane=overview');
+    await settle();
+
+    act(() => {
+      deliverHandoff({
+        payload: { targetWindowId: 'daughter-9', kind: 'register', paneState: {} },
+      });
+    });
+    await settle();
+
+    expect(screen.queryAllByRole('tab', { name: /Registers/ })).toHaveLength(0);
   });
 });

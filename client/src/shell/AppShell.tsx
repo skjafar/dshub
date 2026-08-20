@@ -16,9 +16,10 @@ import { SelectionProvider, useSelection } from './SelectionContext';
 import { Workspace } from './Workspace';
 import { PANES, paneDefinition, paneId } from './paneRegistry';
 import type { PaneKind } from './paneRegistry';
-import { retainPaneState, snapshotPaneStates, subscribePaneStateChanges } from './paneState';
+import { restorePaneState, retainPaneState, snapshotPaneStates, subscribePaneStateChanges } from './paneState';
 import { retainSeriesFor } from './plotStream';
 import { useMoveToNewDaughterWindow } from './useMoveToNewDaughterWindow';
+import { useMoveToWindow } from './useMoveToWindow';
 import {
   DEFAULT_WORKSPACE_ID,
   DEFAULT_WORKSPACE_NAME,
@@ -263,7 +264,12 @@ function WorkspaceShell(): React.JSX.Element {
   );
 
   const openPane = useCallback(
-    (kind: PaneKind, position?: AddPanelPositionOptions, initialWidth?: number): string | null => {
+    (
+      kind: PaneKind,
+      position?: AddPanelPositionOptions,
+      initialWidth?: number,
+      paneState?: unknown
+    ): string | null => {
       const api = apiRef.current;
       const definition = paneDefinition(kind);
       if (!api || !definition) return null;
@@ -272,13 +278,20 @@ function WorkspaceShell(): React.JSX.Element {
         // Already open: focus it rather than duplicate it, so the menu entry
         // reads as "take me there" instead of appearing to do nothing. (When
         // it is open in a *different* Window, the menu disables the entry
-        // instead of offering this — see `paneMenuEntries`.)
+        // instead of offering this — see `paneMenuEntries`.) `paneState`
+        // arriving for a singleton already open here is a stale or racing
+        // handoff — `moveTargets` (`useMoveToWindow.ts`) already excludes a
+        // Window in this state from the sender's own menu, so this is a
+        // defensive fallback, not the expected path: still just focus what
+        // is already here rather than silently dropping the seed on the
+        // floor.
         const existing = api.getPanel(paneId(kind));
         if (existing) {
           existing.api.setActive();
           return existing.id;
         }
         const id = paneId(kind);
+        if (paneState !== undefined) restorePaneState(id, paneState);
         api.addPanel({ id, component: kind, title: definition.title, position, initialWidth });
         return id;
       }
@@ -286,11 +299,19 @@ function WorkspaceShell(): React.JSX.Element {
       // Several of this kind may be open at once, each with its own filter and
       // selection, so each needs its own identity. Numbering from 1 rather than
       // 0 keeps every instance's tab reading the same way, instead of the first
-      // being unnumbered and every later one numbered.
+      // being unnumbered and every later one numbered. A Pane moved in from
+      // another Window (`paneState` set) gets a fresh instance number here the
+      // same way any other new Pane of this kind would — its numeric suffix
+      // was never meaningful outside the Window it was minted in, and its tab
+      // title needs no special handling either: every Pane kind that shows
+      // one recomputes it from its own state on mount regardless (see
+      // `paneHandoff.ts`'s own doc comment for why a title was deliberately
+      // dropped from the handoff payload).
       const taken = new Set(api.panels.map(panel => panel.id));
       let instance = 1;
       while (taken.has(paneId(kind, instance))) instance += 1;
       const id = paneId(kind, instance);
+      if (paneState !== undefined) restorePaneState(id, paneState);
       api.addPanel({
         id,
         component: kind,
@@ -302,6 +323,15 @@ function WorkspaceShell(): React.JSX.Element {
     },
     []
   );
+
+  /** Adapts `openPane`'s own wider signature (position/width, for the default-layout seeding above) to what `useMoveToWindow` needs to open a Pane handed off from another Window — always at dockview's own default placement, never a specific position. */
+  const openPaneFromHandoff = useCallback(
+    (kind: PaneKind, paneState: unknown) => {
+      openPane(kind, undefined, undefined, paneState);
+    },
+    [openPane]
+  );
+  const moveToWindow = useMoveToWindow(apiRef, MAIN_WINDOW_ID, openDaughterWindows, paneLocations, openPaneFromHandoff);
 
   const handleReady = useCallback(
     (api: DockviewApi) => {
@@ -397,14 +427,32 @@ function WorkspaceShell(): React.JSX.Element {
   const handleOpenPane = useCallback((kind: PaneKind) => openPane(kind), [openPane]);
 
   const handleTabContextMenuItems: NonNullable<ComponentProps<typeof Workspace>['getTabContextMenuItems']> = useCallback(
-    ({ panel }) => [
-      'close',
-      'closeOthers',
-      'closeAll',
-      'separator',
-      { label: 'Move to new window', action: () => moveToNewWindow.requestMove(panel) },
-    ],
-    [moveToNewWindow]
+    ({ panel }) => {
+      const targets = moveToWindow.targetsFor(panel);
+      return [
+        'close',
+        'closeOthers',
+        'closeAll',
+        'separator',
+        { label: 'Move to new window', action: () => moveToNewWindow.requestMove(panel) },
+        // Only present when another Window is actually open to move into
+        // (`moveTargets`) — "Move to new window" above already covers "I want
+        // a new one" regardless. dockview's own tab context menu has no
+        // native submenu, so each target is its own flat entry rather than a
+        // nested "Move to Window ▸ …" flyout — functionally the same choice,
+        // just without machinery this library gives no seam to build.
+        ...(targets.length > 0
+          ? [
+              'separator' as const,
+              ...targets.map(target => ({
+                label: `Move to ${target.label}`,
+                action: () => moveToWindow.requestMove(panel, target.windowId),
+              })),
+            ]
+          : []),
+      ];
+    },
+    [moveToNewWindow, moveToWindow]
   );
 
   const handleSwitchWorkspace = useCallback(
