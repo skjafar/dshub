@@ -12,12 +12,13 @@ function workspace(id: string, name: string): StoredWorkspace {
   return {
     id,
     name,
-    dockLayout: {
+    mainDockLayout: {
       grid: { root: { type: 'branch', data: [] }, height: 0, width: 0, orientation: 'HORIZONTAL' },
       panels: {},
     } as unknown as SerializedDockview,
     paneStates: {},
     selection: null,
+    daughterWindows: [],
   };
 }
 

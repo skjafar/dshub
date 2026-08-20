@@ -13,19 +13,3 @@
   flex: 1 1 auto;
   min-height: 0;
 }
-
-/* The data-loss path made visible (spec.md): a blocked restore is frozen
-   rather than silently overwritten, and this is where the retry it needs
-   lives until it is used. */
-.restoreBanner {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  flex: none;
-
-  padding: var(--space-xs) var(--space-md);
-
-  background: var(--status-warn-wash);
-  color: var(--on-surface);
-  border-bottom: 2px solid var(--status-warn);
-}

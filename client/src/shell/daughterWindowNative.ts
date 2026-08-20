@@ -25,7 +25,8 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useEffect, useState } from 'react';
-import { Window as TauriWindow } from '@tauri-apps/api/window';
+import { getCurrentWindow, Window as TauriWindow } from '@tauri-apps/api/window';
+import type { DaughterWindowBounds } from './workspaceStore';
 
 /** Mirrors `daughter_windows.rs`'s `CHANGED_EVENT` constant. */
 const DAUGHTER_WINDOWS_CHANGED_EVENT = 'daughter-windows-changed';
@@ -33,6 +34,32 @@ const DAUGHTER_WINDOWS_CHANGED_EVENT = 'daughter-windows-changed';
 /** Opens a genuinely separate `WebviewWindow` showing one Pane of `paneKind`. Resolves with its Tauri label. */
 export async function openDaughterWindow(paneKind: string): Promise<string> {
   return invoke<string>('open_daughter_window', { paneKind });
+}
+
+/**
+ * Restores a genuinely separate `WebviewWindow` at a saved position and
+ * size, for the entry at `restoreIndex` of the active Workspace's saved
+ * `daughterWindows` list (`.scratch/daughter-windows-native` issue 03).
+ * Resolves with its newly-minted Tauri label — never the label the entry was
+ * saved under, since every launch remints labels from `daughter-1`
+ * regardless of a previous session's history (`daughter_windows.rs`).
+ */
+export async function restoreDaughterWindow(restoreIndex: number, bounds: DaughterWindowBounds): Promise<string> {
+  return invoke<string>('restore_daughter_window', { restoreIndex, bounds });
+}
+
+/**
+ * This window's own current position and size, converted to the logical
+ * pixels `restore_daughter_window`'s `WebviewWindowBuilder::position`/
+ * `inner_size` calls expect (confirmed at the `tauri` crate source level) —
+ * `@tauri-apps/api/window` itself only reports physical pixels.
+ */
+export async function readOwnWindowBounds(): Promise<DaughterWindowBounds> {
+  const win = getCurrentWindow();
+  const [position, size, scaleFactor] = await Promise.all([win.outerPosition(), win.innerSize(), win.scaleFactor()]);
+  const logicalPosition = position.toLogical(scaleFactor);
+  const logicalSize = size.toLogical(scaleFactor);
+  return { x: logicalPosition.x, y: logicalPosition.y, width: logicalSize.width, height: logicalSize.height };
 }
 
 /** The currently-open Daughter Window labels — a one-time read, not a live subscription. */

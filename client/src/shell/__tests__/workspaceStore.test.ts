@@ -1,23 +1,26 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import type { SerializedDockview } from 'dockview';
 import { loadPaneStates, retainPaneState, snapshotPaneStates } from '../paneState';
 import {
   DEFAULT_WORKSPACE_NAME,
   addWorkspace,
-  createRestoreGuard,
   createWorkspaceId,
   isValidStoredWorkspace,
   removeWorkspace,
   renameWorkspace,
+  restoreDaughterWindowContent,
   restoreWorkspace,
   sanitizeProfileWorkspaces,
   seedProfileWorkspaces,
   setActiveWorkspace,
   snapshotWorkspace,
   updateWorkspaceContent,
+  updateWorkspaceDaughterWindows,
+  upsertDaughterWindow,
+  withoutDaughterWindow,
   withoutWorkspace,
 } from '../workspaceStore';
-import type { StoredWorkspace, WorkspaceDockApi } from '../workspaceStore';
+import type { DaughterWindowBounds, StoredDaughterWindow, StoredWorkspace, WorkspaceDockApi } from '../workspaceStore';
 
 afterEach(() => {
   retainPaneState([]);
@@ -41,13 +44,26 @@ function validDockLayout(panelIds: readonly string[] = ['overview']): Serialized
   } as unknown as SerializedDockview;
 }
 
+const bounds: DaughterWindowBounds = { x: 100, y: 100, width: 640, height: 480 };
+
+function daughterWindow(overrides: Partial<StoredDaughterWindow> = {}): StoredDaughterWindow {
+  return {
+    label: 'daughter-1',
+    dockLayout: validDockLayout(['register']),
+    paneStates: {},
+    bounds,
+    ...overrides,
+  };
+}
+
 function workspace(overrides: Partial<StoredWorkspace> = {}): StoredWorkspace {
   return {
     id: 'w1',
     name: 'My Workspace',
-    dockLayout: validDockLayout(),
+    mainDockLayout: validDockLayout(),
     paneStates: {},
     selection: null,
+    daughterWindows: [],
     ...overrides,
   };
 }
@@ -57,26 +73,24 @@ describe('validating a stored Workspace', () => {
     expect(isValidStoredWorkspace(workspace())).toBe(true);
   });
 
-  it('rejects a dockLayout naming a Pane kind this build does not have', () => {
+  it('accepts a Workspace carrying well-formed Daughter Windows', () => {
+    expect(isValidStoredWorkspace(workspace({ daughterWindows: [daughterWindow()] }))).toBe(true);
+  });
+
+  it('rejects a mainDockLayout naming a Pane kind this build does not have', () => {
     // The situation a downgrade or a retired Pane kind produces.
-    const bad = workspace({ dockLayout: validDockLayout(['register-from-the-future']) });
+    const bad = workspace({ mainDockLayout: validDockLayout(['register-from-the-future']) });
     expect(isValidStoredWorkspace(bad)).toBe(false);
   });
 
-  it('rejects a dockLayout with no recognisable grid root', () => {
-    const bad = workspace({ dockLayout: { panels: {} } as unknown as SerializedDockview });
+  it('rejects a mainDockLayout with no recognisable grid root', () => {
+    const bad = workspace({ mainDockLayout: { panels: {} } as unknown as SerializedDockview });
     expect(isValidStoredWorkspace(bad)).toBe(false);
   });
 
-  it('rejects a dockLayout saved under the pre-native dockview-popout mechanism', () => {
-    // ADR 0004 (superseded by ADR 0005): real `popoutGroups` entries mean
-    // dockview's own `fromJSON` would try to reopen them via `window.open`,
-    // which `.scratch/daughter-windows-native` issue 02 made fail
-    // unconditionally by removing the handler that ever made it succeed.
-    // Rejecting here routes this through the existing drop-and-fall-back
-    // path instead of a stuck "Reopen windows" banner.
+  it('rejects a dockLayout carrying real popoutGroups entries — the pre-native format\'s signature', () => {
     const bad = workspace({
-      dockLayout: { ...validDockLayout(), popoutGroups: [{ id: 'popout-1' }] } as unknown as SerializedDockview,
+      mainDockLayout: { ...validDockLayout(), popoutGroups: [{ id: 'popout-1' }] } as unknown as SerializedDockview,
     });
     expect(isValidStoredWorkspace(bad)).toBe(false);
   });
@@ -85,9 +99,48 @@ describe('validating a stored Workspace', () => {
     // dockview may still serialize the field even with nothing in it —
     // only a *populated* list is the old-format signal.
     const ok = workspace({
-      dockLayout: { ...validDockLayout(), popoutGroups: [] } as unknown as SerializedDockview,
+      mainDockLayout: { ...validDockLayout(), popoutGroups: [] } as unknown as SerializedDockview,
     });
     expect(isValidStoredWorkspace(ok)).toBe(true);
+  });
+
+  it('rejects a Workspace saved under the old (pre-native) shape — dockLayout instead of mainDockLayout, no daughterWindows at all', () => {
+    // Exactly what `.scratch/daughter-windows-native/issues/03` requires:
+    // this must reset cleanly through the existing drop-and-fall-back path
+    // rather than erroring or partially restoring.
+    const old = {
+      id: 'w1',
+      name: 'Old shape',
+      dockLayout: validDockLayout(),
+      paneStates: {},
+      selection: null,
+    };
+    expect(isValidStoredWorkspace(old)).toBe(false);
+  });
+
+  it('rejects a Workspace whose daughterWindows is missing or not an array', () => {
+    const missing = { id: 'w1', name: 'X', mainDockLayout: validDockLayout(), paneStates: {}, selection: null };
+    expect(isValidStoredWorkspace(missing)).toBe(false);
+
+    const notArray = { ...missing, daughterWindows: {} };
+    expect(isValidStoredWorkspace(notArray)).toBe(false);
+  });
+
+  it('rejects a Workspace carrying one malformed Daughter Window entry', () => {
+    const bad = workspace({ daughterWindows: [{ label: 'daughter-1' }] as unknown as StoredDaughterWindow[] });
+    expect(isValidStoredWorkspace(bad)).toBe(false);
+  });
+
+  it('rejects a Daughter Window entry with a missing or empty label', () => {
+    const bad = workspace({ daughterWindows: [daughterWindow({ label: '' })] });
+    expect(isValidStoredWorkspace(bad)).toBe(false);
+  });
+
+  it('rejects a Daughter Window entry with malformed bounds', () => {
+    const bad = workspace({
+      daughterWindows: [daughterWindow({ bounds: { x: 0, y: 0 } as unknown as DaughterWindowBounds })],
+    });
+    expect(isValidStoredWorkspace(bad)).toBe(false);
   });
 
   it('rejects garbage of every shape without throwing', () => {
@@ -117,7 +170,7 @@ describe('repairing a stored Profile\'s Workspace collection', () => {
 
   it('drops one corrupt Workspace but keeps the rest — a downgrade must not cost every saved arrangement', () => {
     const good = workspace({ id: 'w1' });
-    const corrupt = { id: 'w2', name: 'Bad', dockLayout: validDockLayout(['unknown-kind']), paneStates: {} };
+    const corrupt = { id: 'w2', name: 'Bad', mainDockLayout: validDockLayout(['unknown-kind']), paneStates: {}, daughterWindows: [] };
     const collection = {
       workspaces: [good, corrupt],
       defaultWorkspaceId: 'w1',
@@ -130,7 +183,7 @@ describe('repairing a stored Profile\'s Workspace collection', () => {
 
   it('falls the default pointer back to a surviving Workspace when the named default was the corrupt one', () => {
     const good = workspace({ id: 'w1' });
-    const corrupt = { id: 'w2', name: 'Bad', dockLayout: validDockLayout(['unknown-kind']), paneStates: {} };
+    const corrupt = { id: 'w2', name: 'Bad', mainDockLayout: validDockLayout(['unknown-kind']), paneStates: {}, daughterWindows: [] };
     const collection = {
       workspaces: [good, corrupt],
       defaultWorkspaceId: 'w2',
@@ -234,29 +287,90 @@ describe('Workspace collection operations', () => {
     expect(next).toEqual(collection);
   });
 
-  it('updates one Workspace\'s content in place, identified by id', () => {
-    const collection = seedProfileWorkspaces(workspace({ id: 'default', paneStates: {} }));
+  it('updates one Workspace\'s own content in place, identified by id, without touching its daughterWindows', () => {
+    const collection = seedProfileWorkspaces(
+      workspace({ id: 'default', paneStates: {}, daughterWindows: [daughterWindow()] })
+    );
     const next = updateWorkspaceContent(collection, 'default', {
-      dockLayout: validDockLayout(['register']),
+      mainDockLayout: validDockLayout(['register']),
       paneStates: { register: { query: 'MOTOR' } },
       selection: null,
     });
     expect(next.workspaces[0]?.paneStates).toEqual({ register: { query: 'MOTOR' } });
+    expect(next.workspaces[0]?.daughterWindows).toEqual([daughterWindow()]);
   });
 
   it('does not create a new entry when updating an id nothing matches', () => {
     const collection = seedProfileWorkspaces(workspace({ id: 'default' }));
     const next = updateWorkspaceContent(collection, 'ghost', {
-      dockLayout: validDockLayout(),
+      mainDockLayout: validDockLayout(),
       paneStates: {},
       selection: null,
     });
     expect(next).toEqual(collection);
   });
 
+  it('replaces one Workspace\'s Daughter Window list wholesale, identified by id', () => {
+    const collection = seedProfileWorkspaces(workspace({ id: 'default', daughterWindows: [] }));
+    const next = updateWorkspaceDaughterWindows(collection, 'default', [daughterWindow()]);
+    expect(next.workspaces[0]?.daughterWindows).toEqual([daughterWindow()]);
+  });
+
+  it('leaves the collection untouched when updating daughterWindows for an id nothing matches', () => {
+    const collection = seedProfileWorkspaces(workspace({ id: 'default' }));
+    const next = updateWorkspaceDaughterWindows(collection, 'ghost', [daughterWindow()]);
+    expect(next).toEqual(collection);
+  });
+
   it('creates Workspace ids that do not collide', () => {
     const ids = new Set(Array.from({ length: 50 }, () => createWorkspaceId()));
     expect(ids.size).toBe(50);
+  });
+});
+
+/**
+ * One Daughter Window's own entry, kept current by that window's own
+ * autosave — matched by label once its live label is known, or by array
+ * position for the one restore-time write that has to bridge a freshly
+ * minted label to whatever position it was told to restore from.
+ */
+describe('one Daughter Window\'s own entry', () => {
+  it('appends a brand new entry when nothing matches its label', () => {
+    const next = upsertDaughterWindow([], daughterWindow({ label: 'daughter-1' }));
+    expect(next).toEqual([daughterWindow({ label: 'daughter-1' })]);
+  });
+
+  it('replaces an existing entry matched by label, leaving other entries untouched', () => {
+    const other = daughterWindow({ label: 'daughter-2' });
+    const updated = daughterWindow({ label: 'daughter-1', bounds: { x: 5, y: 5, width: 700, height: 500 } });
+    const next = upsertDaughterWindow([daughterWindow({ label: 'daughter-1' }), other], updated);
+    expect(next).toEqual([updated, other]);
+  });
+
+  it('targets a specific array position directly when a restoreIndex is given, regardless of label', () => {
+    // The restore-time case: this window's freshly-minted label ("daughter-1")
+    // shares nothing with whatever label the stored entry at position 0 was
+    // saved under last session — only the position correlates.
+    const stale = daughterWindow({ label: 'daughter-5' });
+    const restored = daughterWindow({ label: 'daughter-1' });
+    const next = upsertDaughterWindow([stale], restored, 0);
+    expect(next).toEqual([restored]);
+  });
+
+  it('falls back to label matching when restoreIndex is out of range', () => {
+    const next = upsertDaughterWindow([], daughterWindow({ label: 'daughter-1' }), 3);
+    expect(next).toEqual([daughterWindow({ label: 'daughter-1' })]);
+  });
+
+  it('drops an entry by label, leaving the others', () => {
+    const keep = daughterWindow({ label: 'daughter-2' });
+    const next = withoutDaughterWindow([daughterWindow({ label: 'daughter-1' }), keep], 'daughter-1');
+    expect(next).toEqual([keep]);
+  });
+
+  it('dropping a label nothing matches is a no-op', () => {
+    const list = [daughterWindow({ label: 'daughter-1' })];
+    expect(withoutDaughterWindow(list, 'daughter-9')).toEqual(list);
   });
 });
 
@@ -268,12 +382,9 @@ describe('Workspace collection operations', () => {
  * is not part of this project's test net (see ADR-0001).
  */
 describe('saving and restoring a Workspace against the dock api', () => {
-  function fakeDockApi(
-    initialPanelIds: readonly string[] = []
-  ): WorkspaceDockApi & { loaded: SerializedDockview[]; failPopout: () => void } {
+  function fakeDockApi(initialPanelIds: readonly string[] = []): WorkspaceDockApi & { loaded: SerializedDockview[] } {
     let panelIds = [...initialPanelIds];
     const loaded: SerializedDockview[] = [];
-    let failHandlers: Array<() => void> = [];
     return {
       get panels() {
         return panelIds.map(id => ({ id }));
@@ -283,17 +394,11 @@ describe('saving and restoring a Workspace against the dock api', () => {
         loaded.push(data);
         panelIds = Object.keys(data.panels);
       },
-      onDidOpenPopoutWindowFail: callback => {
-        failHandlers.push(callback);
-        return { dispose: () => { failHandlers = failHandlers.filter(h => h !== callback); } };
-      },
-      // Test-only: simulates dockview discovering a blocked popout.
-      failPopout: () => failHandlers.forEach(h => h()),
       loaded,
     };
   }
 
-  it('snapshots exactly the open Panes\' dock layout and their own state', () => {
+  it('snapshots exactly the open Panes\' dock layout, their own state, and the given Daughter Windows', () => {
     loadPaneStates({
       'register#1': { query: 'MOTOR' },
       'register#2': { query: 'SPINDLE' },
@@ -306,7 +411,7 @@ describe('saving and restoring a Workspace against the dock api', () => {
       paneId: 'register#1',
       paneTitle: 'Registers · MOTOR',
     };
-    const saved = snapshotWorkspace(api, 'w1', 'Motion', selection);
+    const saved = snapshotWorkspace(api, 'w1', 'Motion', selection, [daughterWindow()]);
 
     expect(saved.id).toBe('w1');
     expect(saved.name).toBe('Motion');
@@ -314,17 +419,19 @@ describe('saving and restoring a Workspace against the dock api', () => {
       'register#1': { query: 'MOTOR' },
       'register#2': { query: 'SPINDLE' },
     });
-    expect(Object.keys(saved.dockLayout.panels)).toEqual(['register#1', 'register#2']);
+    expect(Object.keys(saved.mainDockLayout.panels)).toEqual(['register#1', 'register#2']);
     // The shared Inspector's selection travels with the Workspace it was made
     // in — restoring one that carried no selection must not leave a stale
     // Inspector reading, and switching to one that did must reproduce it.
     expect(saved.selection).toEqual(selection);
+    expect(saved.daughterWindows).toEqual([daughterWindow()]);
   });
 
-  it('carries a null selection through unchanged', () => {
+  it('carries a null selection and an empty Daughter Window list through unchanged', () => {
     const api = fakeDockApi(['overview']);
-    const saved = snapshotWorkspace(api, 'w1', 'Overview only', null);
+    const saved = snapshotWorkspace(api, 'w1', 'Overview only', null, []);
     expect(saved.selection).toBeNull();
+    expect(saved.daughterWindows).toEqual([]);
   });
 
   it('restoring reproduces two Panes of the same kind with independent state', () => {
@@ -333,14 +440,14 @@ describe('saving and restoring a Workspace against the dock api', () => {
       'register#2': { query: 'SPINDLE' },
     });
     const api = fakeDockApi(['register#1', 'register#2']);
-    const saved = snapshotWorkspace(api, 'w1', 'Motion', null);
+    const saved = snapshotWorkspace(api, 'w1', 'Motion', null, []);
 
     // Simulate moving on: the store now holds something else entirely.
     loadPaneStates({ overview: { anything: true } });
 
     restoreWorkspace(api, saved);
 
-    expect(api.loaded).toEqual([saved.dockLayout]);
+    expect(api.loaded).toEqual([saved.mainDockLayout]);
     // paneState was reseeded from the saved snapshot before fromJSON ran.
     expect(snapshotPaneStates(['register#1', 'register#2'])).toEqual({
       'register#1': { query: 'MOTOR' },
@@ -348,163 +455,36 @@ describe('saving and restoring a Workspace against the dock api', () => {
     });
   });
 
-  it('carries a Daughter Window through a save/restore round-trip unchanged', () => {
-    // `snapshotWorkspace`/`restoreWorkspace` never inspect `dockLayout` beyond
-    // validating its shape — `popoutGroups` is opaque to this module exactly
-    // like every other field dockview's own `toJSON()` produces, which is
-    // what "no new persistence" (spec.md) actually means in code: nothing
-    // here has to know a Daughter Window exists for one to survive a save.
-    const withPopout: SerializedDockview = {
-      ...validDockLayout(['overview']),
-      popoutGroups: [
-        {
-          data: { id: 'popout-group-1', views: ['plot#1'], activeView: 'plot#1' },
-          position: { left: 200, top: 100, width: 640, height: 480 },
-        },
-      ],
-    } as unknown as SerializedDockview;
-
-    const api = fakeDockApi(['overview']);
-    api.toJSON = () => withPopout;
-    const saved = snapshotWorkspace(api, 'w1', 'With a Daughter Window', null);
-
-    expect(saved.dockLayout.popoutGroups).toEqual(withPopout.popoutGroups);
-
-    restoreWorkspace(api, saved);
-    expect(api.loaded.at(-1)).toEqual(withPopout);
-  });
-
-  it('switching Workspace loads the incoming Workspace\'s own dock layout, including its Daughter Windows, not the outgoing one\'s', () => {
-    const outgoing = snapshotWorkspace(fakeDockApi(['overview']), 'w1', 'Outgoing', null);
-    const incomingLayout: SerializedDockview = {
-      ...validDockLayout(['register']),
-      popoutGroups: [{ data: { id: 'popout-group-2', views: ['plot#1'], activeView: 'plot#1' }, position: { left: 0, top: 0, width: 640, height: 480 } }],
-    } as unknown as SerializedDockview;
-    const incoming: StoredWorkspace = { id: 'w2', name: 'Incoming', dockLayout: incomingLayout, paneStates: {}, selection: null };
+  it('switching Workspace loads the incoming Workspace\'s own mainDockLayout, not the outgoing one\'s', () => {
+    const outgoing = snapshotWorkspace(fakeDockApi(['overview']), 'w1', 'Outgoing', null, []);
+    const incomingLayout = validDockLayout(['register']);
+    const incoming: StoredWorkspace = {
+      id: 'w2',
+      name: 'Incoming',
+      mainDockLayout: incomingLayout,
+      paneStates: {},
+      selection: null,
+      daughterWindows: [],
+    };
 
     const api = fakeDockApi(['overview']);
     restoreWorkspace(api, outgoing);
     restoreWorkspace(api, incoming);
 
-    // The api's own panel/window state after the switch is the incoming
-    // Workspace's exactly — dockview's `fromJSON` clears before it loads
-    // (the module doc comment above already establishes this), so there is
-    // no trace of `outgoing`'s dockLayout left for the last restore to have
-    // merged in.
+    // dockview's `fromJSON` clears before it loads (the module doc comment
+    // above already establishes this), so there is no trace of `outgoing`'s
+    // layout left for the last restore to have merged in.
     expect(api.loaded.at(-1)).toEqual(incomingLayout);
-    expect(api.loaded.at(-1)?.popoutGroups).toEqual(incomingLayout.popoutGroups);
   });
 
-  it('a retry after a blocked restore reopens exactly what was stored, unmodified by the failed attempt', () => {
-    const withPopout: SerializedDockview = {
-      ...validDockLayout(['overview']),
-      popoutGroups: [{ data: { id: 'popout-group-1', views: ['plot#1'], activeView: 'plot#1' }, position: { left: 200, top: 100, width: 640, height: 480 } }],
-    } as unknown as SerializedDockview;
-    const stored: StoredWorkspace = { id: 'w1', name: 'With a Daughter Window', dockLayout: withPopout, paneStates: {}, selection: null };
-
+  it('restores one Daughter Window\'s own content the same two-step way — pane state before fromJSON', () => {
+    loadPaneStates({ 'register#1': { query: 'stale' } });
+    const entry = daughterWindow({ paneStates: { 'register#1': { query: 'MOTOR' } } });
     const api = fakeDockApi();
-    const guard = createRestoreGuard(api, () => {});
 
-    // The first attempt: dockview accepts the load, then — asynchronously,
-    // in the real mechanism — discovers the popout was blocked.
-    guard.reset();
-    restoreWorkspace(api, stored);
-    api.failPopout();
-    expect(guard.blocked).toBe(true);
+    restoreDaughterWindowContent(api, entry);
 
-    // The retry: `AppShell.tsx`'s `applyWorkspace` resets the guard and
-    // restores the *same*, never-overwritten `stored` object again — nothing
-    // in this module mutates it between attempts, which is what makes a
-    // retry possible at all rather than reopening a layout already damaged
-    // by the redock autosave was frozen to prevent.
-    guard.reset();
-    restoreWorkspace(api, stored);
-
-    expect(guard.blocked).toBe(false);
-    expect(api.loaded).toEqual([withPopout, withPopout]);
-    expect(api.loaded.at(-1)?.popoutGroups).toEqual(withPopout.popoutGroups);
-  });
-});
-
-/**
- * The data-loss path. What matters here is not which dockview methods get
- * called in which order — it's the one observable fact that follows from it:
- * a blocked restore must never let autosave overwrite the stored Workspace,
- * and a retry must be able to try again cleanly.
- */
-describe('the blocked-restore guard', () => {
-  function fakeDockApi(): WorkspaceDockApi & { failPopout: () => void } {
-    let failHandlers: Array<() => void> = [];
-    return {
-      panels: [],
-      toJSON: () => validDockLayout(),
-      fromJSON: () => {},
-      onDidOpenPopoutWindowFail: callback => {
-        failHandlers.push(callback);
-        return { dispose: () => { failHandlers = failHandlers.filter(h => h !== callback); } };
-      },
-      failPopout: () => failHandlers.forEach(h => h()),
-    };
-  }
-
-  it('stays unblocked through a restore where nothing fails', () => {
-    const api = fakeDockApi();
-    const onBlocked = vi.fn();
-    const guard = createRestoreGuard(api, onBlocked);
-
-    expect(guard.blocked).toBe(false);
-    expect(onBlocked).not.toHaveBeenCalled();
-  });
-
-  it('flags a restore as blocked the moment a popout fails to open, and says so once', () => {
-    const api = fakeDockApi();
-    const onBlocked = vi.fn();
-    const guard = createRestoreGuard(api, onBlocked);
-
-    api.failPopout();
-    expect(guard.blocked).toBe(true);
-    expect(onBlocked).toHaveBeenCalledTimes(1);
-
-    // A saved Workspace can carry more than one Daughter Window; every one of
-    // them failing during the same restore must still read as one blocked
-    // restore, not one retry-prompt per failed window.
-    api.failPopout();
-    expect(onBlocked).toHaveBeenCalledTimes(1);
-  });
-
-  it('clears on reset, so a retry starts from a clean slate', () => {
-    const api = fakeDockApi();
-    const guard = createRestoreGuard(api, vi.fn());
-
-    api.failPopout();
-    expect(guard.blocked).toBe(true);
-
-    guard.reset();
-    expect(guard.blocked).toBe(false);
-  });
-
-  it('can flag a second, later restore as blocked again after a reset', () => {
-    const api = fakeDockApi();
-    const onBlocked = vi.fn();
-    const guard = createRestoreGuard(api, onBlocked);
-
-    api.failPopout();
-    guard.reset();
-
-    api.failPopout();
-    expect(guard.blocked).toBe(true);
-    expect(onBlocked).toHaveBeenCalledTimes(2);
-  });
-
-  it('stops reacting to failures once disposed', () => {
-    const api = fakeDockApi();
-    const onBlocked = vi.fn();
-    const guard = createRestoreGuard(api, onBlocked);
-
-    guard.dispose();
-    api.failPopout();
-
-    expect(guard.blocked).toBe(false);
-    expect(onBlocked).not.toHaveBeenCalled();
+    expect(api.loaded).toEqual([entry.dockLayout]);
+    expect(snapshotPaneStates(['register#1'])).toEqual({ 'register#1': { query: 'MOTOR' } });
   });
 });

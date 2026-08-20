@@ -10,7 +10,10 @@ import { DSHubProvider } from '../../contexts/DSHubContext';
 import { SettingsProvider } from '../../contexts/SettingsContext';
 import { createFakeBackendPort } from '../../services/fakeBackendPort';
 import type { BackendPort } from '../../services/backendPort';
+import { DEFAULT_SETTINGS } from '../../types/settings';
+import type { UserSettings } from '../../types/settings';
 import { DaughterWindowShell } from '../DaughterWindowShell';
+import type { ProfileWorkspaces } from '../workspaceStore';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
@@ -31,7 +34,18 @@ const STORAGE_KEY = 'dshub_settings';
 beforeEach(() => {
   localStorage.removeItem(STORAGE_KEY);
   vi.mocked(isTauri).mockReturnValue(true);
-  vi.mocked(getCurrentWindow).mockReturnValue({ label: 'daughter-1' } as never);
+  // Every test needs this much, even ones that never check an autosaved
+  // value: `DaughterWindowShell`'s own bounds-tracking effect calls
+  // `outerPosition`/`innerSize`/`scaleFactor`/`onMoved`/`onResized`
+  // unconditionally on mount, under Tauri.
+  vi.mocked(getCurrentWindow).mockReturnValue({
+    label: 'daughter-1',
+    onMoved: vi.fn().mockResolvedValue(() => {}),
+    onResized: vi.fn().mockResolvedValue(() => {}),
+    outerPosition: vi.fn().mockResolvedValue({ toLogical: () => ({ x: 0, y: 0 }) }),
+    innerSize: vi.fn().mockResolvedValue({ toLogical: () => ({ width: 640, height: 480 }) }),
+    scaleFactor: vi.fn().mockResolvedValue(1),
+  } as never);
   vi.mocked(listen).mockResolvedValue(vi.fn());
   vi.mocked(invoke).mockResolvedValue([]); // list_daughter_windows' default
 });
@@ -62,6 +76,56 @@ function renderShell(query: string): { fake: ReturnType<typeof createFakeBackend
     </BackendPortProvider>
   );
   return { fake };
+}
+
+/** A stored settings blob whose current-schema stamp survives `migrateStoredSettings` untouched, carrying one active Workspace under the default Profile — the "somewhere for a Daughter Window's own autosave to write into" every test below needs. */
+function seedActiveWorkspace(): void {
+  const collection: ProfileWorkspaces = {
+    workspaces: [
+      {
+        id: 'w1',
+        name: 'W',
+        mainDockLayout: { grid: { root: { type: 'branch', data: [] }, height: 0, width: 0, orientation: 'HORIZONTAL' }, panels: {} } as never,
+        paneStates: {},
+        selection: null,
+        daughterWindows: [],
+      },
+    ],
+    defaultWorkspaceId: 'w1',
+    activeWorkspaceId: 'w1',
+  };
+  const settings: UserSettings = { ...DEFAULT_SETTINGS, workspacesByProfile: { default: collection } };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+}
+
+function readActiveWorkspace(): ProfileWorkspaces['workspaces'][number] {
+  const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as UserSettings;
+  const collection = stored.workspacesByProfile.default;
+  const workspace = collection.workspaces.find(w => w.id === collection.activeWorkspaceId);
+  if (!workspace) throw new Error('no active Workspace in storage');
+  return workspace;
+}
+
+/** `getCurrentWindow()`, mocked with the bounds-reading methods `readOwnWindowBounds` needs — the base `beforeEach` mock carries `label`/`onMoved`/`onResized` only, enough for the tests that never reach an actual autosave write. */
+function mockWindowWithBounds(label: string): void {
+  vi.mocked(getCurrentWindow).mockReturnValue({
+    label,
+    onMoved: vi.fn().mockResolvedValue(() => {}),
+    onResized: vi.fn().mockResolvedValue(() => {}),
+    outerPosition: vi.fn().mockResolvedValue({ toLogical: () => ({ x: 10, y: 20 }) }),
+    innerSize: vi.fn().mockResolvedValue({ toLogical: () => ({ width: 640, height: 480 }) }),
+    scaleFactor: vi.fn().mockResolvedValue(1),
+  } as never);
+}
+
+/** Advances this window's own 400ms autosave debounce, then `SettingsContext`'s own separate 400ms persist debounce chained after it — both must elapse before a write actually reaches `localStorage`. */
+async function advanceThroughAutosave(): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(500);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(500);
+  });
 }
 
 describe('DaughterWindowShell', () => {
@@ -116,5 +180,151 @@ describe('DaughterWindowShell', () => {
     await settle();
 
     expect(screen.queryAllByRole('tab')).toHaveLength(0);
+  });
+});
+
+/**
+ * `.scratch/daughter-windows-native` issue 03: a Daughter Window's own
+ * arrangement survives an app restart. Exercised end-to-end against the
+ * real `<Workspace>`/dockview instance (this file already does, unlike
+ * `workspaceStore.test.ts`'s fake-api unit tests) — create content in one
+ * window, let its own autosave reach storage, then confirm a second,
+ * freshly-mounted window opened with `?restore=<index>` reproduces it.
+ */
+describe('DaughterWindowShell restoring at launch', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("autosaves this window's own content, keyed by its live label, into the active Workspace", async () => {
+    seedActiveWorkspace();
+    mockWindowWithBounds('daughter-1');
+    vi.useFakeTimers();
+
+    renderShell('?pane=register');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await advanceThroughAutosave();
+
+    const workspace = readActiveWorkspace();
+    expect(workspace.daughterWindows).toHaveLength(1);
+    expect(workspace.daughterWindows[0]?.label).toBe('daughter-1');
+    expect(Object.keys(workspace.daughterWindows[0]?.dockLayout.panels ?? {})).toEqual(['register#1']);
+    expect(workspace.daughterWindows[0]?.bounds).toEqual({ x: 10, y: 20, width: 640, height: 480 });
+  });
+
+  it("a fresh window opened with ?restore=<index> reproduces the saved window's own Panes", async () => {
+    seedActiveWorkspace();
+    mockWindowWithBounds('daughter-1');
+    vi.useFakeTimers();
+
+    renderShell('?pane=register');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await advanceThroughAutosave();
+    expect(readActiveWorkspace().daughterWindows).toHaveLength(1); // precondition: the first window's save landed
+
+    cleanup();
+    vi.useRealTimers();
+
+    // A relaunch remints labels from scratch (`daughter_windows.rs`) — this
+    // window's own live label shares nothing with what the entry above was
+    // saved under; only `?restore=0` correlates it to that entry.
+    mockWindowWithBounds('daughter-1');
+    renderShell('?restore=0');
+    await settle();
+
+    expect(screen.getByRole('tab', { name: 'Registers 1' })).toBeInTheDocument();
+  });
+
+  it('opens empty, and so self-closes, when the restore index names nothing in the active Workspace', async () => {
+    seedActiveWorkspace();
+    mockWindowWithBounds('daughter-1');
+    const tauriClose = vi.fn();
+    vi.mocked(TauriWindow.getByLabel).mockResolvedValue({ close: tauriClose } as never);
+
+    renderShell('?restore=5');
+    await settle();
+
+    expect(screen.queryAllByRole('tab')).toHaveLength(0);
+    expect(tauriClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Moving or resizing this Window doesn't touch dockview's own layout at
+ * all — nothing about the Panes inside it changes — so without its own
+ * `onMoved`/`onResized` subscription, a bare move/resize would never be
+ * saved at all, regardless of any `beforeunload` timing. This is that gap,
+ * closed.
+ */
+describe("DaughterWindowShell saving a bare move or resize", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('saves new bounds after a resize alone, with no Pane ever added or changed', async () => {
+    seedActiveWorkspace();
+    let resizeHandler: (() => void) | null = null;
+    const outerPosition = vi.fn().mockResolvedValue({ toLogical: () => ({ x: 10, y: 20 }) });
+    const innerSize = vi.fn().mockResolvedValue({ toLogical: () => ({ width: 640, height: 480 }) });
+    vi.mocked(getCurrentWindow).mockReturnValue({
+      label: 'daughter-1',
+      onMoved: vi.fn().mockResolvedValue(() => {}),
+      onResized: vi.fn().mockImplementation((handler: () => void) => {
+        resizeHandler = handler;
+        return Promise.resolve(() => {});
+      }),
+      outerPosition,
+      innerSize,
+      scaleFactor: vi.fn().mockResolvedValue(1),
+    } as never);
+    vi.useFakeTimers();
+
+    renderShell('?pane=overview');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    // The window is resized — this window's own JS never adds, removes or
+    // otherwise touches a Pane, so dockview's `onDidLayoutChange` has
+    // nothing to fire for it.
+    innerSize.mockResolvedValue({ toLogical: () => ({ width: 900, height: 700 }) });
+    expect(resizeHandler).not.toBeNull();
+    await act(async () => {
+      resizeHandler?.();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await advanceThroughAutosave();
+
+    expect(readActiveWorkspace().daughterWindows[0]?.bounds).toEqual({ x: 10, y: 20, width: 900, height: 700 });
+  });
+});
+
+describe('DaughterWindowShell pruning its own entry on close', () => {
+  it("removes this window's own entry from the active Workspace once its last Pane closes", async () => {
+    seedActiveWorkspace();
+    mockWindowWithBounds('daughter-1');
+    vi.useFakeTimers();
+    const tauriClose = vi.fn();
+    vi.mocked(TauriWindow.getByLabel).mockResolvedValue({ close: tauriClose } as never);
+
+    renderShell('?pane=overview');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await advanceThroughAutosave();
+    expect(readActiveWorkspace().daughterWindows).toHaveLength(1); // precondition: this window's own save landed first
+
+    const tab = screen.getByRole('tab', { name: 'Overview' });
+    fireEvent.keyDown(tab, { key: 'Delete' });
+    await advanceThroughAutosave();
+
+    expect(tauriClose).toHaveBeenCalledTimes(1);
+    expect(readActiveWorkspace().daughterWindows).toEqual([]);
+
+    vi.useRealTimers();
   });
 });

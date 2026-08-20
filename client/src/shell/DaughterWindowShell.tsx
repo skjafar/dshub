@@ -1,13 +1,14 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentProps } from 'react';
 import type { DockviewApi } from 'dockview';
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Button, Dialog, TooltipProvider } from '../ui';
 import { useBackendPort } from '../contexts/BackendPortContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { DaughterWindowChrome } from './DaughterWindowChrome';
-import { paneMenuEntries } from './daughterWindows';
-import { closeDaughterWindow } from './daughterWindowNative';
+import { DAUGHTER_WINDOW_DEFAULT_HEIGHT, DAUGHTER_WINDOW_DEFAULT_WIDTH, paneMenuEntries } from './daughterWindows';
+import { closeDaughterWindow, readOwnWindowBounds } from './daughterWindowNative';
 import { FocusModeProvider } from './FocusModeContext';
 import { FocusModeView } from './FocusModeView';
 import { MAIN_WINDOW_ID } from './focusMode';
@@ -15,30 +16,54 @@ import { SelectionProvider, useSelection } from './SelectionContext';
 import { Workspace } from './Workspace';
 import { PANES, isKnownPaneKind, kindOfPaneId, paneDefinition, paneId } from './paneRegistry';
 import type { PaneKind } from './paneRegistry';
-import { retainPaneState } from './paneState';
+import { retainPaneState, snapshotPaneStates, subscribePaneStateChanges } from './paneState';
 import { retainSeriesFor } from './plotStream';
 import { useMoveToNewDaughterWindow } from './useMoveToNewDaughterWindow';
+import {
+  activeWorkspaceOf,
+  restoreDaughterWindowContent,
+  sanitizeProfileWorkspaces,
+  updateWorkspaceDaughterWindows,
+  upsertDaughterWindow,
+  withoutDaughterWindow,
+} from './workspaceStore';
+import type { DaughterWindowBounds, StoredDaughterWindow } from './workspaceStore';
 import styles from './DaughterWindowShell.module.css';
+
+/** How long a burst of layout or Pane-state changes settles before this Window's own entry is saved — mirrors `AppShell.tsx`'s own `AUTOSAVE_DEBOUNCE_MS`. */
+const AUTOSAVE_DEBOUNCE_MS = 400;
 
 /**
  * A genuinely separate `WebviewWindow`'s own top-level shell
  * (`.scratch/daughter-windows-native` issue 02) — its own React tree, its
  * own dockview instance, not dockview's own adopted-DOM popout (ADR 0004,
- * superseded by ADR 0005). Reads the one Pane it opens with from
- * `window.location.search` (`?pane=<kind>`, set by
- * `src-tauri/src/daughter_windows.rs`'s `open_daughter_window`), then behaves
- * like a small, single-purpose Workspace: an "add a Pane" control, Device
- * link/Control state read-only, and nothing else (spec.md) —
- * Connect/Control/Workspace/Profile/Settings stay exclusive to the Main
+ * superseded by ADR 0005). Reads what it opens with from
+ * `window.location.search`, set by `src-tauri/src/daughter_windows.rs`: a
+ * freshly-created window carries `?pane=<kind>` (one Pane, "Move to new
+ * window"), a window being restored at launch carries `?restore=<index>`
+ * (this Workspace's saved `daughterWindows[index]`, read back out of the
+ * shared Settings blob rather than carried in the URL itself — issue 03).
+ * Otherwise behaves like a small, single-purpose Workspace: an "add a Pane"
+ * control, Device link/Control state read-only, and nothing else (spec.md)
+ * — Connect/Control/Workspace/Profile/Settings stay exclusive to the Main
  * Window (`AppShell.tsx`).
  *
- * Persisting this Window's own arrangement across an app restart is issue
- * 03's job, not this one's — every Pane here starts fresh each time the
- * Window is created, seeded only from the query string above.
+ * Keeps its own entry in the active Workspace's `daughterWindows` list
+ * current — debounced on layout or Pane-state change, flushed on unload —
+ * the same shape as `AppShell.tsx`'s own autosave, scoped to just this one
+ * window's content plus its own position and size.
  */
 function initialPaneKind(): PaneKind | null {
   const raw = new URLSearchParams(window.location.search).get('pane');
   return raw !== null && isKnownPaneKind(raw) ? raw : null;
+}
+
+/** The array position this window is restoring from, if any — see `upsertDaughterWindow`'s own doc comment for why a freshly-minted label can't be used for this one, first correlation instead. */
+function initialRestoreIndex(): number | null {
+  const raw = new URLSearchParams(window.location.search).get('restore');
+  if (raw === null) return null;
+  const index = Number.parseInt(raw, 10);
+  return Number.isInteger(index) && index >= 0 ? index : null;
 }
 
 function DaughterWindowShellInner(): React.JSX.Element {
@@ -46,10 +71,16 @@ function DaughterWindowShellInner(): React.JSX.Element {
   const [openKinds, setOpenKinds] = useState<readonly PaneKind[]>([]);
   const [focusDashboardId, setFocusDashboardId] = useState<string | null>(null);
   const { retainPanes } = useSelection();
+  const { settings, updateSettings } = useSettings();
   const port = useBackendPort();
   const moveToNewWindow = useMoveToNewDaughterWindow(apiRef);
 
   const seed = useMemo(() => initialPaneKind(), []);
+  // Read once, at mount: which saved entry (if any) this window restores
+  // from. Cleared after the first successful autosave write, since every
+  // write after that finds its own entry by label instead (`upsertDaughterWindow`).
+  const restoreIndexAtLaunch = useMemo(() => initialRestoreIndex(), []);
+  const restoreIndexRef = useRef<number | null>(restoreIndexAtLaunch);
 
   /** This Window's own identity for Focus Mode's plot-series ownership key
    *  — distinct from `paneMenuEntries`' use of `MAIN_WINDOW_ID` below, which
@@ -58,8 +89,142 @@ function DaughterWindowShellInner(): React.JSX.Element {
    *  Tauri (`App.tsx`'s `isMainWindow()` routes everywhere else to
    *  `AppShell`), but the `isTauri()` guard is kept anyway, matching
    *  `windowRole.ts`'s own pattern, rather than assuming: a test rendering
-   *  this component directly has no such guarantee. */
+   *  this component directly has no such guarantee. Also this window's own
+   *  key into `daughterWindows`' `label` field, once it starts saving. */
   const windowId = useMemo(() => (isTauri() ? getCurrentWindow().label : 'daughter'), []);
+
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+
+  // Kept current by the `onMoved`/`onResized` subscription below rather than
+  // read fresh (async, IPC-backed) at the moment autosave actually flushes —
+  // that would make `flushAutosave` itself async, and a `beforeunload`
+  // handler that only *starts* async work is not guaranteed to finish before
+  // the page actually unloads. Reading this ref instead keeps the flush
+  // synchronous, the same guarantee `AppShell.tsx`'s own autosave already has.
+  const boundsRef = useRef<DaughterWindowBounds>({
+    x: 0,
+    y: 0,
+    width: DAUGHTER_WINDOW_DEFAULT_WIDTH,
+    height: DAUGHTER_WINDOW_DEFAULT_HEIGHT,
+  });
+
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPendingAutosave = useCallback(() => {
+    if (autosaveTimer.current !== null) {
+      clearTimeout(autosaveTimer.current);
+      autosaveTimer.current = null;
+    }
+  }, []);
+
+  /**
+   * Reads the active Workspace's own Daughter Window list and, if `updater`
+   * returns a different one, writes it back — the same read-transform-write
+   * shape `AppShell.tsx`'s own `withProfileWorkspaces` uses, scoped to this
+   * window's own `SettingsProvider` (a separate realm from the Main
+   * Window's, sharing the same underlying storage — spec.md's "Settings,
+   * Profiles and Workspaces are automatically shared again").
+   */
+  const updateOwnEntry = useCallback(
+    (updater: (daughterWindows: readonly StoredDaughterWindow[]) => readonly StoredDaughterWindow[]) => {
+      const currentSettings = settingsRef.current;
+      const stored = currentSettings.workspacesByProfile[currentSettings.activeMapProfileId];
+      const collection = stored === undefined ? undefined : sanitizeProfileWorkspaces(stored);
+      if (collection === undefined) return;
+      const target = activeWorkspaceOf(collection);
+      if (target === undefined) return;
+
+      const nextDaughterWindows = updater(target.daughterWindows);
+      if (nextDaughterWindows === target.daughterWindows) return;
+
+      const nextCollection = updateWorkspaceDaughterWindows(collection, target.id, nextDaughterWindows);
+      updateSettings({
+        workspacesByProfile: { ...currentSettings.workspacesByProfile, [currentSettings.activeMapProfileId]: nextCollection },
+      });
+    },
+    [updateSettings]
+  );
+
+  /** Persists this Window's own dockLayout, Pane state and current bounds (`boundsRef`) into the active Workspace's Daughter Window list. Synchronous, so `beforeunload` below can rely on it actually completing before the page unloads. */
+  const flushAutosave = useCallback(() => {
+    cancelPendingAutosave();
+    const api = apiRef.current;
+    if (!api) return;
+
+    const ids = api.panels.map(panel => panel.id);
+    const entry: StoredDaughterWindow = {
+      label: windowId,
+      dockLayout: api.toJSON(),
+      paneStates: snapshotPaneStates(ids),
+      bounds: boundsRef.current,
+    };
+
+    updateOwnEntry(daughterWindows => upsertDaughterWindow(daughterWindows, entry, restoreIndexRef.current));
+    restoreIndexRef.current = null;
+  }, [cancelPendingAutosave, updateOwnEntry, windowId]);
+
+  const scheduleAutosave = useCallback(() => {
+    cancelPendingAutosave();
+    autosaveTimer.current = setTimeout(flushAutosave, AUTOSAVE_DEBOUNCE_MS);
+  }, [cancelPendingAutosave, flushAutosave]);
+
+  // Keeps `boundsRef` current — moving or resizing this Window doesn't touch
+  // dockview's own layout at all, so nothing else would ever notice or save
+  // it. Reads the full bounds back out after each event rather than
+  // converting the event's own payload directly: a move fires with only a
+  // position and a resize with only a size, and `readOwnWindowBounds`
+  // already has the one conversion this needs, so reusing it keeps this
+  // window's own bounds internally consistent rather than merging two partial
+  // updates by hand. Scheduling autosave here, not just refreshing the ref, is
+  // what actually saves a bare move/resize — dockview's `onDidLayoutChange`
+  // (below) has nothing to fire for one.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let cancelled = false;
+    const win = getCurrentWindow();
+
+    const refreshBounds = () => {
+      void readOwnWindowBounds().then(bounds => {
+        if (!cancelled) boundsRef.current = bounds;
+      });
+    };
+    refreshBounds();
+
+    let unlistenMoved: (() => void) | null = null;
+    let unlistenResized: (() => void) | null = null;
+    void win.onMoved(() => {
+      refreshBounds();
+      scheduleAutosave();
+    }).then(fn => {
+      if (cancelled) fn();
+      else unlistenMoved = fn;
+    });
+    void win.onResized(() => {
+      refreshBounds();
+      scheduleAutosave();
+    }).then(fn => {
+      if (cancelled) fn();
+      else unlistenResized = fn;
+    });
+
+    return () => {
+      cancelled = true;
+      unlistenMoved?.();
+      unlistenResized?.();
+    };
+  }, [scheduleAutosave]);
+
+  // Flush on unmount and on quit, so a debounced change is never lost — the
+  // same precedent `AppShell.tsx`'s own autosave sets.
+  useEffect(() => {
+    window.addEventListener('beforeunload', flushAutosave);
+    const unsubscribePaneState = subscribePaneStateChanges(scheduleAutosave);
+    return () => {
+      window.removeEventListener('beforeunload', flushAutosave);
+      unsubscribePaneState();
+      cancelPendingAutosave();
+    };
+  }, [flushAutosave, scheduleAutosave, cancelPendingAutosave]);
 
   const syncOpenPanes = useCallback(
     (api: DockviewApi) => {
@@ -94,24 +259,64 @@ function DaughterWindowShellInner(): React.JSX.Element {
     api.addPanel({ id: paneId(kind, instance), component: kind, title: `${definition.title} ${instance}` });
   }, []);
 
+  /**
+   * A Daughter Window that loses its last Pane closes itself (spec.md) —
+   * purely a local check against this window's own dockview instance,
+   * unlike the Main Window's cross-window `closeEmptyPopouts` (which no
+   * longer applies: nothing here has popouts of its own). This window's own
+   * JS is still alive at this exact moment, unlike a native title-bar
+   * close, so its entry is pruned here rather than left to reappear on the
+   * next restore. Returns whether it closed, so callers that already know
+   * `api.panels.length` can skip scheduling an autosave for a window about
+   * to disappear anyway.
+   */
+  const closeIfEmpty = useCallback(
+    (api: DockviewApi): boolean => {
+      if (api.panels.length !== 0) return false;
+      updateOwnEntry(daughterWindows => withoutDaughterWindow(daughterWindows, windowId));
+      void closeDaughterWindow(windowId);
+      return true;
+    },
+    [updateOwnEntry, windowId]
+  );
+
   const handleReady = useCallback(
     (api: DockviewApi) => {
       apiRef.current = api;
-      if (seed !== null) openPane(seed);
-      syncOpenPanes(api);
 
-      // A Daughter Window that loses its last Pane closes itself (spec.md) —
-      // purely a local check against this window's own dockview instance,
-      // unlike the Main Window's cross-window `closeEmptyPopouts` (which no
-      // longer applies: nothing here has popouts of its own).
+      // Registered before the initial seed/restore below, not after: dockview
+      // fires this for that very first `addPanel`/`fromJSON` too, and a
+      // freshly opened single-Pane window needs its own first autosave
+      // scheduled from that same event — nothing else would ever trigger one
+      // for a window the user opens and never touches again.
       api.onDidLayoutChange(() => {
         syncOpenPanes(api);
-        if (api.panels.length === 0) {
-          void closeDaughterWindow(windowId);
-        }
+        if (closeIfEmpty(api)) return;
+        scheduleAutosave();
       });
+
+      if (restoreIndexAtLaunch !== null) {
+        const stored = settingsRef.current.workspacesByProfile[settingsRef.current.activeMapProfileId];
+        const collection = stored === undefined ? undefined : sanitizeProfileWorkspaces(stored);
+        const target = collection && activeWorkspaceOf(collection);
+        const entry = target?.daughterWindows[restoreIndexAtLaunch];
+        if (entry !== undefined) {
+          try {
+            restoreDaughterWindowContent(api, entry);
+          } catch (error) {
+            console.error("Failed to restore this Daughter Window's own content.", error);
+          }
+        }
+        // No matching saved entry: this window opens empty. Nothing changed,
+        // so dockview never fires the listener above on its own — checked
+        // explicitly below instead, so it still closes rather than lingering.
+      } else if (seed !== null) {
+        openPane(seed);
+      }
+      syncOpenPanes(api);
+      closeIfEmpty(api);
     },
-    [seed, openPane, syncOpenPanes, windowId]
+    [restoreIndexAtLaunch, seed, openPane, syncOpenPanes, closeIfEmpty, scheduleAutosave]
   );
 
   const handleOpenPane = useCallback((kind: PaneKind) => openPane(kind), [openPane]);
@@ -150,8 +355,7 @@ function DaughterWindowShellInner(): React.JSX.Element {
             this Window's own arrangement rather than a shared instance
             other Windows depend on: unmounting would rebuild this Window's
             dockview from scratch on exit, losing whatever the user had
-            added beyond the one seeded Pane, since nothing here is saved
-            (issue 03's job). */}
+            added beyond the one seeded Pane. */}
         <div className={styles.workspaceHost} hidden={focusDashboardId !== null}>
           <Workspace onReady={handleReady} getTabContextMenuItems={handleTabContextMenuItems} />
         </div>

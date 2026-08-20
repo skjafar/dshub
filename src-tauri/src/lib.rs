@@ -42,6 +42,7 @@ macro_rules! invoke_handler {
             poll::subscribe_address,
             poll::unsubscribe_address,
             daughter_windows::open_daughter_window,
+            daughter_windows::restore_daughter_window,
             daughter_windows::list_daughter_windows,
             $($extra,)*
         ]

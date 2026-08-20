@@ -5,8 +5,9 @@ import { Button, Dialog, TooltipProvider } from '../ui';
 import { useBackendPort } from '../contexts/BackendPortContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { AppChrome } from './AppChrome';
-import { closeDaughterWindow, focusDaughterWindow, useDaughterWindows } from './daughterWindowNative';
+import { closeDaughterWindow, focusDaughterWindow } from './daughterWindowNative';
 import { paneMenuEntries } from './daughterWindows';
+import { useDaughterWindowLifecycle } from './useDaughterWindowLifecycle';
 import { FocusModeProvider } from './FocusModeContext';
 import { FocusModeView } from './FocusModeView';
 import { MAIN_WINDOW_ID } from './focusMode';
@@ -22,7 +23,6 @@ import {
   DEFAULT_WORKSPACE_NAME,
   activeWorkspaceOf,
   addWorkspace,
-  createRestoreGuard,
   createWorkspaceId,
   removeWorkspace,
   renameWorkspace,
@@ -32,9 +32,11 @@ import {
   setActiveWorkspace,
   snapshotWorkspace,
   updateWorkspaceContent,
+  updateWorkspaceDaughterWindows,
+  withoutDaughterWindow,
   withoutWorkspace,
 } from './workspaceStore';
-import type { ProfileWorkspaces, RestoreGuard, StoredWorkspace } from './workspaceStore';
+import type { ProfileWorkspaces, StoredWorkspace } from './workspaceStore';
 import styles from './AppShell.module.css';
 
 /** How long a burst of layout or Pane-state changes settles before it is saved. */
@@ -96,7 +98,8 @@ const DEFAULT_LAYOUT: readonly DefaultPane[] = [
 function WorkspaceShell(): React.JSX.Element {
   const apiRef = useRef<DockviewApi | null>(null);
   const [openKinds, setOpenKinds] = useState<readonly PaneKind[]>([]);
-  const openDaughterWindows = useDaughterWindows();
+  const { openDaughterWindows, openWorkspaceDaughterWindows, closeAllDaughterWindows, switchDaughterWindows } =
+    useDaughterWindowLifecycle();
   const moveToNewWindow = useMoveToNewDaughterWindow(apiRef);
   // Which Dashboard, if any, the Main Window is showing full-canvas. A
   // single value rather than the `Record<WindowId, string>` this used to be
@@ -109,12 +112,6 @@ function WorkspaceShell(): React.JSX.Element {
   // Focus Mode — hiding the dock rather than unmounting it is the whole
   // point, since unmounting it would destroy this Window's in-session state.
   const [mainFocusDashboardId, setMainFocusDashboardId] = useState<string | null>(null);
-  // True once a restore's popout was blocked (spec.md's data-loss path) —
-  // mirrors `restoreGuardRef.current.blocked` as React state purely so the
-  // "Reopen windows" banner below can react to it; the guard itself is what
-  // autosave actually checks, synchronously, with no render involved.
-  const [restoreBlocked, setRestoreBlocked] = useState(false);
-  const restoreGuardRef = useRef<RestoreGuard | null>(null);
 
   const { selection, select, retainPanes } = useSelection();
   const { settings, updateSettings } = useSettings();
@@ -189,22 +186,15 @@ function WorkspaceShell(): React.JSX.Element {
     [retainPanes, port]
   );
 
-  /** Persists the active Workspace's current content — dockLayout, Pane state and selection. */
+  /** Persists the active Workspace's own Main-Window content — mainDockLayout, Pane state and selection. Never touches `daughterWindows`: each open Daughter Window keeps its own entry current independently. */
   const flushAutosave = useCallback(() => {
     cancelPendingAutosave();
     const api = apiRef.current;
     if (!api) return;
-    // Frozen while a restore's popout is blocked (spec.md): dockview redocks
-    // the orphaned groups into the main grid, which is a layout change like
-    // any other, and saving *that* would overwrite the stored Workspace with
-    // an arrangement missing the Daughter Windows it just failed to reopen.
-    // `handleReopenWindows` is what lifts this, by resetting the guard before
-    // it retries.
-    if (restoreGuardRef.current?.blocked) return;
 
     const ids = api.panels.map(panel => panel.id);
     const content = {
-      dockLayout: api.toJSON(),
+      mainDockLayout: api.toJSON(),
       paneStates: snapshotPaneStates(ids),
       selection: selectionRef.current,
     };
@@ -253,20 +243,9 @@ function WorkspaceShell(): React.JSX.Element {
 
   const exitFocusMode = useCallback(() => setMainFocusDashboardId(null), []);
 
-  /**
-   * Restores a Workspace onto the live api, following its selection and
-   * re-syncing what is open.
-   *
-   * Resets the restore guard first, including on a retry: a stale `blocked`
-   * from a previous, already-handled failure must not linger onto this one,
-   * and this is the one call site every restore path — initial load,
-   * Workspace switch, delete-active fallback, and the "Reopen windows" retry
-   * — already goes through.
-   */
+  /** Restores a Workspace's own Main-Window content onto the live api, following its selection and re-syncing what is open. Says nothing about `target.daughterWindows` — restoring those is a separate, asynchronous step (see `openWorkspaceDaughterWindows`/`switchDaughterWindows` below). */
   const applyWorkspace = useCallback(
     (api: DockviewApi, target: StoredWorkspace): boolean => {
-      restoreGuardRef.current?.reset();
-      setRestoreBlocked(false);
       try {
         restoreWorkspace(api, target);
       } catch (error) {
@@ -324,13 +303,11 @@ function WorkspaceShell(): React.JSX.Element {
   const handleReady = useCallback(
     (api: DockviewApi) => {
       apiRef.current = api;
-      restoreGuardRef.current?.dispose();
-      restoreGuardRef.current = createRestoreGuard(api, () => setRestoreBlocked(true));
 
       const currentProfileId = profileIdRef.current;
       const stored = settingsRef.current.workspacesByProfile[currentProfileId];
       let collection = stored === undefined ? undefined : sanitizeProfileWorkspaces(stored);
-      let restored = false;
+      let restoredTarget: StoredWorkspace | undefined;
 
       // The active Workspace can still fail at runtime even after passing
       // structural validation — dockview rejecting a field a future version
@@ -341,13 +318,13 @@ function WorkspaceShell(): React.JSX.Element {
         const target = activeWorkspaceOf(collection);
         if (target === undefined) break;
         if (applyWorkspace(api, target)) {
-          restored = true;
+          restoredTarget = target;
           break;
         }
         collection = withoutWorkspace(collection, target.id);
       }
 
-      if (!restored) {
+      if (restoredTarget === undefined) {
         // Nothing usable was stored — first launch, or every stored Workspace
         // failed to load. Build the bundled arrangement live and seed it as the
         // Profile's default Workspace, so the next launch restores rather than
@@ -361,8 +338,9 @@ function WorkspaceShell(): React.JSX.Element {
           const id = openPane(entry.kind, position, entry.initialWidth);
           if (id !== null) previousId = id;
         }
-        const seeded = snapshotWorkspace(api, DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_NAME, null);
+        const seeded = snapshotWorkspace(api, DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_NAME, null, []);
         collection = seedProfileWorkspaces(seeded);
+        restoredTarget = seeded;
       }
 
       if (collection !== undefined) {
@@ -370,6 +348,13 @@ function WorkspaceShell(): React.JSX.Element {
           workspacesByProfile: { ...settingsRef.current.workspacesByProfile, [currentProfileId]: collection },
         });
       }
+
+      // Restoring N Daughter Windows at launch is just N Rust
+      // `WebviewWindowBuilder::build()` calls, none of them gated on a user
+      // gesture (unlike the old dockview-popout mechanism's `window.open`) —
+      // fire-and-forget from this synchronous handler, each failure surfaced
+      // through its own toast rather than blocking the rest of the restore.
+      void openWorkspaceDaughterWindows(restoredTarget.daughterWindows);
 
       // Closing, opening, moving or resizing a Pane changes what the reopen
       // menu should offer and what the active Workspace should be saved as, so
@@ -403,7 +388,7 @@ function WorkspaceShell(): React.JSX.Element {
         (window as unknown as { dshubWorkspace?: DockviewApi }).dshubWorkspace = api;
       }
     },
-    [applyWorkspace, openPane, syncOpenPanes, scheduleAutosave, updateSettings]
+    [applyWorkspace, openPane, syncOpenPanes, scheduleAutosave, updateSettings, openWorkspaceDaughterWindows]
   );
 
   const handleOpenPane = useCallback((kind: PaneKind) => openPane(kind), [openPane]);
@@ -425,10 +410,18 @@ function WorkspaceShell(): React.JSX.Element {
       if (!api) return;
       cancelPendingAutosave();
 
-      withProfileWorkspaces(collection => {
-        const target = collection.workspaces.find(w => w.id === id);
-        if (target === undefined) return undefined;
+      // Looked up before the update rather than inside it: the Daughter
+      // Window switch below is asynchronous and needs the incoming
+      // Workspace's saved list regardless of whether the update itself
+      // ends up applying (see `switched`) — and nothing mutates settings
+      // between this read and the synchronous `withProfileWorkspaces` call
+      // right after it, so the two agree on the same collection.
+      const collectionNow = settingsRef.current.workspacesByProfile[profileIdRef.current];
+      const target = collectionNow?.workspaces.find(w => w.id === id);
+      if (target === undefined) return;
 
+      let switched = false;
+      withProfileWorkspaces(collection => {
         // The Workspace being left has to be saved with what it actually
         // shows right now, and the switch to the new active id has to land in
         // the same write — two sequential `updateSettings` calls here would
@@ -436,16 +429,23 @@ function WorkspaceShell(): React.JSX.Element {
         // other's result until the next render.
         const outgoingIds = api.panels.map(panel => panel.id);
         const flushed = updateWorkspaceContent(collection, collection.activeWorkspaceId, {
-          dockLayout: api.toJSON(),
+          mainDockLayout: api.toJSON(),
           paneStates: snapshotPaneStates(outgoingIds),
           selection: selectionRef.current,
         });
 
         if (!applyWorkspace(api, target)) return undefined;
+        switched = true;
         return setActiveWorkspace(flushed, id);
       });
+
+      // A Daughter Window belongs to the Workspace, not the Profile: only
+      // touch the live window set once the switch actually took — a
+      // rejected `applyWorkspace` above must leave whatever was already
+      // open alone.
+      if (switched) void switchDaughterWindows(target.daughterWindows);
     },
-    [applyWorkspace, cancelPendingAutosave, withProfileWorkspaces]
+    [applyWorkspace, cancelPendingAutosave, switchDaughterWindows, withProfileWorkspaces]
   );
 
   const handleSaveWorkspaceAs = useCallback(
@@ -454,7 +454,11 @@ function WorkspaceShell(): React.JSX.Element {
       const api = apiRef.current;
       if (!api || trimmed === '') return;
 
-      const saved = snapshotWorkspace(api, createWorkspaceId(), trimmed, selectionRef.current);
+      // Currently-open Daughter Windows are not carried into the new
+      // Workspace identity here — each keeps saving itself under whatever
+      // is active at its own next autosave tick, which becomes this new
+      // Workspace the moment `addWorkspace` below makes it active.
+      const saved = snapshotWorkspace(api, createWorkspaceId(), trimmed, selectionRef.current, []);
       withProfileWorkspaces(collection => addWorkspace(collection, saved));
     },
     [withProfileWorkspaces]
@@ -471,6 +475,7 @@ function WorkspaceShell(): React.JSX.Element {
 
   const handleDeleteWorkspace = useCallback(
     (id: string) => {
+      let fallbackTarget: StoredWorkspace | undefined;
       withProfileWorkspaces(collection => {
         const next = removeWorkspace(collection, id);
         if (next === collection) return undefined; // refused (default) or an id that is not there
@@ -479,23 +484,17 @@ function WorkspaceShell(): React.JSX.Element {
         if (collection.activeWorkspaceId === id && api) {
           cancelPendingAutosave();
           const target = next.workspaces.find(w => w.id === next.activeWorkspaceId);
-          if (target !== undefined) applyWorkspace(api, target);
+          if (target !== undefined) {
+            applyWorkspace(api, target);
+            fallbackTarget = target;
+          }
         }
         return next;
       });
+      if (fallbackTarget !== undefined) void switchDaughterWindows(fallbackTarget.daughterWindows);
     },
-    [applyWorkspace, cancelPendingAutosave, withProfileWorkspaces]
+    [applyWorkspace, cancelPendingAutosave, switchDaughterWindows, withProfileWorkspaces]
   );
-
-  /** The stored Workspace a "Reopen windows" retry re-applies — the one that autosave, frozen since the block, never overwrote. */
-  const handleReopenWindows = useCallback(() => {
-    const api = apiRef.current;
-    if (!api) return;
-    const collection = settingsRef.current.workspacesByProfile[profileIdRef.current];
-    const target = collection && activeWorkspaceOf(collection);
-    if (!target) return;
-    applyWorkspace(api, target);
-  }, [applyWorkspace]);
 
   // Labels, not `Window` objects — Rust is the only thing that knows which
   // Daughter Windows actually exist now (`useDaughterWindows`), so closing
@@ -505,23 +504,30 @@ function WorkspaceShell(): React.JSX.Element {
     void focusDaughterWindow(label);
   }, []);
 
-  const handleCloseDaughterWindow = useCallback((label: string) => {
-    void closeDaughterWindow(label);
-  }, []);
+  /** A deliberate close from the Main Window's own list — unlike a native title-bar close, this is unambiguous, so the closed window's own entry is pruned from the active Workspace right here rather than left to reappear on the next restore. */
+  const handleCloseDaughterWindow = useCallback(
+    (label: string) => {
+      void closeDaughterWindow(label);
+      withProfileWorkspaces(collection => {
+        const target = activeWorkspaceOf(collection);
+        if (!target) return undefined;
+        return updateWorkspaceDaughterWindows(collection, target.id, withoutDaughterWindow(target.daughterWindows, label));
+      });
+    },
+    [withProfileWorkspaces]
+  );
+
+  /** Both the outgoing Profile's own autosave flush and closing its Daughter Windows before `<Workspace key={profileId}>` remounts against the incoming Profile — `handleReady` opens the incoming one's own saved list once that mount's own restore runs. */
+  const handleBeforeProfileChange = useCallback(() => {
+    flushAutosave();
+    void closeAllDaughterWindows();
+  }, [flushAutosave, closeAllDaughterWindows]);
 
   const collection: ProfileWorkspaces | undefined = settings.workspacesByProfile[profileId];
 
   return (
     <FocusModeProvider enter={enterFocusMode}>
       <div className={styles.shell}>
-        {restoreBlocked ? (
-          <div className={styles.restoreBanner} role="alert">
-            <span>Some Windows couldn’t be reopened.</span>
-            <Button variant="secondary" size="sm" onClick={handleReopenWindows}>
-              Reopen windows
-            </Button>
-          </div>
-        ) : null}
         {mainFocusDashboardId !== null ? (
           <FocusModeView dashboardId={mainFocusDashboardId} windowId={MAIN_WINDOW_ID} onExit={exitFocusMode} />
         ) : (
@@ -534,7 +540,7 @@ function WorkspaceShell(): React.JSX.Element {
             onSaveWorkspaceAs={handleSaveWorkspaceAs}
             onRenameWorkspace={handleRenameWorkspace}
             onDeleteWorkspace={handleDeleteWorkspace}
-            onBeforeProfileChange={flushAutosave}
+            onBeforeProfileChange={handleBeforeProfileChange}
             daughterWindows={openDaughterWindows.map((label, index) => ({ id: label, label: `Daughter Window ${index + 1}` }))}
             onFocusDaughterWindow={handleFocusDaughterWindow}
             onCloseDaughterWindow={handleCloseDaughterWindow}

@@ -1,12 +1,19 @@
 /**
  * Named, saveable Workspaces belonging to a Profile.
  *
- * A Workspace is dockview's serialized layout plus each open Pane's own state
- * (ADR-0001) plus the shared selection the Inspector was following — the three
- * things that together are "what the Panes were actually showing". This module
- * owns the shape, validates it against corruption, and holds the pure
- * collection operations a chrome switcher/save/rename/delete flow needs. The
- * imperative half — actually calling `api.fromJSON` — is isolated behind
+ * A Workspace is the Main Window's serialized dockview layout plus each open
+ * Pane's own state (ADR-0001) plus the shared selection the Inspector was
+ * following, plus every Daughter Window that belongs to it — its own
+ * dockLayout, its own Panes' own state, and its saved position/size
+ * (`.scratch/daughter-windows-native` issue 03; ADR 0005's own
+ * "Cross-restart persistence... is issue 03's own job"). A single composite
+ * `dockLayout` blob could describe the Main Window's arrangement because
+ * dockview's own `popoutGroups` field rode along inside it; a genuinely
+ * separate `WebviewWindow` has its own independent dockview instance with
+ * nothing to embed it in, so each Daughter Window gets its own entry instead.
+ * This module owns the shape, validates it against corruption, and holds the
+ * pure collection operations a chrome switcher/save/rename/delete flow needs.
+ * The imperative half — actually calling `api.fromJSON` — is isolated behind
  * {@link WorkspaceDockApi} so it can be pinned without a real dockview
  * instance, which ADR-0001 keeps out of this project's test net.
  */
@@ -16,14 +23,46 @@ import type { EntrySelection } from './SelectionContext';
 import { isKnownPaneKind } from './paneRegistry';
 import { loadPaneStates, snapshotPaneStates } from './paneState';
 
+/** A Daughter Window's saved position and size, in logical pixels — the unit `WebviewWindowBuilder::position`/`inner_size` both expect. */
+export interface DaughterWindowBounds {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * One Daughter Window belonging to a Workspace: its own dockview layout, its
+ * own open Panes' own state, and where it sat on screen.
+ *
+ * `label` identifies which currently-open `WebviewWindow` this entry
+ * belongs to for the lifetime of the session that wrote it — the live Tauri
+ * label a Daughter Window is minted with, not a durable cross-restart
+ * identity (labels are never reused *within* a run, per
+ * `daughter_windows.rs`, but every fresh launch remints from `daughter-1`
+ * regardless of what a previous session's windows were called). Restoring at
+ * launch correlates by array position instead (`?restore=<index>` on the
+ * window's own URL); the first thing a restored window's own autosave does
+ * is stamp its newly-minted live label into this field, after which further
+ * autosaves for that window find their own entry by label like any other.
+ */
+export interface StoredDaughterWindow {
+  readonly label: string;
+  readonly dockLayout: SerializedDockview;
+  readonly paneStates: Readonly<Record<string, unknown>>;
+  readonly bounds: DaughterWindowBounds;
+}
+
 export interface StoredWorkspace {
   readonly id: string;
   readonly name: string;
-  readonly dockLayout: SerializedDockview;
-  /** Each open Pane's own state, keyed by panel id. */
+  readonly mainDockLayout: SerializedDockview;
+  /** Each of the Main Window's own open Panes' own state, keyed by panel id. */
   readonly paneStates: Readonly<Record<string, unknown>>;
   /** What the shared Inspector was following, if anything. */
   readonly selection: EntrySelection | null;
+  /** Every Daughter Window currently open under this Workspace. */
+  readonly daughterWindows: readonly StoredDaughterWindow[];
 }
 
 export interface ProfileWorkspaces {
@@ -70,22 +109,37 @@ function isValidDockLayout(value: unknown): value is SerializedDockview {
     if (typeof kind !== 'string' || !isKnownPaneKind(kind)) return false;
   }
 
-  // A layout saved under the pre-native dockview-popout mechanism (ADR
-  // 0004, superseded by ADR 0005) carries real `popoutGroups` entries.
-  // `restoreWorkspace`'s `fromJSON` would still hand those to dockview,
-  // which would still try to reopen them via its own internal
-  // `window.open` — and since `.scratch/daughter-windows-native` issue 02
-  // removed the `on_new_window` handler that ever made that succeed, the
-  // attempt now fails unconditionally, tripping the *existing*
-  // `onDidOpenPopoutWindowFail`/`RestoreGuard` path into a "Reopen windows"
-  // banner whose retry is a permanent dead end. Rejecting here instead
-  // routes an old-format Workspace through the already-tested
-  // graceful-degradation path below (drop it, fall back to the next
-  // candidate, or reseed the default) rather than shipping a stuck banner —
-  // the narrow slice of "resets cleanly rather than erroring" issue 02
-  // itself needs; the new persistence shape is issue 03's own job.
+  // dockview may still serialize a `popoutGroups` field even though nothing
+  // populates it any more (`.scratch/daughter-windows-native` issue 02
+  // removed the `on_new_window` handler that ever made a real one succeed) —
+  // a non-empty one would only mean this layout predates that change.
+  // Rejecting it here is defence in depth: a Workspace saved under the old
+  // shape is already rejected by `isValidStoredWorkspace` for lacking
+  // `mainDockLayout`/`daughterWindows` entirely, but this keeps a single
+  // corrupt-in-this-specific-way layout from reaching `fromJSON`, which
+  // would otherwise still try to reopen it via dockview's own internal
+  // `window.open` and fail unconditionally.
   if (Array.isArray(value.popoutGroups) && value.popoutGroups.length > 0) return false;
 
+  return true;
+}
+
+function isValidBounds(value: unknown): value is DaughterWindowBounds {
+  return (
+    isPlainObject(value) &&
+    typeof value.x === 'number' &&
+    typeof value.y === 'number' &&
+    typeof value.width === 'number' &&
+    typeof value.height === 'number'
+  );
+}
+
+function isValidStoredDaughterWindow(value: unknown): value is StoredDaughterWindow {
+  if (!isPlainObject(value)) return false;
+  if (typeof value.label !== 'string' || value.label === '') return false;
+  if (!isValidDockLayout(value.dockLayout)) return false;
+  if (!isPlainObject(value.paneStates)) return false;
+  if (!isValidBounds(value.bounds)) return false;
   return true;
 }
 
@@ -94,7 +148,8 @@ export function isValidStoredWorkspace(value: unknown): value is StoredWorkspace
   if (typeof value.id !== 'string' || value.id === '') return false;
   if (typeof value.name !== 'string' || value.name === '') return false;
   if (!isPlainObject(value.paneStates)) return false;
-  if (!isValidDockLayout(value.dockLayout)) return false;
+  if (!isValidDockLayout(value.mainDockLayout)) return false;
+  if (!Array.isArray(value.daughterWindows) || !value.daughterWindows.every(isValidStoredDaughterWindow)) return false;
   return true;
 }
 
@@ -209,16 +264,29 @@ export function setActiveWorkspace(collection: ProfileWorkspaces, id: string): P
   return { ...collection, activeWorkspaceId: id };
 }
 
-/** Replaces one Workspace's content in place — what autosave calls on every change. */
+/** Replaces one Workspace's own Main-Window content in place — what the Main Window's autosave calls on every change. Never touches `daughterWindows`: each Daughter Window keeps its own entry current independently (see {@link upsertDaughterWindow}). */
 export function updateWorkspaceContent(
   collection: ProfileWorkspaces,
   id: string,
-  content: Pick<StoredWorkspace, 'dockLayout' | 'paneStates' | 'selection'>
+  content: Pick<StoredWorkspace, 'mainDockLayout' | 'paneStates' | 'selection'>
 ): ProfileWorkspaces {
   if (!collection.workspaces.some(w => w.id === id)) return collection;
   return {
     ...collection,
     workspaces: collection.workspaces.map(w => (w.id === id ? { ...w, ...content } : w)),
+  };
+}
+
+/** Replaces one Workspace's Daughter Window list wholesale — what a Daughter Window's own autosave, and the Main Window's explicit close/prune, both call. */
+export function updateWorkspaceDaughterWindows(
+  collection: ProfileWorkspaces,
+  id: string,
+  daughterWindows: readonly StoredDaughterWindow[]
+): ProfileWorkspaces {
+  if (!collection.workspaces.some(w => w.id === id)) return collection;
+  return {
+    ...collection,
+    workspaces: collection.workspaces.map(w => (w.id === id ? { ...w, daughterWindows } : w)),
   };
 }
 
@@ -230,112 +298,108 @@ export function activeWorkspaceOf(collection: ProfileWorkspaces): StoredWorkspac
   );
 }
 
+// ── One Daughter Window's own entry ─────────────────────────────────────────
+//
+// Pure list operations a Daughter Window's own autosave (and the Main
+// Window's explicit close/prune) need against just the `daughterWindows`
+// array — kept separate from `updateWorkspaceDaughterWindows` above so they
+// can be pinned without a `ProfileWorkspaces` collection at all.
+
+/**
+ * Inserts or replaces one Daughter Window's own entry.
+ *
+ * `restoreIndex`, when given, targets that array position directly and
+ * unconditionally — the one time a Daughter Window's live label cannot yet
+ * match anything in the array: right after being restored at launch, its
+ * newly-minted label has no relationship to whatever label the entry was
+ * saved under last session, so the *position* it was told to restore from
+ * (`?restore=<index>` on its own URL) is the only correlation available.
+ * Every other call — this window's own later autosaves, or a freshly
+ * *created* Daughter Window's very first save — omits it and matches by
+ * `entry.label` instead, appending a new entry if nothing matches yet.
+ */
+export function upsertDaughterWindow(
+  daughterWindows: readonly StoredDaughterWindow[],
+  entry: StoredDaughterWindow,
+  restoreIndex: number | null = null
+): readonly StoredDaughterWindow[] {
+  if (restoreIndex !== null && restoreIndex >= 0 && restoreIndex < daughterWindows.length) {
+    return daughterWindows.map((d, i) => (i === restoreIndex ? entry : d));
+  }
+  const existingIndex = daughterWindows.findIndex(d => d.label === entry.label);
+  if (existingIndex === -1) return [...daughterWindows, entry];
+  return daughterWindows.map((d, i) => (i === existingIndex ? entry : d));
+}
+
+/** Drops one Daughter Window's entry by label — a deliberate close, not a corruption repair. */
+export function withoutDaughterWindow(
+  daughterWindows: readonly StoredDaughterWindow[],
+  label: string
+): readonly StoredDaughterWindow[] {
+  return daughterWindows.filter(d => d.label !== label);
+}
+
 // ── Dock orchestration ───────────────────────────────────────────────────
 //
 // The seam: only what a save/restore needs from dockview's api, so the two
 // operations below can be pinned against a fake rather than a live dockview
 // instance.
 
-export interface DockSubscription {
-  dispose(): void;
-}
-
 export interface WorkspaceDockApi {
   toJSON(): SerializedDockview;
   fromJSON(data: SerializedDockview): void;
   readonly panels: ReadonlyArray<{ readonly id: string }>;
-  /**
-   * Fires when a popout window fails to open — normal for a Workspace
-   * restored at launch, since nothing has yet supplied the user gesture
-   * `window.open` needs. dockview redocks the orphaned groups into the main
-   * grid on its own; this is only the notification, not an action to take.
-   */
-  onDidOpenPopoutWindowFail(callback: () => void): DockSubscription;
 }
 
 export function snapshotWorkspace(
   api: WorkspaceDockApi,
   id: string,
   name: string,
-  selection: EntrySelection | null
+  selection: EntrySelection | null,
+  daughterWindows: readonly StoredDaughterWindow[]
 ): StoredWorkspace {
   const paneIds = api.panels.map(panel => panel.id);
   return {
     id,
     name,
-    dockLayout: api.toJSON(),
+    mainDockLayout: api.toJSON(),
     paneStates: snapshotPaneStates(paneIds),
     selection,
+    daughterWindows,
   };
 }
 
 /**
- * Restores a Workspace onto a live dock api.
- *
- * Pane state is seeded first and dockview loaded second: `usePaneState` only
- * reads the store on a Pane's first mount, and `fromJSON` is what creates that
- * mount. The other order would restore every Pane to its own default.
+ * Restores one dockview instance's own content — pane state seeded first,
+ * dockview loaded second: `usePaneState` only reads the store on a Pane's
+ * first mount, and `fromJSON` is what creates that mount. The other order
+ * would restore every Pane to its own default. Shared by
+ * {@link restoreWorkspace} and {@link restoreDaughterWindowContent}, which
+ * differ only in which of `StoredWorkspace`/`StoredDaughterWindow`'s fields
+ * carry the layout and pane state — each dockview instance only ever has one
+ * of these to restore, whole.
+ */
+function restoreDockContent(api: WorkspaceDockApi, paneStates: Readonly<Record<string, unknown>>, dockLayout: SerializedDockview): void {
+  loadPaneStates(paneStates);
+  api.fromJSON(dockLayout);
+}
+
+/**
+ * Restores a Workspace's own Main-Window content onto a live dock api. Says
+ * nothing about `workspace.daughterWindows` — restoring those is the Main
+ * Window's own separate, asynchronous step (opening N `WebviewWindow`s via
+ * Rust), not something this synchronous call can do.
  */
 export function restoreWorkspace(api: WorkspaceDockApi, workspace: StoredWorkspace): void {
-  loadPaneStates(workspace.paneStates);
-  api.fromJSON(workspace.dockLayout);
-}
-
-// ── Blocked restore ──────────────────────────────────────────────────────
-//
-// The data-loss path (spec.md). A popout blocked while restoring — the
-// ordinary case at launch, since nothing has been clicked yet — makes
-// dockview redock its groups into the main grid, which fires a layout change,
-// which schedules autosave, which would overwrite the stored Workspace with
-// an arrangement missing the Daughter Windows it just failed to reopen. A
-// `RestoreGuard` is what autosave checks before it actually writes.
-
-/**
- * Tracks whether the current restore attempt has been blocked, without
- * forcing every caller to juggle dockview's own delayed failure signal.
- *
- * dockview discovers a blocked popout asynchronously — its own restoration
- * delay (`DESERIALIZATION_POPOUT_DELAY_MS`, 100ms, staggered per popout) means
- * `onDidOpenPopoutWindowFail` can fire well after `fromJSON` has already
- * returned — so nothing synchronous after calling `restoreWorkspace` can know
- * the outcome. This subscribes once for the dock api's whole lifetime and
- * exposes a flag instead: `AppShell`'s autosave reads it at the moment it
- * would actually persist (`AUTOSAVE_DEBOUNCE_MS`, 400ms after the layout
- * settles) — comfortably after dockview's own window, so the flag can never
- * be read before a blocked popout could have set it.
- */
-export interface RestoreGuard {
-  /** True once a popout has failed to open since the last {@link RestoreGuard.reset}. */
-  readonly blocked: boolean;
-  /** Clears the flag. Call before every restore attempt, including a retry — a stale `true` from a previous, already-handled failure must not linger onto the next one. */
-  reset(): void;
-  dispose(): void;
+  restoreDockContent(api, workspace.paneStates, workspace.mainDockLayout);
 }
 
 /**
- * Subscribes to the dock api's popout-failure signal and returns a live
- * guard, calling `onBlocked` the moment a failure is first observed since the
- * last {@link RestoreGuard.reset} — the shell's cue to offer the "Reopen
- * windows" retry. One subscription for the api's whole lifetime rather than
- * one per restore, since the failure can arrive after any restore has already
- * returned.
+ * Restores one Daughter Window's own content onto its own live dock api,
+ * scoped to a single {@link StoredDaughterWindow} entry rather than a whole
+ * Workspace, since a Daughter Window only ever has one dockview instance of
+ * its own to restore.
  */
-export function createRestoreGuard(api: WorkspaceDockApi, onBlocked: () => void): RestoreGuard {
-  let blocked = false;
-  const subscription = api.onDidOpenPopoutWindowFail(() => {
-    if (blocked) return;
-    blocked = true;
-    onBlocked();
-  });
-  return {
-    get blocked() {
-      return blocked;
-    },
-    reset() {
-      blocked = false;
-    },
-    dispose() {
-      subscription.dispose();
-    },
-  };
+export function restoreDaughterWindowContent(api: WorkspaceDockApi, entry: StoredDaughterWindow): void {
+  restoreDockContent(api, entry.paneStates, entry.dockLayout);
 }

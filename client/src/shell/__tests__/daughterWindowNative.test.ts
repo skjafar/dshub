@@ -3,12 +3,14 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { Window as TauriWindow } from '@tauri-apps/api/window';
+import { getCurrentWindow, Window as TauriWindow } from '@tauri-apps/api/window';
 import {
   closeDaughterWindow,
   focusDaughterWindow,
   listDaughterWindows,
   openDaughterWindow,
+  readOwnWindowBounds,
+  restoreDaughterWindow,
   subscribeDaughterWindows,
   useDaughterWindows,
 } from '../daughterWindowNative';
@@ -24,6 +26,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 
 vi.mock('@tauri-apps/api/window', () => ({
   Window: { getByLabel: vi.fn() },
+  getCurrentWindow: vi.fn(),
 }));
 
 afterEach(() => {
@@ -37,6 +40,34 @@ describe('openDaughterWindow', () => {
     const label = await openDaughterWindow('register');
     expect(invoke).toHaveBeenCalledWith('open_daughter_window', { paneKind: 'register' });
     expect(label).toBe('daughter-3');
+  });
+});
+
+describe('restoreDaughterWindow', () => {
+  it('invokes the Rust command with the restore index and bounds, and resolves the newly-minted label', async () => {
+    vi.mocked(invoke).mockResolvedValue('daughter-1');
+    const bounds = { x: 10, y: 20, width: 640, height: 480 };
+    const label = await restoreDaughterWindow(2, bounds);
+    expect(invoke).toHaveBeenCalledWith('restore_daughter_window', { restoreIndex: 2, bounds });
+    expect(label).toBe('daughter-1');
+  });
+});
+
+describe('readOwnWindowBounds', () => {
+  it('converts this window\'s own physical position and size to logical pixels', async () => {
+    const toLogicalPosition = vi.fn().mockReturnValue({ x: 50, y: 60 });
+    const toLogicalSize = vi.fn().mockReturnValue({ width: 320, height: 240 });
+    vi.mocked(getCurrentWindow).mockReturnValue({
+      outerPosition: vi.fn().mockResolvedValue({ toLogical: toLogicalPosition }),
+      innerSize: vi.fn().mockResolvedValue({ toLogical: toLogicalSize }),
+      scaleFactor: vi.fn().mockResolvedValue(2),
+    } as never);
+
+    const bounds = await readOwnWindowBounds();
+
+    expect(toLogicalPosition).toHaveBeenCalledWith(2);
+    expect(toLogicalSize).toHaveBeenCalledWith(2);
+    expect(bounds).toEqual({ x: 50, y: 60, width: 320, height: 240 });
   });
 });
 

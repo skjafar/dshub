@@ -174,16 +174,51 @@ A Pane's own filter/selection state does not survive "Move to new window" —
 `paneState.ts`'s in-memory `Map` is per-realm, so a moved Pane opens fresh
 in the new Window rather than carrying its prior state across; preserving it
 is `.scratch/daughter-windows-native` issue 05's own job, for its own
-mechanism (relocating into an *already-open* Window). A Daughter Window's
-own arrangement is not saved across an app restart either — every Pane it
-holds starts fresh from the one kind it was opened with; the new,
-per-window persistence shape that needs is issue 03's job.
-`workspaceStore.ts`'s `RestoreGuard`/"Reopen windows" banner is still wired
-but should now be effectively inert: `isValidDockLayout` rejects a stored
-`dockLayout` carrying real `popoutGroups` entries (the pre-native format's
-signature) before it ever reaches `fromJSON`, and nothing in the new
-mechanism populates that field on save — removing the guard outright is
-also issue 03's job, once the shape it exists to protect no longer exists.
+mechanism (relocating into an *already-open* Window).
+
+A Daughter Window's own arrangement *does* survive an app restart (issue
+03). `StoredWorkspace` (`workspaceStore.ts`) carries `mainDockLayout` (the
+Main Window's own layout, renamed from the pre-native `dockLayout`) plus a
+`daughterWindows: StoredDaughterWindow[]` list — each entry its own
+`dockLayout`, its own open Panes' own state, and its saved `bounds`,
+necessary because there are now N independent dockview instances rather
+than one composite blob. At launch, once `AppShell.tsx`'s `handleReady`
+settles on the active Workspace, it calls the new `restore_daughter_window`
+Rust command once per saved entry, in array order, each carrying its saved
+position and size straight into `WebviewWindowBuilder::position`/
+`inner_size` (logical pixels — `daughterWindowNative.ts`'s
+`readOwnWindowBounds` is what converts a live window's own physical
+`outerPosition`/`innerSize` down to that unit before ever saving them) — no
+user gesture required, unlike the old dockview-popout mechanism's
+`window.open`. Each restored window reads its own saved content back out of
+the shared Settings blob itself, by array position (`?restore=<index>` on
+its own URL, since a relaunch remints every label from `daughter-1`
+regardless of what a previous session's windows were labelled) rather than
+carrying the payload in the URL. From that point on a Daughter Window's own
+debounced autosave (mirroring `AppShell.tsx`'s own) keeps its entry current,
+matched by its own live label (`upsertDaughterWindow`); closing it from the
+Main Window's own Daughter Windows list, or by losing its last Pane, prunes
+that entry back out (`withoutDaughterWindow`) so it does not reappear on the
+next restore — a native title-bar close does not, a known, narrow gap, since
+nothing else observes that path unambiguously (see the Main Window's own
+`beforeunload`/quit-vs-single-close ambiguity this would otherwise race).
+A Daughter Window belongs to the Workspace, not the Profile: switching
+Workspace or deleting the active one close every currently-open Daughter
+Window before opening the incoming target's own saved list (`AppShell.tsx`'s
+`switchDaughterWindows`); changing Profile does the same close through
+`handleBeforeProfileChange`, then opens the new Profile's own saved list
+through the remounted `<Workspace key={profileId}>`'s own `handleReady` —
+the same restore-at-launch step a fresh launch runs, since a Profile switch
+is a fresh restore in every sense but the process being new. A Workspace saved
+under the pre-native shape (`dockLayout` instead of `mainDockLayout`, no
+`daughterWindows` at all) fails `isValidStoredWorkspace` outright and resets
+through the same drop-and-fall-back path any other corrupted Workspace
+already takes, rather than erroring or partially restoring.
+
+`workspaceStore.ts`'s `RestoreGuard`/"Reopen windows" banner is gone
+outright, not merely inert — it existed only because the pre-native
+mechanism's `window.open` needed a user gesture at launch, which
+`WebviewWindowBuilder` never did.
 
 Per-Window state that used to resolve from a live shared dock api —
 `windowIdForPane` (`shell/focusMode.ts`), the label a menu shows for a

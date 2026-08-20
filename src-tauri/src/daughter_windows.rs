@@ -47,7 +47,24 @@ fn broadcast(app: &AppHandle, labels: &[String]) {
     }
 }
 
-/// Opens a genuinely separate `WebviewWindow` showing one Pane.
+/// A Daughter Window's saved position and size, in logical pixels —
+/// `WebviewWindowBuilder::position`/`inner_size` both take logical pixels
+/// (confirmed at the `tauri` crate source level), so the frontend converts
+/// from the physical pixels `@tauri-apps/api/window` reports before ever
+/// sending this across (`shell/daughterWindowNative.ts`'s `readOwnWindowBounds`).
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+pub struct DaughterWindowBounds {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// Builds and registers a genuinely separate `WebviewWindow`, shared by
+/// `open_daughter_window` (a fresh single-Pane window, OS-default placement)
+/// and `restore_daughter_window` (a saved layout at a saved position/size) —
+/// the label-minting, registry bookkeeping and `Destroyed` handler are
+/// identical for both; only the URL and initial bounds differ.
 ///
 /// `async fn` is load-bearing, not stylistic. A *sync* `#[tauri::command]`
 /// runs inline on whatever thread dispatched the IPC message — which issue
@@ -57,16 +74,13 @@ fn broadcast(app: &AppHandle, labels: &[String]) {
 /// command deadlocks the app against itself. `async fn` routes this through
 /// Tauri's `respond_async_serialized` path onto the async runtime's own
 /// thread pool instead, leaving the real main thread free to service the
-/// cross-thread call `build()` makes back into it.
-///
-/// Loads over Tauri's own local protocol (`WebviewUrl::App`), carrying the
-/// initial Pane's kind as a query string on the root path — confirmed at
-/// the `tauri`/`url` crate level that the query is stripped before asset
-/// resolution, so this still resolves to the same `index.html` the Main
-/// Window loads; `window.location.search` is what tells the frontend which
-/// Pane to open first (`shell/DaughterWindowShell.tsx`).
-#[tauri::command]
-pub async fn open_daughter_window(app: AppHandle, pane_kind: String) -> Result<String, String> {
+/// cross-thread call `build()` makes back into it. Both public commands
+/// below inherit this by staying `async fn` themselves.
+async fn open_and_register(
+    app: AppHandle,
+    url_query: String,
+    bounds: Option<DaughterWindowBounds>,
+) -> Result<String, String> {
     let label = {
         let state = app.state::<AppState>();
         let mut registry = state.daughter_windows.lock().expect("daughter window registry poisoned");
@@ -75,15 +89,13 @@ pub async fn open_daughter_window(app: AppHandle, pane_kind: String) -> Result<S
         label
     };
 
-    let window = WebviewWindowBuilder::new(
-        &app,
-        &label,
-        WebviewUrl::App(format!("/?pane={pane_kind}").into()),
-    )
-    .title("DSHub")
-    .inner_size(640.0, 480.0)
-    .build()
-    .map_err(|error| error.to_string())?;
+    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url_query.into()))
+        .title("DSHub");
+    builder = match bounds {
+        Some(b) => builder.position(b.x, b.y).inner_size(b.width, b.height),
+        None => builder.inner_size(640.0, 480.0),
+    };
+    let window = builder.build().map_err(|error| error.to_string())?;
 
     let opened = {
         let state = app.state::<AppState>();
@@ -112,6 +124,38 @@ pub async fn open_daughter_window(app: AppHandle, pane_kind: String) -> Result<S
     });
 
     Ok(label)
+}
+
+/// Opens a genuinely separate `WebviewWindow` showing one Pane, at the OS's
+/// own default placement — the "Move to new window" tab command's own
+/// mechanism.
+///
+/// Loads over Tauri's own local protocol (`WebviewUrl::App`), carrying the
+/// initial Pane's kind as a query string on the root path — confirmed at
+/// the `tauri`/`url` crate level that the query is stripped before asset
+/// resolution, so this still resolves to the same `index.html` the Main
+/// Window loads; `window.location.search` is what tells the frontend which
+/// Pane to open first (`shell/DaughterWindowShell.tsx`).
+#[tauri::command]
+pub async fn open_daughter_window(app: AppHandle, pane_kind: String) -> Result<String, String> {
+    open_and_register(app, format!("/?pane={pane_kind}"), None).await
+}
+
+/// Restores a genuinely separate `WebviewWindow` at a saved position and
+/// size, for one entry of the active Workspace's saved `daughterWindows`
+/// list (`.scratch/daughter-windows-native` issue 03) — driven by the Main
+/// Window at launch, one call per saved entry, `restore_index` naming which
+/// one so `shell/DaughterWindowShell.tsx` can read its own saved
+/// `dockLayout`/`paneStates` back out of the shared Settings blob rather
+/// than this carrying the payload itself (`?restore=<index>`, mirroring
+/// `open_daughter_window`'s own `?pane=<kind>`).
+#[tauri::command]
+pub async fn restore_daughter_window(
+    app: AppHandle,
+    restore_index: u32,
+    bounds: DaughterWindowBounds,
+) -> Result<String, String> {
+    open_and_register(app, format!("/?restore={restore_index}"), Some(bounds)).await
 }
 
 /// The currently-open Daughter Window labels, for a window's one-time read

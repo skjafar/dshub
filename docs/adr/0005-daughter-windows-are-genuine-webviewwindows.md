@@ -85,25 +85,41 @@ same-session propagation (a Settings change in one open window reaching
 another already-open window) is deferred to issue 06, riding the platform's
 own same-origin `storage` event rather than a Rust-relayed channel.
 
-**A Daughter Window's own arrangement is not persisted.** Every Pane it
-holds starts fresh each time the window is created, seeded only from the one
-Pane kind `open_daughter_window` was asked to open (carried as a query
-string on the window's own URL — `?pane=<kind>` — confirmed at the Tauri/
-`url` crate level that the query is stripped before asset resolution, so
-this still serves the same `index.html` the Main Window loads).
-Cross-restart persistence, in the new per-window shape this architecture
-needs (`StoredWorkspace`'s single composite `dockLayout` cannot describe N
-independent dockview instances), is issue 03's own job.
+**A Daughter Window's own arrangement is not persisted** at the point this
+decision shipped (issue 02) — every Pane it holds started fresh each time
+the window was created, seeded only from the one Pane kind
+`open_daughter_window` was asked to open (carried as a query string on the
+window's own URL — `?pane=<kind>` — confirmed at the Tauri/`url` crate level
+that the query is stripped before asset resolution, so this still serves the
+same `index.html` the Main Window loads). **Issue 03 closed this gap**:
+`StoredWorkspace` grew a `daughterWindows: StoredDaughterWindow[]` list
+alongside the Main Window's own `mainDockLayout` (renamed from the old
+single composite `dockLayout`, which could not describe N independent
+dockview instances) — each entry its own `dockLayout`, its own Panes' own
+state, and its saved position/size. A new `restore_daughter_window` command
+opens one per saved entry at launch, no user gesture needed
+(`WebviewWindowBuilder` has none of `window.open`'s requirement); each
+restored window reads its own content back out of the shared Settings blob
+by array position (`?restore=<index>`, since labels remint from scratch
+every launch) rather than carrying it in the URL, then keeps it current
+through its own debounced autosave, matched by its own live label from then
+on.
 
 **A saved Workspace from before this decision degrades safely rather than
-erroring.** `workspaceStore.ts`'s `isValidDockLayout` now rejects a
-`dockLayout` carrying real `popoutGroups` entries — the pre-native format's
-signature — routing it through the same drop-and-fall-back path any other
-corrupted Workspace already takes, rather than letting dockview's own
-internal `fromJSON`-triggered `window.open` attempt fail unconditionally
-(the `on_new_window` handler that ever made it succeed is exactly what this
-decision removes) into a "Reopen windows" banner whose retry can no longer
-do anything.
+erroring.** `workspaceStore.ts`'s `isValidDockLayout` rejects a `dockLayout`
+carrying real `popoutGroups` entries — the pre-native format's signature —
+which would otherwise route into dockview's own internal `fromJSON`-triggered
+`window.open` attempt failing unconditionally (the `on_new_window` handler
+that ever made it succeed is exactly what this decision removes). Since
+issue 03, `isValidStoredWorkspace` also rejects a Workspace lacking
+`mainDockLayout`/`daughterWindows` entirely — the pre-issue-03 shape's own
+signature — so both the original popout-era format and the single-`dockLayout`
+interim shape fall through the same drop-and-fall-back path any other
+corrupted Workspace already takes. The "Reopen windows" banner this
+originally routed around no longer exists at all (`RestoreGuard` and its
+banner were removed outright in issue 03): it existed only because
+`window.open` needed a user gesture at launch, which `WebviewWindowBuilder`
+never did.
 
 **Two new, narrow amendments to ADR 0003's frozen `DSHubContext.tsx`,**
 on the same grounds as its existing four: a real defect, found and fixed in
@@ -130,3 +146,15 @@ plain Rust unit test mirroring `poll.rs`'s own precedent; `daughterWindows.ts`'s
 pure functions, unchanged; `daughterWindowNative.ts`'s simplified,
 label-based window operations, mocking `@tauri-apps/api/window` the same way
 its existing test already did.
+
+Issue 03's own additions to this boundary: `workspaceStore.ts`'s
+`upsertDaughterWindow`/`withoutDaughterWindow`/`updateWorkspaceDaughterWindows`/
+`restoreDaughterWindowContent`, pinned against the same hand-built
+`WorkspaceDockApi` fake `workspaceStore.test.ts` already uses — no real
+dockview instance needed there either. The one exception:
+`DaughterWindowShell.test.tsx` already renders the real `<Workspace>`
+component directly (unlike the pure-function tests above), so it is where
+the actual restore-at-launch and autosave round trip is exercised
+end-to-end — create content in one mounted window, let its own debounced
+autosave reach `localStorage`, then confirm a second, freshly-mounted window
+opened with `?restore=<index>` reproduces it.
