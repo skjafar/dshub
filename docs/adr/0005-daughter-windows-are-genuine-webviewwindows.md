@@ -150,6 +150,26 @@ place, introduced only because this decision is the first time more than one
 `DSHubProvider` instance exists in a session. See that ADR's own amendment
 list for both.
 
+**Closing the Main Window does not cascade to its Daughter Windows on its
+own — Tauri has no such behavior for separate `WebviewWindow`s, unlike the
+single-realm popout mechanism this decision replaced, where destroying the
+one shared React tree took every popout's DOM with it inherently.** Found
+by hand, not by any of the seven numbered issues' own checklists: closing
+the Main Window while Daughter Windows were open left them running,
+orphaned — nothing in a Daughter Window's own React tree can Connect, take
+Control or manage the Workspace once the Main Window is gone, so there was
+nothing left for one to do but sit there holding the process open. Fixed in
+`lib.rs`'s `setup`: a `WindowEvent::Destroyed` handler on the Main Window
+itself calls `daughter_windows::close_all`, the Rust-side equivalent of
+`daughterWindowNative.ts`'s own `closeDaughterWindow` (`Window.close()` by
+label, read from the same `AppState`-held registry `list_daughter_windows`
+already exposes) — issued directly rather than round-tripped through IPC,
+since there is no live frontend left once the Main Window is gone to issue
+it from. Each Daughter Window's own `beforeunload` still fires as this
+runs, exactly as any other close would, so its last-known content and
+bounds land in the active Workspace and restore again next launch rather
+than being lost by closing this way.
+
 ## Testing
 
 Same standard ADR 0004 and its own spike set: whether `open_daughter_window`

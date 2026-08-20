@@ -150,7 +150,25 @@ sweep anymore. Closing one destroys its Panes rather than relocating them
 anywhere: that used to be an explicit override of dockview's own default;
 now it needs no code at all; a real OS window closing inherently tears down
 its own separate React tree and dockview instance, and there is no shared
-instance left for anything to relocate *into*.
+instance left for anything to relocate *into* — one Daughter Window closing
+frees exactly its own memory, nothing else's.
+
+Closing the Main Window, conversely, cascades to every currently-open
+Daughter Window rather than leaving them running, orphaned, as the only
+thing keeping the app process alive: nothing in a Daughter Window's own
+React tree can Connect, take Control or manage the Workspace once the Main
+Window is gone, so there is nothing left for one to usefully do on its own.
+`lib.rs`'s `setup` registers a `WindowEvent::Destroyed` handler on the Main
+Window itself (Tauri does not cascade this on its own — a Window closing
+does not, by itself, close any other Window) that calls
+`daughter_windows::close_all`, which reads the same `AppState`-held registry
+`list_daughter_windows` does and calls `.close()` on each — the Rust-side
+equivalent of `daughterWindowNative.ts`'s own `closeDaughterWindow`, issued
+directly since there is no live frontend left to round-trip that call
+through IPC once the Main Window is gone. Each closed Daughter Window's own
+`beforeunload` still fires as usual, so its last-known content and bounds
+are saved into the active Workspace exactly as any other close would save
+them — restored again next launch, not lost by being closed this way.
 
 The Main Window's own "close a Daughter Window"/"focus a Daughter Window"
 list entries go through `daughterWindowNative.ts` rather than a raw DOM

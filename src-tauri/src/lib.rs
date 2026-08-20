@@ -7,6 +7,7 @@ pub mod scanner;
 pub mod types;
 
 use commands::AppState;
+use tauri::Manager;
 
 /// Every command the frontend may invoke, plus whatever debug-only extras this
 /// build asks for.
@@ -74,6 +75,29 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
+            // A Daughter Window is independent of the Main Window's own
+            // dockview instance, but not of what the Main Window alone can
+            // do — Connect, take Control, manage the Workspace. Nothing in
+            // a Daughter Window's own React tree can do any of that once
+            // the Main Window is gone, so closing the Main Window cascades
+            // to every currently-open Daughter Window rather than leaving
+            // them running, orphaned, as the only thing keeping the app
+            // process alive. `tauri.conf.json` declares exactly one window
+            // labelled "main" (`app.windows`), so this `expect` documents
+            // an assumption already load-bearing everywhere else in this
+            // codebase (`windowRole.ts`'s `MAIN_TAURI_WINDOW_LABEL`), not a
+            // new one.
+            let main_window = app
+                .get_webview_window("main")
+                .expect("tauri.conf.json must declare a window labelled \"main\"");
+            let app_handle = app.handle().clone();
+            main_window.on_window_event(move |event| {
+                if matches!(event, tauri::WindowEvent::Destroyed) {
+                    daughter_windows::close_all(&app_handle);
+                }
+            });
+
             Ok(())
         })
         .manage(AppState::new())

@@ -167,6 +167,34 @@ pub fn list_daughter_windows(state: State<'_, AppState>) -> Vec<String> {
     state.daughter_windows.lock().expect("daughter window registry poisoned").open.clone()
 }
 
+/// Closes every currently-open Daughter Window — called from `lib.rs` when
+/// the Main Window itself closes, since a Daughter Window's independent
+/// `DSHubProvider` has nothing left worth running once the one Window that
+/// can Connect, take Control or manage the Workspace is gone. Read the open
+/// labels first and release the lock before calling out to `.close()`: that
+/// call re-enters this module's own `Destroyed` handler above (which prunes
+/// the registry and re-broadcasts), and re-locking an already-held
+/// `std::sync::Mutex` on the same thread deadlocks rather than blocking.
+///
+/// Each `.close()` here is the same call `daughterWindowNative.ts`'s own
+/// `closeDaughterWindow` makes from the frontend (`Window.getByLabel(label).close()`)
+/// for the Main Window's "close a Daughter Window" list — just issued from
+/// the Rust side instead of round-tripping through IPC, since the Main
+/// Window closing has no live frontend left to issue that call from.
+pub fn close_all(app: &AppHandle) {
+    let labels = {
+        let state = app.state::<AppState>();
+        let registry = state.daughter_windows.lock().expect("daughter window registry poisoned");
+        registry.open.clone()
+    };
+    for label in labels {
+        let Some(window) = app.get_webview_window(&label) else { continue };
+        if let Err(error) = window.close() {
+            log::error!("failed to close Daughter Window {label} after the Main Window closed: {error}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::DaughterWindowRegistry;
