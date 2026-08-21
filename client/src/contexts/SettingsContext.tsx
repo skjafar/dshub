@@ -178,6 +178,25 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     };
   }, []);
 
+  // Live cross-window sync (`.scratch/daughter-windows-native` issue 06). Every
+  // Window runs its own `SettingsProvider` over the same `dshub_settings` key,
+  // now that a Daughter Window loads over the same fixed origin as the Main
+  // Window instead of a dynamic localhost one (spec.md). The `storage` event
+  // fires in every *other* same-origin document — never this one — whenever
+  // the key's value actually changes, so adopting it here is the whole
+  // mechanism: no Rust-relayed broadcast needed. `setItem` is itself a no-op
+  // when the new value equals the old one, so a Window applying a value it
+  // already holds and writing it straight back does not re-trigger the event
+  // in the Window it came from.
+  useEffect(() => {
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key !== STORAGE_KEY || event.newValue === null) return;
+      setSettings(migrateStoredSettings(event.newValue).settings);
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
   const updateSettings = useCallback((updates: Partial<UserSettings>) => {
     setSettings(prev => ({ ...prev, ...updates }));
   }, []);

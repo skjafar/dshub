@@ -278,6 +278,27 @@ plain boolean/dashboard-id local to that Window's own shell, and a Dashboard
 Pane entering Focus Mode is, by construction, always acting on the Window it
 already renders in.
 
+A Settings/theme change in one Window reaches every other already-open
+Window live, no reopen needed (`.scratch/daughter-windows-native` issue 06)
+— the one piece of "Settings/Profiles/Workspaces are automatically shared
+again" (above) that a shared `localStorage` origin alone doesn't cover on
+its own, since each Window only reads that blob once, on mount, into its own
+`SettingsProvider` state. `SettingsContext.tsx` adds one more listener
+alongside its own persist effect: the platform's own same-origin `storage`
+event, which the browser fires in every *other* document sharing an origin
+whenever a `localStorage` key's value actually changes — never in the
+document that made the change, so a Window can never react to its own
+write. No Rust-relayed broadcast channel needed, unlike singleton
+location/Focus Mode above: `storage` already carries the full new value,
+and every Window already runs the same `migrateStoredSettings` a fresh
+mount would, so applying it is just `setSettings` fed the same parse an
+initial load already trusts. The browser's own `setItem` is a no-op when
+the new value already matches the stored one, which is what keeps this from
+ping-ponging forever between two open Windows: a Window that adopts a value
+it received and, moments later, autosaves its own state back out, writes
+back the same bytes it just read, so no second `storage` event ever fires
+from that write.
+
 ## Device Communication
 
 - The **device port** (`services/backendPort.ts`) is the single seam between
