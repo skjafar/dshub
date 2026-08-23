@@ -41,3 +41,20 @@ if (typeof globalThis.matchMedia !== 'function') {
     dispatchEvent: () => false,
   })) as unknown as typeof matchMedia;
 }
+
+/**
+ * jsdom implements no `DragEvent` at all (a known gap — jsdom/jsdom#2913).
+ * dockview's own drag-out signal (`onWillDragPanel`'s `nativeEvent`) narrows
+ * with `instanceof DragEvent` before reading any of its fields
+ * (`useMoveToNewDaughterWindow.ts`'s drag-out listener) — without a
+ * stand-in, `DragEvent` is `undefined` in every jsdom test, and `x
+ * instanceof undefined` throws rather than returning false. A thin
+ * `MouseEvent` subclass is enough: every reader here only ever uses the
+ * `MouseEvent` fields it already carries (`screenX`/`screenY`, `target`),
+ * never `dataTransfer`. Guarded on `MouseEvent` existing at all, matching
+ * this file's other stubs: a plain `node`-environment test file has no DOM
+ * globals to extend in the first place.
+ */
+if (typeof globalThis.MouseEvent !== 'undefined' && typeof globalThis.DragEvent === 'undefined') {
+  globalThis.DragEvent = class DragEvent extends MouseEvent {} as unknown as typeof globalThis.DragEvent;
+}

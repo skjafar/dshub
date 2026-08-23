@@ -14,6 +14,7 @@ import { DEFAULT_SETTINGS } from '../../types/settings';
 import type { UserSettings } from '../../types/settings';
 import { DaughterWindowShell } from '../DaughterWindowShell';
 import { PANE_HANDOFF_EVENT } from '../paneHandoff';
+import { loadPaneStates } from '../paneState';
 import type { ProfileWorkspaces } from '../workspaceStore';
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -57,6 +58,11 @@ afterEach(() => {
   localStorage.removeItem(STORAGE_KEY);
   vi.clearAllMocks();
   window.history.pushState({}, '', '/');
+  // `paneState.ts`'s store is a module-level global, not scoped to a render
+  // — a test that seeds a Pane's own state (a `?paneState=` query string, or
+  // a delivered "Move to Window" handoff) would otherwise leak it into
+  // whichever test runs next and happens to reuse the same panel id.
+  loadPaneStates({});
 });
 
 async function settle(): Promise<void> {
@@ -182,6 +188,27 @@ describe('DaughterWindowShell', () => {
     await settle();
 
     expect(screen.queryAllByRole('tab')).toHaveLength(0);
+  });
+
+  it("seeds the one Pane's own state from a ?paneState= query string (issue 07's drag-out gesture)", async () => {
+    const paneState = { query: 'MOTOR', format: 'decimal', selectedAddress: null, live: false };
+    renderShell(`?pane=register&paneState=${encodeURIComponent(JSON.stringify(paneState))}`);
+    await settle();
+
+    // Same expectation as the "Move to Window" handoff test below: the tab
+    // title is AddressSpacePane's own, recomputed from the restored filter,
+    // never carried across as a literal string.
+    expect(screen.getByRole('tab', { name: 'Registers 1 · MOTOR' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Filter registers by name or address' })).toHaveValue('MOTOR');
+  });
+
+  it('ignores an unparseable ?paneState= value and opens the Pane with no seeded state', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderShell('?pane=register&paneState=not-json');
+    await settle();
+
+    expect(screen.getByRole('tab', { name: 'Registers 1' })).toBeInTheDocument();
+    consoleError.mockRestore();
   });
 });
 

@@ -104,9 +104,26 @@ A Workspace can span more than one operating-system **Window** (ADR 0005,
 Pane/Workspace/Profile/Settings management; any other is a **Daughter
 Window** — read-only link/Control state plus one control to add a Pane, and
 nothing else. "Move to new window" on a Pane's tab, from either kind of
-Window, is currently the only way to create one — dragging a tab past a
-Window's edge (the original gesture) is not yet rebuilt against this
-mechanism. A tab also offers "Move to [Window]" (`.scratch/daughter-windows-native`
+Window, is one way to create one; dragging a tab past every open Window's
+edge and releasing it is the other (`.scratch/daughter-windows-native` issue
+07, restoring the original spec's headline gesture against the new
+mechanism), sharing one hook (`shell/useMoveToNewDaughterWindow.ts`) with
+the menu command — one pending-confirmation dialog, one 5th-window warning,
+"only remove the source panel once the new Window actually opens" for both.
+Unlike the menu command, which still opens empty (ADR 0005), a drag-out
+carries the dragged Pane's own `paneState.ts` state into the fresh window:
+JSON-serialized and percent-encoded onto that window's own URL
+(`openDaughterWindowAt`'s `?pane=<kind>&paneState=<encoded>`, read back out
+by `DaughterWindowShell.tsx`'s `initialPaneState`) rather than through
+`paneHandoff.ts`'s live broadcast, since that mechanism assumes its target
+is already open and already listening — a window this call is still in the
+middle of creating is not. Every open Window's own screen bounds, to test
+the drop point against (`daughterWindows.ts`'s pure `dragOutTarget`), are
+gathered by label (`daughterWindowNative.ts`'s `readWindowBounds`, using
+`outerPosition`/`outerSize` — the whole frame, not just content — converted
+to logical pixels the same way `readOwnWindowBounds` already does) rather
+than read live off any shared DOM, since no realm has access to another's.
+A tab also offers "Move to [Window]" (`.scratch/daughter-windows-native`
 issue 05, `shell/useMoveToWindow.ts`) for every already-open Window besides
 its own, relocating the Pane there — its own `paneState.ts` filter/selection
 carried across via `shell/paneHandoff.ts`'s own `@tauri-apps/api/event`

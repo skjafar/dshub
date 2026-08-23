@@ -404,13 +404,12 @@ function WorkspaceShell(): React.JSX.Element {
       });
       syncOpenPanes(api);
 
-      // Dragging a Pane's tab outside every open Window's bounds to create
-      // a new Daughter Window is issue 07's own rebuild against the new
-      // mechanism — dockview's own DOM-adoption drag-out (formerly wired
-      // here) cannot work unchanged now that a Daughter Window is a
+      // Dragging a Pane's tab outside every open Window's bounds creates a
+      // new Daughter Window there (issue 07) — rebuilt against the new
+      // mechanism, since dockview's own DOM-adoption drag-out (formerly
+      // wired here) cannot work unchanged now that a Daughter Window is a
       // genuinely separate process rather than an adopted-DOM popout.
-      // "Move to new window" (the tab-context-menu command below) is the
-      // only way to create one for now.
+      moveToNewWindow.attachDragOutListener(api);
 
       // Reachable from the browser console during development, alongside
       // `window.dshubFaults`. An arrangement is the thing this shell is for, and
@@ -421,7 +420,7 @@ function WorkspaceShell(): React.JSX.Element {
         (window as unknown as { dshubWorkspace?: DockviewApi }).dshubWorkspace = api;
       }
     },
-    [applyWorkspace, openPane, syncOpenPanes, scheduleAutosave, updateSettings, openWorkspaceDaughterWindows]
+    [applyWorkspace, openPane, syncOpenPanes, scheduleAutosave, updateSettings, openWorkspaceDaughterWindows, moveToNewWindow]
   );
 
   const handleOpenPane = useCallback((kind: PaneKind) => openPane(kind), [openPane]);

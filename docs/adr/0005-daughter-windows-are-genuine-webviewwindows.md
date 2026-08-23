@@ -143,6 +143,35 @@ same-session propagation (a Settings change in one open window reaching
 another already-open window) is deferred to issue 06, riding the platform's
 own same-origin `storage` event rather than a Rust-relayed channel.
 
+**Issue 07 restored the original spec's headline gesture — dragging a
+Pane's tab past every open Window's edge to create a new Daughter Window —
+against this mechanism, and it needed a third, distinct way to move a
+Pane's own state across the realm split, alongside issue 04's broadcast and
+issue 05's handoff.** dockview has no "did drag end" event of its own
+(`onWillDragPanel` only fires at drag start), so the native `dragend`'s own
+screen coordinates are what mark where the pointer actually let go — the
+same signal ADR 0004's own popout-era drag-out used, just now compared
+against every open Window's bounds gathered by label
+(`daughterWindowNative.ts`'s `readWindowBounds`, `outerPosition`/`outerSize`
+converted to logical pixels) rather than read live off a shared `window`
+object, since no realm has access to another's. The pure hit test itself
+(`daughterWindows.ts`'s `dragOutTarget`) needed no changes at all: it was
+already written mechanism-agnostically when issue 02 deleted its only
+caller, sitting unused for exactly this. Unlike "Move to new window," which
+still opens empty (this ADR's own consequence above, unchanged), a drag-out
+carries the dragged Pane's own `paneState.ts` state into the fresh window —
+losing a filter mid-drag would read as a bug the user is watching happen,
+not an acceptable gap the way an empty menu-opened window is. Neither issue
+04's broadcast nor issue 05's handoff fit: both assume their target Window
+is already open and already listening, which a window this same call is
+still in the middle of creating is not. The state instead travels
+JSON-serialized and percent-encoded on the new window's own URL
+(`open_daughter_window_at`'s `?pane=<kind>&paneState=<encoded>`, mirroring
+how `?pane=<kind>` and `?restore=<index>` already carry their own payloads
+the same way) and is read back out on mount, before the seeded Pane's own
+`usePaneState` ever runs — no race with anything's `listen` registration
+because there is nothing to race.
+
 **A Daughter Window's own arrangement is not persisted** at the point this
 decision shipped (issue 02) — every Pane it holds started fresh each time
 the window was created, seeded only from the one Pane kind
@@ -281,3 +310,40 @@ has no test seam in this file (`getCurrentWindow` is one global mocked
 return value, unable to tell two simultaneously-live instances apart) and
 is left to hand verification against a packaged binary, the same as this
 directory's other real-OS-window mechanics.
+
+Issue 07's own additions: `dragOutTarget` itself needed no new tests — it
+was already fully pinned when issue 02 left it unused. `useMoveToNewDaughterWindow.test.ts`
+gained an `attachDragOutListener` suite, mocking `daughterWindowNative.ts`
+wholesale the same way its existing "Move to new window" tests already do,
+driven by registering a fake dockview `onWillDragPanel` handler and
+dispatching real `dragend` events against it — including the 5th-window
+warning applying to a drag-out exactly as it does to the menu command, and
+a non-`DragEvent` drag start (pointer-based) being ignored outright. jsdom
+implements no `DragEvent` at all (a known upstream gap), so `setupTests.ts`
+gained a thin `MouseEvent` subclass registered as `globalThis.DragEvent`
+purely so `instanceof DragEvent` narrowing and `screenX`/`screenY`
+construction work inside a test at all — every other stub in that file
+follows the same "inert stand-in for a missing DOM API" shape. `daughterWindowNative.test.ts`
+gained `openDaughterWindowAt` (the encoded-state call shape) and
+`readWindowBounds` (outer-bounds-to-logical-pixels conversion, and omitting
+a Window that fails to resolve), mocking `@tauri-apps/api/window` the same
+way its neighboring tests already do. `DaughterWindowShell.test.tsx` gained
+two tests round-tripping `?paneState=` through a real mount — exposing a
+latent gap in that file's own isolation along the way: `paneState.ts`'s
+module-level store was never reset between tests, which nothing had
+depended on until a test early in file order needed to seed a non-empty
+value; fixed with a `loadPaneStates({})` reset added to the file's own
+top-level `afterEach`, alongside its existing storage/mock cleanup.
+
+**Not hand-verified against a packaged binary, and not verifiable from this
+environment**: whether a WebView2 `dragend`'s own `screenX`/`screenY` are
+actually logical (CSS) pixels — the unit `readWindowBounds`'s Tauri-physical-
+to-logical conversion produces — especially across a multi-monitor setup
+where two displays carry different DPI scale factors. `dragOutTarget`'s own
+hit test assumes both sides already agree on a unit, the same assumption
+ADR 0004's own popout-era drag-out made of the single-realm `window.screenX`/
+`outerWidth` it compared against directly; carried forward here rather than
+re-derived, since nothing in this environment can drive a real cross-window
+native drag to confirm or refute it. This is the same category of gap
+issues 01, 02 and 05 already carry their own documented, unconfirmed
+sections for, not a new kind of uncertainty this issue introduces.

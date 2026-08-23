@@ -9,7 +9,9 @@ import {
   focusDaughterWindow,
   listDaughterWindows,
   openDaughterWindow,
+  openDaughterWindowAt,
   readOwnWindowBounds,
+  readWindowBounds,
   restoreDaughterWindow,
   subscribeDaughterWindows,
   useDaughterWindows,
@@ -40,6 +42,68 @@ describe('openDaughterWindow', () => {
     const label = await openDaughterWindow('register');
     expect(invoke).toHaveBeenCalledWith('open_daughter_window', { paneKind: 'register' });
     expect(label).toBe('daughter-3');
+  });
+});
+
+describe('openDaughterWindowAt', () => {
+  it('invokes the Rust command with the Pane kind, bounds and JSON-encoded, percent-encoded state', async () => {
+    vi.mocked(invoke).mockResolvedValue('daughter-2');
+    const bounds = { x: 100, y: 200, width: 640, height: 480 };
+
+    const label = await openDaughterWindowAt('register', bounds, { query: 'MOTOR' });
+
+    expect(invoke).toHaveBeenCalledWith('open_daughter_window_at', {
+      paneKind: 'register',
+      bounds,
+      paneState: encodeURIComponent(JSON.stringify({ query: 'MOTOR' })),
+    });
+    expect(label).toBe('daughter-2');
+  });
+
+  it('sends null, not undefined, when there is no state to carry', async () => {
+    vi.mocked(invoke).mockResolvedValue('daughter-2');
+    const bounds = { x: 0, y: 0, width: 640, height: 480 };
+
+    await openDaughterWindowAt('overview', bounds, undefined);
+
+    expect(invoke).toHaveBeenCalledWith('open_daughter_window_at', { paneKind: 'overview', bounds, paneState: null });
+  });
+});
+
+describe('readWindowBounds', () => {
+  it("reads every named Window's outer bounds, converted to logical pixels", async () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    vi.mocked(TauriWindow.getByLabel).mockImplementation(async (label: string) =>
+      ({
+        outerPosition: vi.fn().mockResolvedValue({ toLogical: () => (label === 'main' ? { x: 0, y: 0 } : { x: 800, y: 100 }) }),
+        outerSize: vi.fn().mockResolvedValue({ toLogical: () => (label === 'main' ? { width: 1200, height: 800 } : { width: 640, height: 480 }) }),
+        scaleFactor: vi.fn().mockResolvedValue(1),
+      }) as never
+    );
+
+    const bounds = await readWindowBounds(['main', 'daughter-1']);
+
+    expect(bounds).toEqual([
+      { left: 0, top: 0, width: 1200, height: 800 },
+      { left: 800, top: 100, width: 640, height: 480 },
+    ]);
+  });
+
+  it('omits a Window that fails to resolve rather than failing the whole batch', async () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    vi.mocked(TauriWindow.getByLabel).mockImplementation(async (label: string) =>
+      label === 'main'
+        ? ({
+            outerPosition: vi.fn().mockResolvedValue({ toLogical: () => ({ x: 0, y: 0 }) }),
+            outerSize: vi.fn().mockResolvedValue({ toLogical: () => ({ width: 1200, height: 800 }) }),
+            scaleFactor: vi.fn().mockResolvedValue(1),
+          } as never)
+        : null
+    );
+
+    const bounds = await readWindowBounds(['main', 'daughter-gone']);
+
+    expect(bounds).toEqual([{ left: 0, top: 0, width: 1200, height: 800 }]);
   });
 });
 

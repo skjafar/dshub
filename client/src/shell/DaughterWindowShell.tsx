@@ -59,6 +59,25 @@ function initialPaneKind(): PaneKind | null {
   return raw !== null && isKnownPaneKind(raw) ? raw : null;
 }
 
+/**
+ * The dragged Pane's own state (issue 07), carried on this window's own URL
+ * by `openDaughterWindowAt` — `URLSearchParams` has already percent-decoded
+ * it by the time `.get` returns, so only `JSON.parse` is left to do. Absent
+ * for a window opened via the plain "Move to new window" menu command
+ * (`openDaughterWindow`, no `paneState` query param at all), which still
+ * opens empty by design (ADR 0005).
+ */
+function initialPaneState(): unknown {
+  const raw = new URLSearchParams(window.location.search).get('paneState');
+  if (raw === null) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    console.error("Failed to parse this Window's seeded Pane state from its own URL.", error);
+    return undefined;
+  }
+}
+
 /** The array position this window is restoring from, if any — see `upsertDaughterWindow`'s own doc comment for why a freshly-minted label can't be used for this one, first correlation instead. */
 function initialRestoreIndex(): number | null {
   const raw = new URLSearchParams(window.location.search).get('restore');
@@ -77,6 +96,7 @@ function DaughterWindowShellInner(): React.JSX.Element {
   const moveToNewWindow = useMoveToNewDaughterWindow(apiRef);
 
   const seed = useMemo(() => initialPaneKind(), []);
+  const seedPaneState = useMemo(() => initialPaneState(), []);
   // Read once, at mount: which saved entry (if any) this window restores
   // from. Cleared after the first successful autosave write, since every
   // write after that finds its own entry by label instead (`upsertDaughterWindow`).
@@ -344,12 +364,18 @@ function DaughterWindowShellInner(): React.JSX.Element {
         // so dockview never fires the listener above on its own — checked
         // explicitly below instead, so it still closes rather than lingering.
       } else if (seed !== null) {
-        openPane(seed);
+        openPane(seed, seedPaneState);
       }
       syncOpenPanes(api);
       closeIfEmpty(api);
+
+      // Dragging a Pane's tab outside every open Window's bounds creates a
+      // new Daughter Window there (issue 07) — works from a Daughter
+      // Window's own tabs too, the same way "Move to new window" already
+      // does (`useMoveToNewDaughterWindow.ts` is shared by both shells).
+      moveToNewWindow.attachDragOutListener(api);
     },
-    [restoreIndexAtLaunch, seed, openPane, syncOpenPanes, closeIfEmpty, scheduleAutosave]
+    [restoreIndexAtLaunch, seed, seedPaneState, openPane, syncOpenPanes, closeIfEmpty, scheduleAutosave, moveToNewWindow]
   );
 
   const handleOpenPane = useCallback((kind: PaneKind) => openPane(kind), [openPane]);

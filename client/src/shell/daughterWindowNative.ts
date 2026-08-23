@@ -26,6 +26,8 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useEffect, useState } from 'react';
 import { getCurrentWindow, Window as TauriWindow } from '@tauri-apps/api/window';
+import type { WindowBounds } from './daughterWindows';
+import type { WindowId } from './focusMode';
 import type { DaughterWindowBounds } from './workspaceStore';
 
 /** Mirrors `daughter_windows.rs`'s `CHANGED_EVENT` constant. */
@@ -60,6 +62,62 @@ export async function readOwnWindowBounds(): Promise<DaughterWindowBounds> {
   const logicalPosition = position.toLogical(scaleFactor);
   const logicalSize = size.toLogical(scaleFactor);
   return { x: logicalPosition.x, y: logicalPosition.y, width: logicalSize.width, height: logicalSize.height };
+}
+
+/**
+ * Opens a genuinely separate `WebviewWindow` for one Pane dragged out of an
+ * already-open Window (`.scratch/daughter-windows-native` issue 07), at an
+ * explicit position and size rather than the OS's own default placement —
+ * `openDaughterWindow`'s own "Move to new window" menu command has no drop
+ * point of its own to anchor on, so it stays the simpler call.
+ *
+ * `paneState` — whatever `paneState.ts`'s `snapshotPaneStates` held for the
+ * dragged panel, opaque here the same way it is to that module itself —
+ * travels JSON-serialized and percent-encoded on the new window's own URL
+ * rather than through `paneHandoff.ts`'s live broadcast: that mechanism
+ * assumes its target is already open and already listening (its own doc
+ * comment), which a window this call is still in the middle of creating is
+ * not. `undefined` (no state to carry) is sent through as `null` — a bare
+ * `undefined` does not survive a Tauri `invoke` call's own JSON encoding.
+ */
+export async function openDaughterWindowAt(
+  paneKind: string,
+  bounds: DaughterWindowBounds,
+  paneState: unknown
+): Promise<string> {
+  const encodedState = paneState === undefined ? null : encodeURIComponent(JSON.stringify(paneState));
+  return invoke<string>('open_daughter_window_at', { paneKind, bounds, paneState: encodedState });
+}
+
+/**
+ * The outer screen bounds (window frame included, not just its content area
+ * — the unit a drag's own release point needs to be tested against) of
+ * every Window in `windowIds`, in logical pixels — issue 07's own drag-out
+ * hit test, `daughterWindows.ts`'s `dragOutTarget`. Resolved by label, one
+ * Window at a time: no realm has live access to another's DOM to read this
+ * directly (ADR 0005). A Window that fails to resolve — closed in the
+ * moment between the drag ending and this call landing — is silently
+ * omitted rather than failing the whole batch; a drag ending near a Window
+ * that no longer exists should be treated as ending on the desktop, not as
+ * an error.
+ */
+export async function readWindowBounds(windowIds: readonly WindowId[]): Promise<readonly WindowBounds[]> {
+  const results = await Promise.all(
+    windowIds.map(async (id): Promise<WindowBounds | null> => {
+      const win = await resolveByLabel(id);
+      if (!win) return null;
+      try {
+        const [position, size, scaleFactor] = await Promise.all([win.outerPosition(), win.outerSize(), win.scaleFactor()]);
+        const logicalPosition = position.toLogical(scaleFactor);
+        const logicalSize = size.toLogical(scaleFactor);
+        return { left: logicalPosition.x, top: logicalPosition.y, width: logicalSize.width, height: logicalSize.height };
+      } catch (error) {
+        console.error(`Failed to read bounds for the Tauri window labelled "${id}".`, error);
+        return null;
+      }
+    })
+  );
+  return results.filter((bounds): bounds is WindowBounds => bounds !== null);
 }
 
 /** The currently-open Daughter Window labels — a one-time read, not a live subscription. */

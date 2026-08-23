@@ -158,6 +158,38 @@ pub async fn restore_daughter_window(
     open_and_register(app, format!("/?restore={restore_index}"), Some(bounds)).await
 }
 
+/// Opens a genuinely separate `WebviewWindow` for one Pane dragged out of an
+/// already-open Window (`.scratch/daughter-windows-native` issue 07), at an
+/// explicit position and size rather than the OS's own default placement —
+/// unlike `open_daughter_window`, whose "Move to new window" menu command
+/// has no drop point of its own to anchor on.
+///
+/// `pane_state` is the dragged Pane's own serialized state
+/// (`shell/paneState.ts`'s `snapshotPaneStates`), JSON-stringified and
+/// percent-encoded by the frontend before this call, appended to the query
+/// string as-is rather than parsed here — this command only ever moves the
+/// bytes, the same way it already does for `pane_kind`. It travels on the
+/// new window's own URL (`?pane=<kind>&paneState=<encoded>`) rather than
+/// through `shell/paneHandoff.ts`'s live event broadcast (issue 05): that
+/// mechanism assumes its target is already open and already listening (its
+/// own doc comment), which a window this very call is still in the middle
+/// of creating is not — its React tree has not mounted, let alone
+/// registered a listener, by the time this command resolves.
+#[tauri::command]
+pub async fn open_daughter_window_at(
+    app: AppHandle,
+    pane_kind: String,
+    bounds: DaughterWindowBounds,
+    pane_state: Option<String>,
+) -> Result<String, String> {
+    let mut url_query = format!("/?pane={pane_kind}");
+    if let Some(state) = pane_state {
+        url_query.push_str("&paneState=");
+        url_query.push_str(&state);
+    }
+    open_and_register(app, url_query, Some(bounds)).await
+}
+
 /// The currently-open Daughter Window labels, for a window's one-time read
 /// on mount — live changes after that arrive via `CHANGED_EVENT` instead,
 /// since a broadcast only fires on change and this is what seeds the state
