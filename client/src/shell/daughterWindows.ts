@@ -6,7 +6,9 @@
 
 import { MAIN_WINDOW_ID } from './focusMode';
 import type { WindowId } from './focusMode';
+import { kindOfPaneId, paneDefinition } from './paneRegistry';
 import type { PaneDefinition, PaneKind } from './paneRegistry';
+import type { StoredDaughterWindow } from './workspaceStore';
 
 // ── The window-count warning ─────────────────────────────────────────────
 
@@ -76,21 +78,78 @@ export function dragOutTarget(
   };
 }
 
-// ── Singleton location labelling ─────────────────────────────────────────
+// ── Naming and labelling a Daughter Window ──────────────────────────────
+
+/**
+ * A label built from what a Window currently has open — "Registers, Plot"
+ * for a Window holding a Registers Pane and a Plot Pane — or null if it has
+ * nothing open yet (a Window this freshly-created has nothing to derive
+ * from). Deduplicates by *kind*, not by panel id: three open Register Panes
+ * still read as one "Registers" in the label, matching how the reopen menu
+ * already names a kind once regardless of how many instances are open.
+ * Order follows `paneIds` itself (a Window's own dockview panel order), not
+ * `paneRegistry.ts`'s declaration order, so the label reflects what that
+ * Window's own tab strip actually shows left to right.
+ */
+export function deriveDaughterWindowLabel(paneIds: readonly string[]): string | null {
+  const titles: string[] = [];
+  const seenKinds = new Set<PaneKind>();
+  for (const id of paneIds) {
+    const kind = kindOfPaneId(id);
+    if (!kind || seenKinds.has(kind)) continue;
+    seenKinds.add(kind);
+    const title = paneDefinition(kind)?.title;
+    if (title) titles.push(title);
+  }
+  return titles.length > 0 ? titles.join(', ') : null;
+}
+
+/**
+ * Every Daughter Window's own custom name, keyed by label — a Workspace's
+ * `daughterWindows` entries carry `name` themselves (`workspaceStore.ts`),
+ * so this is a plain reshape into the lookup `windowLabel` below needs, not
+ * a derivation of its own. Omits an entry with no name set (or one blanked
+ * back to `null`/absent) rather than carrying an empty string forward, so
+ * `windowLabel`'s own `customNames.get(windowId)` check needs only test for
+ * presence.
+ */
+export function customWindowNames(daughterWindows: readonly StoredDaughterWindow[]): ReadonlyMap<WindowId, string> {
+  const names = new Map<WindowId, string>();
+  for (const d of daughterWindows) {
+    if (d.name) names.set(d.label, d.name);
+  }
+  return names;
+}
 
 /**
  * The label the two Panes menus (Main Window's and every Daughter Window's)
  * use for a Window — the same words in both, since spec.md requires the two
- * menus to "tell me the same thing in the same words".
- *
- * Not a durable identity: Daughter Windows are not individually nameable
- * (spec.md, Out of Scope), so this numbers them by their position in
- * `openPopoutIds` — stable within one render, not across one closing and
- * another opening, which is the same instability the numbering itself is
- * openly built on rather than hiding.
+ * menus to "tell me the same thing in the same words". Precedence: a
+ * user-set custom name first (`customNames`, from the Main Window's own
+ * "Daughter Windows" list); failing that, a label derived from what the
+ * Window currently has open (`deriveDaughterWindowLabel`, reading
+ * `paneLocations` — issue 04's own cross-window view, already threaded
+ * through every call site this needs); failing *that* — a freshly-created
+ * Window with nothing open yet — its position among the open ones
+ * (`.scratch/daughter-windows-native` issue 07's own naming follow-up).
+ * That positional fallback is not a durable identity: it is stable within
+ * one render, not across one Window closing and another opening, which is
+ * the same instability it was always openly built on.
  */
-export function windowLabel(windowId: WindowId, openPopoutIds: readonly string[]): string {
+export function windowLabel(
+  windowId: WindowId,
+  openPopoutIds: readonly string[],
+  customNames: ReadonlyMap<WindowId, string>,
+  paneLocations: ReadonlyMap<WindowId, readonly string[]>
+): string {
   if (windowId === MAIN_WINDOW_ID) return 'Main Window';
+
+  const custom = customNames.get(windowId);
+  if (custom) return custom;
+
+  const derived = deriveDaughterWindowLabel(paneLocations.get(windowId) ?? []);
+  if (derived) return derived;
+
   const index = openPopoutIds.indexOf(windowId);
   return index === -1 ? 'a Daughter Window' : `Daughter Window ${index + 1}`;
 }
@@ -138,14 +197,17 @@ export function paneMenuEntries(
   panes: readonly PaneDefinition[],
   paneLocations: ReadonlyMap<WindowId, readonly string[]>,
   menuWindowId: WindowId,
-  openPopoutIds: readonly string[]
+  openPopoutIds: readonly string[],
+  customNames: ReadonlyMap<WindowId, string>
 ): readonly PaneMenuEntry[] {
   return panes.map((pane): PaneMenuEntry => {
     if (!pane.singleton) return { kind: pane.kind, title: pane.title, disabledLocation: null };
 
     const paneWindowId = locateOpenPane(paneLocations, pane.kind);
     const disabledLocation =
-      paneWindowId === null || paneWindowId === menuWindowId ? null : windowLabel(paneWindowId, openPopoutIds);
+      paneWindowId === null || paneWindowId === menuWindowId
+        ? null
+        : windowLabel(paneWindowId, openPopoutIds, customNames, paneLocations);
     return { kind: pane.kind, title: pane.title, disabledLocation };
   });
 }
@@ -182,10 +244,11 @@ export function moveTargets(
   pane: Pick<PaneDefinition, 'kind' | 'singleton'>,
   sourceWindowId: WindowId,
   paneLocations: ReadonlyMap<WindowId, readonly string[]>,
-  openDaughterWindowLabels: readonly string[]
+  openDaughterWindowLabels: readonly string[],
+  customNames: ReadonlyMap<WindowId, string>
 ): readonly MoveTarget[] {
   return knownWindowIds(openDaughterWindowLabels)
     .filter(windowId => windowId !== sourceWindowId)
     .filter(windowId => !pane.singleton || !(paneLocations.get(windowId) ?? []).includes(pane.kind))
-    .map(windowId => ({ windowId, label: windowLabel(windowId, openDaughterWindowLabels) }));
+    .map(windowId => ({ windowId, label: windowLabel(windowId, openDaughterWindowLabels, customNames, paneLocations) }));
 }

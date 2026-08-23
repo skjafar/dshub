@@ -7,6 +7,7 @@ import {
   createWorkspaceId,
   isValidStoredWorkspace,
   removeWorkspace,
+  renameDaughterWindow,
   renameWorkspace,
   restoreDaughterWindowContent,
   restoreWorkspace,
@@ -140,6 +141,25 @@ describe('validating a stored Workspace', () => {
     const bad = workspace({
       daughterWindows: [daughterWindow({ bounds: { x: 0, y: 0 } as unknown as DaughterWindowBounds })],
     });
+    expect(isValidStoredWorkspace(bad)).toBe(false);
+  });
+
+  it('accepts a Daughter Window entry with no name field at all — a Workspace saved before naming existed', () => {
+    const entry = daughterWindow();
+    expect('name' in entry).toBe(false); // the fixture builder itself sets no name — this is the case under test
+    expect(isValidStoredWorkspace(workspace({ daughterWindows: [entry] }))).toBe(true);
+  });
+
+  it('accepts a Daughter Window entry with an explicit null name', () => {
+    expect(isValidStoredWorkspace(workspace({ daughterWindows: [daughterWindow({ name: null })] }))).toBe(true);
+  });
+
+  it('accepts a Daughter Window entry with a custom name', () => {
+    expect(isValidStoredWorkspace(workspace({ daughterWindows: [daughterWindow({ name: 'Scope monitor' })] }))).toBe(true);
+  });
+
+  it('rejects a Daughter Window entry whose name is neither a string nor null', () => {
+    const bad = workspace({ daughterWindows: [daughterWindow({ name: 42 as unknown as string })] });
     expect(isValidStoredWorkspace(bad)).toBe(false);
   });
 
@@ -371,6 +391,24 @@ describe('one Daughter Window\'s own entry', () => {
   it('dropping a label nothing matches is a no-op', () => {
     const list = [daughterWindow({ label: 'daughter-1' })];
     expect(withoutDaughterWindow(list, 'daughter-9')).toEqual(list);
+  });
+});
+
+describe("renaming one Daughter Window's own entry", () => {
+  it('sets a custom name on the entry matched by label, leaving other entries untouched', () => {
+    const other = daughterWindow({ label: 'daughter-2' });
+    const next = renameDaughterWindow([daughterWindow({ label: 'daughter-1' }), other], 'daughter-1', 'Scope monitor');
+    expect(next).toEqual([daughterWindow({ label: 'daughter-1', name: 'Scope monitor' }), other]);
+  });
+
+  it('clears a custom name back to null', () => {
+    const next = renameDaughterWindow([daughterWindow({ label: 'daughter-1', name: 'Scope monitor' })], 'daughter-1', null);
+    expect(next).toEqual([daughterWindow({ label: 'daughter-1', name: null })]);
+  });
+
+  it('is a no-op — the same array reference — when the label names no entry', () => {
+    const list = [daughterWindow({ label: 'daughter-1' })];
+    expect(renameDaughterWindow(list, 'daughter-9', 'Scope monitor')).toBe(list);
   });
 });
 

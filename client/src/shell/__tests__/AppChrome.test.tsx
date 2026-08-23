@@ -60,6 +60,7 @@ function renderChrome(
               daughterWindows={[]}
               onFocusDaughterWindow={vi.fn()}
               onCloseDaughterWindow={vi.fn()}
+              onRenameDaughterWindow={vi.fn()}
               {...overrides}
             />
           </TooltipProvider>
@@ -124,6 +125,101 @@ describe('AppChrome Panes menu', () => {
     await user.keyboard('{ArrowDown}{Enter}');
 
     expect(onOpenPane).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('AppChrome Daughter Windows list', () => {
+  it('renames a Window, pre-filling the field with its current custom name', async () => {
+    const user = userEvent.setup();
+    const port = createFakeBackendPort({ deliver: fn => fn() });
+    const onRenameDaughterWindow = vi.fn();
+    renderChrome(port, {
+      daughterWindows: [{ id: 'daughter-1', label: 'Scope monitor', isCustomName: true }],
+      onRenameDaughterWindow,
+    });
+    await settle();
+
+    await user.click(screen.getByRole('button', { name: 'Daughter Windows' }));
+    await user.click(screen.getByRole('button', { name: 'Rename Scope monitor' }));
+
+    const field = screen.getByRole('textbox', { name: 'Rename Scope monitor' });
+    expect(field).toHaveValue('Scope monitor');
+    await user.clear(field);
+    await user.type(field, 'Motor debug{Enter}');
+
+    expect(onRenameDaughterWindow).toHaveBeenCalledWith('daughter-1', 'Motor debug');
+  });
+
+  it('starts the rename field blank, hinting the auto-derived label as a placeholder, for a Window with no custom name', async () => {
+    const user = userEvent.setup();
+    const port = createFakeBackendPort({ deliver: fn => fn() });
+    renderChrome(port, {
+      daughterWindows: [{ id: 'daughter-1', label: 'Registers, Plot', isCustomName: false }],
+    });
+    await settle();
+
+    await user.click(screen.getByRole('button', { name: 'Daughter Windows' }));
+    await user.click(screen.getByRole('button', { name: 'Rename Registers, Plot' }));
+
+    const field = screen.getByRole('textbox', { name: 'Rename Registers, Plot' });
+    expect(field).toHaveValue('');
+    expect(field).toHaveAttribute('placeholder', 'Registers, Plot');
+  });
+
+  it('clearing the field and saving reverts to the auto-derived label', async () => {
+    const user = userEvent.setup();
+    const port = createFakeBackendPort({ deliver: fn => fn() });
+    const onRenameDaughterWindow = vi.fn();
+    renderChrome(port, {
+      daughterWindows: [{ id: 'daughter-1', label: 'Scope monitor', isCustomName: true }],
+      onRenameDaughterWindow,
+    });
+    await settle();
+
+    await user.click(screen.getByRole('button', { name: 'Daughter Windows' }));
+    await user.click(screen.getByRole('button', { name: 'Rename Scope monitor' }));
+    await user.clear(screen.getByRole('textbox', { name: 'Rename Scope monitor' }));
+    await user.keyboard('{Enter}');
+
+    expect(onRenameDaughterWindow).toHaveBeenCalledWith('daughter-1', '');
+  });
+
+  it('Escape cancels the rename without saving anything', async () => {
+    // Radix's own Popover treats Escape as "dismiss the whole surface" —
+    // the same as `WorkspacesDialog.tsx`'s own analogous row, this cancels
+    // the local edit without calling `stopPropagation`, so the popover
+    // itself closing too is expected, standard behaviour, not asserted
+    // against here; only that nothing was saved is this row's own concern.
+    const user = userEvent.setup();
+    const port = createFakeBackendPort({ deliver: fn => fn() });
+    const onRenameDaughterWindow = vi.fn();
+    renderChrome(port, {
+      daughterWindows: [{ id: 'daughter-1', label: 'Scope monitor', isCustomName: true }],
+      onRenameDaughterWindow,
+    });
+    await settle();
+
+    await user.click(screen.getByRole('button', { name: 'Daughter Windows' }));
+    await user.click(screen.getByRole('button', { name: 'Rename Scope monitor' }));
+    await user.type(screen.getByRole('textbox', { name: 'Rename Scope monitor' }), 'discarded{Escape}');
+
+    expect(onRenameDaughterWindow).not.toHaveBeenCalled();
+  });
+
+  it('focuses a Window by clicking its own name, not the rename control', async () => {
+    const user = userEvent.setup();
+    const port = createFakeBackendPort({ deliver: fn => fn() });
+    const onFocusDaughterWindow = vi.fn();
+    renderChrome(port, {
+      daughterWindows: [{ id: 'daughter-1', label: 'Scope monitor', isCustomName: true }],
+      onFocusDaughterWindow,
+    });
+    await settle();
+
+    await user.click(screen.getByRole('button', { name: 'Daughter Windows' }));
+    await user.click(screen.getByRole('button', { name: 'Scope monitor' }));
+
+    expect(onFocusDaughterWindow).toHaveBeenCalledWith('daughter-1');
   });
 });
 

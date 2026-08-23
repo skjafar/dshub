@@ -40,13 +40,17 @@
 }
 
 .windowRow {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
   gap: var(--space-3xs);
+  align-items: center;
+}
+
+.windowRow > *:first-child {
+  min-width: 0;
 }
 
 .windowRow > button:first-child {
-  flex: 1 1 auto;
   justify-content: flex-start;
 }
 

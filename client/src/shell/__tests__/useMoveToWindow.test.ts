@@ -29,16 +29,33 @@ function locations(entries: Record<string, readonly string[]>): ReadonlyMap<Wind
   return new Map(Object.entries(entries));
 }
 
+function names(entries: Record<string, string> = {}): ReadonlyMap<WindowId, string> {
+  return new Map(Object.entries(entries));
+}
+
+const NO_NAMES = names();
+
 describe('useMoveToWindow', () => {
   describe('targetsFor', () => {
     it("lists every open Window a Pane's kind could move to", () => {
       const apiRef = apiRefWith(vi.fn());
       const { result } = renderHook(() =>
-        useMoveToWindow(apiRef, MAIN_WINDOW_ID, ['daughter-1'], locations({}), vi.fn())
+        useMoveToWindow(apiRef, MAIN_WINDOW_ID, ['daughter-1'], locations({}), vi.fn(), NO_NAMES)
       );
 
       expect(result.current.targetsFor(fakePanel('register#1'))).toEqual([
         { windowId: 'daughter-1', label: 'Daughter Window 1' },
+      ]);
+    });
+
+    it("labels a target by its own custom name, when it has one", () => {
+      const apiRef = apiRefWith(vi.fn());
+      const { result } = renderHook(() =>
+        useMoveToWindow(apiRef, MAIN_WINDOW_ID, ['daughter-1'], locations({}), vi.fn(), names({ 'daughter-1': 'Scope monitor' }))
+      );
+
+      expect(result.current.targetsFor(fakePanel('register#1'))).toEqual([
+        { windowId: 'daughter-1', label: 'Scope monitor' },
       ]);
     });
 
@@ -50,7 +67,8 @@ describe('useMoveToWindow', () => {
           MAIN_WINDOW_ID,
           ['daughter-1', 'daughter-2'],
           locations({ 'daughter-1': ['inspector'] }),
-          vi.fn()
+          vi.fn(),
+          NO_NAMES
         )
       );
 
@@ -62,7 +80,7 @@ describe('useMoveToWindow', () => {
     it('is empty for a panel id naming no known Pane kind', () => {
       const apiRef = apiRefWith(vi.fn());
       const { result } = renderHook(() =>
-        useMoveToWindow(apiRef, MAIN_WINDOW_ID, ['daughter-1'], locations({}), vi.fn())
+        useMoveToWindow(apiRef, MAIN_WINDOW_ID, ['daughter-1'], locations({}), vi.fn(), NO_NAMES)
       );
 
       expect(result.current.targetsFor(fakePanel('not-a-real-kind'))).toEqual([]);
@@ -75,7 +93,7 @@ describe('useMoveToWindow', () => {
       const removePanel = vi.fn();
       const apiRef = apiRefWith(removePanel);
       const { result } = renderHook(() =>
-        useMoveToWindow(apiRef, MAIN_WINDOW_ID, ['daughter-1'], locations({}), vi.fn())
+        useMoveToWindow(apiRef, MAIN_WINDOW_ID, ['daughter-1'], locations({}), vi.fn(), NO_NAMES)
       );
       const panel = fakePanel('register#2');
 
@@ -99,7 +117,7 @@ describe('useMoveToWindow', () => {
       const apiRef = apiRefWith(removePanel);
       const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
       const { result } = renderHook(() =>
-        useMoveToWindow(apiRef, MAIN_WINDOW_ID, ['daughter-1'], locations({}), vi.fn())
+        useMoveToWindow(apiRef, MAIN_WINDOW_ID, ['daughter-1'], locations({}), vi.fn(), NO_NAMES)
       );
 
       await act(async () => {
@@ -116,7 +134,7 @@ describe('useMoveToWindow', () => {
       const removePanel = vi.fn();
       const apiRef = apiRefWith(removePanel);
       const { result } = renderHook(() =>
-        useMoveToWindow(apiRef, MAIN_WINDOW_ID, [], locations({}), vi.fn())
+        useMoveToWindow(apiRef, MAIN_WINDOW_ID, [], locations({}), vi.fn(), NO_NAMES)
       );
 
       await act(async () => {
@@ -132,7 +150,7 @@ describe('useMoveToWindow', () => {
       vi.mocked(sendPaneHandoff).mockResolvedValue(undefined);
       const apiRef = apiRefWith(vi.fn());
       const { result } = renderHook(() =>
-        useMoveToWindow(apiRef, MAIN_WINDOW_ID, ['daughter-1'], locations({}), vi.fn())
+        useMoveToWindow(apiRef, MAIN_WINDOW_ID, ['daughter-1'], locations({}), vi.fn(), NO_NAMES)
       );
 
       await act(async () => {
@@ -154,7 +172,7 @@ describe('useMoveToWindow', () => {
     it('opens the seeded Pane when a handoff addressed to this Window arrives', () => {
       const apiRef = apiRefWith(vi.fn());
       const openPane = vi.fn();
-      renderHook(() => useMoveToWindow(apiRef, 'daughter-1', [], locations({}), openPane));
+      renderHook(() => useMoveToWindow(apiRef, 'daughter-1', [], locations({}), openPane, NO_NAMES));
 
       const onReceive = vi.mocked(useIncomingPaneHandoffs).mock.calls[0]?.[1];
       expect(onReceive).toBeDefined();
@@ -165,7 +183,7 @@ describe('useMoveToWindow', () => {
 
     it('registers under this Window\'s own id, so `useIncomingPaneHandoffs` filters correctly on its behalf', () => {
       const apiRef = apiRefWith(vi.fn());
-      renderHook(() => useMoveToWindow(apiRef, 'daughter-2', [], locations({}), vi.fn()));
+      renderHook(() => useMoveToWindow(apiRef, 'daughter-2', [], locations({}), vi.fn(), NO_NAMES));
 
       expect(useIncomingPaneHandoffs).toHaveBeenCalledWith('daughter-2', expect.any(Function));
     });

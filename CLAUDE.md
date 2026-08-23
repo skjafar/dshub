@@ -132,6 +132,33 @@ opening a fresh empty Pane the way "Move to new window" does. One flat entry
 per target, not a nested submenu: dockview's own tab context menu has no
 native submenu primitive to build one against.
 
+A Daughter Window is nameable (`.scratch/daughter-windows-native` issue 08,
+reversing the original spec's own "not individually nameable" line — that
+held only as long as nothing depended on telling two open ones apart, which
+"Move to Window" now does). `daughterWindows.ts`'s `windowLabel` — what
+every menu above actually shows — checks three tiers in order: a user-set
+custom name (`customNames`, from the active Workspace's own
+`daughterWindows[].name`); failing that, a label auto-derived from what the
+Window currently has open (`deriveDaughterWindowLabel`, deduped by Pane
+*kind*, e.g. "Registers, Plot"); failing that (nothing open yet and no
+name), the original bare positional fallback. Renaming happens only from
+the Main Window's own "Daughter Windows" list (`AppChrome.tsx`'s
+`DaughterWindowRow`, mirroring `WorkspacesDialog.tsx`'s own row-editing
+pattern) — a Daughter Window's own chrome gains no rename control of its
+own, staying exactly as minimal as this section's own opening line already
+requires. A rename is an ordinary write into the active Workspace's
+`daughterWindows` array, so it needs no new propagation mechanism at all:
+it persists the same way that array's bounds/layout already do, and reaches
+every other already-open Window live via the same `storage`-event sync this
+section's own "Settings/theme sync" paragraph below already describes —
+each Window's own `customNames` is a `useMemo` off the reactive `settings`
+value, not a snapshot taken once. The one place this needed care rather
+than reuse: `DaughterWindowShell.tsx`'s own debounced autosave has no
+opinion on its own name, so `flushAutosave` now reads its *existing* entry
+(by label, or by `restoreIndexRef` right after a restore) before building
+the fresh one it writes, carrying `name` forward — otherwise the very next
+autosave tick after a rename would silently erase it.
+
 The mechanism is a genuine, independent Tauri `WebviewWindow`, not dockview's
 `addPopoutGroup` adopting DOM into a same-realm popout (ADR 0004, superseded
 by ADR 0005): each Daughter Window runs its own React tree

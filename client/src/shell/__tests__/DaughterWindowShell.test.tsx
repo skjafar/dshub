@@ -86,8 +86,8 @@ function renderShell(query: string): { fake: ReturnType<typeof createFakeBackend
   return { fake };
 }
 
-/** A stored settings blob whose current-schema stamp survives `migrateStoredSettings` untouched, carrying one active Workspace under the default Profile — the "somewhere for a Daughter Window's own autosave to write into" every test below needs. */
-function seedActiveWorkspace(): void {
+/** A stored settings blob whose current-schema stamp survives `migrateStoredSettings` untouched, carrying one active Workspace under the default Profile — the "somewhere for a Daughter Window's own autosave to write into" every test below needs. `daughterWindows` defaults to empty; a caller pre-seeding an existing entry (e.g. one already carrying a custom `name`) passes its own. */
+function seedActiveWorkspace(daughterWindows: ProfileWorkspaces['workspaces'][number]['daughterWindows'] = []): void {
   const collection: ProfileWorkspaces = {
     workspaces: [
       {
@@ -96,7 +96,7 @@ function seedActiveWorkspace(): void {
         mainDockLayout: { grid: { root: { type: 'branch', data: [] }, height: 0, width: 0, orientation: 'HORIZONTAL' }, panels: {} } as never,
         paneStates: {},
         selection: null,
-        daughterWindows: [],
+        daughterWindows,
       },
     ],
     defaultWorkspaceId: 'w1',
@@ -329,6 +329,44 @@ describe("DaughterWindowShell saving a bare move or resize", () => {
     await advanceThroughAutosave();
 
     expect(readActiveWorkspace().daughterWindows[0]?.bounds).toEqual({ x: 10, y: 20, width: 900, height: 700 });
+  });
+});
+
+/**
+ * `.scratch/daughter-windows-native` issue 07's own naming follow-up: only
+ * the Main Window's own "Daughter Windows" list ever sets a custom name —
+ * this Window's own autosave has no opinion on it and must not silently
+ * erase one that already landed (from a prior launch, or a rename that
+ * arrived live from the Main Window between two autosave ticks).
+ */
+describe("DaughterWindowShell preserving its own custom name across autosave", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('carries an already-set custom name forward through its own autosave', async () => {
+    seedActiveWorkspace([
+      {
+        label: 'daughter-1',
+        name: 'Scope monitor',
+        dockLayout: { grid: { root: { type: 'branch', data: [] }, height: 0, width: 0, orientation: 'HORIZONTAL' }, panels: {} } as never,
+        paneStates: {},
+        bounds: { x: 0, y: 0, width: 640, height: 480 },
+      },
+    ]);
+    mockWindowWithBounds('daughter-1');
+    vi.useFakeTimers();
+
+    // Opened via `?pane=`, not `?restore=` — this is the same path a
+    // brand new autosave tick from an *already-existing*, already-named
+    // Window takes, matched by label rather than by restore position.
+    renderShell('?pane=overview');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await advanceThroughAutosave();
+
+    expect(readActiveWorkspace().daughterWindows[0]?.name).toBe('Scope monitor');
   });
 });
 

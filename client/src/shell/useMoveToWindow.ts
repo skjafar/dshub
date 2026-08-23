@@ -41,16 +41,17 @@ export function useMoveToWindow(
   ownWindowId: WindowId,
   openDaughterWindowLabels: readonly string[],
   paneLocations: ReadonlyMap<WindowId, readonly string[]>,
-  openPane: (kind: PaneKind, paneState: unknown) => void
+  openPane: (kind: PaneKind, paneState: unknown) => void,
+  customNames: ReadonlyMap<WindowId, string>
 ): MoveToWindow {
   const targetsFor = useCallback(
     (panel: IDockviewPanel): readonly MoveTarget[] => {
       const kind = kindOfPaneId(panel.id);
       const definition = kind && paneDefinition(kind);
       if (!definition) return [];
-      return moveTargets(definition, ownWindowId, paneLocations, openDaughterWindowLabels);
+      return moveTargets(definition, ownWindowId, paneLocations, openDaughterWindowLabels, customNames);
     },
-    [ownWindowId, paneLocations, openDaughterWindowLabels]
+    [ownWindowId, paneLocations, openDaughterWindowLabels, customNames]
   );
 
   const requestMove = useCallback(

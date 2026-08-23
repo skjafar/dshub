@@ -107,7 +107,7 @@ A good test here asserts what a user or a caller can observe, not how it was ach
 
 ## Out of Scope
 
-Daughter Windows are not individually nameable and inherit the application title. There is no way to create an empty one — they only ever come into being holding a Pane. They never gain Connect, Control, Workspace, Profile, theme or Settings controls; those stay singular in the Main Window by design, not by omission.
+~~Daughter Windows are not individually nameable~~ — reversed by `.scratch/daughter-windows-native/issues/08-name-daughter-windows.md`: a Daughter Window can be given a custom name from the Main Window's own "Daughter Windows" list, and shows an automatically-derived label (from whatever it currently has open) even without one. It still inherits the application title in its own native OS title bar — this only changed what the Main Window's own menus and lists call it, not the window itself. There is no way to create an empty one — they only ever come into being holding a Pane. They never gain Connect, Control, Workspace, Profile, theme or Settings controls; those stay singular in the Main Window by design, not by omission.
 
 Tearing a Widget out of a Dashboard into its own window is not this feature. Nor is any monitor-awareness beyond restoring the coordinates that were saved: DSHub does not reason about which display a window belongs on, detect that one has been unplugged, or reposition anything to fit.
 

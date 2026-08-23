@@ -2,9 +2,11 @@ import { useState } from 'react';
 import {
   AppWindow,
   BookOpen,
+  Check,
   Gear,
   Info,
   Moon,
+  PencilSimple,
   Plugs,
   PlugsConnected,
   Stack,
@@ -18,7 +20,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { APP_THEMES, getThemeById } from '../appThemes';
 import { ControlBadge, LinkStatus } from './LinkStatus';
 import { holdsControl } from './linkState';
-import { Button, Menu, Popover, Tooltip } from '../ui';
+import { Button, Menu, Popover, TextField, Tooltip } from '../ui';
 import type { PaneMenuEntry } from './daughterWindows';
 import { PaneMenuItems } from './PaneMenuItems';
 import type { PaneKind } from './paneRegistry';
@@ -35,7 +37,10 @@ import styles from './AppChrome.module.css';
 /** One open Daughter Window, as the Main Window's own list needs it. */
 export interface DaughterWindowSummary {
   readonly id: string;
+  /** The window's current display label — a user-set custom name if it has one, otherwise auto-derived from its open Panes, otherwise a positional fallback (`daughterWindows.ts`'s `windowLabel`). */
   readonly label: string;
+  /** Whether `label` above is the user-set custom name — decides whether the rename field starts pre-filled with it (edit what is actually there) or blank (type a new one, rather than freezing an auto-derived label that was never meant to be literal). */
+  readonly isCustomName: boolean;
 }
 
 export interface AppChromeProps {
@@ -60,6 +65,81 @@ export interface AppChromeProps {
   readonly daughterWindows: readonly DaughterWindowSummary[];
   readonly onFocusDaughterWindow: (id: string) => void;
   readonly onCloseDaughterWindow: (id: string) => void;
+  /** Sets (a non-blank name) or clears (a blank one) a Daughter Window's own custom name (`.scratch/daughter-windows-native` issue 07's own naming follow-up). */
+  readonly onRenameDaughterWindow: (id: string, name: string) => void;
+}
+
+/** A row's own interaction state — renaming or not, mirroring `WorkspacesDialog.tsx`'s own `WorkspaceRow` pattern (minus an armed-delete state: closing a Daughter Window needs no confirmation). */
+type WindowRowMode = { readonly kind: 'view' } | { readonly kind: 'editing'; readonly draft: string };
+const WINDOW_VIEW_MODE: WindowRowMode = { kind: 'view' };
+
+interface DaughterWindowRowProps {
+  readonly window: DaughterWindowSummary;
+  readonly onFocus: () => void;
+  readonly onClose: () => void;
+  readonly onRename: (name: string) => void;
+}
+
+/**
+ * One row of the "Daughter Windows" popover — its own name (click to
+ * focus), a rename action, and close. The rename field starts pre-filled
+ * with the current custom name if there is one, or blank — with the
+ * currently-shown auto-derived label only as a `placeholder` hint — if
+ * there is not, since committing that derived text literally would freeze
+ * it in place rather than let it keep following what that Window has open.
+ * Saving a blank value clears any custom name, reverting to the
+ * auto-derived label again.
+ */
+function DaughterWindowRow({ window: win, onFocus, onClose, onRename }: DaughterWindowRowProps): React.JSX.Element {
+  const [mode, setMode] = useState<WindowRowMode>(WINDOW_VIEW_MODE);
+
+  const commitRename = (draft: string): void => {
+    onRename(draft.trim());
+    setMode(WINDOW_VIEW_MODE);
+  };
+
+  if (mode.kind === 'editing') {
+    return (
+      <div className={styles.windowRow}>
+        <TextField
+          aria-label={`Rename ${win.label}`}
+          autoFocus
+          placeholder={win.label}
+          value={mode.draft}
+          onChange={e => setMode({ kind: 'editing', draft: e.target.value })}
+          onKeyDown={e => {
+            if (e.key === 'Enter') commitRename(mode.draft);
+            if (e.key === 'Escape') setMode(WINDOW_VIEW_MODE);
+          }}
+        />
+        <Button variant="ghost" size="sm" aria-label="Save name" onClick={() => commitRename(mode.draft)}>
+          <Check size={14} weight="bold" />
+        </Button>
+        <Button variant="ghost" size="sm" aria-label="Cancel rename" onClick={() => setMode(WINDOW_VIEW_MODE)}>
+          <X size={14} />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.windowRow}>
+      <Button variant="ghost" size="sm" onClick={onFocus}>
+        {win.label}
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-label={`Rename ${win.label}`}
+        onClick={() => setMode({ kind: 'editing', draft: win.isCustomName ? win.label : '' })}
+      >
+        <PencilSimple size={14} />
+      </Button>
+      <Button variant="ghost" size="sm" aria-label={`Close ${win.label}`} onClick={onClose}>
+        <X size={14} />
+      </Button>
+    </div>
+  );
 }
 
 /** What the Panes trigger says, so the unread badge it carries is announced too. */
@@ -95,6 +175,7 @@ export function AppChrome({
   daughterWindows,
   onFocusDaughterWindow,
   onCloseDaughterWindow,
+  onRenameDaughterWindow,
 }: AppChromeProps): React.JSX.Element {
   const { state, actions } = useDSHub();
   const { settings, updateSettings, justMigrated, profilesCarriedOver } = useSettings();
@@ -171,19 +252,13 @@ export function AppChrome({
           >
             <div className={styles.windowList}>
               {daughterWindows.map(win => (
-                <div key={win.id} className={styles.windowRow}>
-                  <Button variant="ghost" size="sm" onClick={() => onFocusDaughterWindow(win.id)}>
-                    {win.label}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label={`Close ${win.label}`}
-                    onClick={() => onCloseDaughterWindow(win.id)}
-                  >
-                    <X size={14} />
-                  </Button>
-                </div>
+                <DaughterWindowRow
+                  key={win.id}
+                  window={win}
+                  onFocus={() => onFocusDaughterWindow(win.id)}
+                  onClose={() => onCloseDaughterWindow(win.id)}
+                  onRename={name => onRenameDaughterWindow(win.id, name)}
+                />
               ))}
             </div>
           </Popover>

@@ -7,7 +7,13 @@ import { Button, Dialog, TooltipProvider } from '../ui';
 import { useBackendPort } from '../contexts/BackendPortContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { DaughterWindowChrome } from './DaughterWindowChrome';
-import { DAUGHTER_WINDOW_DEFAULT_HEIGHT, DAUGHTER_WINDOW_DEFAULT_WIDTH, knownWindowIds, paneMenuEntries } from './daughterWindows';
+import {
+  DAUGHTER_WINDOW_DEFAULT_HEIGHT,
+  DAUGHTER_WINDOW_DEFAULT_WIDTH,
+  customWindowNames,
+  knownWindowIds,
+  paneMenuEntries,
+} from './daughterWindows';
 import { closeDaughterWindow, readOwnWindowBounds, useDaughterWindows } from './daughterWindowNative';
 import { FocusModeProvider } from './FocusModeContext';
 import { FocusModeView } from './FocusModeView';
@@ -128,6 +134,21 @@ function DaughterWindowShellInner(): React.JSX.Element {
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
+  /**
+   * Every currently-open Daughter Window's own custom name, keyed by label
+   * (`.scratch/daughter-windows-native` issue 07's own naming follow-up) —
+   * read straight from the reactive `settings` value (not `settingsRef`),
+   * so it recomputes not only on this Window's own writes but also on a
+   * rename landing live from the Main Window via issue 06's own `storage`
+   * event sync, with no new plumbing.
+   */
+  const customNames = useMemo(() => {
+    const stored = settings.workspacesByProfile[settings.activeMapProfileId];
+    const collection = stored === undefined ? undefined : sanitizeProfileWorkspaces(stored);
+    const target = collection && activeWorkspaceOf(collection);
+    return customWindowNames(target?.daughterWindows ?? []);
+  }, [settings]);
+
   // Kept current by the `onMoved`/`onResized` subscription below rather than
   // read fresh (async, IPC-backed) at the moment autosave actually flushes —
   // that would make `flushAutosave` itself async, and a `beforeunload`
@@ -177,21 +198,38 @@ function DaughterWindowShellInner(): React.JSX.Element {
     [updateSettings]
   );
 
-  /** Persists this Window's own dockLayout, Pane state and current bounds (`boundsRef`) into the active Workspace's Daughter Window list. Synchronous, so `beforeunload` below can rely on it actually completing before the page unloads. */
+  /**
+   * Persists this Window's own dockLayout, Pane state and current bounds
+   * (`boundsRef`) into the active Workspace's Daughter Window list.
+   * Synchronous, so `beforeunload` below can rely on it actually completing
+   * before the page unloads.
+   *
+   * Carries the existing entry's own `name` forward unchanged — this Window
+   * has no opinion on its own custom name (only the Main Window's own
+   * "Daughter Windows" list sets one), so building a fresh `entry` without
+   * reading it first would silently erase a rename that landed between one
+   * autosave tick and the next. Read from `daughterWindows` inside the
+   * `updateOwnEntry` updater itself, not from `customNames` above, so this
+   * always sees the array it is about to write over rather than whatever
+   * `settings` last rendered with.
+   */
   const flushAutosave = useCallback(() => {
     cancelPendingAutosave();
     const api = apiRef.current;
     if (!api) return;
 
     const ids = api.panels.map(panel => panel.id);
-    const entry: StoredDaughterWindow = {
-      label: windowId,
-      dockLayout: api.toJSON(),
-      paneStates: snapshotPaneStates(ids),
-      bounds: boundsRef.current,
-    };
+    const dockLayout = api.toJSON();
+    const paneStates = snapshotPaneStates(ids);
+    const bounds = boundsRef.current;
 
-    updateOwnEntry(daughterWindows => upsertDaughterWindow(daughterWindows, entry, restoreIndexRef.current));
+    updateOwnEntry(daughterWindows => {
+      const restoreIndex = restoreIndexRef.current;
+      const existing =
+        restoreIndex !== null ? daughterWindows[restoreIndex] : daughterWindows.find(d => d.label === windowId);
+      const entry: StoredDaughterWindow = { label: windowId, name: existing?.name ?? null, dockLayout, paneStates, bounds };
+      return upsertDaughterWindow(daughterWindows, entry, restoreIndex);
+    });
     restoreIndexRef.current = null;
   }, [cancelPendingAutosave, updateOwnEntry, windowId]);
 
@@ -310,7 +348,7 @@ function DaughterWindowShellInner(): React.JSX.Element {
   // `useMoveToWindow` needs to open a Pane handed off from another Window —
   // so unlike `AppShell.tsx`'s own wider signature (position/width for its
   // default-layout seeding), no adapter is needed here.
-  const moveToWindow = useMoveToWindow(apiRef, windowId, openDaughterWindows, paneLocations, openPane);
+  const moveToWindow = useMoveToWindow(apiRef, windowId, openDaughterWindows, paneLocations, openPane, customNames);
 
   /**
    * A Daughter Window that loses its last Pane closes itself (spec.md) —
@@ -420,7 +458,7 @@ function DaughterWindowShellInner(): React.JSX.Element {
           <FocusModeView dashboardId={focusDashboardId} windowId={windowId} onExit={exitFocusMode} />
         ) : (
           <DaughterWindowChrome
-            entries={paneMenuEntries(PANES, paneLocations, windowId, openDaughterWindows)}
+            entries={paneMenuEntries(PANES, paneLocations, windowId, openDaughterWindows, customNames)}
             onOpenPane={handleOpenPane}
           />
         )}

@@ -51,6 +51,16 @@ export interface StoredDaughterWindow {
   readonly dockLayout: SerializedDockview;
   readonly paneStates: Readonly<Record<string, unknown>>;
   readonly bounds: DaughterWindowBounds;
+  /**
+   * A name the user chose for this Window from the Main Window's own
+   * "Daughter Windows" list, overriding `daughterWindows.ts`'s own
+   * auto-derived-from-open-Panes label — null (or, for a Workspace saved
+   * before this field existed, absent entirely) falls back to that
+   * derivation. Optional rather than required so an older saved Workspace
+   * degrades to "no custom name anywhere" instead of failing
+   * {@link isValidStoredWorkspace} outright over one purely additive field.
+   */
+  readonly name?: string | null;
 }
 
 export interface StoredWorkspace {
@@ -140,6 +150,7 @@ function isValidStoredDaughterWindow(value: unknown): value is StoredDaughterWin
   if (!isValidDockLayout(value.dockLayout)) return false;
   if (!isPlainObject(value.paneStates)) return false;
   if (!isValidBounds(value.bounds)) return false;
+  if (value.name !== undefined && value.name !== null && typeof value.name !== 'string') return false;
   return true;
 }
 
@@ -329,6 +340,24 @@ export function upsertDaughterWindow(
   const existingIndex = daughterWindows.findIndex(d => d.label === entry.label);
   if (existingIndex === -1) return [...daughterWindows, entry];
   return daughterWindows.map((d, i) => (i === existingIndex ? entry : d));
+}
+
+/**
+ * Sets, or, given `null`, clears one Daughter Window's own custom name — the
+ * Main Window's own rename action against its "Daughter Windows" list. A
+ * cleared name reverts that Window's own displayed label to whatever
+ * `daughterWindows.ts`'s `windowLabel` derives automatically from its
+ * currently open Panes, rather than leaving it unnamed. A no-op (returns the
+ * same array reference) when `label` names no entry — the Window closed
+ * between the rename action being taken and this being applied.
+ */
+export function renameDaughterWindow(
+  daughterWindows: readonly StoredDaughterWindow[],
+  label: string,
+  name: string | null
+): readonly StoredDaughterWindow[] {
+  if (!daughterWindows.some(d => d.label === label)) return daughterWindows;
+  return daughterWindows.map(d => (d.label === label ? { ...d, name } : d));
 }
 
 /** Drops one Daughter Window's entry by label — a deliberate close, not a corruption repair. */

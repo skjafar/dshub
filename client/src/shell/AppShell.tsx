@@ -6,7 +6,7 @@ import { useBackendPort } from '../contexts/BackendPortContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { AppChrome } from './AppChrome';
 import { closeDaughterWindow, focusDaughterWindow } from './daughterWindowNative';
-import { knownWindowIds, paneMenuEntries } from './daughterWindows';
+import { customWindowNames, knownWindowIds, paneMenuEntries, windowLabel } from './daughterWindows';
 import { useDaughterWindowLifecycle } from './useDaughterWindowLifecycle';
 import { FocusModeProvider } from './FocusModeContext';
 import { FocusModeView } from './FocusModeView';
@@ -27,6 +27,7 @@ import {
   addWorkspace,
   createWorkspaceId,
   removeWorkspace,
+  renameDaughterWindow,
   renameWorkspace,
   restoreWorkspace,
   sanitizeProfileWorkspaces,
@@ -95,7 +96,13 @@ const DEFAULT_LAYOUT: readonly DefaultPane[] = [
  * Daughter Windows themselves. Each is a genuinely separate `WebviewWindow`
  * with its own React tree and dockview instance (ADR 0005); this component
  * only reads the live, Rust-owned list of which ones are open
- * (`useDaughterWindows`) for its own "Daughter Windows" list UI.
+ * (`useDaughterWindows`) for its own "Daughter Windows" list UI. It is,
+ * however, the one place a Daughter Window can be *renamed*
+ * (`handleRenameDaughterWindow`) — a Daughter Window's own chrome stays as
+ * minimal as spec.md already requires, so naming one is a Main-Window-only
+ * action written into the active Workspace's own `daughterWindows` entry,
+ * the same field `windowLabel` (`daughterWindows.ts`) already reads first,
+ * ahead of auto-deriving a label from what that Window currently has open.
  */
 function WorkspaceShell(): React.JSX.Element {
   const apiRef = useRef<DockviewApi | null>(null);
@@ -132,6 +139,22 @@ function WorkspaceShell(): React.JSX.Element {
   const profileId = settings.activeMapProfileId;
   const profileIdRef = useRef(profileId);
   profileIdRef.current = profileId;
+
+  const collection: ProfileWorkspaces | undefined = settings.workspacesByProfile[profileId];
+
+  /**
+   * Every currently-open Daughter Window's own custom name, keyed by label
+   * — a Workspace's own `daughterWindows` entries already carry `name`
+   * (`workspaceStore.ts`), so this is just the lookup `windowLabel` needs,
+   * re-derived whenever the active Workspace's own Daughter Window list
+   * changes (including a rename landing from a `storage` event fired by
+   * another open Window — issue 06's own live-sync mechanism, reused here
+   * with no new plumbing).
+   */
+  const customNames = useMemo(() => {
+    const target = collection && activeWorkspaceOf(collection);
+    return customWindowNames(target?.daughterWindows ?? []);
+  }, [collection]);
 
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -331,7 +354,14 @@ function WorkspaceShell(): React.JSX.Element {
     },
     [openPane]
   );
-  const moveToWindow = useMoveToWindow(apiRef, MAIN_WINDOW_ID, openDaughterWindows, paneLocations, openPaneFromHandoff);
+  const moveToWindow = useMoveToWindow(
+    apiRef,
+    MAIN_WINDOW_ID,
+    openDaughterWindows,
+    paneLocations,
+    openPaneFromHandoff,
+    customNames
+  );
 
   const handleReady = useCallback(
     (api: DockviewApi) => {
@@ -554,6 +584,32 @@ function WorkspaceShell(): React.JSX.Element {
     void focusDaughterWindow(label);
   }, []);
 
+  /**
+   * Sets or clears one Daughter Window's own custom name, from the Main
+   * Window's own "Daughter Windows" list (`.scratch/daughter-windows-native`
+   * issue 07's own naming follow-up) — the only place this happens, per the
+   * confirmed scope decision that a Daughter Window's own chrome stays
+   * exactly as minimal as it already is. A blank/whitespace-only name
+   * clears it rather than setting a literal empty string, reverting that
+   * Window's own label back to `windowLabel`'s auto-derived-from-open-Panes
+   * fallback.
+   */
+  const handleRenameDaughterWindow = useCallback(
+    (label: string, name: string) => {
+      const trimmed = name.trim();
+      withProfileWorkspaces(collection => {
+        const target = activeWorkspaceOf(collection);
+        if (!target) return undefined;
+        return updateWorkspaceDaughterWindows(
+          collection,
+          target.id,
+          renameDaughterWindow(target.daughterWindows, label, trimmed === '' ? null : trimmed)
+        );
+      });
+    },
+    [withProfileWorkspaces]
+  );
+
   /** A deliberate close from the Main Window's own list — unlike a native title-bar close, this is unambiguous, so the closed window's own entry is pruned from the active Workspace right here rather than left to reappear on the next restore. */
   const handleCloseDaughterWindow = useCallback(
     (label: string) => {
@@ -573,8 +629,6 @@ function WorkspaceShell(): React.JSX.Element {
     void closeAllDaughterWindows();
   }, [flushAutosave, closeAllDaughterWindows]);
 
-  const collection: ProfileWorkspaces | undefined = settings.workspacesByProfile[profileId];
-
   return (
     <FocusModeProvider enter={enterFocusMode}>
       <div className={styles.shell}>
@@ -591,10 +645,15 @@ function WorkspaceShell(): React.JSX.Element {
             onRenameWorkspace={handleRenameWorkspace}
             onDeleteWorkspace={handleDeleteWorkspace}
             onBeforeProfileChange={handleBeforeProfileChange}
-            daughterWindows={openDaughterWindows.map((label, index) => ({ id: label, label: `Daughter Window ${index + 1}` }))}
+            daughterWindows={openDaughterWindows.map(label => ({
+              id: label,
+              label: windowLabel(label, openDaughterWindows, customNames, paneLocations),
+              isCustomName: customNames.has(label),
+            }))}
             onFocusDaughterWindow={handleFocusDaughterWindow}
             onCloseDaughterWindow={handleCloseDaughterWindow}
-            paneMenuEntries={paneMenuEntries(PANES, paneLocations, MAIN_WINDOW_ID, openDaughterWindows)}
+            onRenameDaughterWindow={handleRenameDaughterWindow}
+            paneMenuEntries={paneMenuEntries(PANES, paneLocations, MAIN_WINDOW_ID, openDaughterWindows, customNames)}
           />
         )}
         {/* Always mounted. Hidden rather than unmounted while the Main
