@@ -1,5 +1,6 @@
 import { MapProfile, SysCommand, EntryMetadata } from '../types/settings';
-import { DashboardLayout } from '../types/dashboard';
+import { sanitizeProfileDashboards } from '../shell/widgets/dashboardStore';
+import type { ProfileDashboards } from '../shell/widgets/dashboardStore';
 import { parseMapFile } from '../maps/mapParser';
 
 export const DSHUB_PROFILE_VERSION = 1 as const;
@@ -19,10 +20,11 @@ export interface DshubProfileFile {
     registers: Record<string, EntryMetadata>;
     parameters: Record<string, EntryMetadata>;
   };
-  dashboard?: DashboardLayout;
+  /** This Profile's own Dashboards — see `shell/widgets/dashboardStore.ts`. */
+  dashboards?: ProfileDashboards;
 }
 
-export type ProfileImportErrorSection = 'json' | 'registers' | 'parameters' | 'dashboard';
+export type ProfileImportErrorSection = 'json' | 'registers' | 'parameters' | 'dashboards';
 
 export interface ProfileImportError {
   section: ProfileImportErrorSection;
@@ -38,7 +40,7 @@ export interface ProfileImportResult {
 
 export function serializeProfile(
   profile: MapProfile,
-  dashboard?: DashboardLayout
+  dashboards?: ProfileDashboards
 ): string {
   const file: DshubProfileFile = {
     dshub_profile: DSHUB_PROFILE_VERSION,
@@ -55,7 +57,7 @@ export function serializeProfile(
       registers: profile.registersMetadata ?? {},
       parameters: profile.parametersMetadata ?? {},
     },
-    dashboard,
+    dashboards,
   };
   return JSON.stringify(file, null, 2);
 }
@@ -145,14 +147,26 @@ export function parseProfileFile(json: string): ProfileImportResult {
       )
     : [];
 
-  // --- Dashboard (lenient, skip bad widgets) ---
-  let dashboard: DashboardLayout | undefined;
-  if (typeof obj.dashboard === 'object' && obj.dashboard !== null) {
-    try {
-      dashboard = obj.dashboard as DashboardLayout;
-    } catch {
-      errors.push({ section: 'dashboard', message: 'Dashboard data could not be read — it will be skipped', fatal: false });
-      dashboard = undefined;
+  // --- Dashboards (lenient — a Dashboard that fails validation is dropped, not fatal) ---
+  let dashboards: ProfileDashboards | undefined;
+  if (obj.dashboards !== undefined) {
+    const sanitized = sanitizeProfileDashboards(obj.dashboards);
+    if (sanitized === undefined) {
+      errors.push({ section: 'dashboards', message: 'dashboards must be an object with a dashboards array — it will be skipped', fatal: false });
+    } else {
+      const rawDashboards = typeof obj.dashboards === 'object' && obj.dashboards !== null
+        ? (obj.dashboards as { dashboards?: unknown }).dashboards
+        : undefined;
+      const rawCount = Array.isArray(rawDashboards) ? rawDashboards.length : 0;
+      const dropped = rawCount - sanitized.dashboards.length;
+      if (dropped > 0) {
+        errors.push({
+          section: 'dashboards',
+          message: `${dropped} Dashboard${dropped === 1 ? '' : 's'} failed validation and ${dropped === 1 ? 'was' : 'were'} skipped`,
+          fatal: false,
+        });
+      }
+      dashboards = sanitized;
     }
   }
 
@@ -168,7 +182,7 @@ export function parseProfileFile(json: string): ProfileImportResult {
       boardTypes: typeof maps.boardTypes === 'string' ? maps.boardTypes : undefined,
     },
     metadata: { registers: registersMetadata, parameters: parametersMetadata },
-    dashboard,
+    dashboards,
   };
 
   return { file, errors };

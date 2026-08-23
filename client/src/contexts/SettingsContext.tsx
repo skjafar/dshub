@@ -457,13 +457,13 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     };
   }, [getAllProfiles]);
 
-  // Serialize a complete profile (maps + metadata + dashboard) to a .dshub JSON string
+  // Serialize a complete profile (maps + metadata + Dashboards) to a .dshub JSON string
   const exportProfile = useCallback((profileId: string): string | null => {
     const profile = getAllProfiles().find(p => p.id === profileId);
     if (!profile) return null;
-    const dashboard = settings.dashboardLayouts[profileId];
-    return serializeProfile(profile, dashboard);
-  }, [getAllProfiles, settings.dashboardLayouts]);
+    const dashboards = settings.dashboardsByProfile[profileId];
+    return serializeProfile(profile, dashboards);
+  }, [getAllProfiles, settings.dashboardsByProfile]);
 
   // Parse a .dshub JSON string and, if valid, create a new profile
   const importProfile = useCallback((json: string): ProfileImportResult & { profileId?: string } => {
@@ -490,14 +490,14 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     };
 
     setSettings(prev => {
-      const nextLayouts = file.dashboard
-        ? { ...prev.dashboardLayouts, [profileId]: file.dashboard! }
-        : prev.dashboardLayouts;
+      const nextDashboards = file.dashboards
+        ? { ...prev.dashboardsByProfile, [profileId]: file.dashboards }
+        : prev.dashboardsByProfile;
       return {
         ...prev,
         mapProfiles: [...prev.mapProfiles, newProfile],
         activeMapProfileId: profileId,
-        dashboardLayouts: nextLayouts,
+        dashboardsByProfile: nextDashboards,
       };
     });
 
