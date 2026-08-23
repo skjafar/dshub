@@ -15,11 +15,12 @@
  * visibly. `core:window:allow-close`/`core:window:allow-set-focus` gate
  * those two calls; outside Tauri (dev-in-browser, every test) there is no
  * concept of a Daughter Window at all, so `close`/`focus`/`list`/`subscribe`
- * are all safe no-ops. `openDaughterWindow` is the one exception: it calls
- * `invoke` directly and unguarded, so outside Tauri it rejects like any
- * other `invoke` would — its one caller (`useMoveToNewDaughterWindow.ts`)
- * already catches that, and a rejection is the honest outcome for "open a
- * new OS window" where a no-op has no sensible label to resolve with.
+ * are all safe no-ops. `openDaughterWindow`/`openDaughterWindowAt` are the
+ * exception: both call `invoke` directly and unguarded, so outside Tauri
+ * they reject like any other `invoke` would — their one shared caller
+ * (`useMoveToNewDaughterWindow.ts`) already catches that, and a rejection is
+ * the honest outcome for "open a new OS window" where a no-op has no
+ * sensible label to resolve with.
  */
 
 import { invoke, isTauri } from '@tauri-apps/api/core';

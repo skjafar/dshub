@@ -37,11 +37,9 @@ import { kindOfPaneId } from './paneRegistry';
 import { snapshotPaneStates } from './paneState';
 import type { DaughterWindowBounds } from './workspaceStore';
 
-interface PendingRequest {
-  readonly panel: IDockviewPanel;
-  /** null for the menu command's own default OS placement; set for a drag-out's own drop point. */
-  readonly bounds: DaughterWindowBounds | null;
-}
+type PendingRequest =
+  | { readonly kind: 'menu'; readonly panel: IDockviewPanel }
+  | { readonly kind: 'dragout'; readonly panel: IDockviewPanel; readonly bounds: DaughterWindowBounds };
 
 export interface MoveToNewDaughterWindow {
   /** Call from a tab's "Move to new window" context-menu action. */
@@ -82,21 +80,15 @@ export function useMoveToNewDaughterWindow(apiRef: RefObject<DockviewApi | null>
     [apiRef]
   );
 
-  const requestMove = useCallback(
-    (panel: IDockviewPanel) => {
+  // Shared by both public entry points below: queue for confirmation past
+  // the warning threshold, otherwise open immediately. `bounds` alone tells
+  // `reallyMove` which of the two Rust commands to call, so this is the one
+  // place that decision and the queued request's own `kind` tag are set
+  // together, rather than each public method repeating both.
+  const requestOpen = useCallback(
+    (panel: IDockviewPanel, bounds: DaughterWindowBounds | null) => {
       if (shouldWarnBeforeNewDaughterWindow(openWindows.length)) {
-        setPendingRequest({ panel, bounds: null });
-        return;
-      }
-      reallyMove(panel, null);
-    },
-    [openWindows.length, reallyMove]
-  );
-
-  const requestDragOut = useCallback(
-    (panel: IDockviewPanel, bounds: DaughterWindowBounds) => {
-      if (shouldWarnBeforeNewDaughterWindow(openWindows.length)) {
-        setPendingRequest({ panel, bounds });
+        setPendingRequest(bounds === null ? { kind: 'menu', panel } : { kind: 'dragout', panel, bounds });
         return;
       }
       reallyMove(panel, bounds);
@@ -104,8 +96,15 @@ export function useMoveToNewDaughterWindow(apiRef: RefObject<DockviewApi | null>
     [openWindows.length, reallyMove]
   );
 
+  const requestMove = useCallback((panel: IDockviewPanel) => requestOpen(panel, null), [requestOpen]);
+
+  const requestDragOut = useCallback(
+    (panel: IDockviewPanel, bounds: DaughterWindowBounds) => requestOpen(panel, bounds),
+    [requestOpen]
+  );
+
   const confirm = useCallback(() => {
-    if (pendingRequest) reallyMove(pendingRequest.panel, pendingRequest.bounds);
+    if (pendingRequest) reallyMove(pendingRequest.panel, pendingRequest.kind === 'dragout' ? pendingRequest.bounds : null);
     setPendingRequest(null);
   }, [pendingRequest, reallyMove]);
 
