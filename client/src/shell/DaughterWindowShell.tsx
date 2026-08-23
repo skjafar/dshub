@@ -24,6 +24,7 @@ import { PANES, isKnownPaneKind, paneDefinition, paneId } from './paneRegistry';
 import type { PaneKind } from './paneRegistry';
 import { restorePaneState, retainPaneState, snapshotPaneStates, subscribePaneStateChanges } from './paneState';
 import { retainSeriesFor } from './plotStream';
+import type { UserSettings } from '../types/settings';
 import { useMoveToNewDaughterWindow } from './useMoveToNewDaughterWindow';
 import { useMoveToWindow } from './useMoveToWindow';
 import {
@@ -34,8 +35,29 @@ import {
   upsertDaughterWindow,
   withoutDaughterWindow,
 } from './workspaceStore';
-import type { DaughterWindowBounds, StoredDaughterWindow } from './workspaceStore';
+import type { DaughterWindowBounds, ProfileWorkspaces, StoredDaughterWindow, StoredWorkspace } from './workspaceStore';
 import styles from './DaughterWindowShell.module.css';
+
+/**
+ * The active Profile's own Workspace collection and its currently-active
+ * Workspace record, resolved from a raw settings value in one step — the
+ * same read/sanitize/locate dance `updateOwnEntry`, `handleReady`'s own
+ * restore step and `customNames` below all need. A plain function over
+ * `settings` rather than a hook, so each of those three call sites can pass
+ * whichever source it already has: the live, reactive `settings` value
+ * (`customNames`, which should re-derive whenever it changes), or
+ * `settingsRef.current` (`updateOwnEntry`/`handleReady`, which read fresh
+ * state from inside a callback without depending on a value that would
+ * force it to be re-created every render).
+ */
+function activeWorkspaceEntryFor(
+  settings: UserSettings
+): { readonly collection: ProfileWorkspaces; readonly workspace: StoredWorkspace } | undefined {
+  const stored = settings.workspacesByProfile[settings.activeMapProfileId];
+  const collection = stored === undefined ? undefined : sanitizeProfileWorkspaces(stored);
+  const workspace = collection && activeWorkspaceOf(collection);
+  return collection && workspace ? { collection, workspace } : undefined;
+}
 
 /** How long a burst of layout or Pane-state changes settles before this Window's own entry is saved — mirrors `AppShell.tsx`'s own `AUTOSAVE_DEBOUNCE_MS`. */
 const AUTOSAVE_DEBOUNCE_MS = 400;
@@ -142,12 +164,10 @@ function DaughterWindowShellInner(): React.JSX.Element {
    * rename landing live from the Main Window via issue 06's own `storage`
    * event sync, with no new plumbing.
    */
-  const customNames = useMemo(() => {
-    const stored = settings.workspacesByProfile[settings.activeMapProfileId];
-    const collection = stored === undefined ? undefined : sanitizeProfileWorkspaces(stored);
-    const target = collection && activeWorkspaceOf(collection);
-    return customWindowNames(target?.daughterWindows ?? []);
-  }, [settings]);
+  const customNames = useMemo(
+    () => customWindowNames(activeWorkspaceEntryFor(settings)?.workspace.daughterWindows ?? []),
+    [settings]
+  );
 
   // Kept current by the `onMoved`/`onResized` subscription below rather than
   // read fresh (async, IPC-backed) at the moment autosave actually flushes —
@@ -181,11 +201,9 @@ function DaughterWindowShellInner(): React.JSX.Element {
   const updateOwnEntry = useCallback(
     (updater: (daughterWindows: readonly StoredDaughterWindow[]) => readonly StoredDaughterWindow[]) => {
       const currentSettings = settingsRef.current;
-      const stored = currentSettings.workspacesByProfile[currentSettings.activeMapProfileId];
-      const collection = stored === undefined ? undefined : sanitizeProfileWorkspaces(stored);
-      if (collection === undefined) return;
-      const target = activeWorkspaceOf(collection);
-      if (target === undefined) return;
+      const found = activeWorkspaceEntryFor(currentSettings);
+      if (found === undefined) return;
+      const { collection, workspace: target } = found;
 
       const nextDaughterWindows = updater(target.daughterWindows);
       if (nextDaughterWindows === target.daughterWindows) return;
@@ -387,10 +405,7 @@ function DaughterWindowShellInner(): React.JSX.Element {
       });
 
       if (restoreIndexAtLaunch !== null) {
-        const stored = settingsRef.current.workspacesByProfile[settingsRef.current.activeMapProfileId];
-        const collection = stored === undefined ? undefined : sanitizeProfileWorkspaces(stored);
-        const target = collection && activeWorkspaceOf(collection);
-        const entry = target?.daughterWindows[restoreIndexAtLaunch];
+        const entry = activeWorkspaceEntryFor(settingsRef.current)?.workspace.daughterWindows[restoreIndexAtLaunch];
         if (entry !== undefined) {
           try {
             restoreDaughterWindowContent(api, entry);
