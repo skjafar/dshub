@@ -1,4 +1,6 @@
+import { Fragment } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
+import { ContextMenu } from './ContextMenu';
 import { cx } from './cx';
 import styles from './Table.module.css';
 
@@ -22,6 +24,13 @@ export interface TableProps<Row> {
   readonly selectedKey?: string;
   readonly onSelect?: (row: Row) => void;
   readonly emptyMessage?: ReactNode;
+  /**
+   * Right-click actions for a row, as `ContextMenuItem`s — `undefined` (the
+   * default) for a Table with none, so every existing caller's rows stay
+   * plain. Called per row rather than supplied once, since which actions
+   * apply can depend on the row itself.
+   */
+  readonly rowContextMenu?: (row: Row) => ReactNode;
 }
 
 /**
@@ -41,6 +50,7 @@ export function Table<Row>({
   selectedKey,
   onSelect,
   emptyMessage = 'Nothing to show',
+  rowContextMenu,
 }: TableProps<Row>): React.JSX.Element {
   const selectable = onSelect !== undefined;
 
@@ -90,9 +100,8 @@ export function Table<Row>({
                 isSelected && styles.selected
               );
 
-              return (
+              const tr = (
                 <tr
-                  key={key}
                   className={classes}
                   tabIndex={selectable ? 0 : undefined}
                   aria-selected={selectable ? isSelected : undefined}
@@ -105,6 +114,14 @@ export function Table<Row>({
                     </td>
                   ))}
                 </tr>
+              );
+
+              const menu = rowContextMenu?.(row);
+              if (menu === undefined) return <Fragment key={key}>{tr}</Fragment>;
+              return (
+                <ContextMenu key={key} trigger={tr}>
+                  {menu}
+                </ContextMenu>
               );
             })
           )}

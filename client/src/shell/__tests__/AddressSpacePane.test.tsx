@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BackendPortProvider } from '../../contexts/BackendPortContext';
 import { DSHubProvider } from '../../contexts/DSHubContext';
@@ -9,6 +9,7 @@ import { mapManager } from '../../maps/mapManager';
 import { createFakeBackendPort } from '../../services/fakeBackendPort';
 import { InterfaceType } from '../../types/shared';
 import type { MapProfile } from '../../types/settings';
+import { OpenPlotProvider } from '../OpenPlotContext';
 import { SelectionProvider } from '../SelectionContext';
 import type { AddressSpace } from '../addressSpace';
 import { retainPaneState } from '../paneState';
@@ -359,6 +360,66 @@ describe.each(CASES)('$heading Pane', testCase => {
     );
     const identity = within(inspector()).getByRole('region', { name: /identity/i });
     expect(identity).toHaveTextContent(testCase.heading.replace(/s$/, ''));
+  });
+});
+
+/**
+ * Right-click "Plot" on a row (`Entries.tsx`'s `rowContextMenu`, wired
+ * through `OpenPlotContext`) — offered for Registers and System Registers,
+ * the two spaces `PlottableSpace` actually covers, and withheld for
+ * Parameters, which nothing downstream of `openPlot` knows how to plot.
+ */
+describe('right-click "Plot"', () => {
+  function renderWithOpenPlot(testCase: SpaceCase): { readonly openPlot: ReturnType<typeof vi.fn> } {
+    const fake = createFakeBackendPort({ deliver: fn => fn() });
+    const openPlot = vi.fn();
+    const Pane = testCase.Pane;
+
+    render(
+      <BackendPortProvider port={fake}>
+        <SettingsProvider>
+          <DSHubProvider>
+            <SelectionProvider>
+              <OpenPlotProvider openPlot={openPlot}>
+                <section aria-label="Pane A">
+                  <Pane paneId={`${testCase.kind}#1`} setTitle={vi.fn()} />
+                </section>
+              </OpenPlotProvider>
+            </SelectionProvider>
+          </DSHubProvider>
+        </SettingsProvider>
+      </BackendPortProvider>
+    );
+
+    return { openPlot };
+  }
+
+  it.each([
+    [CASES[0], 'register' as const],
+    [CASES[2], 'sysRegister' as const],
+  ])('opens a Plot Pane seeded with the right-clicked entry ($heading)', async (testCase, source) => {
+    const user = userEvent.setup();
+    const { openPlot } = renderWithOpenPlot(testCase);
+    await settle();
+
+    const row = within(paneA()).getByRole('row', { name: new RegExp(testCase.entryNames[0]) });
+    fireEvent.contextMenu(row);
+    await user.click(await screen.findByRole('menuitem', { name: 'Plot' }));
+
+    expect(openPlot).toHaveBeenCalledWith(
+      expect.objectContaining({ name: testCase.entryNames[0] }),
+      source
+    );
+  });
+
+  it('offers no "Plot" action for Parameters, which nothing knows how to plot', async () => {
+    renderWithOpenPlot(CASES[1]);
+    await settle();
+
+    const row = within(paneA()).getByRole('row', { name: new RegExp(CASES[1].entryNames[0]) });
+    fireEvent.contextMenu(row);
+
+    expect(screen.queryByRole('menuitem', { name: 'Plot' })).not.toBeInTheDocument();
   });
 });
 

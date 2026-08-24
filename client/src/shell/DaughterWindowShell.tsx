@@ -17,13 +17,17 @@ import {
 import { closeDaughterWindow, readOwnWindowBounds, useDaughterWindows } from './daughterWindowNative';
 import { FocusModeProvider } from './FocusModeContext';
 import { FocusModeView } from './FocusModeView';
+import { OpenPlotProvider } from './OpenPlotContext';
 import { usePaneLocations } from './paneLocations';
+import type { PlotPaneState } from './panes/PlotPane';
 import { SelectionProvider, useSelection } from './SelectionContext';
 import { Workspace } from './Workspace';
 import { PANES, isKnownPaneKind, paneDefinition, paneId } from './paneRegistry';
 import type { PaneKind } from './paneRegistry';
 import { restorePaneState, retainPaneState, snapshotPaneStates, subscribePaneStateChanges } from './paneState';
+import type { PlottableSpace } from './plotStream';
 import { retainSeriesFor } from './plotStream';
+import type { MapEntry } from '../maps/mapParser';
 import type { UserSettings } from '../types/settings';
 import { useMoveToNewDaughterWindow } from './useMoveToNewDaughterWindow';
 import { useMoveToWindow } from './useMoveToWindow';
@@ -368,6 +372,22 @@ function DaughterWindowShellInner(): React.JSX.Element {
   // default-layout seeding), no adapter is needed here.
   const moveToWindow = useMoveToWindow(apiRef, windowId, openDaughterWindows, paneLocations, openPane, customNames);
 
+  /** `OpenPlotProvider`'s own implementation, mirroring `AppShell.tsx`'s own — right-click "Plot" on a Registers/System Registers row opens a fresh Plot Pane, in this Window, already carrying that one entry as its series. */
+  const handleOpenPlot = useCallback(
+    (entry: MapEntry, source: PlottableSpace) => {
+      const { pollInterval, timeSpan } = settingsRef.current.plotDefaults;
+      const seed: PlotPaneState = {
+        series: [{ name: entry.name, source, address: entry.address, colorSlot: 0, visible: true }],
+        pollInterval,
+        timeSpan,
+        pickerSource: source,
+        pickerQuery: '',
+      };
+      openPane('plot', seed);
+    },
+    [openPane]
+  );
+
   /**
    * A Daughter Window that loses its last Pane closes itself (spec.md) —
    * purely a local check against this window's own dockview instance,
@@ -467,48 +487,50 @@ function DaughterWindowShellInner(): React.JSX.Element {
   const exitFocusMode = useCallback(() => setFocusDashboardId(null), []);
 
   return (
-    <FocusModeProvider enter={enterFocusMode}>
-      <div className={styles.shell}>
-        {focusDashboardId !== null ? (
-          <FocusModeView dashboardId={focusDashboardId} windowId={windowId} onExit={exitFocusMode} />
-        ) : (
-          <DaughterWindowChrome
-            entries={paneMenuEntries(PANES, paneLocations, windowId, openDaughterWindows, customNames)}
-            onOpenPane={handleOpenPane}
-          />
-        )}
-        {/* Always mounted, hidden rather than unmounted during Focus Mode —
-            same reasoning as `AppShell.tsx`'s own `workspaceHost`, just for
-            this Window's own arrangement rather than a shared instance
-            other Windows depend on: unmounting would rebuild this Window's
-            dockview from scratch on exit, losing whatever the user had
-            added beyond the one seeded Pane. */}
-        <div className={styles.workspaceHost} hidden={focusDashboardId !== null}>
-          <Workspace onReady={handleReady} getTabContextMenuItems={handleTabContextMenuItems} />
+    <OpenPlotProvider openPlot={handleOpenPlot}>
+      <FocusModeProvider enter={enterFocusMode}>
+        <div className={styles.shell}>
+          {focusDashboardId !== null ? (
+            <FocusModeView dashboardId={focusDashboardId} windowId={windowId} onExit={exitFocusMode} />
+          ) : (
+            <DaughterWindowChrome
+              entries={paneMenuEntries(PANES, paneLocations, windowId, openDaughterWindows, customNames)}
+              onOpenPane={handleOpenPane}
+            />
+          )}
+          {/* Always mounted, hidden rather than unmounted during Focus Mode —
+              same reasoning as `AppShell.tsx`'s own `workspaceHost`, just for
+              this Window's own arrangement rather than a shared instance
+              other Windows depend on: unmounting would rebuild this Window's
+              dockview from scratch on exit, losing whatever the user had
+              added beyond the one seeded Pane. */}
+          <div className={styles.workspaceHost} hidden={focusDashboardId !== null}>
+            <Workspace onReady={handleReady} getTabContextMenuItems={handleTabContextMenuItems} />
+          </div>
         </div>
-      </div>
 
-      <Dialog
-        open={moveToNewWindow.pendingPanel !== null}
-        onOpenChange={open => {
-          if (!open) moveToNewWindow.cancel();
-        }}
-        title="Open another Daughter Window?"
-        description="You already have several Daughter Windows open."
-        footer={
-          <>
-            <Button variant="secondary" size="sm" onClick={moveToNewWindow.cancel}>
-              Cancel
-            </Button>
-            <Button variant="primary" size="sm" onClick={moveToNewWindow.confirm}>
-              Open window
-            </Button>
-          </>
-        }
-      >
-        <p>Each one keeps arranging and polling — this is a soft limit, not a hard one, if your bench genuinely needs it.</p>
-      </Dialog>
-    </FocusModeProvider>
+        <Dialog
+          open={moveToNewWindow.pendingPanel !== null}
+          onOpenChange={open => {
+            if (!open) moveToNewWindow.cancel();
+          }}
+          title="Open another Daughter Window?"
+          description="You already have several Daughter Windows open."
+          footer={
+            <>
+              <Button variant="secondary" size="sm" onClick={moveToNewWindow.cancel}>
+                Cancel
+              </Button>
+              <Button variant="primary" size="sm" onClick={moveToNewWindow.confirm}>
+                Open window
+              </Button>
+            </>
+          }
+        >
+          <p>Each one keeps arranging and polling — this is a soft limit, not a hard one, if your bench genuinely needs it.</p>
+        </Dialog>
+      </FocusModeProvider>
+    </OpenPlotProvider>
   );
 }
 

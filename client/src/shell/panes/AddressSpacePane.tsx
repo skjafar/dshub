@@ -7,6 +7,7 @@ import type { AddressSpace } from '../addressSpace';
 import { useSelection } from '../SelectionContext';
 import { filterEntries } from '../entryFilter';
 import { holdsControl, isLive, linkStateOf } from '../linkState';
+import { useOpenPlot } from '../OpenPlotContext';
 import { instanceOfPaneId } from '../paneRegistry';
 import type { PaneProps } from '../paneRegistry';
 import { usePaneState } from '../paneState';
@@ -94,6 +95,7 @@ export function AddressSpacePane({
 }: AddressSpacePaneProps): React.JSX.Element {
   const { state } = useDSHub();
   const { select, retitleSelection } = useSelection();
+  const { openPlot } = useOpenPlot();
   const binding = useSpaceBinding(space);
   const map = useMapEntries(space);
 
@@ -172,6 +174,16 @@ export function AddressSpacePane({
     },
     [updatePane, select, space, paneId, title, connected, read]
   );
+
+  /**
+   * Right-click "Plot": null in Parameters, the one space `PlottableSpace`
+   * has no form for, rather than offering a menu item that could never do
+   * anything.
+   */
+  const handlePlot = useMemo<((entry: MapEntry) => void) | null>(() => {
+    if (space !== 'register' && space !== 'sysRegister') return null;
+    return (entry: MapEntry) => openPlot(entry, space);
+  }, [space, openPlot]);
 
   // ── Writing ───────────────────────────────────────────────────────────────
 
@@ -307,6 +319,7 @@ export function AddressSpacePane({
       link={link}
       map={map}
       write={write}
+      onPlot={handlePlot}
     />
   );
 }

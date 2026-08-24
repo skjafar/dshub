@@ -13,6 +13,9 @@ export { cx } from './cx';
 export { Button } from './Button';
 export type { ButtonProps, ButtonSize, ButtonVariant } from './Button';
 
+export { ContextMenu, ContextMenuItem } from './ContextMenu';
+export type { ContextMenuItemProps, ContextMenuProps } from './ContextMenu';
+
 export { Dialog } from './Dialog';
 export type { DialogProps } from './Dialog';
 

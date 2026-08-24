@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import type { MapEntry } from '../../maps/mapParser';
-import { Button, Select, Switch, Table, TextField, cx } from '../../ui';
+import { Button, ContextMenuItem, Select, Switch, Table, TextField, cx } from '../../ui';
 import type { Column } from '../../ui';
 import {
   ADDRESS_SPACE_DESCRIPTION,
@@ -60,6 +60,13 @@ export interface EntriesProps {
    * read-only space there never will be.
    */
   readonly write: WriteBarProps | null;
+  /**
+   * Right-click "Plot" for a row, or null in a space nothing can plot
+   * (Parameters — `PlottableSpace` has no Parameter form). Absent rather than
+   * disabled, matching `write`'s own reasoning above: there is no such action
+   * for this space to grey out.
+   */
+  readonly onPlot: ((entry: MapEntry) => void) | null;
 }
 
 const FORMAT_LABEL: Readonly<Record<DisplayFormat, string>> = {
@@ -126,6 +133,7 @@ export function Entries({
   link,
   map,
   write,
+  onPlot,
 }: EntriesProps): React.JSX.Element {
   const liveId = useId();
   const stale = isStale(link);
@@ -188,6 +196,13 @@ export function Entries({
       render: row => <span className={styles.meta}>{accessLabel(space, row.entry)}</span>,
     },
   ];
+
+  const rowContextMenu =
+    onPlot === null
+      ? undefined
+      : (row: EntryRow): React.JSX.Element => (
+          <ContextMenuItem onSelect={() => onPlot(row.entry)}>Plot</ContextMenuItem>
+        );
 
   return (
     <div className={styles.pane}>
@@ -281,6 +296,7 @@ export function Entries({
             selectedKey={selectedAddress === null ? undefined : String(selectedAddress)}
             onSelect={row => onSelect(row.entry)}
             emptyMessage={`No ${entryName} matches “${query.trim()}”.`}
+            rowContextMenu={rowContextMenu}
           />
         </div>
       )}

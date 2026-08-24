@@ -40,7 +40,7 @@ const SOURCE_OPTIONS = [
   { value: 'sysRegister' as const, label: SOURCE_LABEL.sysRegister },
 ];
 
-interface PlotSeriesConfig {
+export interface PlotSeriesConfig {
   readonly name: string;
   readonly source: PlottableSpace;
   readonly address: number;
@@ -48,7 +48,8 @@ interface PlotSeriesConfig {
   readonly visible: boolean;
 }
 
-interface PlotPaneState {
+/** Exported so `OpenPlotContext`'s own implementations can seed a new Plot Pane's `usePaneState` with a fully-shaped value rather than an untyped object. */
+export interface PlotPaneState {
   readonly series: readonly PlotSeriesConfig[];
   readonly pollInterval: number;
   readonly timeSpan: number;

@@ -4,6 +4,7 @@ import type { AddPanelPositionOptions, DockviewApi } from 'dockview';
 import { Button, Dialog, TooltipProvider } from '../ui';
 import { useBackendPort } from '../contexts/BackendPortContext';
 import { useSettings } from '../contexts/SettingsContext';
+import type { MapEntry } from '../maps/mapParser';
 import { AppChrome } from './AppChrome';
 import { closeDaughterWindow, focusDaughterWindow } from './daughterWindowNative';
 import { customWindowNames, knownWindowIds, paneMenuEntries, windowLabel } from './daughterWindows';
@@ -11,12 +12,15 @@ import { useDaughterWindowLifecycle } from './useDaughterWindowLifecycle';
 import { FocusModeProvider } from './FocusModeContext';
 import { FocusModeView } from './FocusModeView';
 import { MAIN_WINDOW_ID } from './focusMode';
+import { OpenPlotProvider } from './OpenPlotContext';
 import { usePaneLocations } from './paneLocations';
+import type { PlotPaneState } from './panes/PlotPane';
 import { SelectionProvider, useSelection } from './SelectionContext';
 import { Workspace } from './Workspace';
 import { PANES, paneDefinition, paneId } from './paneRegistry';
 import type { PaneKind } from './paneRegistry';
 import { restorePaneState, retainPaneState, snapshotPaneStates, subscribePaneStateChanges } from './paneState';
+import type { PlottableSpace } from './plotStream';
 import { retainSeriesFor } from './plotStream';
 import { useMoveToNewDaughterWindow } from './useMoveToNewDaughterWindow';
 import { useMoveToWindow } from './useMoveToWindow';
@@ -363,6 +367,22 @@ function WorkspaceShell(): React.JSX.Element {
     customNames
   );
 
+  /** `OpenPlotProvider`'s own implementation: right-click "Plot" on a Registers/System Registers row opens a fresh Plot Pane already carrying that one entry as its series, using this Profile's own plot defaults for poll interval and time span the same way a manually-added series would. */
+  const handleOpenPlot = useCallback(
+    (entry: MapEntry, source: PlottableSpace) => {
+      const { pollInterval, timeSpan } = settingsRef.current.plotDefaults;
+      const seed: PlotPaneState = {
+        series: [{ name: entry.name, source, address: entry.address, colorSlot: 0, visible: true }],
+        pollInterval,
+        timeSpan,
+        pickerSource: source,
+        pickerQuery: '',
+      };
+      openPane('plot', undefined, undefined, seed);
+    },
+    [openPane]
+  );
+
   const handleReady = useCallback(
     (api: DockviewApi) => {
       apiRef.current = api;
@@ -630,67 +650,69 @@ function WorkspaceShell(): React.JSX.Element {
   }, [flushAutosave, closeAllDaughterWindows]);
 
   return (
-    <FocusModeProvider enter={enterFocusMode}>
-      <div className={styles.shell}>
-        {mainFocusDashboardId !== null ? (
-          <FocusModeView dashboardId={mainFocusDashboardId} windowId={MAIN_WINDOW_ID} onExit={exitFocusMode} />
-        ) : (
-          <AppChrome
-            onOpenPane={handleOpenPane}
-            workspaces={collection?.workspaces ?? []}
-            activeWorkspaceId={collection?.activeWorkspaceId ?? ''}
-            defaultWorkspaceId={collection?.defaultWorkspaceId ?? ''}
-            onSwitchWorkspace={handleSwitchWorkspace}
-            onSaveWorkspaceAs={handleSaveWorkspaceAs}
-            onRenameWorkspace={handleRenameWorkspace}
-            onDeleteWorkspace={handleDeleteWorkspace}
-            onBeforeProfileChange={handleBeforeProfileChange}
-            daughterWindows={openDaughterWindows.map(label => ({
-              id: label,
-              label: windowLabel(label, openDaughterWindows, customNames, paneLocations),
-              isCustomName: customNames.has(label),
-            }))}
-            onFocusDaughterWindow={handleFocusDaughterWindow}
-            onCloseDaughterWindow={handleCloseDaughterWindow}
-            onRenameDaughterWindow={handleRenameDaughterWindow}
-            paneMenuEntries={paneMenuEntries(PANES, paneLocations, MAIN_WINDOW_ID, openDaughterWindows, customNames)}
-          />
-        )}
-        {/* Always mounted. Hidden rather than unmounted while the Main
-            Window is in Focus Mode, so this Window's own in-session
-            arrangement survives the toggle. Keyed on the Profile regardless:
-            switching one is a different Workspace collection entirely
-            (`workspacesByProfile` is itself keyed by Profile), and
-            remounting is what makes `handleReady` run again against the new
-            Profile's own saved layout — or seed one — rather than leaving
-            the old Profile's Panes on screen pointed at a Map that no longer
-            describes them. */}
-        <div className={styles.workspaceHost} hidden={mainFocusDashboardId !== null}>
-          <Workspace key={profileId} onReady={handleReady} getTabContextMenuItems={handleTabContextMenuItems} />
+    <OpenPlotProvider openPlot={handleOpenPlot}>
+      <FocusModeProvider enter={enterFocusMode}>
+        <div className={styles.shell}>
+          {mainFocusDashboardId !== null ? (
+            <FocusModeView dashboardId={mainFocusDashboardId} windowId={MAIN_WINDOW_ID} onExit={exitFocusMode} />
+          ) : (
+            <AppChrome
+              onOpenPane={handleOpenPane}
+              workspaces={collection?.workspaces ?? []}
+              activeWorkspaceId={collection?.activeWorkspaceId ?? ''}
+              defaultWorkspaceId={collection?.defaultWorkspaceId ?? ''}
+              onSwitchWorkspace={handleSwitchWorkspace}
+              onSaveWorkspaceAs={handleSaveWorkspaceAs}
+              onRenameWorkspace={handleRenameWorkspace}
+              onDeleteWorkspace={handleDeleteWorkspace}
+              onBeforeProfileChange={handleBeforeProfileChange}
+              daughterWindows={openDaughterWindows.map(label => ({
+                id: label,
+                label: windowLabel(label, openDaughterWindows, customNames, paneLocations),
+                isCustomName: customNames.has(label),
+              }))}
+              onFocusDaughterWindow={handleFocusDaughterWindow}
+              onCloseDaughterWindow={handleCloseDaughterWindow}
+              onRenameDaughterWindow={handleRenameDaughterWindow}
+              paneMenuEntries={paneMenuEntries(PANES, paneLocations, MAIN_WINDOW_ID, openDaughterWindows, customNames)}
+            />
+          )}
+          {/* Always mounted. Hidden rather than unmounted while the Main
+              Window is in Focus Mode, so this Window's own in-session
+              arrangement survives the toggle. Keyed on the Profile regardless:
+              switching one is a different Workspace collection entirely
+              (`workspacesByProfile` is itself keyed by Profile), and
+              remounting is what makes `handleReady` run again against the new
+              Profile's own saved layout — or seed one — rather than leaving
+              the old Profile's Panes on screen pointed at a Map that no longer
+              describes them. */}
+          <div className={styles.workspaceHost} hidden={mainFocusDashboardId !== null}>
+            <Workspace key={profileId} onReady={handleReady} getTabContextMenuItems={handleTabContextMenuItems} />
+          </div>
         </div>
-      </div>
 
-      <Dialog
-        open={moveToNewWindow.pendingPanel !== null}
-        onOpenChange={open => {
-          if (!open) moveToNewWindow.cancel();
-        }}
-        title="Open another Daughter Window?"
-        description="You already have several Daughter Windows open."
-        footer={
-          <>
-            <Button variant="secondary" size="sm" onClick={moveToNewWindow.cancel}>
-              Cancel
-            </Button>
-            <Button variant="primary" size="sm" onClick={moveToNewWindow.confirm}>
-              Open window
-            </Button>
-          </>
-        }
-      >
-        <p>Each one keeps arranging and polling — this is a soft limit, not a hard one, if your bench genuinely needs it.</p>
-      </Dialog>
-    </FocusModeProvider>
+        <Dialog
+          open={moveToNewWindow.pendingPanel !== null}
+          onOpenChange={open => {
+            if (!open) moveToNewWindow.cancel();
+          }}
+          title="Open another Daughter Window?"
+          description="You already have several Daughter Windows open."
+          footer={
+            <>
+              <Button variant="secondary" size="sm" onClick={moveToNewWindow.cancel}>
+                Cancel
+              </Button>
+              <Button variant="primary" size="sm" onClick={moveToNewWindow.confirm}>
+                Open window
+              </Button>
+            </>
+          }
+        >
+          <p>Each one keeps arranging and polling — this is a soft limit, not a hard one, if your bench genuinely needs it.</p>
+        </Dialog>
+      </FocusModeProvider>
+    </OpenPlotProvider>
   );
 }
 
