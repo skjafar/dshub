@@ -32,7 +32,7 @@ import type {
   WidgetConfig,
   WidgetTarget,
 } from '../widgets/widgetConfig';
-import { isBoundWidgetKind } from '../widgets/widgetRegistry';
+import { isBoundWidgetKind, widgetDefinition } from '../widgets/widgetRegistry';
 import type { BoundWidgetKind, WidgetKind } from '../widgets/widgetRegistry';
 import { Button, Dialog, NumericInput, Select, Switch, Table, TextField } from '../../ui';
 import type { Column, SelectOption } from '../../ui';
@@ -378,13 +378,97 @@ function thresholdsApplyTo(kind: BoundWidgetKind): boolean {
   return kind !== 'statusMatrix' && kind !== 'valueWrite';
 }
 
+const ADDRESS_PICKER_COLUMNS: readonly Column<MapEntry>[] = [
+  { key: 'name', header: 'Name', render: entry => entry.name },
+  { key: 'address', header: 'Addr', numeric: true, mono: true, width: '5.5rem', render: entry => entry.address },
+];
+
+/**
+ * The Select-plus-filter-field-plus-results combobox every address picker in
+ * this dialog is built from — `BindingPicker` (and, through it, Data Table
+ * rows, Alarm List entries and Mini-Plot's `series`) and `ButtonFields`'s own
+ * write target both reduce to "pick one entry from a filtered, space-scoped
+ * list," differing only in what `S` and the entry list are.
+ *
+ * The field shows the current selection's name when it is not the one being
+ * edited, and the results list is a real dropdown — mounted only while the
+ * field has focus — rather than a Table permanently occupying space below an
+ * empty-looking filter box. Selecting a row keeps focus on the field (the
+ * results host swallows the row click's own `mousedown` before it can blur
+ * the input) so `onSelect` still fires; picking a row or pressing Escape both
+ * close it the same way a blur would.
+ */
+function AddressComboBox<S extends AddressSpace>({
+  space,
+  onSpaceChange,
+  spaceOptions,
+  entries,
+  selectedEntryName,
+  onPick,
+}: {
+  readonly space: S;
+  readonly onSpaceChange: (space: S) => void;
+  readonly spaceOptions: readonly SelectOption<S>[];
+  readonly entries: readonly MapEntry[];
+  readonly selectedEntryName: string | undefined;
+  readonly onPick: (entry: MapEntry) => void;
+}): React.JSX.Element {
+  const [query, setQuery] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const matches = useMemo(() => filterEntries(entries, query), [entries, query]);
+
+  const handlePick = (entry: MapEntry): void => {
+    onPick(entry);
+    setQuery('');
+    setIsOpen(false);
+  };
+
+  return (
+    <>
+      <div className={styles.picker}>
+        <Select value={space} onValueChange={onSpaceChange} options={spaceOptions} aria-label="Address Space" />
+        <TextField
+          value={isOpen ? query : (selectedEntryName ?? '')}
+          onChange={event => setQuery(event.target.value)}
+          onFocus={() => {
+            setQuery('');
+            setIsOpen(true);
+          }}
+          onBlur={() => setIsOpen(false)}
+          onKeyDown={event => {
+            if (event.key !== 'Escape') return;
+            setIsOpen(false);
+            event.currentTarget.blur();
+          }}
+          placeholder="Filter by name or address (0x2A)"
+          aria-label="Filter addresses to bind"
+          spellCheck={false}
+          autoComplete="off"
+        />
+      </div>
+      {isOpen ? (
+        <div className={styles.pickerTableHost} onMouseDown={event => event.preventDefault()}>
+          <Table
+            columns={ADDRESS_PICKER_COLUMNS}
+            rows={matches}
+            rowKey={entry => entry.name}
+            selectedKey={selectedEntryName}
+            onSelect={handlePick}
+            emptyMessage="Nothing matches."
+          />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 /**
  * The address-picker half of the Binding section, generic over which spaces
  * are offered — a plain `binding` (every space, or writable-only for a
  * write-mirroring bound kind) and a Mini-Plot's `series` (register/system
  * register only, the two `plotStream` can stream) are the same shape with a
  * different `S`, so this is the one place "pick an address" is built rather
- * than three call sites each rebuilding their own Select/filter/Table.
+ * than three call sites each rebuilding their own {@link AddressComboBox}.
  */
 function BindingPicker<S extends AddressSpace>({
   binding,
@@ -398,7 +482,6 @@ function BindingPicker<S extends AddressSpace>({
   readonly onClear: () => void;
 }): React.JSX.Element {
   const [space, setSpace] = useState<S>(binding?.space ?? spaceOptions[0].value);
-  const [query, setQuery] = useState('');
 
   const map = useMapEntries(space);
   const boundEntry = useMemo(
@@ -406,12 +489,6 @@ function BindingPicker<S extends AddressSpace>({
       binding && binding.space === space ? (map.entries.find(entry => entry.address === binding.address) ?? null) : null,
     [binding, map.entries, space]
   );
-  const matches = useMemo(() => filterEntries(map.entries, query), [map.entries, query]);
-
-  const pickerColumns: readonly Column<MapEntry>[] = [
-    { key: 'name', header: 'Name', render: entry => entry.name },
-    { key: 'address', header: 'Addr', numeric: true, mono: true, width: '5.5rem', render: entry => entry.address },
-  ];
 
   return (
     <section className={styles.section}>
@@ -429,27 +506,14 @@ function BindingPicker<S extends AddressSpace>({
         <p className={styles.boundText}>Not bound to an address.</p>
       )}
 
-      <div className={styles.picker}>
-        <Select value={space} onValueChange={setSpace} options={spaceOptions} aria-label="Address Space" />
-        <TextField
-          value={query}
-          onChange={event => setQuery(event.target.value)}
-          placeholder="Filter by name or address (0x2A)"
-          aria-label="Filter addresses to bind"
-          spellCheck={false}
-          autoComplete="off"
-        />
-      </div>
-      <div className={styles.pickerTableHost}>
-        <Table
-          columns={pickerColumns}
-          rows={matches}
-          rowKey={entry => entry.name}
-          selectedKey={boundEntry?.name}
-          onSelect={entry => onPick(entry, space)}
-          emptyMessage="Nothing matches."
-        />
-      </div>
+      <AddressComboBox
+        space={space}
+        onSpaceChange={(next: S) => setSpace(next)}
+        spaceOptions={spaceOptions}
+        entries={map.entries}
+        selectedEntryName={boundEntry?.name}
+        onPick={entry => onPick(entry, space)}
+      />
     </section>
   );
 }
@@ -779,7 +843,7 @@ function MiniPlotFields({ draft, onChange }: FieldsProps<MiniPlotWidgetConfig>):
 /**
  * A Button's write target: an address (a plain write) or a Command (a send)
  * — {@link WidgetTarget}'s own two kinds, picked here through the same
- * address-picker Table `BoundFields` uses, or the Profile's own Command
+ * {@link AddressComboBox} `BoundFields` uses, or the Profile's own Command
  * catalogue when the target is a Command.
  */
 function ButtonFields({ draft, onChange }: FieldsProps<ButtonWidgetConfig>): React.JSX.Element {
@@ -789,9 +853,7 @@ function ButtonFields({ draft, onChange }: FieldsProps<ButtonWidgetConfig>): Rea
   const [space, setSpace] = useState<WritableAddressSpace>(
     draft.target?.kind === 'address' ? draft.target.space : 'register'
   );
-  const [query, setQuery] = useState('');
   const map = useMapEntries(space);
-  const matches = useMemo(() => filterEntries(map.entries, query), [map.entries, query]);
 
   const targetKind = draft.target?.kind ?? 'address';
 
@@ -800,11 +862,6 @@ function ButtonFields({ draft, onChange }: FieldsProps<ButtonWidgetConfig>): Rea
     if (target?.kind !== 'address') return null;
     return map.entries.find(entry => entry.address === target.address) ?? null;
   }, [draft.target, map.entries]);
-
-  const pickerColumns: readonly Column<MapEntry>[] = [
-    { key: 'name', header: 'Name', render: entry => entry.name },
-    { key: 'address', header: 'Addr', numeric: true, mono: true, width: '5.5rem', render: entry => entry.address },
-  ];
 
   const handleTargetKindChange = (next: 'address' | 'command'): void => {
     onChange({ target: null });
@@ -847,32 +904,14 @@ function ButtonFields({ draft, onChange }: FieldsProps<ButtonWidgetConfig>): Rea
           ) : (
             <p className={styles.boundText}>Not bound to an address.</p>
           )}
-          <div className={styles.picker}>
-            <Select
-              value={space}
-              onValueChange={setSpace}
-              options={WRITABLE_SPACE_OPTIONS}
-              aria-label="Target Address Space"
-            />
-            <TextField
-              value={query}
-              onChange={event => setQuery(event.target.value)}
-              placeholder="Filter by name or address (0x2A)"
-              aria-label="Filter addresses to bind"
-              spellCheck={false}
-              autoComplete="off"
-            />
-          </div>
-          <div className={styles.pickerTableHost}>
-            <Table
-              columns={pickerColumns}
-              rows={matches}
-              rowKey={entry => entry.name}
-              selectedKey={boundEntry?.name}
-              onSelect={handlePickAddress}
-              emptyMessage="Nothing matches."
-            />
-          </div>
+          <AddressComboBox
+            space={space}
+            onSpaceChange={(next: WritableAddressSpace) => setSpace(next)}
+            spaceOptions={WRITABLE_SPACE_OPTIONS}
+            entries={map.entries}
+            selectedEntryName={boundEntry?.name}
+            onPick={handlePickAddress}
+          />
         </>
       ) : (
         <CommandSelect
@@ -1035,12 +1074,18 @@ export function WidgetConfigDialog({
     onOpenChange(false);
   };
 
+  // The dialog otherwise gives no indication of which of the sixteen kinds
+  // is being configured — `widgetDefinition` is the same lookup the add-Widget
+  // menu already uses for this kind's display name, so title and description
+  // stay in step with that menu rather than restating them here.
+  const definition = widgetDefinition(kind);
+
   return (
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Configure Widget"
-      description="Bind an address, choose how its value is displayed, and set the thresholds that colour it."
+      title={definition ? `Configure ${definition.title}` : 'Configure Widget'}
+      description={definition?.description ?? 'Configure this Widget.'}
       footer={
         <>
           <Button variant="secondary" onClick={() => onOpenChange(false)}>

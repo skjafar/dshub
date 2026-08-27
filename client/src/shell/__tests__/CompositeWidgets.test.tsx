@@ -438,7 +438,7 @@ describe('the composite family configures through the same shared dialog', () =>
     await user.click(await screen.findByRole('menuitem', { name: 'Data Table' }));
 
     await user.click(screen.getByRole('button', { name: /^Configure/ }));
-    const dialog = screen.getByRole('dialog', { name: 'Configure Widget' });
+    const dialog = screen.getByRole('dialog', { name: 'Configure Data Table' });
 
     expect(within(dialog).getByText('Rows')).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: /add row/i })).toBeInTheDocument();
@@ -455,7 +455,7 @@ describe('the composite family configures through the same shared dialog', () =>
     await user.click(await screen.findByRole('menuitem', { name: 'Container' }));
 
     await user.click(screen.getByRole('button', { name: /^Configure/ }));
-    const dialog = screen.getByRole('dialog', { name: 'Configure Widget' });
+    const dialog = screen.getByRole('dialog', { name: 'Configure Container' });
 
     expect(within(dialog).getByText('Layout')).toBeInTheDocument();
     expect(within(dialog).getByRole('textbox', { name: 'Padding' })).toBeInTheDocument();
@@ -472,7 +472,7 @@ describe('the composite family configures through the same shared dialog', () =>
     await user.click(await screen.findByRole('menuitem', { name: 'Device Info' }));
 
     await user.click(screen.getByRole('button', { name: /^Configure/ }));
-    const dialog = screen.getByRole('dialog', { name: 'Configure Widget' });
+    const dialog = screen.getByRole('dialog', { name: 'Configure Device Info' });
 
     expect(within(dialog).getByRole('textbox', { name: 'Label' })).toBeInTheDocument();
     expect(within(dialog).queryByText('Binding')).not.toBeInTheDocument();

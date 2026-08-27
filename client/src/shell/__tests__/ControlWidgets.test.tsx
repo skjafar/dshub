@@ -616,7 +616,7 @@ describe('the control family configures through the same shared dialog', () => {
     await user.click(await screen.findByRole('menuitem', { name: 'Button' }));
 
     await user.click(screen.getByRole('button', { name: /^Configure/ }));
-    const dialog = screen.getByRole('dialog', { name: 'Configure Widget' });
+    const dialog = screen.getByRole('dialog', { name: 'Configure Button' });
 
     expect(within(dialog).getByText('Target')).toBeInTheDocument();
     expect(within(dialog).getByRole('combobox', { name: 'Target kind' })).toBeInTheDocument();
@@ -634,7 +634,7 @@ describe('the control family configures through the same shared dialog', () => {
     await user.click(await screen.findByRole('menuitem', { name: 'Directional Control' }));
 
     await user.click(screen.getByRole('button', { name: /^Configure/ }));
-    const dialog = screen.getByRole('dialog', { name: 'Configure Widget' });
+    const dialog = screen.getByRole('dialog', { name: 'Configure Directional Control' });
 
     expect(within(dialog).getByText('Directions')).toBeInTheDocument();
     expect(within(dialog).getByRole('combobox', { name: 'Up Command' })).toBeInTheDocument();

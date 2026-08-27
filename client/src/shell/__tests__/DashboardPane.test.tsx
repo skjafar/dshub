@@ -135,14 +135,15 @@ async function addWidget(user: UserEvent): Promise<void> {
   await user.click(await screen.findByRole('menuitem', { name: 'Value Readout' }));
 }
 
-/** Opens the shared config dialog for the (lone) Widget under test, whatever its current label reads. */
+/** Opens the shared config dialog for the (lone) `valueRead` Widget `addWidget` adds. */
 async function openConfigDialog(user: UserEvent): Promise<void> {
   await user.click(screen.getByRole('button', { name: /^Configure/ }));
-  await screen.findByRole('dialog', { name: 'Configure Widget' });
+  await screen.findByRole('dialog', { name: 'Configure Value Readout' });
 }
 
 async function bindToEntry(user: UserEvent, name: string): Promise<void> {
-  const dialog = screen.getByRole('dialog', { name: 'Configure Widget' });
+  const dialog = screen.getByRole('dialog', { name: 'Configure Value Readout' });
+  await user.click(within(dialog).getByRole('textbox', { name: 'Filter addresses to bind' }));
   await user.click(within(dialog).getByText(name));
 }
 
@@ -191,7 +192,7 @@ describe('adding, configuring and removing a Widget', () => {
     await addWidget(user);
     await openConfigDialog(user);
     await bindToEntry(user, 'SPINDLE_RPM');
-    await user.click(within(screen.getByRole('dialog', { name: 'Configure Widget' })).getByRole('button', { name: 'Save' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Configure Value Readout' })).getByRole('button', { name: 'Save' }));
 
     // Format: decimal (the default) reads the plain integer, and the label
     // auto-adopted the bound entry's name on this first binding.
@@ -201,7 +202,7 @@ describe('adding, configuring and removing a Widget', () => {
     // Reopen the same Widget to change its format and add a threshold — both
     // through the same shared surface, not a kind-specific one.
     await openConfigDialog(user);
-    const dialog = screen.getByRole('dialog', { name: 'Configure Widget' });
+    const dialog = screen.getByRole('dialog', { name: 'Configure Value Readout' });
 
     const formatCombo = within(dialog).getByRole('combobox', { name: 'Display format' });
     formatCombo.focus();
@@ -432,7 +433,7 @@ describe('kind-specific fields configure through the same shared dialog', () => 
     await user.click(await screen.findByRole('menuitem', { name: 'Gauge' }));
 
     await user.click(screen.getByRole('button', { name: /^Configure/ }));
-    let dialog = screen.getByRole('dialog', { name: 'Configure Widget' });
+    let dialog = screen.getByRole('dialog', { name: 'Configure Gauge' });
     expect(within(dialog).getByRole('textbox', { name: 'Maximum' })).toHaveValue('100');
 
     const maxField = within(dialog).getByRole('textbox', { name: 'Maximum' });
@@ -441,7 +442,7 @@ describe('kind-specific fields configure through the same shared dialog', () => 
     await user.click(within(dialog).getByRole('button', { name: 'Save' }));
 
     await user.click(screen.getByRole('button', { name: /^Configure/ }));
-    dialog = screen.getByRole('dialog', { name: 'Configure Widget' });
+    dialog = screen.getByRole('dialog', { name: 'Configure Gauge' });
     expect(within(dialog).getByRole('textbox', { name: 'Maximum' })).toHaveValue('500');
   });
 
@@ -454,7 +455,7 @@ describe('kind-specific fields configure through the same shared dialog', () => 
     await user.click(await screen.findByRole('menuitem', { name: 'Status Matrix' }));
 
     await user.click(screen.getByRole('button', { name: /^Configure/ }));
-    const dialog = screen.getByRole('dialog', { name: 'Configure Widget' });
+    const dialog = screen.getByRole('dialog', { name: 'Configure Status Matrix' });
 
     expect(within(dialog).queryByText('Thresholds')).not.toBeInTheDocument();
     expect(within(dialog).queryByRole('button', { name: /add rule/i })).not.toBeInTheDocument();
@@ -477,7 +478,7 @@ describe('kind-specific fields configure through the same shared dialog', () => 
     await user.click(screen.getByRole('button', { name: 'Edit' }));
     await user.click(screen.getByRole('button', { name: 'Configure Lamp' }));
 
-    const dialog = screen.getByRole('dialog', { name: 'Configure Widget' });
+    const dialog = screen.getByRole('dialog', { name: 'Configure LED Indicator' });
     const onLabelField = within(dialog).getByRole('textbox', { name: 'On label (optional)' });
     await user.type(onLabelField, 'Enabled');
     const offLabelField = within(dialog).getByRole('textbox', { name: 'Off label (optional)' });
