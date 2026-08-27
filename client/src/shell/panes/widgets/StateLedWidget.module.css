@@ -40,3 +40,17 @@
 .label.roleError { color: var(--status-error); }
 .label.roleInfo { color: var(--status-info); }
 .label.roleIdle { color: var(--status-idle); }
+
+/* `.roleX` above also sets `background` — meant for `.dot`, which wants a
+   solid fill. `.label` only wants the text `color` it was just given;
+   without this, `.label`'s background inherits the same role's colour as its
+   text, rendering the label's own text invisible against its own background
+   — the same two-tier pattern `DeviceInfoWidget.module.css` documents for
+   its `.linkDot`/`.linkState` pair. */
+.label.roleOk,
+.label.roleWarn,
+.label.roleError,
+.label.roleInfo,
+.label.roleIdle {
+  background: none;
+}

@@ -19,7 +19,7 @@ import styles from './DirectionalControlWidget.module.css';
 /** How often a held direction repeats its Command. Fast enough to feel like a jog, slow enough not to flood the link. */
 const REPEAT_INTERVAL_MS = 200;
 
-const ICON: Readonly<Record<Direction, React.ComponentType<{ size?: number }>>> = {
+const ICON: Readonly<Record<Direction, React.ComponentType<{ size?: string | number }>>> = {
   up: ArrowUp,
   down: ArrowDown,
   left: ArrowLeft,
@@ -148,7 +148,7 @@ export function DirectionalControlWidget({ config }: WidgetProps): React.JSX.Ele
               onKeyDown={handleKeyDown(direction)}
               onKeyUp={handleKeyUp(direction)}
             >
-              <Icon size={16} />
+              <Icon size="1em" />
             </Button>
           );
         })}

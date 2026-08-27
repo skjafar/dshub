@@ -17,8 +17,8 @@
 
 .linkDot {
   flex-shrink: 0;
-  width: 8px;
-  height: 8px;
+  width: clamp(6px, 8cqb, 10px);
+  height: clamp(6px, 8cqb, 10px);
   border-radius: 50%;
   background: var(--on-surface-variant);
   box-shadow: 0 0 6px currentColor;
