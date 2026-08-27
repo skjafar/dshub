@@ -10,6 +10,20 @@
 
 /* ─── Base ────────────────────────────────────────────────────────────────── */
 
+/* Every Pane's own root sizes itself with `height: 100%` and carries its own
+   padding — under the browser default (`content-box`), that padding adds to
+   the specified height rather than eating into it, so a Pane's box ends up
+   taller than the space it was given. That overflow has nowhere to go but
+   into the nearest scrolling ancestor (`Workspace.module.css`'s own
+   `.paneContent`), which is what put a second, spurious scrollbar around the
+   outside of every Pane alongside whatever it legitimately scrolls
+   internally. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
