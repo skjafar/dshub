@@ -50,7 +50,7 @@ function rewriteStoredWidget(
   if (widget.kind === 'container') {
     const container = widget.config as ContainerWidgetConfig;
     let anyChanged = false;
-    const childWidgets = container.childWidgets.map(child => {
+    const childWidgets = (container.childWidgets ?? []).map(child => {
       const result = rewriteStoredWidget(dashboardId, child, fixes);
       if (result.changed) anyChanged = true;
       return result.widget;
@@ -109,7 +109,7 @@ function rewriteStoredWidget(
     const rows =
       widget.kind === 'dataTable' ? (widget.config as DataTableWidgetConfig).rows : (widget.config as AlarmListWidgetConfig).alarms;
     let anyChanged = false;
-    const nextRows = rows.map((row, rowIndex) => {
+    const nextRows = (rows ?? []).map((row, rowIndex) => {
       const entry = findFix(
         fixes,
         c => c.kind === 'widgetRow' && c.dashboardId === dashboardId && c.widgetId === widget.id && c.rowField === rowField && c.rowIndex === rowIndex
@@ -131,7 +131,7 @@ function rewriteStoredWidget(
 
 function rewriteDashboard(dashboard: StoredDashboard, fixes: readonly BindingFix[]): { readonly dashboard: StoredDashboard; readonly changed: boolean } {
   let anyChanged = false;
-  const widgets = dashboard.widgets.map(widget => {
+  const widgets = (dashboard.widgets ?? []).map(widget => {
     const result = rewriteStoredWidget(dashboard.id, widget, fixes);
     if (result.changed) anyChanged = true;
     return result.widget;
@@ -182,11 +182,17 @@ function rewritePaneStates(
   return anyChanged ? { paneStates: next, changed: true } : { paneStates, changed: false };
 }
 
+/**
+ * `AppShell.tsx`'s own apply handler reads `settings.workspacesByProfile`
+ * directly, ahead of `sanitizeProfileWorkspaces` (which only runs later, when
+ * a Workspace is actually restored into dockview) — a `StoredWorkspace`
+ * missing `daughterWindows`/`paneStates` entirely must not crash the rewrite.
+ */
 function rewriteWorkspace(workspace: StoredWorkspace, fixes: readonly BindingFix[]): { readonly workspace: StoredWorkspace; readonly changed: boolean } {
-  const main = rewritePaneStates(workspace.id, null, workspace.paneStates, fixes);
+  const main = rewritePaneStates(workspace.id, null, workspace.paneStates ?? {}, fixes);
   let anyChanged = main.changed;
-  const daughterWindows = workspace.daughterWindows.map(daughterWindow => {
-    const result = rewritePaneStates(workspace.id, daughterWindow.name ?? daughterWindow.label, daughterWindow.paneStates, fixes);
+  const daughterWindows = (workspace.daughterWindows ?? []).map(daughterWindow => {
+    const result = rewritePaneStates(workspace.id, daughterWindow.name ?? daughterWindow.label, daughterWindow.paneStates ?? {}, fixes);
     if (result.changed) anyChanged = true;
     return result.changed ? { ...daughterWindow, paneStates: result.paneStates } : daughterWindow;
   });
@@ -210,7 +216,7 @@ export function applyBindingFixes(
   let nextDashboards = dashboards;
   if (dashboards) {
     let anyChanged = false;
-    const list = dashboards.dashboards.map(dashboard => {
+    const list = (dashboards.dashboards ?? []).map(dashboard => {
       const result = rewriteDashboard(dashboard, fixes);
       if (result.changed) anyChanged = true;
       return result.dashboard;
@@ -221,7 +227,7 @@ export function applyBindingFixes(
   let nextWorkspaces = workspaces;
   if (workspaces) {
     let anyChanged = false;
-    const list = workspaces.workspaces.map(workspace => {
+    const list = (workspaces.workspaces ?? []).map(workspace => {
       const result = rewriteWorkspace(workspace, fixes);
       if (result.changed) anyChanged = true;
       return result.workspace;

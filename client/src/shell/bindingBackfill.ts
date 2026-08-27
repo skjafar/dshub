@@ -63,16 +63,25 @@ function backfillPaneStates(
   return anyChanged ? { paneStates: next, changed: true } : { paneStates, changed: false };
 }
 
+/**
+ * Runs at settings-load time (`contexts/settingsMigration.ts`'s
+ * `finalizeSettings`), over `localStorage`'s raw, not-yet-sanitized JSON —
+ * `sanitizeProfileWorkspaces` only runs later, lazily, when a Workspace is
+ * actually restored into dockview (`AppShell.tsx`/`DaughterWindowShell.tsx`).
+ * A `StoredWorkspace` missing `daughterWindows`/`paneStates` entirely (an
+ * older shape, or a hand-edited/corrupted blob) must not crash this pass —
+ * it just has nothing there to backfill.
+ */
 function backfillWorkspace(
   workspace: StoredWorkspace,
   entriesBySpace: EntriesBySpace
 ): { readonly workspace: StoredWorkspace; readonly changed: boolean } {
-  const main = backfillPaneStates(workspace.paneStates, entriesBySpace);
+  const main = backfillPaneStates(workspace.paneStates ?? {}, entriesBySpace);
   let anyChanged = main.changed;
 
   const daughterWindows: StoredDaughterWindow[] = [];
-  for (const daughterWindow of workspace.daughterWindows) {
-    const result = backfillPaneStates(daughterWindow.paneStates, entriesBySpace);
+  for (const daughterWindow of workspace.daughterWindows ?? []) {
+    const result = backfillPaneStates(daughterWindow.paneStates ?? {}, entriesBySpace);
     if (result.changed) anyChanged = true;
     daughterWindows.push(result.changed ? { ...daughterWindow, paneStates: result.paneStates } : daughterWindow);
   }
@@ -88,7 +97,7 @@ function backfillProfileWorkspaces(
 ): { readonly workspaces: ProfileWorkspaces | undefined; readonly changed: boolean } {
   if (!workspaces) return { workspaces, changed: false };
   let anyChanged = false;
-  const list = workspaces.workspaces.map(workspace => {
+  const list = (workspaces.workspaces ?? []).map(workspace => {
     const result = backfillWorkspace(workspace, entriesBySpace);
     if (result.changed) anyChanged = true;
     return result.workspace;
@@ -104,7 +113,7 @@ function backfillProfileDashboards(
 ): { readonly dashboards: ProfileDashboards | undefined; readonly changed: boolean } {
   if (!dashboards) return { dashboards, changed: false };
   let anyChanged = false;
-  const list = dashboards.dashboards.map(dashboard => {
+  const list = (dashboards.dashboards ?? []).map(dashboard => {
     const result = backfillDashboardWidgets(dashboard, entriesBySpace);
     if (result.changed) anyChanged = true;
     return result.dashboard;

@@ -184,4 +184,27 @@ describe('applyBindingFixes', () => {
     expect(result.dashboards).toBe(dashboards);
     expect(result.workspaces).toBe(workspaces);
   });
+
+  /**
+   * `AppShell.tsx`'s own apply handler reads `settings.workspacesByProfile`
+   * directly, ahead of `sanitizeProfileWorkspaces` (which only runs later,
+   * lazily, when a Workspace is actually restored) — a real crash from
+   * exactly this gap: iterating a Workspace missing `daughterWindows`
+   * entirely threw "is not iterable" against real, older-shaped stored data.
+   */
+  it('does not crash on a Workspace or Dashboard missing an array field entirely, even with a fix targeting it', () => {
+    const malformedWorkspace = { id: 'w1', name: 'W' } as unknown as StoredWorkspace;
+    const malformedDashboard = { id: 'd1', name: 'D' } as unknown as StoredDashboard;
+    const fixes: readonly BindingFix[] = [
+      { coordinate: { kind: 'widgetBinding', dashboardId: 'd1', widgetId: 'ghost' }, entry: entry() },
+    ];
+
+    expect(() =>
+      applyBindingFixes(
+        { dashboards: [malformedDashboard] },
+        { workspaces: [malformedWorkspace], defaultWorkspaceId: 'w1', activeWorkspaceId: 'w1' },
+        fixes
+      )
+    ).not.toThrow();
+  });
 });

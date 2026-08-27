@@ -461,7 +461,7 @@ function backfillBoundEntries(
   entriesBySpace: EntriesBySpace
 ): { readonly entries: readonly BoundWidgetConfig[]; readonly changed: boolean } {
   let anyChanged = false;
-  const next = entries.map(row => {
+  const next = (entries ?? []).map(row => {
     const result = backfillWidgetBinding(row.binding, entriesBySpace);
     if (!result.changed) return row;
     anyChanged = true;
@@ -520,7 +520,7 @@ function backfillStoredWidget(
   if (widget.kind === 'container') {
     const container = widget.config as ContainerWidgetConfig;
     let anyChanged = false;
-    const childWidgets = container.childWidgets.map(child => {
+    const childWidgets = (container.childWidgets ?? []).map(child => {
       const result = backfillStoredWidget(child, entriesBySpace);
       if (result.changed) anyChanged = true;
       return result.widget;
@@ -545,7 +545,7 @@ export function backfillDashboardWidgets(
   entriesBySpace: EntriesBySpace
 ): { readonly dashboard: StoredDashboard; readonly changed: boolean } {
   let anyChanged = false;
-  const widgets = dashboard.widgets.map(widget => {
+  const widgets = (dashboard.widgets ?? []).map(widget => {
     const result = backfillStoredWidget(widget, entriesBySpace);
     if (result.changed) anyChanged = true;
     return result.widget;

@@ -131,4 +131,27 @@ describe('backfillProfileBindingSnapshots', () => {
     const result = backfillProfileBindingSnapshots(undefined, undefined, { register: [], parameter: [], sysRegister: [] });
     expect(result).toEqual({ dashboards: undefined, workspaces: undefined, changed: false });
   });
+
+  /**
+   * This module runs at settings-load time, directly over `localStorage`'s
+   * raw JSON — before `sanitizeProfileWorkspaces`/`sanitizeProfileDashboards`
+   * ever run (those only run later, lazily, when a Workspace or Dashboard is
+   * actually restored). A real crash from exactly this gap: `for (const
+   * daughterWindow of workspace.daughterWindows)` over a workspace missing
+   * that field entirely threw "is not iterable" the first time a user hit
+   * this code path against their own real (older-shaped) stored data.
+   */
+  it('does not crash on a Workspace, Dashboard, or Container missing an array field entirely — raw, not-yet-sanitized data', () => {
+    const malformedWorkspace = { id: 'w1', name: 'W' } as unknown as StoredWorkspace;
+    const malformedDashboard = { id: 'd1', name: 'D' } as unknown as StoredDashboard;
+    const entries = { register: [mapEntry()], parameter: [], sysRegister: [] };
+
+    expect(() =>
+      backfillProfileBindingSnapshots(
+        { dashboards: [malformedDashboard] },
+        { workspaces: [malformedWorkspace], defaultWorkspaceId: 'w1', activeWorkspaceId: 'w1' },
+        entries
+      )
+    ).not.toThrow();
+  });
 });

@@ -327,6 +327,21 @@ describe('backfillDashboardWidgets', () => {
       snapshotFromEntry(entry)
     );
   });
+
+  /**
+   * This runs at settings-load time over `localStorage`'s raw JSON, ahead of
+   * `sanitizeProfileDashboards` (which only runs later, lazily, when a
+   * Dashboard is actually opened) — a Dashboard or a Container missing its
+   * own array field entirely must not crash the backfill pass.
+   */
+  it('does not crash on a Dashboard or Container missing its own widgets array entirely', () => {
+    const malformedDashboard = { id: 'd1', name: 'D' } as unknown as StoredDashboard;
+    expect(() => backfillDashboardWidgets(malformedDashboard, entriesBySpace())).not.toThrow();
+
+    const malformedContainerConfig = { label: 'Group', padding: 8, spacing: 8 } as unknown as ContainerWidgetConfig;
+    const withMalformedContainer = dashboard({ widgets: [widget({ kind: 'container', config: malformedContainerConfig })] });
+    expect(() => backfillDashboardWidgets(withMalformedContainer, entriesBySpace())).not.toThrow();
+  });
 });
 
 describe('nextAvailablePosition', () => {

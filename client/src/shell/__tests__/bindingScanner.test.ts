@@ -172,6 +172,28 @@ describe('scanProfileBindings', () => {
   });
 });
 
+describe('scanProfileBindings — resilience against raw, not-yet-sanitized data', () => {
+  /**
+   * `AppShell.tsx`'s own live review scan reads `settings.workspacesByProfile`
+   * directly, ahead of `sanitizeProfileWorkspaces` (which only runs later,
+   * lazily, when a Workspace is actually restored into dockview) — a real
+   * crash from exactly this gap: iterating a Workspace missing
+   * `daughterWindows` entirely threw "is not iterable" against real,
+   * older-shaped stored data.
+   */
+  it('does not crash on a Workspace, Dashboard, or Container missing an array field entirely', () => {
+    const malformedWorkspace = { id: 'w1', name: 'W' } as unknown as StoredWorkspace;
+    const malformedDashboard = { id: 'd1', name: 'D' } as unknown as StoredDashboard;
+
+    expect(() =>
+      scanProfileBindings(
+        { dashboards: [malformedDashboard] },
+        { workspaces: [malformedWorkspace], defaultWorkspaceId: 'w1', activeWorkspaceId: 'w1' }
+      )
+    ).not.toThrow();
+  });
+});
+
 describe('bindingsNeedingReview', () => {
   it('excludes an item whose resolution is unchanged', () => {
     const snapshot = entrySnapshot('MOTOR_TEMP');

@@ -112,7 +112,7 @@ function scanBoundRows(
   locationLabel: string,
   out: ScannedBinding[]
 ): void {
-  rows.forEach((row, rowIndex) => {
+  (rows ?? []).forEach((row, rowIndex) => {
     const binding = row.binding;
     if (!binding || !binding.snapshot) return;
     out.push({
@@ -165,7 +165,7 @@ function scanMiniPlotConfig(
 function scanStoredWidget(dashboardId: string, widget: StoredWidget, locationLabel: string, out: ScannedBinding[]): void {
   if (widget.kind === 'container') {
     const container = widget.config as ContainerWidgetConfig;
-    for (const child of container.childWidgets) scanStoredWidget(dashboardId, child, locationLabel, out);
+    for (const child of container.childWidgets ?? []) scanStoredWidget(dashboardId, child, locationLabel, out);
     return;
   }
   if (isBoundWidgetKind(widget.kind)) {
@@ -193,7 +193,7 @@ function scanStoredWidget(dashboardId: string, widget: StoredWidget, locationLab
 
 function scanDashboard(dashboard: StoredDashboard, out: ScannedBinding[]): void {
   const locationLabel = `Dashboard: ${dashboard.name}`;
-  for (const widget of dashboard.widgets) scanStoredWidget(dashboard.id, widget, locationLabel, out);
+  for (const widget of dashboard.widgets ?? []) scanStoredWidget(dashboard.id, widget, locationLabel, out);
 }
 
 /** A Plot Pane's saved state is `unknown` at rest (`workspaceStore.ts`'s own `paneStates` shape) — treated as a `PlotPaneState` only once `kindOfPaneId` says the panel actually is one. */
@@ -222,10 +222,17 @@ function scanPaneStates(
   }
 }
 
+/**
+ * A caller may hand this raw, not-yet-sanitized settings data (`AppShell.tsx`'s
+ * own live `liveReviewItems` scan reads `settings.workspacesByProfile`
+ * directly, ahead of `sanitizeProfileWorkspaces`, which only runs later when
+ * a Workspace is actually restored into dockview) — a `StoredWorkspace`
+ * missing `daughterWindows`/`paneStates` entirely must not crash the scan.
+ */
 function scanWorkspace(workspace: StoredWorkspace, out: ScannedBinding[]): void {
-  scanPaneStates(workspace.id, workspace.name, null, workspace.paneStates, out);
-  for (const daughterWindow of workspace.daughterWindows) {
-    scanPaneStates(workspace.id, workspace.name, daughterWindow.name ?? daughterWindow.label, daughterWindow.paneStates, out);
+  scanPaneStates(workspace.id, workspace.name, null, workspace.paneStates ?? {}, out);
+  for (const daughterWindow of workspace.daughterWindows ?? []) {
+    scanPaneStates(workspace.id, workspace.name, daughterWindow.name ?? daughterWindow.label, daughterWindow.paneStates ?? {}, out);
   }
 }
 
