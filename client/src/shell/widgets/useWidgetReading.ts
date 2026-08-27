@@ -16,6 +16,7 @@ import { useDSHub } from '../../contexts/DSHubContext';
 import { usePolledTargets } from '../../hooks/useAutoRefresh';
 import { getPlotValue } from '../../utils/dataTableUtils';
 import type { MapEntry } from '../../maps/mapParser';
+import { isBindingDrifted } from '../bindingResolver';
 import { isLive, isStale, linkStateOf } from '../linkState';
 import { useSpaceBinding } from '../spaceBinding';
 import { useMapEntries } from '../useMapEntries';
@@ -33,6 +34,7 @@ const WIDGET_POLL_INTERVAL_MS = 1000;
 export type WidgetReadingStatus =
   | 'unbound'
   | 'not-found'
+  | 'needs-review'
   | 'stale'
   | 'pending'
   | 'invalid'
@@ -80,6 +82,28 @@ export function useWidgetReading(binding: WidgetBinding | null, format: DisplayF
     [map.entries, binding]
   );
 
+  /**
+   * Drift, checked live against the currently active Map every time this
+   * renders (`.scratch/map-binding-drift`, ticket 03) — not only when a Map
+   * edit is reviewed, so a Dashboard that was not open when the edit
+   * happened still shows the correct status the first time it is viewed
+   * afterward. Deliberately does not gate on `entry` (the by-address lookup
+   * just above): `mapParser.ts` assigns addresses sequentially with no
+   * gaps, so deleting or resizing an earlier entry shifts every later one's
+   * address down and leaves the old address genuinely vacant — a routine
+   * "moved" outcome that a by-address-first check would misclassify as
+   * plain "not found" instead. `isBindingDrifted` itself returns `false`
+   * when there is no captured snapshot to check against: a binding
+   * predating this feature that has not been backfilled yet (or, per
+   * `backfillSnapshot`, one whose stored address matched nothing at
+   * backfill time) has nothing to diff, so it falls through to today's
+   * behavior rather than being flagged for drift that cannot be measured.
+   */
+  const needsReview = useMemo(
+    () => (binding ? isBindingDrifted(binding.snapshot, binding.address, map.entries) : false),
+    [binding, map.entries]
+  );
+
   const targets = useMemo(
     () => (binding && entry ? [{ source: binding.space, address: binding.address, name: entry.name }] : []),
     [binding, entry]
@@ -88,6 +112,7 @@ export function useWidgetReading(binding: WidgetBinding | null, format: DisplayF
 
   return useMemo(() => {
     if (!binding) return UNBOUND;
+    if (needsReview) return { status: 'needs-review', value: null, formatted: null, entry: null, raw: null };
     if (!entry) return NOT_FOUND;
     if (isStale(link)) return { status: 'stale', value: null, formatted: null, entry, raw: null };
 
@@ -102,5 +127,5 @@ export function useWidgetReading(binding: WidgetBinding | null, format: DisplayF
       entry,
       raw: reading.value,
     };
-  }, [binding, entry, link, spaceBinding.readings, format]);
+  }, [binding, entry, needsReview, link, spaceBinding.readings, format]);
 }

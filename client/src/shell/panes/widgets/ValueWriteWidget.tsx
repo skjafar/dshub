@@ -38,7 +38,7 @@ export function ValueWriteWidget({ config }: WidgetProps): React.JSX.Element {
   // above.
   const target: WidgetTarget | null =
     binding !== null && (binding.space === 'register' || binding.space === 'parameter')
-      ? { kind: 'address', space: binding.space, address: binding.address }
+      ? { kind: 'address', space: binding.space, address: binding.address, snapshot: binding.snapshot }
       : null;
   const status = target ? statusFor(target) : { pending: false, failure: null };
 
@@ -57,6 +57,7 @@ export function ValueWriteWidget({ config }: WidgetProps): React.JSX.Element {
 
   if (binding === null) return <WidgetStatusNotice status="unbound" />;
   if (reading.entry === null) return <WidgetStatusNotice status="not-found" />;
+  if (reading.status === 'needs-review') return <WidgetStatusNotice status="needs-review" />;
   const entry = reading.entry;
 
   const entryReason = entryWriteBlockReason(binding.space, entry);

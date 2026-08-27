@@ -186,6 +186,42 @@ describe('migrateStoredSettings — current schema', () => {
     const result = migrateStoredSettings(currentShapeBlob({ colorThemeId: 'arctic' }));
     expect(result.settings.colorThemeId).toBe('blueprint');
   });
+
+  /**
+   * `.scratch/map-binding-drift`, ticket 01: a binding saved before this
+   * feature shipped has no captured snapshot. The first load under the new
+   * code has to fill it in from the Profile's own current Map, so a later
+   * Map edit has a real baseline to diff against.
+   */
+  it('backfills a Dashboard Widget binding saved before binding snapshots existed', () => {
+    const withMap = profile({ id: 'p1', registersMap: 'float MOTOR_TEMP;' });
+    const legacyBinding = { space: 'register', address: 0 }; // no `snapshot` key at all
+    const dashboardsByProfile = {
+      p1: {
+        dashboards: [
+          {
+            id: 'd1',
+            name: 'Dashboard 1',
+            widgets: [
+              {
+                id: 'w1',
+                kind: 'valueRead',
+                layout: { x: 0, y: 0, w: 3, h: 2 },
+                config: { label: 'Motor Temp', binding: legacyBinding, format: 'decimal', thresholds: [] },
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const result = migrateStoredSettings(currentShapeBlob({ mapProfiles: [withMap], dashboardsByProfile }));
+
+    const backfilled = result.settings.dashboardsByProfile.p1.dashboards[0].widgets[0].config as {
+      binding: { snapshot: unknown };
+    };
+    expect(backfilled.binding.snapshot).toMatchObject({ name: 'MOTOR_TEMP', isArray: false });
+  });
 });
 
 describe('sanitizeStoredMapProfiles', () => {

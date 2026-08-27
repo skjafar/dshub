@@ -241,7 +241,18 @@ export function MapEditorPane({ paneId, setTitle }: PaneProps): React.JSX.Elemen
           parsed.errors.length === 0
             ? null
             : `Imported with ${parsed.errors.length} issue${parsed.errors.length === 1 ? '' : 's'} — the affected line${parsed.errors.length === 1 ? '' : 's'} were skipped.`;
-        updatePane(previous => withError(withEntries(previous, space, parsed.entries), space, warning));
+        updatePane(previous => {
+          // Metadata (description/unit/value list) lives redundantly on each
+          // draft entry, extracted into the Profile's own metadata dict only
+          // at save time (`extractMetadata`, in `handleSave` below) — a raw
+          // parse carries none of it at all. Re-applying whatever the
+          // *current* draft holds, by name, is what makes this a genuine
+          // carry-for-surviving-names-drop-the-rest (`.scratch/map-binding-drift`,
+          // ticket 05), rather than silently discarding every entry's
+          // metadata, including names that did survive the replacement.
+          const carriedOver = applyMetadata(parsed.entries, extractMetadata(entriesOf(previous, space)));
+          return withError(withEntries(previous, space, carriedOver), space, warning);
+        });
       };
       reader.readAsText(file);
     },

@@ -13,10 +13,12 @@ import { InterfaceType } from '../../types/shared';
 import type { PlotDataPoint } from '../../types/shared';
 import type { MapProfile } from '../../types/settings';
 import { formatFractional } from '../../utils/numberFormat';
-import { retainPaneState } from '../paneState';
+import { announceMapEdited } from '../useMapEntries';
+import { restorePaneState, retainPaneState } from '../paneState';
 import { __resetPlotStreamForTests } from '../plotStream';
 import { formatClockTime } from '../plotExport';
 import { PlotPane } from '../panes/PlotPane';
+import type { PlotPaneState } from '../panes/PlotPane';
 
 /**
  * The Plot Pane, driven through the fake port.
@@ -591,6 +593,73 @@ describe('value decoding on the chart', () => {
     const [, ys] = chart.setData.mock.calls.at(-1)?.[0] as [number[], number[]];
     expect(ys).toContain(41.5);
     expect(ys).not.toContain(rawWireWord);
+  });
+});
+
+describe('binding drift (`.scratch/map-binding-drift`)', () => {
+  const REORDERED_MAP = `
+float     COOLANT_TEMP;
+uint32_t  SPINDLE_RPM;
+`;
+
+  it('pauses a series and flags it needing review once its bound entry moves to a different address', async () => {
+    const user = userEvent.setup();
+    const harness = renderPanes();
+    await settle();
+    await connect(harness.fake);
+    await addSeriesViaPicker(user, paneA(), 'SPINDLE_RPM');
+    const started = vi.spyOn(harness.fake.device, 'startPlotting');
+    const stopped = vi.spyOn(harness.fake.device, 'stopPlotting');
+
+    await act(async () => {
+      announceMapEdited({ ...PROFILE, registersMap: REORDERED_MAP });
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(within(paneA()).getByText('needs review')).toBeInTheDocument();
+    expect(stopped).toHaveBeenCalledWith('SPINDLE_RPM');
+    expect(started).not.toHaveBeenCalledWith('SPINDLE_RPM', expect.anything(), 1);
+  });
+
+  it('pauses a series and flags it needing review once its bound name is deleted entirely', async () => {
+    const user = userEvent.setup();
+    const harness = renderPanes();
+    await settle();
+    await connect(harness.fake);
+    await addSeriesViaPicker(user, paneA(), 'SPINDLE_RPM');
+    const stopped = vi.spyOn(harness.fake.device, 'stopPlotting');
+
+    await act(async () => {
+      announceMapEdited({ ...PROFILE, registersMap: 'float COOLANT_TEMP;' });
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(within(paneA()).getByText('needs review')).toBeInTheDocument();
+    expect(stopped).toHaveBeenCalledWith('SPINDLE_RPM');
+  });
+
+  it('resolves the poll address by the series’ current name, not a stale recorded one, for a series with no captured identity', async () => {
+    const seed: PlotPaneState = {
+      series: [{ name: 'SPINDLE_RPM', source: 'register', address: 0, snapshot: null, colorSlot: 0, visible: true }],
+      pollInterval: 50,
+      timeSpan: 60,
+      pickerSource: 'register',
+      pickerQuery: '',
+    };
+    restorePaneState(PANE_A, seed);
+
+    const harness = renderPanes();
+    await settle();
+    await connect(harness.fake);
+    const started = vi.spyOn(harness.fake.device, 'startPlotting');
+
+    await act(async () => {
+      announceMapEdited({ ...PROFILE, registersMap: REORDERED_MAP });
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(started).toHaveBeenCalledWith('SPINDLE_RPM', 50, 1);
+    expect(within(paneA()).queryByText(/needs review/i)).not.toBeInTheDocument();
   });
 });
 

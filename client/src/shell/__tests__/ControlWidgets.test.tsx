@@ -12,6 +12,7 @@ import { InterfaceType } from '../../types/shared';
 import { DEFAULT_SETTINGS } from '../../types/settings';
 import type { MapProfile, SysCommand } from '../../types/settings';
 import { retainPaneState } from '../paneState';
+import { announceMapEdited } from '../useMapEntries';
 import { DashboardPane } from '../panes/DashboardPane';
 import { createDashboardId, createWidgetId } from '../widgets/dashboardStore';
 import type { ProfileDashboards, StoredDashboard, StoredWidget } from '../widgets/dashboardStore';
@@ -282,6 +283,87 @@ describe('Button', () => {
     await user.keyboard('{Enter}');
 
     expect(harness.writes).toEqual([{ space: 'register', address: SPEED_ADDRESS, value: 5 }]);
+  });
+
+  it('refuses to fire, rather than writing to a guessed or ambiguous address, once its target has drifted since it was bound (`.scratch/map-binding-drift`)', async () => {
+    seedDashboard([
+      storedWidget('button', {
+        ...defaultButtonWidgetConfig('Home'),
+        target: {
+          kind: 'address',
+          space: 'register',
+          address: SPEED_ADDRESS,
+          // A name that no longer exists anywhere in the Map — the Map was
+          // edited (e.g. renamed) after this Button was bound.
+          snapshot: { name: 'OLD_NAME_BEFORE_RENAME', type: 'uint32_t' as never, isArray: false },
+        },
+        value: 42,
+      }),
+    ]);
+    const harness = renderDashboard();
+    await settle();
+    await connectAndTakeControl(harness.fake);
+
+    // Matches the existing "Not configured"/"Bound address is not in the
+    // active Map" precedent: a structurally-in-question target replaces the
+    // button entirely with a notice, rather than leaving a disabled button
+    // behind — this Widget offers no send affordance at all until reviewed.
+    expect(screen.queryByRole('button', { name: /^send$/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/needs review/i)).toBeInTheDocument();
+    expect(harness.writes).toHaveLength(0);
+  });
+
+  it('refuses to fire, not "not in the active Map", when an earlier entry’s deletion shifts its target down and leaves the old address genuinely vacant', async () => {
+    // LOAD starts at address 1. Deleting SPEED (address 0) shifts LOAD down
+    // to address 0 and leaves address 1 held by nothing at all —
+    // mapParser.ts's own sequential, no-gaps addressing — the routine case
+    // a by-address-first lookup would misread as plain "not found".
+    const target: MapProfile = {
+      id: 'shift-test-board',
+      name: 'Shift test board',
+      isDefault: false,
+      registersMap: '// Read/Write\nuint32_t SPEED;\nuint32_t LOAD;\n',
+      parametersMap: '',
+      createdAt: 0,
+    };
+    const dashboard: StoredDashboard = {
+      id: createDashboardId(),
+      name: 'Dashboard 1',
+      widgets: [
+        storedWidget('button', {
+          ...defaultButtonWidgetConfig('Home'),
+          target: {
+            kind: 'address',
+            space: 'register',
+            address: 1,
+            snapshot: { name: 'LOAD', type: 'uint32_t' as never, isArray: false },
+          },
+          value: 1,
+        }),
+      ],
+    };
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...DEFAULT_SETTINGS,
+        mapProfiles: [target],
+        activeMapProfileId: target.id,
+        dashboardsByProfile: { [target.id]: { dashboards: [dashboard] } },
+      })
+    );
+    await mapManager.initialize(target);
+
+    const harness = renderDashboard();
+    await settle();
+    await connectAndTakeControl(harness.fake);
+
+    await act(async () => {
+      announceMapEdited({ ...target, registersMap: '// Read/Write\nuint32_t LOAD;\n' });
+    });
+    await settle();
+
+    expect(screen.getByText(/needs review/i)).toBeInTheDocument();
+    expect(screen.queryByText(/not in the active map/i)).not.toBeInTheDocument();
   });
 });
 

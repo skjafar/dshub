@@ -13,6 +13,7 @@ import {
   Sun,
   SquaresFour,
   UsersThree,
+  WarningCircle,
   X,
 } from '@phosphor-icons/react';
 import { useDSHub } from '../contexts/DSHubContext';
@@ -67,6 +68,16 @@ export interface AppChromeProps {
   readonly onCloseDaughterWindow: (id: string) => void;
   /** Sets (a non-blank name) or clears (a blank one) a Daughter Window's own custom name (`.scratch/daughter-windows-native` issue 07's own naming follow-up). */
   readonly onRenameDaughterWindow: (id: string, name: string) => void;
+  /**
+   * How many bindings, write targets or Plot series in the active Profile
+   * currently need review (`.scratch/map-binding-drift`, ticket 08) — from a
+   * fresh scan, not a snapshot carried over from the last Map edit. Zero
+   * shows no indicator at all, per spec.md's own "adds no clutter to a
+   * Profile that's in good shape" line.
+   */
+  readonly unresolvedBindingCount: number;
+  /** Opens the same resolution UI a post-save review does, populated from that same fresh scan. */
+  readonly onOpenBindingReview: () => void;
 }
 
 /** A row's own interaction state — renaming or not, mirroring `WorkspacesDialog.tsx`'s own `WorkspaceRow` pattern (minus an armed-delete state: closing a Daughter Window needs no confirmation). */
@@ -176,6 +187,8 @@ export function AppChrome({
   onFocusDaughterWindow,
   onCloseDaughterWindow,
   onRenameDaughterWindow,
+  unresolvedBindingCount,
+  onOpenBindingReview,
 }: AppChromeProps): React.JSX.Element {
   const { state, actions } = useDSHub();
   const { settings, updateSettings, justMigrated, profilesCarriedOver } = useSettings();
@@ -262,6 +275,21 @@ export function AppChrome({
               ))}
             </div>
           </Popover>
+        ) : null}
+
+        {unresolvedBindingCount > 0 ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="Bindings needing review"
+            onClick={onOpenBindingReview}
+          >
+            <WarningCircle size={16} />
+            Needs review
+            <span className={styles.countBadge} aria-hidden>
+              {unresolvedBindingCount > 99 ? '99+' : unresolvedBindingCount}
+            </span>
+          </Button>
         ) : null}
 
         <Button

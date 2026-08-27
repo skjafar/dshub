@@ -9,7 +9,7 @@ import { SelectionProvider } from '../SelectionContext';
 import { createFakeBackendPort } from '../../services/fakeBackendPort';
 import type { BackendPort } from '../../services/backendPort';
 import { DEFAULT_SETTINGS } from '../../types/settings';
-import type { MapProfile } from '../../types/settings';
+import type { MapProfile, UserSettings } from '../../types/settings';
 import { retainPaneState } from '../paneState';
 import { MapEditorPane } from '../panes/MapEditorPane';
 import { RegisterPane } from '../panes/RegisterPane';
@@ -70,6 +70,15 @@ async function settle(): Promise<void> {
   await act(async () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
+}
+
+/** Waits out `SettingsContext`'s own 400ms debounced persist, then reads the Profile actually written to `localStorage`. */
+async function readSavedProfile(profileId: string): Promise<MapProfile | undefined> {
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 500));
+  });
+  const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as UserSettings;
+  return stored.mapProfiles.find(p => p.id === profileId);
 }
 
 beforeEach(() => {
@@ -236,5 +245,46 @@ describe('Map Editor Pane', () => {
     });
     expect(screen.getByDisplayValue('GOOD_ONE')).toBeInTheDocument();
     expect(screen.queryByDisplayValue('BAD_ONE')).not.toBeInTheDocument();
+  });
+
+  /**
+   * `.scratch/map-binding-drift/issues/05-metadata-follows-entry-identity.md`:
+   * a bulk Address-Space replacement has no certainty about which old name
+   * became which new one, so it cannot carry metadata the way a row-level
+   * rename does — it can only keep what a surviving name already had and
+   * drop the rest. Before this ticket, a raw parse carried no metadata field
+   * at all, and `extractMetadata` at save time would have wiped every
+   * entry's metadata, not just the one that actually disappeared.
+   */
+  it('keeps a surviving entry’s metadata and drops a removed entry’s, on a raw-file replacement', async () => {
+    const target = profile({
+      id: 'editor-import-metadata-board',
+      name: 'Import metadata board',
+      registersMap: 'uint32_t SPEED;\nuint32_t LOAD;\n',
+      registersMetadata: {
+        SPEED: { unit: 'rpm', description: 'Spindle speed' },
+        LOAD: { unit: 'kg', description: 'Spindle load' },
+      },
+    });
+    seedActiveProfile(target);
+    renderPanes(<MapEditorPane paneId="mapEditor" setTitle={vi.fn()} />);
+    await settle();
+
+    // Replaces the whole Address Space: SPEED survives, LOAD is gone.
+    const content = 'uint32_t SPEED;\n';
+    const file = new File([content], 'registers.map', { type: 'text/plain' });
+    const input = document.querySelectorAll('input[type="file"]')[0] as HTMLInputElement;
+    await act(async () => {
+      Object.defineProperty(input, 'files', { value: [file], configurable: true });
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await settle();
+
+    await act(async () => {
+      screen.getByRole('button', { name: /^Save/ }).click();
+    });
+
+    const saved = await readSavedProfile(target.id);
+    expect(saved?.registersMetadata).toEqual({ SPEED: { unit: 'rpm', description: 'Spindle speed', valueList: undefined } });
   });
 });

@@ -43,7 +43,7 @@ function DataTableRowView({ row }: { readonly row: DataTableRow }): React.JSX.El
 
   const target: WidgetTarget | null =
     row.binding !== null && (row.binding.space === 'register' || row.binding.space === 'parameter')
-      ? { kind: 'address', space: row.binding.space, address: row.binding.address }
+      ? { kind: 'address', space: row.binding.space, address: row.binding.address, snapshot: row.binding.snapshot }
       : null;
   const status = target ? statusFor(target) : { pending: false, failure: null };
 
@@ -55,7 +55,11 @@ function DataTableRowView({ row }: { readonly row: DataTableRow }): React.JSX.El
   }, [status.pending, status.failure]);
 
   const entry = reading.entry;
-  const writable = target !== null && entry !== null && entryWriteBlockReason(target.space, entry) === null;
+  const writable =
+    target !== null &&
+    entry !== null &&
+    reading.status !== 'needs-review' &&
+    entryWriteBlockReason(target.space, entry) === null;
 
   const role =
     reading.status === 'ready' && reading.value !== null ? evaluateThresholds(reading.value, row.thresholds) : null;

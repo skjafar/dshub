@@ -29,6 +29,7 @@ export function DropdownWidget({ config }: WidgetProps): React.JSX.Element {
 
   if (binding === null) return <WidgetStatusNotice status="unbound" />;
   if (reading.entry === null) return <WidgetStatusNotice status="not-found" />;
+  if (reading.status === 'needs-review') return <WidgetStatusNotice status="needs-review" />;
   const entry = reading.entry;
   const { space } = binding;
 
@@ -43,7 +44,7 @@ export function DropdownWidget({ config }: WidgetProps): React.JSX.Element {
     return <p className={styles.notice}>{entryReason}</p>;
   }
 
-  const target: WidgetTarget = { kind: 'address', space, address: binding.address };
+  const target: WidgetTarget = { kind: 'address', space, address: binding.address, snapshot: binding.snapshot };
   const status = statusFor(target);
 
   const liveValue = reading.status === 'ready' ? reading.value : null;

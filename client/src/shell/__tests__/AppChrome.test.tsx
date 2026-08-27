@@ -70,6 +70,30 @@ function renderChrome(
   );
 }
 
+describe('AppChrome binding-review indicator (`.scratch/map-binding-drift`, ticket 08)', () => {
+  it('shows no indicator at all while nothing needs review', async () => {
+    const port = createFakeBackendPort({ deliver: fn => fn() });
+    renderChrome(port, { unresolvedBindingCount: 0, onOpenBindingReview: vi.fn() });
+    await settle();
+
+    expect(screen.queryByRole('button', { name: /needs review/i })).not.toBeInTheDocument();
+  });
+
+  it('shows a count and opens the review UI on click, once something needs review', async () => {
+    const user = userEvent.setup();
+    const port = createFakeBackendPort({ deliver: fn => fn() });
+    const onOpenBindingReview = vi.fn();
+    renderChrome(port, { unresolvedBindingCount: 3, onOpenBindingReview });
+    await settle();
+
+    const button = screen.getByRole('button', { name: /bindings needing review/i });
+    expect(button).toHaveTextContent('3');
+
+    await user.click(button);
+    expect(onOpenBindingReview).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('AppChrome unread activity badge', () => {
   it('carries no badge while nothing is unread', async () => {
     const port = createFakeBackendPort({ deliver: fn => fn() });

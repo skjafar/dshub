@@ -10,15 +10,24 @@
  */
 
 import type { AddressSpace, WritableAddressSpace } from '../addressSpace';
+import type { BindingSnapshot } from '../bindingIdentity';
 import type { PlottableSpace } from '../plotStream';
 import type { DisplayFormat } from '../valueFormat';
 import type { ThresholdRule } from './threshold';
 import type { WidgetKind } from './widgetRegistry';
 
-/** Which Device address a Widget reads, and from which Address Space. */
+/**
+ * Which Device address a Widget reads, from which Address Space, and a
+ * snapshot of the entry it was bound to (`.scratch/map-binding-drift`) — the
+ * address remains the only value actually used for a read; `snapshot` is
+ * what a later Map edit is diffed against. `null` only ever means "backfilled
+ * from a pre-feature binding and nothing was found at this address" — a fresh
+ * bind always captures a real snapshot.
+ */
 export interface WidgetBinding {
   readonly space: AddressSpace;
   readonly address: number;
+  readonly snapshot: BindingSnapshot | null;
 }
 
 export interface BoundWidgetConfig {
@@ -103,9 +112,13 @@ export function defaultLedIndicatorWidgetConfig(label: string): LedIndicatorWidg
  * Command by its code. Never System Registers — the protocol refuses every
  * write there, so a Widget offering one would be an affordance for a write
  * that can only fail.
+ *
+ * A Command target carries no `snapshot` at all — its identity is a code the
+ * Engineer assigns themselves, not a derived address, so it is never subject
+ * to binding drift (`.scratch/map-binding-drift`, user story 27).
  */
 export type WidgetTarget =
-  | { readonly kind: 'address'; readonly space: WritableAddressSpace; readonly address: number }
+  | { readonly kind: 'address'; readonly space: WritableAddressSpace; readonly address: number; readonly snapshot: BindingSnapshot | null }
   | { readonly kind: 'command'; readonly code: number };
 
 /**
@@ -256,6 +269,7 @@ export function defaultContainerWidgetConfig(label: string): ContainerWidgetConf
 export interface MiniPlotSeries {
   readonly space: PlottableSpace;
   readonly address: number;
+  readonly snapshot: BindingSnapshot | null;
 }
 
 export interface MiniPlotWidgetConfig {

@@ -9,6 +9,9 @@ import type { MapEntry } from '../../maps/mapParser';
 import { getPlotValue } from '../../utils/dataTableUtils';
 import { Button, NumericInput, Popover, Select, Table, TextField, cx } from '../../ui';
 import type { Column } from '../../ui';
+import { snapshotFromEntry } from '../bindingIdentity';
+import type { BindingSnapshot } from '../bindingIdentity';
+import { isBindingDrifted } from '../bindingResolver';
 import { filterEntries } from '../entryFilter';
 import { isLive, isStale, linkStateOf } from '../linkState';
 import { instanceOfPaneId } from '../paneRegistry';
@@ -44,6 +47,13 @@ export interface PlotSeriesConfig {
   readonly name: string;
   readonly source: PlottableSpace;
   readonly address: number;
+  /**
+   * A snapshot of the entry this series was bound to (`.scratch/map-binding-drift`),
+   * checked on every (re)subscription against the currently active Map — see
+   * the claim effect below. `null` only for a series backfilled from
+   * pre-feature data whose stored address matched nothing at backfill time.
+   */
+  readonly snapshot: BindingSnapshot | null;
   readonly colorSlot: number;
   readonly visible: boolean;
 }
@@ -105,6 +115,10 @@ export function PlotPane({ paneId, setTitle }: PaneProps): React.JSX.Element {
   // Series this Pane still lists but does not currently own — another open
   // Plot Pane claimed the name first, most often after a reconnect raced it.
   const [conflicts, setConflicts] = useState<ReadonlySet<string>>(new Set());
+  // Series whose binding no longer matches the currently active Map — held,
+  // the same as a Widget's own "needs review" status (ticket 03), rather than
+  // decoded under stale assumptions or (ticket 04) polled at a stale address.
+  const [needsReview, setNeedsReview] = useState<ReadonlySet<string>>(new Set());
   const [pickerError, setPickerError] = useState<string | null>(null);
 
   const instance = instanceOfPaneId(paneId);
@@ -143,18 +157,46 @@ export function PlotPane({ paneId, setTitle }: PaneProps): React.JSX.Element {
    * Ensures every listed series is claimed and streaming at the current poll
    * interval. Runs whenever the link comes up — covering both a fresh mount
    * while already connected and a reconnect after the backend discarded every
-   * plot registration on disconnect — and whenever the interval changes, since
-   * re-claiming a name already held is how a new interval takes effect.
+   * plot registration on disconnect — whenever the interval changes, since
+   * re-claiming a name already held is how a new interval takes effect — and
+   * whenever the Map changes, since that is exactly what can put a series
+   * into or out of "needs review".
+   *
+   * Each series' address to poll is resolved fresh from its bound *name*
+   * against the currently active Map (ticket 04), never reused from what was
+   * recorded when the series was added — closing a mismatch with decoding,
+   * which already resolves by name (`decodeSeriesValue` below). A series
+   * whose binding resolves to moved, removed or type-changed is held instead
+   * of claimed at all (ticket 03): the Device is never asked to stream a name
+   * whose meaning is in question, the same "trusted again only after review"
+   * rule a bound Widget's own binding follows.
    */
   useEffect(() => {
     if (!connected) return;
     const stillConflicted = new Set<string>();
+    const stillNeedsReview = new Set<string>();
     for (const series of seriesRef.current) {
-      const ref: PlotSeriesRef = { name: series.name, source: series.source, address: series.address };
+      const entries = series.source === 'sysRegister' ? sysRegisters.entries : registers.entries;
+      const currentEntry = entries.find(candidate => candidate.name === series.name);
+
+      if (!currentEntry) {
+        releaseSeries(port, paneId, series.name);
+        stillNeedsReview.add(series.name);
+        continue;
+      }
+
+      if (isBindingDrifted(series.snapshot, series.address, entries)) {
+        releaseSeries(port, paneId, series.name);
+        stillNeedsReview.add(series.name);
+        continue;
+      }
+
+      const ref: PlotSeriesRef = { name: series.name, source: series.source, address: currentEntry.address };
       if (!claimSeries(port, paneId, ref, pane.pollInterval)) stillConflicted.add(series.name);
     }
     setConflicts(stillConflicted);
-  }, [connected, pane.pollInterval, paneId, port]);
+    setNeedsReview(stillNeedsReview);
+  }, [connected, pane.pollInterval, paneId, port, registers.entries, sysRegisters.entries]);
 
   const handleAddSeries = useCallback(
     (entry: MapEntry, source: PlottableSpace) => {
@@ -169,7 +211,14 @@ export function PlotPane({ paneId, setTitle }: PaneProps): React.JSX.Element {
         ...previous,
         series: [
           ...previous.series,
-          { name: entry.name, source, address: entry.address, colorSlot: nextColorSlot(previous.series), visible: true },
+          {
+            name: entry.name,
+            source,
+            address: entry.address,
+            snapshot: snapshotFromEntry(entry),
+            colorSlot: nextColorSlot(previous.series),
+            visible: true,
+          },
         ],
       }));
     },
@@ -337,7 +386,11 @@ export function PlotPane({ paneId, setTitle }: PaneProps): React.JSX.Element {
           {pane.series.map(series => (
             <li
               key={series.name}
-              className={cx(styles.chip, conflicts.has(series.name) && styles.chipConflicted)}
+              className={cx(
+                styles.chip,
+                conflicts.has(series.name) && styles.chipConflicted,
+                needsReview.has(series.name) && styles.chipNeedsReview
+              )}
             >
               <button
                 type="button"
@@ -347,12 +400,15 @@ export function PlotPane({ paneId, setTitle }: PaneProps): React.JSX.Element {
                 aria-pressed={series.visible}
                 aria-label={`${series.visible ? 'Hide' : 'Show'} ${series.name}`}
                 title={
-                  conflicts.has(series.name)
-                    ? `${series.name} is being plotted in another open Plot Pane — showing no data here.`
-                    : undefined
+                  needsReview.has(series.name)
+                    ? `${series.name}'s Map entry no longer matches what it was bound to — needs review.`
+                    : conflicts.has(series.name)
+                      ? `${series.name} is being plotted in another open Plot Pane — showing no data here.`
+                      : undefined
                 }
               />
               <span className={styles.chipName}>{series.name}</span>
+              {needsReview.has(series.name) ? <span className={styles.chipNeedsReviewLabel}>needs review</span> : null}
               <button
                 type="button"
                 className={styles.chipRemove}
@@ -371,6 +427,12 @@ export function PlotPane({ paneId, setTitle }: PaneProps): React.JSX.Element {
         {conflicts.size > 0 ? (
           <span className={styles.conflictNote}>
             {conflicts.size} series already plotted elsewhere — showing no data.
+          </span>
+        ) : null}
+        {needsReview.size > 0 ? (
+          <span className={styles.needsReviewNote}>
+            {needsReview.size} series need{needsReview.size === 1 ? 's' : ''} review — the Map changed since{' '}
+            {needsReview.size === 1 ? 'it was' : 'they were'} bound.
           </span>
         ) : null}
         {stale ? (

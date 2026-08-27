@@ -93,6 +93,17 @@
   border-color: var(--status-warn);
 }
 
+.chipNeedsReview {
+  border-color: var(--status-error);
+}
+
+.chipNeedsReviewLabel {
+  color: var(--status-error);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
 .swatch {
   composes: ring from '../../ui/focusRing.module.css';
 
@@ -156,6 +167,11 @@
 
 .conflictNote {
   color: var(--status-warn);
+}
+
+.needsReviewNote {
+  color: var(--status-error);
+  font-weight: var(--weight-medium);
 }
 
 .staleNote {

@@ -11,6 +11,7 @@ import { useMapEntries } from '../useMapEntries';
 import { DISPLAY_FORMATS } from '../valueFormat';
 import type { DisplayFormat } from '../valueFormat';
 import type { ThresholdRule } from '../widgets/threshold';
+import { snapshotFromEntry } from '../bindingIdentity';
 import { defaultBoundWidgetConfig } from '../widgets/widgetConfig';
 import type {
   AlarmListWidgetConfig,
@@ -398,7 +399,7 @@ const ADDRESS_PICKER_COLUMNS: readonly Column<MapEntry>[] = [
  * the input) so `onSelect` still fires; picking a row or pressing Escape both
  * close it the same way a blur would.
  */
-function AddressComboBox<S extends AddressSpace>({
+export function AddressComboBox<S extends AddressSpace>({
   space,
   onSpaceChange,
   spaceOptions,
@@ -620,7 +621,7 @@ function BoundFields({
 
   const handlePickEntry = (entry: MapEntry, space: AddressSpace): void => {
     onChange({
-      binding: { space, address: entry.address },
+      binding: { space, address: entry.address, snapshot: snapshotFromEntry(entry) },
       // Only on the first binding — an Operator who has already bound and
       // named this Widget is not asking to have that name overwritten by
       // pointing it at a different address later.
@@ -680,7 +681,7 @@ function BoundEntryEditor({
 
   const handlePickEntry = (mapEntry: MapEntry, space: AddressSpace): void => {
     onChange({
-      binding: { space, address: mapEntry.address },
+      binding: { space, address: mapEntry.address, snapshot: snapshotFromEntry(mapEntry) },
       label: entry.binding === null ? mapEntry.name : entry.label,
     });
   };
@@ -816,7 +817,7 @@ function ContainerFields({ draft, onChange }: FieldsProps<ContainerWidgetConfig>
 function MiniPlotFields({ draft, onChange }: FieldsProps<MiniPlotWidgetConfig>): React.JSX.Element {
   const handlePick = (entry: MapEntry, space: PlottableSpace): void => {
     onChange({
-      series: { space, address: entry.address },
+      series: { space, address: entry.address, snapshot: snapshotFromEntry(entry) },
       label: draft.series === null ? entry.name : draft.label,
     });
   };
@@ -870,7 +871,7 @@ function ButtonFields({ draft, onChange }: FieldsProps<ButtonWidgetConfig>): Rea
   };
 
   const handlePickAddress = (entry: MapEntry): void => {
-    const target: WidgetTarget = { kind: 'address', space, address: entry.address };
+    const target: WidgetTarget = { kind: 'address', space, address: entry.address, snapshot: snapshotFromEntry(entry) };
     onChange({ target, label: draft.target === null ? entry.name : draft.label });
   };
 

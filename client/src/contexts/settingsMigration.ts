@@ -35,6 +35,7 @@ import {
   type UserSettings,
 } from '../types/settings';
 import { resolveThemeId } from '../appThemes';
+import { backfillProfileBindingSnapshots, entriesBySpaceForProfile } from '../shell/bindingBackfill';
 
 // System registers are protocol-fixed (library-managed, read-only over the wire) and
 // identical across every device. They are not part of user customization — every
@@ -104,16 +105,48 @@ export function sanitizeStoredMapProfiles(value: unknown): MapProfile[] {
   return value.filter(isPlausibleMapProfile);
 }
 
-/** Backfills system registers, remaps a retired theme id, and stamps the current schema version. */
+/**
+ * Backfills any binding, write target or Plot series snapshot missing
+ * because it was saved before `.scratch/map-binding-drift` shipped — see
+ * `shell/bindingBackfill.ts`'s own doc comment for why this must run here,
+ * against the Map as it stands at load, rather than being recomputed live on
+ * every read. Skips a Profile with no Dashboards or Workspaces at all
+ * (nothing to backfill) without parsing its Maps for nothing. Only Profiles
+ * listed in `mapProfiles` are covered here — the Default and CNC Profiles'
+ * own Map text is fetched separately and backfilled once loaded, from
+ * `SettingsContext.tsx`'s own effect.
+ */
+function backfillAllProfileBindings(settings: UserSettings): UserSettings {
+  let dashboardsByProfile = settings.dashboardsByProfile;
+  let workspacesByProfile = settings.workspacesByProfile;
+  let anyChanged = false;
+
+  for (const profile of settings.mapProfiles) {
+    const dashboards = dashboardsByProfile[profile.id];
+    const workspaces = workspacesByProfile[profile.id];
+    if (dashboards === undefined && workspaces === undefined) continue;
+
+    const result = backfillProfileBindingSnapshots(dashboards, workspaces, entriesBySpaceForProfile(profile));
+    if (!result.changed) continue;
+
+    anyChanged = true;
+    if (result.dashboards !== undefined) dashboardsByProfile = { ...dashboardsByProfile, [profile.id]: result.dashboards };
+    if (result.workspaces !== undefined) workspacesByProfile = { ...workspacesByProfile, [profile.id]: result.workspaces };
+  }
+
+  return anyChanged ? { ...settings, dashboardsByProfile, workspacesByProfile } : settings;
+}
+
+/** Backfills system registers, remaps a retired theme id, stamps the current schema version, and backfills binding snapshots. */
 function finalizeSettings(settings: UserSettings): UserSettings {
-  return {
+  return backfillAllProfileBindings({
     ...settings,
     schemaVersion: SETTINGS_SCHEMA_VERSION,
     colorThemeId: resolveThemeId(settings.colorThemeId),
     mapProfiles: settings.mapProfiles.map(p =>
       p.systemRegistersMap ? p : { ...p, systemRegistersMap: DEFAULT_SYSTEM_REGISTERS_MAP }
     ),
-  };
+  });
 }
 
 function mergeCurrentShape(parsed: Record<string, unknown>): UserSettings {

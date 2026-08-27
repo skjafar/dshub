@@ -13,8 +13,22 @@
 
 import type { BoundWidgetKind, WidgetKind } from './widgetRegistry';
 import { isBoundWidgetKind, isKnownWidgetKind, widgetDefinition } from './widgetRegistry';
-import type { WidgetBinding, WidgetConfig, WidgetLayout, WidgetTarget, StoredWidget } from './widgetConfig';
+import type {
+  AlarmListWidgetConfig,
+  BoundWidgetConfig,
+  ButtonWidgetConfig,
+  ContainerWidgetConfig,
+  DataTableWidgetConfig,
+  MiniPlotWidgetConfig,
+  WidgetBinding,
+  WidgetConfig,
+  WidgetLayout,
+  WidgetTarget,
+  StoredWidget,
+} from './widgetConfig';
 import type { ThresholdRule } from './threshold';
+import { backfillSnapshot, isValidBindingSnapshot } from '../bindingIdentity';
+import type { EntriesBySpace } from '../bindingIdentity';
 
 export type { WidgetLayout, StoredWidget } from './widgetConfig';
 
@@ -69,7 +83,8 @@ function isValidBinding(value: unknown): value is WidgetBinding | null {
   if (value === null) return true;
   if (!isPlainObject(value)) return false;
   if (typeof value.space !== 'string' || !SPACES.has(value.space)) return false;
-  return isFiniteNumber(value.address);
+  if (!isFiniteNumber(value.address)) return false;
+  return isValidBindingSnapshot(value.snapshot);
 }
 
 function isValidThresholdRule(value: unknown): value is ThresholdRule {
@@ -154,7 +169,9 @@ function isValidWidgetTarget(value: unknown): value is WidgetTarget | null {
   if (value === null) return true;
   if (!isPlainObject(value)) return false;
   if (value.kind === 'address') {
-    return typeof value.space === 'string' && WRITABLE_SPACES.has(value.space) && isFiniteNumber(value.address);
+    if (typeof value.space !== 'string' || !WRITABLE_SPACES.has(value.space)) return false;
+    if (!isFiniteNumber(value.address)) return false;
+    return isValidBindingSnapshot(value.snapshot);
   }
   if (value.kind === 'command') return isFiniteNumber(value.code);
   return false;
@@ -205,7 +222,8 @@ function isValidMiniPlotSeries(value: unknown): value is { space: string; addres
   if (value === null) return true;
   if (!isPlainObject(value)) return false;
   if (typeof value.space !== 'string' || !PLOTTABLE_SPACES.has(value.space)) return false;
-  return isFiniteNumber(value.address);
+  if (!isFiniteNumber(value.address)) return false;
+  return isValidBindingSnapshot(value.snapshot);
 }
 
 function isValidMiniPlotConfig(value: Record<string, unknown>): boolean {
@@ -409,6 +427,132 @@ export function nextAvailablePosition(
  * this is the one place that shape is built rather than two copies drifting
  * apart the way a third Widget-adding surface eventually would.
  */
+// ── Backfilling pre-feature binding snapshots (`.scratch/map-binding-drift`, ticket 01) ──
+//
+// A Widget's own `binding`/`target`/`series` saved before this feature
+// shipped has no captured snapshot at all. Walked once, against the entries
+// active when it is first loaded under the new code, so every later Map edit
+// has a real baseline to diff against — see `bindingIdentity.ts`'s own
+// `backfillSnapshot` doc comment for why this must actually persist rather
+// than being recomputed live on every read.
+
+function backfillWidgetBinding(
+  binding: WidgetBinding | null,
+  entriesBySpace: EntriesBySpace
+): { readonly binding: WidgetBinding | null; readonly changed: boolean } {
+  if (binding === null) return { binding, changed: false };
+  const snapshot = backfillSnapshot(binding.snapshot, binding.address, entriesBySpace[binding.space]);
+  if (snapshot === binding.snapshot) return { binding, changed: false };
+  return { binding: { ...binding, snapshot }, changed: true };
+}
+
+function backfillWidgetTarget(
+  target: WidgetTarget | null,
+  entriesBySpace: EntriesBySpace
+): { readonly target: WidgetTarget | null; readonly changed: boolean } {
+  if (target === null || target.kind === 'command') return { target, changed: false };
+  const snapshot = backfillSnapshot(target.snapshot, target.address, entriesBySpace[target.space]);
+  if (snapshot === target.snapshot) return { target, changed: false };
+  return { target: { ...target, snapshot }, changed: true };
+}
+
+function backfillBoundEntries(
+  entries: readonly BoundWidgetConfig[],
+  entriesBySpace: EntriesBySpace
+): { readonly entries: readonly BoundWidgetConfig[]; readonly changed: boolean } {
+  let anyChanged = false;
+  const next = entries.map(row => {
+    const result = backfillWidgetBinding(row.binding, entriesBySpace);
+    if (!result.changed) return row;
+    anyChanged = true;
+    return { ...row, binding: result.binding };
+  });
+  return anyChanged ? { entries: next, changed: true } : { entries, changed: false };
+}
+
+function backfillWidgetConfigForKind(
+  kind: WidgetKind,
+  config: WidgetConfig,
+  entriesBySpace: EntriesBySpace
+): { readonly config: WidgetConfig; readonly changed: boolean } {
+  if (isBoundWidgetKind(kind)) {
+    const bound = config as BoundWidgetConfig;
+    const result = backfillWidgetBinding(bound.binding, entriesBySpace);
+    return result.changed ? { config: { ...bound, binding: result.binding }, changed: true } : { config, changed: false };
+  }
+  switch (kind) {
+    case 'button': {
+      const button = config as ButtonWidgetConfig;
+      const result = backfillWidgetTarget(button.target, entriesBySpace);
+      return result.changed ? { config: { ...button, target: result.target }, changed: true } : { config, changed: false };
+    }
+    case 'dataTable': {
+      const table = config as DataTableWidgetConfig;
+      const result = backfillBoundEntries(table.rows, entriesBySpace);
+      return result.changed ? { config: { ...table, rows: result.entries }, changed: true } : { config, changed: false };
+    }
+    case 'alarmList': {
+      const alarmList = config as AlarmListWidgetConfig;
+      const result = backfillBoundEntries(alarmList.alarms, entriesBySpace);
+      return result.changed
+        ? { config: { ...alarmList, alarms: result.entries }, changed: true }
+        : { config, changed: false };
+    }
+    case 'miniPlot': {
+      const miniPlot = config as MiniPlotWidgetConfig;
+      if (miniPlot.series === null) return { config, changed: false };
+      const snapshot = backfillSnapshot(miniPlot.series.snapshot, miniPlot.series.address, entriesBySpace[miniPlot.series.space]);
+      if (snapshot === miniPlot.series.snapshot) return { config, changed: false };
+      return { config: { ...miniPlot, series: { ...miniPlot.series, snapshot } }, changed: true };
+    }
+    case 'directionalControl':
+    case 'deviceInfo':
+    case 'container':
+      return { config, changed: false };
+  }
+}
+
+/** Backfills one Widget's own binding-like fields, recursing into a Container's `childWidgets` — the only kind that nests. */
+function backfillStoredWidget(
+  widget: StoredWidget,
+  entriesBySpace: EntriesBySpace
+): { readonly widget: StoredWidget; readonly changed: boolean } {
+  if (widget.kind === 'container') {
+    const container = widget.config as ContainerWidgetConfig;
+    let anyChanged = false;
+    const childWidgets = container.childWidgets.map(child => {
+      const result = backfillStoredWidget(child, entriesBySpace);
+      if (result.changed) anyChanged = true;
+      return result.widget;
+    });
+    if (!anyChanged) return { widget, changed: false };
+    return { widget: { ...widget, config: { ...container, childWidgets } }, changed: true };
+  }
+
+  const result = backfillWidgetConfigForKind(widget.kind, widget.config, entriesBySpace);
+  if (!result.changed) return { widget, changed: false };
+  return { widget: { ...widget, config: result.config }, changed: true };
+}
+
+/**
+ * Backfills every Widget's own binding, write target and Mini-Plot series
+ * snapshot in one Dashboard. Returns the same `dashboard` reference,
+ * unchanged, when nothing needed it — the common case once a Profile's data
+ * has already been backfilled once.
+ */
+export function backfillDashboardWidgets(
+  dashboard: StoredDashboard,
+  entriesBySpace: EntriesBySpace
+): { readonly dashboard: StoredDashboard; readonly changed: boolean } {
+  let anyChanged = false;
+  const widgets = dashboard.widgets.map(widget => {
+    const result = backfillStoredWidget(widget, entriesBySpace);
+    if (result.changed) anyChanged = true;
+    return result.widget;
+  });
+  return anyChanged ? { dashboard: { ...dashboard, widgets }, changed: true } : { dashboard, changed: false };
+}
+
 export function createStoredWidget(
   kind: WidgetKind,
   existing: readonly WidgetLayout[],

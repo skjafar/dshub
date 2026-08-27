@@ -44,6 +44,10 @@ _Avoid_: register list, definition file, schema
 Everything DSHub needs to speak to one kind of Device: its Maps for every Address Space, its Commands, its per-entry metadata, its Dashboards and its Workspaces. Switching Profile re-skins the whole application for a different board.
 _Avoid_: map profile, user profile, preset, configuration
 
+**Binding Snapshot**:
+The entry a Widget, write target, or Plot series was bound to — its name and shape — captured alongside the address, which remains the only value ever used for an actual read, write or poll. An address alone is not stable: editing a Map can silently repoint it at a different entry. Diffed against the Map on every check, a Binding Snapshot is what tells a binding that still means what it did from one that has quietly drifted.
+_Avoid_: binding identity, cache, fingerprint
+
 ### Interface
 
 **Workspace**:

@@ -4,6 +4,7 @@ import { createModernCNCDashboard, CNC_SYS_COMMANDS, CNC_DASHBOARD_VERSION, CNC_
 import { serializeProfile, parseProfileFile, ProfileImportResult } from '../utils/profileFileFormat';
 import { mapManager } from '../maps/mapManager';
 import { logger } from '../utils/logger';
+import { backfillProfileBindingSnapshots, entriesBySpaceForProfile } from '../shell/bindingBackfill';
 import { DEFAULT_SYSTEM_REGISTERS_MAP, migrateStoredSettings } from './settingsMigration';
 
 const STORAGE_KEY = 'dshub_settings';
@@ -133,6 +134,38 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cncProfile]);
+
+  // Backfills a pre-`.scratch/map-binding-drift` binding snapshot for the
+  // Default and CNC Profiles specifically — `settingsMigration.ts`'s own
+  // backfill pass covers every Profile in `mapProfiles`, whose Map text
+  // lives in the same settings blob, but these two Profiles' Map text is
+  // fetched separately (`loadDefaultProfile`/`loadCNCProfile` above) and is
+  // not known until that fetch resolves. Mirrors the CNC-dashboard
+  // auto-create effect just below in intent — react only to a Profile
+  // becoming available, not to every subsequent settings change.
+  useEffect(() => {
+    for (const profile of [defaultProfile, cncProfile]) {
+      if (!profile) continue;
+      const dashboards = settings.dashboardsByProfile[profile.id];
+      const workspaces = settings.workspacesByProfile[profile.id];
+      if (dashboards === undefined && workspaces === undefined) continue;
+
+      const result = backfillProfileBindingSnapshots(dashboards, workspaces, entriesBySpaceForProfile(profile));
+      if (!result.changed) continue;
+
+      updateSettings({
+        dashboardsByProfile:
+          result.dashboards !== undefined
+            ? { ...settings.dashboardsByProfile, [profile.id]: result.dashboards }
+            : settings.dashboardsByProfile,
+        workspacesByProfile:
+          result.workspaces !== undefined
+            ? { ...settings.workspacesByProfile, [profile.id]: result.workspaces }
+            : settings.workspacesByProfile,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultProfile, cncProfile]);
 
   // Initialize mapManager at app level so maps are available on all panels (including dashboard)
   useEffect(() => {

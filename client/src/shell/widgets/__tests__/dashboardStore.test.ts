@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest';
+import { DataAccessPermit, DataForm } from '../../../maps/mapParser';
+import type { MapEntry } from '../../../maps/mapParser';
+import { snapshotFromEntry } from '../../bindingIdentity';
+import type { EntriesBySpace } from '../../bindingIdentity';
 import {
   addDashboard,
   addWidget,
   applyWidgetLayouts,
+  backfillDashboardWidgets,
   createDashboardId,
   createWidgetId,
   isValidStoredDashboard,
@@ -16,10 +21,26 @@ import {
   updateWidgetConfig,
 } from '../dashboardStore';
 import type { StoredDashboard, StoredWidget } from '../dashboardStore';
-import type { BoundWidgetConfig } from '../widgetConfig';
+import type { BoundWidgetConfig, ButtonWidgetConfig, ContainerWidgetConfig } from '../widgetConfig';
 
 function config(overrides: Partial<BoundWidgetConfig> = {}): BoundWidgetConfig {
   return { label: 'Value', binding: null, format: 'decimal', thresholds: [], ...overrides };
+}
+
+function mapEntry(overrides: Partial<MapEntry> = {}): MapEntry {
+  return {
+    address: 0,
+    name: 'MOTOR_TEMP',
+    type: DataForm.FLOAT,
+    isArray: false,
+    accessPermit: DataAccessPermit.READ_WRITE,
+    showAsHex: false,
+    ...overrides,
+  };
+}
+
+function entriesBySpace(overrides: Partial<EntriesBySpace> = {}): EntriesBySpace {
+  return { register: [], parameter: [], sysRegister: [], ...overrides };
 }
 
 function widget(overrides: Partial<StoredWidget> = {}): StoredWidget {
@@ -200,6 +221,111 @@ describe('Widget operations within one Dashboard', () => {
     );
     expect(next.widgets.find(w => w.id === 'a')?.layout).toEqual({ x: 5, y: 6, w: 2, h: 2 });
     expect(next.widgets.find(w => w.id === 'b')?.layout).toEqual({ x: 0, y: 0, w: 1, h: 1 });
+  });
+});
+
+describe('backfillDashboardWidgets', () => {
+  it('leaves a Widget with no binding untouched', () => {
+    const original = dashboard({ widgets: [widget({ config: config({ binding: null }) })] });
+    const result = backfillDashboardWidgets(original, entriesBySpace());
+    expect(result.changed).toBe(false);
+    expect(result.dashboard).toBe(original);
+  });
+
+  it('leaves an already-captured binding untouched', () => {
+    const entry = mapEntry({ address: 3, name: 'MOTOR_TEMP' });
+    const bound = config({ binding: { space: 'register', address: 3, snapshot: snapshotFromEntry(entry) } });
+    const original = dashboard({ widgets: [widget({ config: bound })] });
+    const result = backfillDashboardWidgets(original, entriesBySpace({ register: [entry] }));
+    expect(result.changed).toBe(false);
+    expect(result.dashboard).toBe(original);
+  });
+
+  it('backfills a pre-feature binding from whatever entry currently sits at its stored address', () => {
+    const entry = mapEntry({ address: 3, name: 'MOTOR_TEMP' });
+    // Simulates data persisted before this feature shipped: no `snapshot` key at all.
+    const legacyBinding = { space: 'register', address: 3 } as unknown as { space: 'register'; address: number; snapshot: null };
+    const original = dashboard({ widgets: [widget({ config: config({ binding: legacyBinding }) })] });
+
+    const result = backfillDashboardWidgets(original, entriesBySpace({ register: [entry] }));
+
+    expect(result.changed).toBe(true);
+    const backfilled = (result.dashboard.widgets[0]?.config as BoundWidgetConfig).binding;
+    expect(backfilled?.snapshot).toEqual(snapshotFromEntry(entry));
+  });
+
+  it('backfills to a null snapshot, without erroring, when the stored address has no entry at all', () => {
+    const legacyBinding = { space: 'register', address: 99 } as unknown as { space: 'register'; address: number; snapshot: null };
+    const original = dashboard({ widgets: [widget({ config: config({ binding: legacyBinding }) })] });
+
+    const result = backfillDashboardWidgets(original, entriesBySpace());
+
+    expect(result.changed).toBe(true);
+    const backfilled = (result.dashboard.widgets[0]?.config as BoundWidgetConfig).binding;
+    expect(backfilled?.snapshot).toBeNull();
+  });
+
+  it('backfills an address-kind write target on a Button Widget', () => {
+    const entry = mapEntry({ address: 7, name: 'MOTOR_ENABLE' });
+    const legacyTarget = { kind: 'address', space: 'register', address: 7 } as unknown as {
+      kind: 'address';
+      space: 'register';
+      address: number;
+      snapshot: null;
+    };
+    const buttonConfig: ButtonWidgetConfig = { label: 'Enable', target: legacyTarget, value: 1 };
+    const original = dashboard({ widgets: [widget({ kind: 'button', config: buttonConfig })] });
+
+    const result = backfillDashboardWidgets(original, entriesBySpace({ register: [entry] }));
+
+    expect(result.changed).toBe(true);
+    const backfilled = result.dashboard.widgets[0]?.config as ButtonWidgetConfig;
+    expect(backfilled.target?.kind === 'address' ? backfilled.target.snapshot : undefined).toEqual(
+      snapshotFromEntry(entry)
+    );
+  });
+
+  it('leaves a command-code write target untouched — never subject to drift', () => {
+    const buttonConfig: ButtonWidgetConfig = { label: 'Send', target: { kind: 'command', code: 5 }, value: 0 };
+    const original = dashboard({ widgets: [widget({ kind: 'button', config: buttonConfig })] });
+    const result = backfillDashboardWidgets(original, entriesBySpace());
+    expect(result.changed).toBe(false);
+    expect(result.dashboard).toBe(original);
+  });
+
+  it('backfills a Data Table row binding', () => {
+    const entry = mapEntry({ address: 2, name: 'SPEED' });
+    const legacyBinding = { space: 'register', address: 2 } as unknown as { space: 'register'; address: number; snapshot: null };
+    const original = dashboard({
+      widgets: [
+        widget({
+          kind: 'dataTable',
+          config: { label: 'Table', rows: [config({ binding: legacyBinding })] },
+        }),
+      ],
+    });
+
+    const result = backfillDashboardWidgets(original, entriesBySpace({ register: [entry] }));
+
+    expect(result.changed).toBe(true);
+    const rows = (result.dashboard.widgets[0]?.config as { rows: BoundWidgetConfig[] }).rows;
+    expect(rows[0]?.binding?.snapshot).toEqual(snapshotFromEntry(entry));
+  });
+
+  it('backfills a binding nested inside a Container Widget', () => {
+    const entry = mapEntry({ address: 4, name: 'NESTED' });
+    const legacyBinding = { space: 'register', address: 4 } as unknown as { space: 'register'; address: number; snapshot: null };
+    const child = widget({ id: 'child', config: config({ binding: legacyBinding }) });
+    const containerConfig: ContainerWidgetConfig = { label: 'Group', padding: 8, spacing: 8, childWidgets: [child] };
+    const original = dashboard({ widgets: [widget({ kind: 'container', config: containerConfig })] });
+
+    const result = backfillDashboardWidgets(original, entriesBySpace({ register: [entry] }));
+
+    expect(result.changed).toBe(true);
+    const backfilledContainer = result.dashboard.widgets[0]?.config as ContainerWidgetConfig;
+    expect((backfilledContainer.childWidgets[0]?.config as BoundWidgetConfig).binding?.snapshot).toEqual(
+      snapshotFromEntry(entry)
+    );
   });
 });
 

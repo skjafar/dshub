@@ -10,6 +10,7 @@ import type { WidgetReadingStatus } from '../../widgets/useWidgetReading';
 const ROW_STATUS_TEXT: Readonly<Record<Exclude<WidgetReadingStatus, 'ready'>, string>> = {
   unbound: 'Not configured',
   'not-found': 'Not in Map',
+  'needs-review': 'Needs review',
   stale: 'Stale',
   pending: '—',
   invalid: 'Invalid',

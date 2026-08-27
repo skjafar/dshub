@@ -6,6 +6,12 @@ import { useBackendPort } from '../contexts/BackendPortContext';
 import { useSettings } from '../contexts/SettingsContext';
 import type { MapEntry } from '../maps/mapParser';
 import { AppChrome } from './AppChrome';
+import { entriesBySpaceForProfile } from './bindingBackfill';
+import { snapshotFromEntry } from './bindingIdentity';
+import { BindingReviewDialog } from './BindingReviewDialog';
+import type { BindingFix } from './bindingReviewApplier';
+import { applyBindingFixes } from './bindingReviewApplier';
+import { bindingsNeedingReview } from './bindingScanner';
 import { closeDaughterWindow, focusDaughterWindow } from './daughterWindowNative';
 import { customWindowNames, knownWindowIds, paneMenuEntries, windowLabel } from './daughterWindows';
 import { useDaughterWindowLifecycle } from './useDaughterWindowLifecycle';
@@ -14,6 +20,7 @@ import { FocusModeView } from './FocusModeView';
 import { MAIN_WINDOW_ID } from './focusMode';
 import { OpenPlotProvider } from './OpenPlotContext';
 import { usePaneLocations } from './paneLocations';
+import { subscribeMapEdited, useMapEntries } from './useMapEntries';
 import type { PlotPaneState } from './panes/PlotPane';
 import { SelectionProvider, useSelection } from './SelectionContext';
 import { Workspace } from './Workspace';
@@ -189,6 +196,83 @@ function WorkspaceShell(): React.JSX.Element {
       if (next === undefined || next === collection) return;
       updateSettings({
         workspacesByProfile: { ...settingsRef.current.workspacesByProfile, [currentProfileId]: next },
+      });
+    },
+    [updateSettings]
+  );
+
+  // ── Map-edit drift review (`.scratch/map-binding-drift`) ─────────────────
+  //
+  // A Map Editor save reaches every open Window's `mapManager` and settings
+  // the same way any other edit does; this is specifically the "did that
+  // edit put anything into question" half (ticket 07) plus the persistent
+  // indicator (ticket 08), both Main-Window-only by construction —
+  // `subscribeMapEdited` fires once per process, in whichever Window's own
+  // realm the save happened in, and the Map Editor Pane is a singleton that
+  // in practice lives here. See `BindingReviewDialog.tsx`'s own doc comment
+  // for why a Daughter-Window-hosted save not opening this dialog directly
+  // is an accepted, narrow gap rather than a correctness one — ticket 03's
+  // live status still holds regardless of which Window edited the Map, and
+  // this Window's own indicator still surfaces the same items once its next
+  // scan runs.
+  const registerMap = useMapEntries('register');
+  const parameterMap = useMapEntries('parameter');
+  const sysRegisterMap = useMapEntries('sysRegister');
+  const activeEntriesBySpace = useMemo(
+    () => ({ register: registerMap.entries, parameter: parameterMap.entries, sysRegister: sysRegisterMap.entries }),
+    [registerMap.entries, parameterMap.entries, sysRegisterMap.entries]
+  );
+  const activeDashboards = settings.dashboardsByProfile[profileId];
+  /**
+   * A fresh scan, not a stale snapshot carried over from the last save
+   * (ticket 08's own requirement) — recomputed from live settings and the
+   * live Map on every relevant change, which is what both the persistent
+   * indicator's own count and the dialog's own content read from.
+   */
+  const liveReviewItems = useMemo(
+    () => bindingsNeedingReview(activeDashboards, collection, activeEntriesBySpace),
+    [activeDashboards, collection, activeEntriesBySpace]
+  );
+  const [reviewOpen, setReviewOpen] = useState(false);
+
+  useEffect(
+    () =>
+      subscribeMapEdited(profile => {
+        // Only the active Profile's own Map Editor can produce a save at
+        // all, but this guards against a future caller of `announceMapEdited`
+        // for a Profile that is not (or no longer) the active one.
+        if (profile.id !== profileIdRef.current) return;
+        const dashboards = settingsRef.current.dashboardsByProfile[profile.id];
+        const workspaces = settingsRef.current.workspacesByProfile[profile.id];
+        // Computed fresh from the just-saved `profile` argument itself,
+        // deliberately not read from `liveReviewItems` above: this listener
+        // fires before `useMapEntries`'s own `announce()` (see
+        // `useMapEntries.ts`'s `announceMapEdited`), so the reactive memo
+        // has not necessarily caught up to the new Map yet — the dialog
+        // itself still renders from `liveReviewItems`, which has caught up
+        // by the time React actually paints it.
+        const items = bindingsNeedingReview(dashboards, workspaces, entriesBySpaceForProfile(profile));
+        if (items.length > 0) setReviewOpen(true);
+      }),
+    []
+  );
+
+  const handleApplyReviewFixes = useCallback(
+    (fixes: readonly BindingFix[]) => {
+      if (fixes.length === 0) return;
+      const currentProfileId = profileIdRef.current;
+      const dashboards = settingsRef.current.dashboardsByProfile[currentProfileId];
+      const workspaces = settingsRef.current.workspacesByProfile[currentProfileId];
+      const result = applyBindingFixes(dashboards, workspaces, fixes);
+      updateSettings({
+        dashboardsByProfile:
+          result.dashboards !== undefined
+            ? { ...settingsRef.current.dashboardsByProfile, [currentProfileId]: result.dashboards }
+            : settingsRef.current.dashboardsByProfile,
+        workspacesByProfile:
+          result.workspaces !== undefined
+            ? { ...settingsRef.current.workspacesByProfile, [currentProfileId]: result.workspaces }
+            : settingsRef.current.workspacesByProfile,
       });
     },
     [updateSettings]
@@ -372,7 +456,9 @@ function WorkspaceShell(): React.JSX.Element {
     (entry: MapEntry, source: PlottableSpace) => {
       const { pollInterval, timeSpan } = settingsRef.current.plotDefaults;
       const seed: PlotPaneState = {
-        series: [{ name: entry.name, source, address: entry.address, colorSlot: 0, visible: true }],
+        series: [
+          { name: entry.name, source, address: entry.address, snapshot: snapshotFromEntry(entry), colorSlot: 0, visible: true },
+        ],
         pollInterval,
         timeSpan,
         pickerSource: source,
@@ -675,6 +761,8 @@ function WorkspaceShell(): React.JSX.Element {
               onCloseDaughterWindow={handleCloseDaughterWindow}
               onRenameDaughterWindow={handleRenameDaughterWindow}
               paneMenuEntries={paneMenuEntries(PANES, paneLocations, MAIN_WINDOW_ID, openDaughterWindows, customNames)}
+              unresolvedBindingCount={liveReviewItems.length}
+              onOpenBindingReview={() => setReviewOpen(true)}
             />
           )}
           {/* Always mounted. Hidden rather than unmounted while the Main
@@ -711,6 +799,13 @@ function WorkspaceShell(): React.JSX.Element {
         >
           <p>Each one keeps arranging and polling — this is a soft limit, not a hard one, if your bench genuinely needs it.</p>
         </Dialog>
+
+        <BindingReviewDialog
+          open={reviewOpen}
+          onOpenChange={setReviewOpen}
+          items={liveReviewItems}
+          onApply={handleApplyReviewFixes}
+        />
       </FocusModeProvider>
     </OpenPlotProvider>
   );

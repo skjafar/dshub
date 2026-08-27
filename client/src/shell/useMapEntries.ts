@@ -22,6 +22,25 @@ import type { AddressSpace } from './addressSpace';
 const listeners = new Set<() => void>();
 let generation = 0;
 
+/**
+ * Fires once a Map edit actually reaches `mapManager` — narrower than the
+ * generic `listeners`/`generation` pair above, which also fires for a plain
+ * Profile switch. `.scratch/map-binding-drift`'s Map-edit review (ticket 07)
+ * needs to know specifically "a Map was just edited", not "the active Map
+ * changed for any reason", since re-scanning the whole Profile on every
+ * Profile switch would be wasted work and could misfire a review for drift
+ * that has nothing to do with this session.
+ */
+const editListeners = new Set<(profile: MapProfile) => void>();
+
+/** Notified after a Map Editor save reaches `mapManager` — see `announceMapEdited` below. */
+export function subscribeMapEdited(listener: (profile: MapProfile) => void): () => void {
+  editListeners.add(listener);
+  return () => {
+    editListeners.delete(listener);
+  };
+}
+
 /** The load in flight, if any, and which Profile it is for. */
 let loading: Promise<void> | null = null;
 let loadingProfileId: string | null = null;
@@ -100,6 +119,7 @@ export function announceMapEdited(profile: MapProfile): void {
     .then(
       () => {
         failure = null;
+        for (const listener of editListeners) listener(profile);
       },
       (error: unknown) => {
         failure = {

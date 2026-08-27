@@ -14,6 +14,7 @@ import {
   knownWindowIds,
   paneMenuEntries,
 } from './daughterWindows';
+import { snapshotFromEntry } from './bindingIdentity';
 import { closeDaughterWindow, readOwnWindowBounds, useDaughterWindows } from './daughterWindowNative';
 import { FocusModeProvider } from './FocusModeContext';
 import { FocusModeView } from './FocusModeView';
@@ -377,7 +378,9 @@ function DaughterWindowShellInner(): React.JSX.Element {
     (entry: MapEntry, source: PlottableSpace) => {
       const { pollInterval, timeSpan } = settingsRef.current.plotDefaults;
       const seed: PlotPaneState = {
-        series: [{ name: entry.name, source, address: entry.address, colorSlot: 0, visible: true }],
+        series: [
+          { name: entry.name, source, address: entry.address, snapshot: snapshotFromEntry(entry), colorSlot: 0, visible: true },
+        ],
         pollInterval,
         timeSpan,
         pickerSource: source,

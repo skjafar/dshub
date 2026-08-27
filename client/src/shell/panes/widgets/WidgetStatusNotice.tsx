@@ -14,6 +14,7 @@ export interface WidgetStatusNoticeProps {
 const MESSAGE: Readonly<Partial<Record<WidgetStatusNoticeProps['status'], string>>> = {
   unbound: 'Not configured — pick an address to bind.',
   'not-found': 'Bound address is not in the active Map.',
+  'needs-review': 'Needs review — the Map changed since this was bound.',
   invalid: 'invalid',
 };
 

@@ -369,6 +369,61 @@ from that write.
   correlation, request serialization and the rate limiter are frozen and were
   untouched by the poll-coalescing migration above.
 
+## Binding Drift Detection
+
+A Widget's `binding`/write `target`/Mini-Plot `series`, and a Plot Pane's own
+series (`PlotSeriesConfig`), each carry a `snapshot`
+(`shell/bindingIdentity.ts`'s `BindingSnapshot`) alongside the address they
+actually read, write or poll — the bound entry's name and shape, captured at
+bind time. An address alone is not stable identity: editing a Profile's Map
+(`shell/panes/MapEditorPane.tsx`, `mapEditorDraft.ts`) recomputes every later
+entry's address, so a plain reorder can silently repoint an existing binding
+at a different entry. The snapshot is what lets `shell/bindingResolver.ts`'s
+`resolveBinding` tell "still means what it did" (`unchanged`) apart from
+`moved`, `removed`, or `type-changed` — the single decision point both the
+live status and the review below are built on. That module's own
+`isBindingDrifted` is the boolean every live call site actually needs, and
+deliberately does not require finding an entry at the stored address first:
+`mapParser.ts` assigns addresses sequentially with no gaps, so deleting or
+resizing an earlier entry shifts every later one down and leaves the old
+address genuinely vacant — a routine "moved" outcome that a by-address-first
+check would misread as plain "not found". Command-code write targets and
+Directional Control carry no snapshot and are never subject to drift: their
+identity is a code, not a derived address.
+
+- **Live status.** `useWidgetReading` (every read-bound Widget kind) and
+  `ButtonWidget.tsx`'s own inline check (its target is a write-only
+  `WidgetTarget`, not a `WidgetBinding`, so it has no `useWidgetReading` of
+  its own to inherit this from) both call `isBindingDrifted` on every
+  render; `PlotPane.tsx`'s own claim effect calls it on every
+  (re)subscription. Each surfaces a `needs-review` `WidgetReadingStatus` (or
+  refuses to fire, or pauses a Plot series) the instant a binding is in
+  question — no review session required, and it holds identically in every
+  open Window.
+- **Profile-wide review.** Saving a Map Editor edit scans every Dashboard
+  and Workspace belonging to the Profile (`shell/bindingScanner.ts`'s
+  `scanProfileBindings`/`bindingsNeedingReview`), resolves each item against
+  the just-saved Map, and opens `BindingReviewDialog.tsx` for anything not
+  `unchanged` — accept the resolver's own "moved" suggestion, manually
+  re-pick (reusing `WidgetConfigDialog.tsx`'s exported `AddressComboBox`),
+  or leave it for now. `bindingReviewApplier.ts`'s `applyBindingFixes`
+  rewrites exactly the accepted/manually-fixed bindings and nothing else;
+  anything left unresolved keeps failing live until it actually gets a fix.
+- **Persistent indicator.** `AppChrome.tsx`'s "Needs review" button, driven
+  by the same `bindingsNeedingReview` scan recomputed live in
+  `AppShell.tsx`, is the only way back into the review outside the moment
+  right after a save — Main-Window-only, like every other Profile-management
+  surface, so a Map Editor save from a Daughter Window updates the
+  underlying data correctly but does not itself pop the dialog there.
+- **Backfill.** A binding saved before this feature shipped has no
+  snapshot; `shell/bindingBackfill.ts` fills it in once, from whatever entry
+  currently sits at the stored address, the first time it loads — in
+  `contexts/settingsMigration.ts` for a Profile listed in `mapProfiles`, in
+  `SettingsContext.tsx`'s own effect for the Default/CNC Profiles, whose Map
+  text is fetched separately from the settings blob. Drift from before that
+  point is invisible; protection is forward-looking from the backfill
+  onward.
+
 ## Playwright / Browser Screenshots
 
 No system Chrome install is assumed — resolve the Chromium binary Playwright
