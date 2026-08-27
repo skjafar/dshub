@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Superseded, unclaimed.** Before this ticket was implemented, `.scratch/daughter-windows-native/spec.md` superseded this directory's mechanism at the root: dockview's same-realm `addPopoutGroup` popout windows (ADR 0004) were replaced by genuine, independent Tauri `WebviewWindow`s (ADR 0005). The feature this ticket describes — Panes popping out into Daughter Windows that belong to the Workspace, arranged freely and exchanged with the Main Window — shipped under that new mechanism instead, across `.scratch/daughter-windows-native/issues/02` through `08` (all resolved). This ticket's own checklist was never built against and is left unchecked below as a historical record of the abandoned approach, not outstanding work.
+
 Read `spec.md` for the behaviour and `docs/adr/0004-panes-pop-out-through-dockview-popout-windows.md` for why the mechanism is dockview's popout rather than a Tauri `WebviewWindow`. The short version of the why: a popout shares the Main Window's JavaScript realm, so there is exactly one `pollRegistry`, one `DSHubProvider` and one `paneState` store across every Window, and the frozen data path (ADR 0003) is untouched. A second Tauri webview would be a second realm, a second registry, and duplicate polls on a strictly request/response link.
 
 Most of the persistence is already there and should not be rebuilt. `SerializedDockview` carries `popoutGroups` with each window's nested grid and screen position, `StoredWorkspace.dockLayout` is already that type, and `api.toJSON()` already fills it.
