@@ -159,6 +159,23 @@ describe('Map Editor Pane', () => {
     expect(screen.getByRole('button', { name: /Add entry/ })).toBeDisabled();
   });
 
+  it('adding a Register and saving persists the new entry to the Profile', async () => {
+    const target = profile({ id: 'add-register-board', name: 'Add register board' });
+    seedActiveProfile(target);
+    const user = userEvent.setup();
+    renderPanes(<MapEditorPane paneId="mapEditor" setTitle={vi.fn()} />);
+    await settle();
+
+    await user.click(screen.getByRole('button', { name: /^add entry$/i }));
+    await settle();
+
+    await user.click(screen.getByRole('button', { name: /^Save/ }));
+    await settle();
+
+    const saved = await readSavedProfile(target.id);
+    expect(saved?.registersMap).toContain('NEW_REGISTER_1');
+  });
+
   it('saves an edit to the Profile and reloads the Map every other open Pane reads from', async () => {
     const target = profile({ id: 'editor-save-board', name: 'Save board' });
     seedActiveProfile(target);
