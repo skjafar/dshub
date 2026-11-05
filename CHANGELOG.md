@@ -1,3 +1,10 @@
+## 0.3.0 (unreleased) - Native Rust interface
+
+- Rebuild the application with egui/eframe and an in-process Tokio backend.
+- Port device panes, plots, dashboards, Profiles, map editing, binding review, native windows and Workspaces to Rust.
+- Add Cargo-only builds, native release archives, emulator integration and desktop smoke checks.
+- Preserve the previous implementation as a migration reference; defer the separate backend review.
+
 # Changelog
 
 All notable changes to DSHub.

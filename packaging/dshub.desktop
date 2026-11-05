@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=DSHub
+Comment=Device monitoring and control workstation
+Exec=dshub
+Icon=dshub
+Terminal=false
+Categories=Development;Electronics;

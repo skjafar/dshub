@@ -1,0 +1,5 @@
+// User parameters - persistent configuration stored in flash.
+// Matches ds_minimal_parameter_names.h.
+// Replace PLACEHOLDER with your own parameters for production use.
+
+uint32_t    PLACEHOLDER;

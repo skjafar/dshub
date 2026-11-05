@@ -22,6 +22,7 @@ import threading
 import struct
 import time
 import sys
+import math
 from datetime import datetime
 from typing import Dict, Optional, Tuple
 
@@ -134,7 +135,7 @@ USER_REG_READ_ONLY_COUNT    = 10
 
 
 class MotorAxis:
-    """Simulates a servo motor with encoder feedback and critically damped PID control"""
+    """Simulates a servo motor with encoder feedback and bounded PID control."""
 
     def __init__(self, name: str, kp: float, ki: float, kd: float, max_vel: float, max_accel: float):
         self.name = name
@@ -154,14 +155,22 @@ class MotorAxis:
         if not self.enabled:
             if abs(self.velocity) > 0.1:
                 decel = -self.max_accel if self.velocity > 0 else self.max_accel
+                old_velocity = self.velocity
                 self.velocity += decel * dt
+                if old_velocity * self.velocity <= 0:
+                    self.velocity = 0.0
                 self.position += self.velocity * dt
             else:
                 self.velocity = 0.0
             return
 
         error = self.setpoint - self.position
-        self.integral += error * dt
+        if abs(error) < 0.5 and abs(self.velocity) < 1.0:
+            self.position = float(self.setpoint)
+            self.velocity = 0.0
+            self.reset_integrator()
+            return
+        self.integral = max(-self.max_accel, min(self.max_accel, self.integral + error * dt))
         derivative = (error - self.prev_error) / dt if dt > 0 else 0.0
         accel = self.kp * error + self.ki * self.integral + self.kd * derivative
         accel = max(-self.max_accel, min(self.max_accel, accel))
@@ -175,6 +184,7 @@ class MotorAxis:
 
     def reset_integrator(self):
         self.integral = 0.0
+        self.prev_error = 0.0
 
 
 class SpindleController:
@@ -300,6 +310,8 @@ class UserRegisterMap:
             return False  # Read-only — caller should return PERMISSION_ERROR
         if address not in self.registers:
             return False
+        if address in (REG_SPINDLE_SPEED_SETPOINT, REG_JOG_DISTANCE) and value < 0:
+            return False
         self.registers[address] = _clamp_i32(value)
         return True
 
@@ -327,12 +339,20 @@ class CNCController:
         self.homing_axis = None
 
     def handle_sys_command(self, cmd: int, value: int) -> int:
+        if self.state in (STATE_E_STOP, STATE_ERROR) and cmd not in (
+                CMD_E_STOP, CMD_RESET_E_STOP, CMD_CLEAR_ERRORS,
+                CMD_DISABLE_ALL_MOTORS, CMD_DISABLE_MOTOR_X,
+                CMD_DISABLE_MOTOR_Y, CMD_DISABLE_MOTOR_Z, CMD_DISABLE_SPINDLE):
+            return -1
         if cmd == CMD_ENABLE_ALL_MOTORS:
             for motor in self.motors.values():
                 motor.enabled = True
             return 0
 
         elif cmd == CMD_DISABLE_ALL_MOTORS:
+            if self.state == STATE_HOMING:
+                self.state = STATE_IDLE
+                self.homing_axis = None
             for motor in self.motors.values():
                 motor.enabled = False
             return 0
@@ -345,6 +365,9 @@ class CNCController:
         elif cmd in (CMD_DISABLE_MOTOR_X, CMD_DISABLE_MOTOR_Y, CMD_DISABLE_MOTOR_Z):
             axis = {CMD_DISABLE_MOTOR_X: 'X', CMD_DISABLE_MOTOR_Y: 'Y', CMD_DISABLE_MOTOR_Z: 'Z'}[cmd]
             self.motors[axis].enabled = False
+            if self.state == STATE_HOMING and self.homing_axis in ('ALL', axis):
+                self.state = STATE_IDLE
+                self.homing_axis = None
             return 0
 
         elif cmd == CMD_ENABLE_SPINDLE:
@@ -374,10 +397,19 @@ class CNCController:
             for motor in self.motors.values():
                 motor.enabled = False
             self.spindle.enabled = False
+            self.homing_axis = None
+            for i, motor in enumerate(self.motors.values()):
+                motor.reset_integrator()
+                self.user_regs.write_internal(REG_MOTOR_X_SETPOINT + i, motor.get_encoder())
+            self.user_regs.write_internal(REG_SPINDLE_SPEED_SETPOINT, 0)
             return 0
 
         elif cmd == CMD_RESET_E_STOP:
             if self.state == STATE_E_STOP:
+                if any(abs(m.velocity) > 0.1 for m in self.motors.values()) or self.spindle.rpm > 0:
+                    return -1
+                for i, motor in enumerate(self.motors.values()):
+                    self.user_regs.write_internal(REG_MOTOR_X_SETPOINT + i, motor.get_encoder())
                 self.state = STATE_IDLE
             return 0
 
@@ -408,32 +440,37 @@ class CNCController:
 
     def update(self, dt: float):
         """Update CNC controller state and motors (called at 100Hz)"""
-        for motor in self.motors.values():
+        if dt <= 0:
+            return
+        homing = self.state == STATE_HOMING
+        for i, (axis, motor) in enumerate(self.motors.items()):
+            motor.max_vel = self.parameters.read(i)
+            motor.max_accel = self.parameters.read(20 if self.state == STATE_E_STOP else 3 + i)
+            motor.kp, motor.ki, motor.kd = [
+                struct.unpack('<f', struct.pack('<i', self.parameters.read(6 + i * 3 + j)))[0]
+                for j in range(3)]
+            target = REG_MOTOR_X_SETPOINT + i
+            if homing and self.homing_axis in ('ALL', axis):
+                motor.enabled = True
+                motor.max_vel = min(motor.max_vel, self.parameters.read(21))
+                self.user_regs.write_internal(target, self.parameters.read(22 + i))
+            motor.setpoint = self.user_regs.read(target)
             motor.update(dt)
+        self.spindle.max_rpm = self.parameters.read(18)
+        self.spindle.accel = self.parameters.read(19)
+        self.spindle.setpoint = max(0, min(self.spindle.max_rpm,
+            self.user_regs.read(REG_SPINDLE_SPEED_SETPOINT)))
         self.spindle.update(dt)
-
-        # Handle homing logic
-        if self.state == STATE_HOMING:
-            if self.homing_axis == 'ALL':
-                all_home = True
-                for axis in ['X', 'Y', 'Z']:
-                    motor = self.motors[axis]
-                    home_pos = self.parameters.read({'X': 22, 'Y': 23, 'Z': 24}[axis])
-                    if abs(motor.position - home_pos) > 1.0:
-                        all_home = False
-                        motor.setpoint = home_pos
-                if all_home:
-                    self.state = STATE_READY
-                    self.homing_axis = None
-            elif self.homing_axis:
-                motor = self.motors[self.homing_axis]
-                home_pos = self.parameters.read(
-                    {'X': 22, 'Y': 23, 'Z': 24}[self.homing_axis])
-                if abs(motor.position - home_pos) < 1.0:
-                    self.state = STATE_READY
-                    self.homing_axis = None
-                else:
-                    motor.setpoint = home_pos
+        moving = any(m.enabled and (abs(m.setpoint - m.position) >= 0.5 or abs(m.velocity) >= 1)
+                     for m in self.motors.values())
+        if homing:
+            selected = [m for axis, m in self.motors.items() if self.homing_axis in ('ALL', axis)]
+            if all(abs(m.setpoint - m.position) < 0.5 and abs(m.velocity) < 1 for m in selected):
+                self.state = STATE_READY
+                self.homing_axis = None
+        elif self.state not in (STATE_E_STOP, STATE_ERROR):
+            self.state = (STATE_RUNNING if moving else
+                          STATE_READY if any(m.enabled for m in self.motors.values()) else STATE_IDLE)
 
         # Write current state to user registers (read-only section, internal writes)
         self.user_regs.write_internal(REG_CONTROLLER_STATE,  self.state)
@@ -447,11 +484,6 @@ class CNCController:
         self.user_regs.write_internal(REG_MOTOR_Z_ENABLED,    1 if self.motors['Z'].enabled else 0)
         self.user_regs.write_internal(REG_SPINDLE_ENABLED,    1 if self.spindle.enabled else 0)
 
-        # Read setpoints from user registers (read-write section)
-        self.motors['X'].setpoint = self.user_regs.read(REG_MOTOR_X_SETPOINT)
-        self.motors['Y'].setpoint = self.user_regs.read(REG_MOTOR_Y_SETPOINT)
-        self.motors['Z'].setpoint = self.user_regs.read(REG_MOTOR_Z_SETPOINT)
-        self.spindle.setpoint     = self.user_regs.read(REG_SPINDLE_SPEED_SETPOINT)
 
 
 class ParameterMap:
@@ -492,6 +524,12 @@ class ParameterMap:
     def write(self, address: int, value: int) -> bool:
         if address < 0 or address > 24:
             return False
+        if 6 <= address <= 17:
+            decoded = struct.unpack('<f', struct.pack('<i', value))[0]
+            if not math.isfinite(decoded) or decoded < 0 or (address >= 15 and decoded == 0):
+                return False
+        elif address <= 21 and value <= 0:
+            return False
         self.parameters[address] = _clamp_i32(value)
         return True
 
@@ -531,7 +569,9 @@ class DSHubEmulator:
         self.running = False
         self.total_packets_received = 0
         self.total_packets_sent = 0
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
+        # Flash survives firmware reset within this process, but not process exit.
+        self.flash_parameters = self.parameters.parameters.copy()
 
         print(f"DSHub Emulator initialized: {board_name}")
         print(f"Board Type: {board_type}, Firmware: 0x{firmware_version:04X}")
@@ -627,14 +667,18 @@ class DSHubEmulator:
     def _handle_tcp_client(self, client: socket.socket, addr: Tuple[str, int]):
         try:
             client.settimeout(1.0)
+            pending = b''
             while self.running:
                 try:
                     data = client.recv(1024)
                     if not data:
                         break
-                    response = self._process_packet(data, 'TCP', addr)
-                    if response:
-                        client.sendall(response)
+                    pending += data
+                    while len(pending) >= 8:
+                        packet, pending = pending[:8], pending[8:]
+                        response = self._process_packet(packet, 'TCP', addr)
+                        if response:
+                            client.sendall(response)
                 except socket.timeout:
                     continue
                 except Exception as e:
@@ -658,8 +702,13 @@ class DSHubEmulator:
 
     def _process_packet(self, data: bytes, interface: str,
                         addr: Tuple[str, int]) -> Optional[bytes]:
+        with self.lock:
+            return self._process_packet_locked(data, interface, addr)
+
+    def _process_packet_locked(self, data: bytes, interface: str,
+                               addr: Tuple[str, int]) -> Optional[bytes]:
         # Protocol v0.2.2: 8-byte packets with 16-bit type/address fields
-        if len(data) < 8:
+        if len(data) != 8:
             return None
 
         with self.lock:
@@ -671,6 +720,17 @@ class DSHubEmulator:
             value = struct.unpack('<i', data[4:8])[0]
             ts = datetime.now().strftime('%H:%M:%S.%f')[:-3]
 
+            expected_control = CONTROL_TCP_DATASTREAM if interface == 'TCP' else CONTROL_UDP_DATASTREAM
+            if command in (CMD_SYS_COMMAND, CMD_WRITE_REGISTER, CMD_WRITE_PARAMETER) and (
+                    self.system_registers.read(SYSREG_CONTROL_INTERFACE) != expected_control):
+                self.system_registers.increment_error_count()
+                return _pack_response(STATUS_PERMISSION_ERROR, address, 0)
+            maps = {CMD_READ_REGISTER: self.user_registers.registers,
+                    CMD_READ_PARAMETER: self.parameters.parameters,
+                    CMD_READ_SYSTEM_REGISTER: self.system_registers.registers}
+            if command in maps and address not in maps[command]:
+                self.system_registers.increment_error_count()
+                return _pack_response(-4, address, 0)
             if command == CMD_SYS_COMMAND:
                 # Library system commands (address=65000–65002)
                 lib_cmd_names = {
@@ -707,6 +767,16 @@ class DSHubEmulator:
                 if address in lib_cmd_names:
                     cmd_name = lib_cmd_names[address]
                     print(f"[{interface}] {ts} SYS_COMMAND: {cmd_name} (value={value})")
+                    if address == CMD_SYS_WRITE_FLASH:
+                        self.flash_parameters = self.parameters.parameters.copy()
+                    elif address == CMD_SYS_READ_FLASH:
+                        self.parameters.parameters = self.flash_parameters.copy()
+                    elif address == CMD_SYS_RESET_FIRMWARE:
+                        self.parameters.parameters = self.flash_parameters.copy()
+                        self.user_registers = UserRegisterMap()
+                        self.cnc_controller = CNCController(
+                            self.system_registers, self.user_registers, self.parameters)
+                        self.system_registers.set_control_interface(CONTROL_UNDECIDED)
                     response = _pack_response(STATUS_SYS_COMMAND_OK, address, 0)
                 elif address in cnc_cmd_names:
                     cmd_name = cnc_cmd_names[address]
@@ -730,6 +800,9 @@ class DSHubEmulator:
                 response = _pack_response(STATUS_READ_REGISTER_OK, address, reg_value)
 
             elif command == CMD_WRITE_REGISTER:
+                if self.cnc_controller.state in (STATE_E_STOP, STATE_ERROR):
+                    self.system_registers.increment_error_count()
+                    return _pack_response(STATUS_PERMISSION_ERROR, address, 0)
                 success = self.user_registers.write(address, value)
                 if not success:
                     if address < USER_REG_READ_ONLY_COUNT:
@@ -758,9 +831,12 @@ class DSHubEmulator:
                 else:
                     print(f"[{interface}] {ts} Write Parameter[{address}] = {value}")
                 param_value = self.parameters.read(address)
-                response = _pack_response(STATUS_WRITE_PARAMETER_OK, address, param_value)
+                response = _pack_response(STATUS_WRITE_PARAMETER_OK if success else -4, address, param_value)
 
             elif command == CMD_TAKE_CONTROL:
+                if value not in (CONTROL_UNDECIDED, expected_control):
+                    self.system_registers.increment_error_count()
+                    return _pack_response(STATUS_PERMISSION_ERROR, address, 0)
                 self.system_registers.set_control_interface(value)
                 control_name = {
                     CONTROL_UNDECIDED:       "UNDECIDED",

@@ -1,138 +1,41 @@
-# DSHub — Building and Distributing
+# Building the native Rust application
 
-DSHub v0.2.4+ is a native Tauri desktop application. It does not run as a server and does not require PM2, Node.js, or systemd at runtime. This document covers building release packages for distribution.
+Run all commands from the repository root. Rust 1.89+ and platform C/C++ build tools are required. The reproducible dependency selection is in the root `Cargo.lock`.
 
----
-
-## Prerequisites
-
-### Arch Linux
-
-```bash
-sudo pacman -S rust npm webkit2gtk-4.1 gtk3 libsoup3 base-devel
+```sh
+cargo run --locked                    # development
+cargo build --locked --release       # optimized executable
+cargo fmt --check
+cargo test --locked
+cargo clippy --locked --all-targets --all-features -- -D warnings
 ```
 
-### Ubuntu / Debian
+Linux build libraries:
 
-```bash
-sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-  libssl-dev curl build-essential pkg-config
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source "$HOME/.cargo/env"
-
-# Node.js 18+
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo bash -
-sudo apt install nodejs
+```sh
+sudo apt install build-essential pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev libgl1-mesa-dev
 ```
 
-### Fedora
+Use Rust's MSVC toolchain plus Visual Studio C++ Build Tools on Windows; use the Xcode command-line tools on macOS. egui uses the native event loop and OpenGL renderer. Linux file dialogs use XDG Desktop Portal. Neither Node/npm nor Tauri/WebKit/WebView2 participates in this build.
 
-```bash
-sudo dnf install webkit2gtk4.1-devel gtk3-devel libsoup3-devel openssl-devel \
-  curl gcc
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+The resulting binary is `target/release/dshub` (`dshub.exe` on Windows). Maps, CNC metadata, fonts and the app icon are embedded.
+
+## Helpers and packaging
+
+- `./build.sh dev` / `build.bat dev`: run a development build.
+- `./build.sh bin` / `build.bat bin`: build the release executable.
+- `./build.sh test` / `build.bat test`: run tests and lint checks.
+- `./build.sh run` / `build.bat run`: run the built release executable.
+- `./build.sh pkg`: build a Debian package using `dpkg-deb` in `target/package/`.
+
+The CI workflow checks all three desktop platforms and publishes archives on version tags. Signing, notarization and Windows installers are not configured by the native workflow.
+
+## Device integration test
+
+```sh
+cargo test --locked --test emulator -- --ignored
 ```
 
----
+This starts and stops the bundled Python emulator. Python 3 and free local TCP port 2009 / UDP port 2011 are required. The test covers both transports, control, reads/writes, float representation, command acknowledgements, refused writes and polling.
 
-## Build Steps
-
-The `build.sh` script in the project root handles all build variants:
-
-```bash
-git clone https://github.com/skjafar/dshub.git
-cd dshub
-
-./build.sh bin      # standalone binary only (fast)
-./build.sh pkg      # binary + .deb + .rpm packages
-./build.sh install  # build .deb and install with dpkg
-./build.sh run      # launch the last built binary
-./build.sh clean    # remove all build artifacts
-```
-
-Output files:
-```
-src-tauri/target/release/dshub              # standalone binary
-src-tauri/target/release/bundle/deb/        # .deb package
-src-tauri/target/release/bundle/rpm/        # .rpm package
-```
-
-### Manual Steps (without build.sh)
-
-```bash
-# 1. Install and build frontend
-npm --prefix client ci
-npm --prefix client run build
-
-# 2. Build binary + packages
-cd src-tauri && cargo tauri build
-
-# Or binary only (faster):
-cd src-tauri && cargo build --release
-```
-
----
-
-## Installing the Built Packages
-
-### .deb (Ubuntu / Debian / Mint)
-
-```bash
-sudo dpkg -i src-tauri/target/release/bundle/deb/DSHub_0.2.4_amd64.deb
-```
-
-### .rpm (Fedora / openSUSE / RHEL)
-
-```bash
-sudo rpm -i src-tauri/target/release/bundle/rpm/DSHub-0.2.4-1.x86_64.rpm
-```
-
-### Standalone Binary
-
-Copy `target/release/dshub` anywhere on `$PATH`:
-
-```bash
-sudo install -Dm755 src-tauri/target/release/dshub /usr/local/bin/dshub
-```
-
----
-
-## Development Mode
-
-```bash
-./build.sh dev
-# or manually:
-cd src-tauri && cargo tauri dev
-```
-
-This starts the Vite dev server and opens a Tauri window with hot-reload. Rust changes trigger a full recompile; frontend changes hot-reload in-place. Requires `tauri-cli` (`cargo install tauri-cli --version "^2" --locked`).
-
----
-
-## Releasing a New Version
-
-1. Update `version` in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`
-2. Build: `cargo tauri build`
-3. Tag the release and push — GitHub Actions builds all platform packages automatically:
-   ```bash
-   git tag vX.Y.Z
-   git push origin vX.Y.Z
-   ```
-4. The GitHub Actions workflow uploads `.deb`, `.rpm`, `.exe`, `.dmg`, and a Linux `.zip` to the release
-5. Update the AUR package (see `aur-bin/MAINTAINER_GUIDE.md` — locally only, not in git)
-
----
-
-## Runtime Dependencies
-
-These must be installed on the end-user's machine. They are automatically declared as dependencies in the `.deb` and `.rpm` packages.
-
-| Package | Purpose |
-|---------|---------|
-| `webkit2gtk-4.1` / `libwebkit2gtk-4.1` | WebView rendering engine |
-| `gtk3` / `libgtk-3` | UI toolkit |
-| `libsoup3` | HTTP/networking support |
-| `openssl` | TLS |
-| `xdg-utils` | `xdg-open` for external links |
-
-There is no Node.js, npm, or Python runtime dependency.
+See [egui migration validation](docs/egui-migration.md) for native rendering smoke tests. The previous implementation remains in `client/` and `src-tauri/` as a reference; running commands there builds the historical app rather than the native application.

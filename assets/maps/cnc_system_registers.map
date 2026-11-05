@@ -1,0 +1,9 @@
+// CNC profile system registers — library-managed, read-only from protocol.
+// Accessed via command byte 6 (READ_SYSTEM_REGISTER).
+// Defined by ds_system_register_names_t in the datastream library.
+// Do NOT add application-specific registers here; those belong in cnc_registers.map.
+
+uint32_t            DS_PACKET_COUNT;
+uint32_t            DS_ERROR_COUNT;
+uint32_t            CONTROL_INTERFACE;
+uint32_t            COUNTER_1HZ;

@@ -1,292 +1,88 @@
 # DSHub
 
-A desktop application for monitoring and controlling industrial devices via TCP/UDP protocols. Built with Tauri v2 (Rust backend) and React/TypeScript (frontend).
+DSHub is a native Rust workstation for monitoring and controlling devices over TCP and UDP. The application uses **egui / eframe** for its desktop interface and **Tokio** for device I/O. The native build has no JavaScript, Node.js, Tauri, WebView, or HTTP server dependency.
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Rust](https://img.shields.io/badge/rust-1.77%2B-orange.svg)
-![TypeScript](https://img.shields.io/badge/typescript-5.7-blue.svg)
-![Tauri](https://img.shields.io/badge/tauri-v2-purple.svg)
+## Run
 
-## Features
+Install Rust 1.89 or newer, then run from the repository root:
 
-- **Auto-Discovery** — UDP broadcast scan finds devices on the local network automatically
-- **Dual Protocol** — Connect via TCP or UDP with seamless switching
-- **Real-Time Plotting** — Live charting of register values at configurable poll rates
-- **Register / Parameter Management** — Read and write operations with input validation
-- **Modern UI** — Material-UI with dark/light themes
-- **Native Desktop** — Ships as a single binary; no server process, no browser required
-- **Type-Safe** — Full TypeScript coverage on the frontend, strict Rust on the backend
-
-## Quick Start
-
-### Install (Arch Linux)
-
-```bash
-yay -S dshub-bin
-# or
-paru -S dshub-bin
+```sh
+cargo run --locked
 ```
 
-Launch from your application menu or run `dshub`.
+For an optimized binary:
 
-### Build from Source
-
-#### Prerequisites
-
-| Tool | Minimum Version | Purpose |
-|------|----------------|---------|
-| Rust + Cargo | 1.77 | Backend compilation |
-| Node.js | 18 | Frontend build |
-| npm | 9 | Frontend dependencies |
-| webkit2gtk-4.1 | — | Tauri WebView runtime |
-
-On Arch Linux:
-```bash
-sudo pacman -S rust npm webkit2gtk-4.1 gtk3 libsoup3
+```sh
+cargo build --locked --release
+# Linux / macOS
+target/release/dshub
+# Windows
+# target\release\dshub.exe
 ```
 
-On Ubuntu/Debian:
-```bash
-sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-  libssl-dev curl build-essential
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+On Linux the desktop needs OpenGL/EGL, X11 or Wayland, and libxkbcommon. Native file dialogs use the desktop's XDG portal. Debian/Ubuntu build prerequisites:
+
+```sh
+sudo apt install build-essential pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev libgl1-mesa-dev
 ```
 
-#### Build
+Windows uses the MSVC Rust toolchain and Visual Studio C++ build tools. macOS uses the Xcode command-line tools. No WebKit or WebView2 installation is required.
 
-```bash
-git clone https://github.com/skjafar/dshub.git
-cd dshub
+## Work with a device
 
-# Build frontend
-npm --prefix client ci
-npm --prefix client run build
+1. **Scan** for devices, or enter an IP address and select **TCP** or **UDP**.
+2. **Connect**, then **Take Control** before sending writes or commands.
+3. Select the device's **Profile**. The bundled Default and CNC profiles include maps; CNC also includes command definitions and entry metadata.
+4. Use Registers, Parameters and System Registers to search, read, refresh and inspect values. System registers are read-only. Integer, unsigned, float and hexadecimal map types retain their wire representation; decimal, hexadecimal and binary display modes are available.
+5. Add traces from a data pane to the Plot. Configure a Dashboard with readouts, gauges, indicators, controls, tables, alarms, containers and mini-plots.
 
-# Build and package
-cd src-tauri
-cargo tauri build        # produces .deb and .rpm in target/release/bundle/
-# or just the binary:
-cargo build --release    # binary at target/release/dshub
-```
+The Main Window owns one device session. Every pane and native daughter window shares that session. Drag tabs to arrange docked panes. Right-click a tab to focus it, duplicate it or move it to a native window. Closing a daughter window returns its panes to the Main Window. Closing the Main Window exits the app.
 
-#### Development
+Profiles own maps, metadata and dashboards. The Map Editor keeps changes in a draft until **Save Profile**. Address or type changes put affected bindings into **Needs review**; those bindings stop reading and writing until explicitly rebound. The review indicator includes bindings in hidden dashboards and nested containers. Profile export/import uses version-one `.dshub-profile` files, including compatibility with dashboards from the former desktop interface.
 
-```bash
-cd src-tauri
-cargo tauri dev          # starts Vite dev server + Tauri with hot-reload
-```
+Workspaces retain named pane arrangements and daughter windows per Profile. Native settings, dashboards, current layouts and plot definitions are saved periodically and on normal exit. Connection sockets, device readings and plot samples are never restored as live device state.
 
-### Testing Without Hardware
+## Without hardware
 
-Use the included Python emulator:
-
-```bash
-# Terminal 1: start the emulator
+```sh
 python3 emulator/dshub_emulator.py
-
-# Terminal 2: launch the app
-dshub                    # or run from source: cargo tauri dev
 ```
 
-Click **Scan for Devices** — the emulator will appear as "Python Emulator".
+Connect to `127.0.0.1`, select the CNC Profile and Take Control. The emulator implements discovery, TCP/UDP, register and parameter operations, CNC commands and simulated motion. See [emulator/README.md](emulator/README.md) and [PROTOCOL.md](PROTOCOL.md).
 
-## Project Structure
+## Validation
 
-```
-dshub/
-├── client/              # React frontend (Vite + TypeScript)
-│   ├── src/
-│   │   ├── components/  # UI panels
-│   │   ├── contexts/    # DSHubContext (IPC bridge), SettingsContext
-│   │   ├── maps/        # Register/parameter map definitions
-│   │   └── types/       # TypeScript types
-│   └── build/           # Production build (embedded in binary)
-├── src-tauri/           # Rust backend (Tauri v2)
-│   ├── src/
-│   │   ├── lib.rs       # App setup, command registration
-│   │   ├── commands.rs  # #[tauri::command] handlers + AppState
-│   │   ├── communicator.rs  # TCP/UDP device communication
-│   │   ├── scanner.rs   # UDP broadcast discovery
-│   │   └── types.rs     # Shared types (serde)
-│   └── tauri.conf.json
-├── emulator/            # Python board emulator (no dependencies)
-├── aur-bin/             # Arch Linux AUR package files (binary)
-└── libs/                # Third-party libs (gitignored, clone manually)
-    └── datastream/      # Protocol definitions — git clone https://github.com/skjafar/datastream
+```sh
+cargo fmt --check
+cargo test --locked
+cargo clippy --locked --all-targets --all-features -- -D warnings
+# Starts the Python emulator; requires free TCP 2009 / UDP 2011:
+cargo test --locked --test emulator -- --ignored
 ```
 
-## Architecture
+An opt-in native smoke fixture exercises rendered panes, real device control and daughter windows. See [the migration notes](docs/egui-migration.md) for the commands and validation limits.
 
-DSHub uses Tauri's IPC bridge — the React frontend calls Rust functions via `invoke()` and receives push events via `listen()`. There is no HTTP server or WebSocket.
+## Source layout
 
-```
-React UI  ──invoke()──►  Rust Commands  ──tokio::net──►  Device (TCP/UDP)
-          ◄──listen()──  tauri events   ◄──────────────  Device response
-```
+| Path | Responsibility |
+|---|---|
+| `src/main.rs` | Native desktop entry point |
+| `src/ui/` | egui shell, panes, dashboard widgets, review and session actor |
+| `src/model.rs` | Maps, Profiles, bindings, typed values and persistent domain models |
+| `src/profile_compat.rs` | Version-one Profile/dashboard file compatibility |
+| `src/map_files.rs` | Firmware header and command-map import/export |
+| `src/backend/` | Existing Rust commands, communicator, discovery, polling and protocol types adapted to run without Tauri |
+| `src/runtime.rs` | Bounded in-process backend event bridge |
+| `assets/` | Embedded maps, CNC metadata and application icon |
+| `tests/emulator.rs` | Real TCP/UDP integration test |
+| `packaging/` | Linux desktop integration |
 
-**Backend modules:**
+`client/` and `src-tauri/` are retained as migration references on this branch. They are excluded from the native Cargo dependency graph, build scripts, packaging and release workflow. The backend's behavior is deliberately preserved for a separate backend review after the native application is accepted.
 
-| Module | Responsibility |
-|--------|---------------|
-| `commands.rs` | All `#[tauri::command]` functions, `AppState` with async Mutex |
-| `communicator.rs` | Sequential request/response over TCP or UDP via mpsc channel |
-| `scanner.rs` | UDP broadcast discovery, enumerates real network interfaces |
-| `types.rs` | Protocol constants, serde types shared with the frontend |
+## Distribution
 
-**Frontend → Backend calls:**
+`./build.sh bin` builds the release binary; `./build.sh pkg` also creates a Debian package on Debian-compatible hosts. `build.bat bin` builds the Windows executable. The GitHub workflow builds and checks Linux, Windows and macOS; version tags publish native archives and the Linux Debian package.
 
-| Action | Rust command |
-|--------|-------------|
-| Scan for devices | `start_scan` |
-| Connect to device | `connect_device` |
-| Read register | `read_register` |
-| Write register | `write_register` |
-| Start live plot | `start_plotting` |
-| Take control | `take_control` |
+The AUR recipe under `aur-bin/` describes the previously published 0.2.4 release. It should be updated with verified release URLs and checksums when a native release is published.
 
-## Protocol
-
-### Discovery (UDP port 2011)
-
-**Request (5 bytes):**
-```
-[0xDEADBEEF (4B, LE)] [0x01]
-```
-
-**Response (32+ bytes):**
-```
-[Magic (4B)] [0x02] [BoardType] [Firmware (2B)]
-[BoardID (4B)] [IP (4B, LE)] [TCPPort (2B)] [UDPPort (2B)]
-[Reserved (2B)] [MAC (6B)] [BoardName (null-terminated)]
-```
-
-### Data (TCP port 2009 / UDP port 2011)
-
-**Request (8 bytes, little-endian):**
-```
-[Type (2B)] [Address (2B)] [Value (4B, signed)]
-```
-
-**Response (8 bytes, little-endian):**
-```
-[Status (2B, signed)] [Address (2B)] [Value (4B, signed)]
-```
-
-| Type | Operation |
-|------|-----------|
-| 0 | SYS_COMMAND |
-| 1 | Read Register |
-| 2 | Write Register |
-| 3 | Read Parameter |
-| 4 | Write Parameter |
-| 5 | Take Control |
-| 6 | Read System Register |
-| 7 | Write System Register (always rejected — system registers are library-managed) |
-
-Full wire format, system command catalog, and conventions are in [PROTOCOL.md](PROTOCOL.md).
-
-## Map Files
-
-Register and parameter names are loaded from plain-text map files at runtime:
-
-```
-client/public/maps/registers.map
-client/public/maps/parameters.map
-client/public/maps/boardtypes.map
-```
-
-Format:
-```c
-// C-style comments supported
-uint32_t    REGISTER_NAME;
-int32_t     SIGNED_REGISTER;
-float       FLOAT_REGISTER;
-hex         HEX_VALUE;
-```
-
-## Build Commands
-
-Use the included `build.sh` helper from the project root:
-
-| Command | Description |
-|---------|-------------|
-| `./build.sh dev` | Development mode with hot-reload |
-| `./build.sh bin` | Build standalone binary only (fast) |
-| `./build.sh pkg` | Build binary + .deb and .rpm packages |
-| `./build.sh install` | Build .deb and install with dpkg |
-| `./build.sh run` | Run the last built binary |
-| `./build.sh clean` | Remove all build artifacts |
-
-Or invoke the underlying tools directly:
-
-| Command | Description |
-|---------|-------------|
-| `cargo tauri dev` | Development mode with hot-reload (run from `src-tauri/`) |
-| `cargo tauri build` | Release build with packages |
-| `cargo build --release` | Binary only (faster, no bundling) |
-| `npm --prefix client run build` | Frontend production build |
-
-Windows and macOS builds are handled automatically by GitHub Actions (`.github/workflows/build.yml`) when a version tag is pushed.
-
-## Technology Stack
-
-**Frontend:**
-- React 19
-- TypeScript 5.7
-- Vite 6
-- Material-UI 7
-- Chart.js 4
-- `@tauri-apps/api` (IPC)
-
-**Backend:**
-- Rust 1.77+
-- Tauri v2
-- Tokio (async runtime)
-- Serde / serde_json
-
-## Troubleshooting
-
-**Cannot discover devices:**
-- Ensure your machine and the device are on the same subnet
-- Check that UDP port 2011 is not blocked by a firewall
-- The Rust backend binds to each non-loopback interface and sends directed broadcasts
-
-**Cannot connect after discovery:**
-- Click **Take Control** after connecting — the device will reject data without it
-- Verify no other client is holding control of the device
-
-**Build fails (webkit2gtk not found):**
-```bash
-# Arch
-sudo pacman -S webkit2gtk-4.1
-
-# Ubuntu 22.04+
-sudo apt install libwebkit2gtk-4.1-dev
-```
-
-**Cargo.lock out of date:**
-```bash
-cd src-tauri
-cargo update
-```
-
-## External Dependencies
-
-The **datastream** protocol library (header files and protocol definitions) is not bundled in this repository. After cloning, fetch it with:
-
-```bash
-git clone https://github.com/skjafar/datastream libs/datastream
-```
-
-The `libs/` folder is gitignored — it will never appear in `git status`.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Commit changes
-4. Push and open a Pull Request against `master`
-
-## License
-
-MIT License.
+MIT license. See [LICENSE](LICENSE).

@@ -1,97 +1,33 @@
-#!/bin/bash
-set -e
-
-ROOT="$(cd "$(dirname "$0")" && pwd)"
-BINARY="$ROOT/src-tauri/target/release/dshub"
-
-usage() {
-    echo "Usage: $0 <command>"
-    echo ""
-    echo "Commands:"
-    echo "  dev       Start dev mode with hot-reload (requires tauri-cli)"
-    echo "  bin       Build standalone binary only (fast)"
-    echo "  pkg       Build binary + .deb and .rpm packages"
-    echo "  install   Build .deb and install it with dpkg"
-    echo "  run       Run the last built binary"
-    echo "  clean     Remove all build artifacts"
-    echo ""
-    echo "Note: Windows (.exe) and macOS (.dmg) builds require running on those"
-    echo "platforms natively, or use GitHub Actions (.github/workflows/build.yml)."
-    echo ""
-}
-
-build_frontend() {
-    echo ">> Building frontend..."
-    npm --prefix "$ROOT/client" ci --silent
-    npm --prefix "$ROOT/client" run build
-}
-
-check_tauri_cli() {
-    if ! cargo tauri --version &>/dev/null; then
-        echo "tauri-cli not found. Installing..."
-        cargo install tauri-cli --version "^2" --locked
-    fi
-}
-
-case "${1:-}" in
-    dev)
-        check_tauri_cli
-        echo ">> Starting Tauri dev mode..."
-        cd "$ROOT/src-tauri"
-        cargo tauri dev
-        ;;
-
-    bin)
-        check_tauri_cli
-        build_frontend
-        echo ">> Compiling Rust binary (no packages)..."
-        cd "$ROOT/src-tauri"
-        cargo tauri build --no-bundle
-        echo ""
-        echo "Done: $BINARY"
-        ;;
-
-    pkg)
-        check_tauri_cli
-        build_frontend
-        echo ">> Building packages (.deb, .rpm)..."
-        cd "$ROOT/src-tauri"
-        cargo tauri build
-        echo ""
-        echo "Done:"
-        find "$ROOT/src-tauri/target/release/bundle" -name "*.deb" -o -name "*.rpm" | sort | sed 's/^/  /'
-        ;;
-
-    install)
-        check_tauri_cli
-        build_frontend
-        echo ">> Building .deb package..."
-        cd "$ROOT/src-tauri"
-        cargo tauri build --bundles deb
-        DEB=$(find "$ROOT/src-tauri/target/release/bundle/deb" -name "*.deb" | head -1)
-        echo ">> Installing $DEB..."
-        sudo dpkg -i "$DEB"
-        echo ""
-        echo "Installed. Run: dshub"
-        ;;
-
-    run)
-        if [ ! -f "$BINARY" ]; then
-            echo "No binary found. Run '$0 bin' first."
-            exit 1
-        fi
-        "$BINARY"
-        ;;
-
-    clean)
-        echo ">> Cleaning build artifacts..."
-        rm -rf "$ROOT/src-tauri/target"
-        rm -rf "$ROOT/client/build"
-        echo "Done."
-        ;;
-
-    *)
-        usage
-        exit 1
-        ;;
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+case "${1:-bin}" in
+  dev) cargo run ;;
+  bin) cargo build --release ;;
+  run) ./target/release/dshub ;;
+  test) cargo test; cargo clippy --all-targets -- -D warnings ;;
+  pkg)
+    cargo build --release
+    stage="target/package/dshub"
+    mkdir -p "$stage/DEBIAN" "$stage/usr/bin" "$stage/usr/share/applications" "$stage/usr/share/icons/hicolor/128x128/apps" "$stage/usr/share/doc/dshub"
+    install -m755 target/release/dshub "$stage/usr/bin/dshub"
+    install -m644 packaging/dshub.desktop "$stage/usr/share/applications/dshub.desktop"
+    install -m644 assets/icon.png "$stage/usr/share/icons/hicolor/128x128/apps/dshub.png"
+    install -m644 LICENSE "$stage/usr/share/doc/dshub/copyright"
+    version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+    arch=$(dpkg --print-architecture)
+    cat > "$stage/DEBIAN/control" <<CONTROL
+Package: dshub
+Version: $version
+Section: electronics
+Priority: optional
+Architecture: $arch
+Maintainer: Sofian Jafar <skjafar@gmail.com>
+Depends: libegl1, libgl1, libxkbcommon0
+Recommends: xdg-desktop-portal
+Description: Native Rust device monitoring and control workstation
+CONTROL
+    dpkg-deb --root-owner-group --build "$stage" "target/package/dshub_${version}_${arch}.deb"
+    ;;
+  *) echo "Usage: $0 {dev|bin|run|test|pkg}" >&2; exit 2 ;;
 esac

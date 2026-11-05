@@ -1,0 +1,31 @@
+[package]
+name = "dshub"
+version = "0.3.0"
+edition = "2021"
+rust-version = "1.89"
+description = "Native Rust device monitoring and control workstation"
+license = "MIT"
+repository = "https://github.com/skjafar/dshub"
+default-run = "dshub"
+
+[features]
+native-smoke = []
+
+[dependencies]
+eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "glow", "persistence", "x11", "wayland", "accesskit"] }
+egui_dock = { version = "0.16", features = ["serde"] }
+egui_plot = "0.31"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+log = "0.4"
+env_logger = "0.11"
+rfd = "0.15"
+if-addrs = "0.13"
+base64 = "0.22"
+regex = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[profile.release]
+lto = "thin"
+strip = true

@@ -184,3 +184,6 @@ aur-bin/MAINTAINER_GUIDE.md
 tmp/
 scripts/
 SCE2-Files/
+
+# Native Rust build artifacts
+/target/

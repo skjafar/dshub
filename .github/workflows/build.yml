@@ -1,92 +1,65 @@
-name: Build & Release
+name: Native Rust Build & Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
+  pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
     permissions:
       contents: write
-
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: ubuntu-22.04
+          - os: ubuntu-22.04
             label: linux
-          - platform: windows-latest
+          - os: windows-latest
             label: windows
-          - platform: macos-latest
+          - os: macos-latest
             label: macos
-
-    runs-on: ${{ matrix.platform }}
-
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+      - name: Linux native dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libegl1-mesa-dev libgl1-mesa-dev
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          node-version: lts/*
-          cache: npm
-          cache-dependency-path: client/package-lock.json
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo test --locked
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo build --locked --release
+      - name: Linux package
+        if: runner.os == 'Linux'
+        run: bash build.sh pkg
+      - name: Archive Windows binary
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path target/release/dshub.exe,LICENSE -DestinationPath dshub-windows.zip
+      - name: Archive Unix binary
+        if: runner.os != 'Windows'
+        run: tar -czf dshub-${{ matrix.label }}.tar.gz -C target/release dshub -C ../.. LICENSE
+      - uses: actions/upload-artifact@v4
         with:
-          workspaces: ./src-tauri -> target
-
-      - name: Build frontend
-        run: |
-          npm --prefix client ci
-          npm --prefix client run build
-
-      - name: Build and release with Tauri
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: DSHub ${{ github.ref_name }}
-          releaseBody: |
-            ## Installation
-
-            | Platform | File |
-            |----------|------|
-            | Linux (deb) | `DSHub_*_amd64.deb` |
-            | Linux (rpm) | `DSHub-*.x86_64.rpm` |
-            | Linux (binary) | `dshub-linux-x86_64.zip` |
-            | Windows | `DSHub_*_x64-setup.exe` |
-            | macOS | `DSHub_*.dmg` |
-
-            See [QUICK_START.md](https://github.com/skjafar/dshub/blob/tauri/QUICK_START.md) for installation instructions.
-          releaseDraft: false
-          prerelease: false
-
-      - name: Zip Linux binary
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          cd src-tauri/target/release
-          zip dshub-linux-x86_64.zip dshub
-
-      - name: Upload Linux binary zip to release
-        if: matrix.platform == 'ubuntu-22.04'
+          name: dshub-${{ matrix.label }}
+          path: |
+            dshub-*.zip
+            dshub-*.tar.gz
+            target/package/*.deb
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: src-tauri/target/release/dshub-linux-x86_64.zip
+          files: |
+            dshub-*.zip
+            dshub-*.tar.gz
+            target/package/*.deb
