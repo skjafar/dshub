@@ -1,3 +1,4 @@
+use super::colors;
 use super::{session::Session, widgets, Pane, PaneKind};
 use crate::{model::*, types::*};
 use eframe::egui::{self, Color32, RichText};
@@ -100,13 +101,7 @@ impl Viewer<'_> {
         if let Some(c) = &self.session.connection {
             ui.label(RichText::new(c.device_name.as_deref().unwrap_or(&c.ip)).size(24.));
             ui.label(format!("{}:{} · {:?}", c.ip, c.port, c.interface_type));
-            ui.label(if c.reconnecting {
-                "Reconnecting…"
-            } else if c.connected {
-                "Connected"
-            } else {
-                "Disconnected"
-            });
+            colors::connection(ui, self.session);
             ui.label(format!("Control interface: {}", c.control_state));
             if let Some(device) = self.session.devices.iter().find(|d| d.ip_address == c.ip) {
                 ui.label(&device.board_name);
@@ -118,7 +113,7 @@ impl Viewer<'_> {
                 ui.monospace(&device.mac_address);
             }
         } else {
-            ui.label("No device connected");
+            colors::connection(ui, self.session);
             ui.label("Use Scan or enter an IP address above.");
         }
         ui.separator();
@@ -152,7 +147,7 @@ impl Viewer<'_> {
         ui.separator();
         ui.label(RichText::new("Recent activity").strong());
         for l in self.session.logs.iter().rev().take(8) {
-            ui.colored_label(log_color(&l.level), &l.message);
+            ui.colored_label(log_color(ui, &l.level), &l.message);
         }
     }
     fn entries(&mut self, ui: &mut egui::Ui, p: &mut Pane, s: Space) {
@@ -240,6 +235,11 @@ impl Viewer<'_> {
                             egui::Label::new(RichText::new(&e.data_type).weak()),
                         );
                         let reading = self.session.readings.get(&(s, e.address));
+                        let (role, status) = colors::reading(
+                            self.session.connected(),
+                            reading,
+                            p.auto.then_some(p.interval),
+                        );
                         let text = match reading {
                             Some(r) if r.valid => p.format.format(e, r.value),
                             Some(_) => "Error".into(),
@@ -247,7 +247,17 @@ impl Viewer<'_> {
                         };
                         ui.add_sized(
                             [100., 22.],
-                            egui::Label::new(RichText::new(text).monospace()),
+                            egui::Label::new(
+                                RichText::new(text)
+                                    .monospace()
+                                    .color(colors::role(ui, role)),
+                            ),
+                        );
+                        ui.add_sized(
+                            [105., 22.],
+                            egui::Label::new(
+                                RichText::new(status).small().color(colors::role(ui, role)),
+                            ),
                         );
                         if ui
                             .add_enabled(self.session.connected(), egui::Button::new("Read"))
@@ -279,7 +289,7 @@ impl Viewer<'_> {
                             ui.weak("Read-only");
                         }
                         if let Some(outcome) = self.session.writes.get(&(s, e.address)) {
-                            ui.label(outcome.label());
+                            colors::outcome(ui, outcome);
                         }
                     });
                 }
@@ -320,7 +330,7 @@ impl Viewer<'_> {
                     ui.monospace(c.code.to_string());
                     ui.label(&c.name).on_hover_text(&c.description);
                     if let Some(outcome) = self.session.commands.get(&c.code) {
-                        ui.label(outcome.label());
+                        colors::outcome(ui, outcome);
                     }
                     if ui
                         .add_enabled(self.session.controlled(), egui::Button::new("Send"))
@@ -406,11 +416,8 @@ impl Viewer<'_> {
         self.session
             .interest(&Binding::new(s, &e), self.profile, 250);
         if let Some(r) = self.session.readings.get(&(s, e.address)) {
-            ui.label(if r.valid {
-                "Valid reading"
-            } else {
-                "Read failed"
-            });
+            let (role, label) = colors::reading(self.session.connected(), Some(r), Some(250));
+            colors::badge(ui, role, label);
             ui.monospace(format!(
                 "Signed:   {}\nUnsigned: {}\nHex:      0x{:08X}\nFloat:    {}\nBinary:   {:032b}",
                 r.value,
@@ -476,7 +483,7 @@ impl Viewer<'_> {
                 {
                     ui.horizontal_wrapped(|ui| {
                         ui.monospace(format!("{:.3}", l.timestamp / 1000.));
-                        ui.colored_label(log_color(&l.level), &l.message);
+                        ui.colored_label(log_color(ui, &l.level), &l.message);
                     });
                     if let Some(packet) = &l.packet_data {
                         ui.collapsing(
@@ -532,7 +539,7 @@ impl Viewer<'_> {
                     }
                 }
                 if !s.binding.matches(self.profile) {
-                    ui.colored_label(Color32::YELLOW, "Needs review");
+                    ui.colored_label(colors::role(ui, "warn"), "Needs review");
                     if let Some(e) = self.profile.resolve(&s.binding) {
                         if ui.small_button("Follow entry").clicked() {
                             s.binding = Binding::new(s.binding.space, &e);
@@ -787,7 +794,7 @@ impl Viewer<'_> {
             }
             Err(errors) => {
                 for error in errors.iter().take(4) {
-                    ui.colored_label(Color32::from_rgb(245, 150, 90), error);
+                    ui.colored_label(colors::role(ui, "error"), error);
                 }
             }
         }
@@ -802,11 +809,15 @@ impl Viewer<'_> {
         });
     }
 }
-pub fn log_color(l: &LogLevel) -> Color32 {
-    match l {
-        LogLevel::Error => Color32::from_rgb(245, 120, 120),
-        LogLevel::Warning => Color32::from_rgb(245, 190, 90),
-        LogLevel::Success => Color32::from_rgb(140, 210, 140),
-        _ => Color32::from_rgb(160, 180, 195),
-    }
+pub fn log_color(ui: &egui::Ui, l: &LogLevel) -> Color32 {
+    colors::role(
+        ui,
+        match l {
+            LogLevel::Error => "error",
+            LogLevel::Warning => "warn",
+            LogLevel::Success => "ok",
+            LogLevel::Packet => "info",
+            _ => "idle",
+        },
+    )
 }

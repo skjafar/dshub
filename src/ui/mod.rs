@@ -1,3 +1,4 @@
+mod colors;
 mod panes;
 mod review;
 mod session;
@@ -5,7 +6,7 @@ mod session;
 mod smoke;
 mod widgets;
 use crate::model::*;
-use eframe::egui::{self, Color32, RichText};
+use eframe::egui::{self, RichText};
 use egui_dock::{DockArea, DockState, NodeIndex};
 use serde::{Deserialize, Serialize};
 use session::{Action, Session};
@@ -303,7 +304,7 @@ impl Desktop {
                     RichText::new("DSHUB")
                         .strong()
                         .size(22.)
-                        .color(Color32::from_rgb(92, 210, 220)),
+                        .color(colors::role(ui, "accent")),
                 );
                 ui.separator();
                 ui.menu_button("Panes", |ui| {
@@ -331,13 +332,7 @@ impl Desktop {
                     self.guide_open = true;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(if self.session.controlled() {
-                        "● CONTROLLED"
-                    } else if self.session.connected() {
-                        "● CONNECTED"
-                    } else {
-                        "○ OFFLINE"
-                    });
+                    colors::connection(ui, &self.session);
                 });
             });
             ui.separator();
@@ -350,7 +345,12 @@ impl Desktop {
                 ui.selectable_value(&mut self.saved.preferences.udp, false, "TCP");
                 ui.selectable_value(&mut self.saved.preferences.udp, true, "UDP");
                 if ui
-                    .add_enabled(!self.session.busy, egui::Button::new("Connect"))
+                    .add_enabled(
+                        !self.session.busy,
+                        egui::Button::new(
+                            RichText::new("Connect").color(colors::role(ui, "accent")),
+                        ),
+                    )
                     .clicked()
                 {
                     self.session.send(Action::Connect(
@@ -365,7 +365,12 @@ impl Desktop {
                     self.session.send(Action::Disconnect);
                 }
                 if ui
-                    .add_enabled(self.session.connected(), egui::Button::new("Take Control"))
+                    .add_enabled(
+                        self.session.connected(),
+                        egui::Button::new(
+                            RichText::new("Take Control").color(colors::role(ui, "accent")),
+                        ),
+                    )
                     .clicked()
                 {
                     self.session.send(Action::Control);
@@ -436,7 +441,7 @@ impl Desktop {
                 ));
                 ui.separator();
                 if !self.session.notice.is_empty() {
-                    ui.colored_label(Color32::from_rgb(245, 190, 90), &self.session.notice);
+                    ui.colored_label(colors::role(ui, "warn"), &self.session.notice);
                     if ui.small_button("Dismiss").clicked() {
                         self.session.notice.clear();
                     }

@@ -1,3 +1,4 @@
+use super::colors;
 use super::{session::Session, Pane};
 use crate::model::*;
 use eframe::egui::{self, Color32, RichText};
@@ -474,20 +475,11 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
         }
     });
 }
-fn role_color(role: &str) -> Color32 {
-    match role {
-        "error" => Color32::from_rgb(245, 110, 110),
-        "warn" => Color32::from_rgb(245, 190, 80),
-        "ok" => Color32::from_rgb(140, 215, 130),
-        "idle" => Color32::GRAY,
-        _ => Color32::from_rgb(95, 200, 225),
-    }
-}
 pub(super) fn review(ui: &mut egui::Ui, b: &mut Binding, profile: &Profile) -> bool {
     if b.matches(profile) {
         return true;
     }
-    ui.colored_label(role_color("warn"), "Binding needs review");
+    ui.colored_label(colors::role(ui, "warn"), "Binding needs review");
     ui.label(format!("{} previously at {}", b.name, b.address));
     if let Some(e) = profile.resolve(b) {
         if ui
@@ -542,7 +534,7 @@ fn render_widget(
         if let Some(c) = &session.connection {
             ui.heading(c.device_name.as_deref().unwrap_or(&c.ip));
             ui.label(format!("{}:{} {:?}", c.ip, c.port, c.interface_type));
-            ui.label(if c.connected { "Connected" } else { "Offline" });
+            colors::connection(ui, session);
             ui.label(format!("Control: {}", c.control_state));
         } else {
             ui.label("Offline");
@@ -580,9 +572,15 @@ fn render_widget(
                     return;
                 }
                 let color = rule
-                    .map(|r| role_color(&r.role))
+                    .map(|r| colors::role(ui, &r.role))
                     .unwrap_or(ui.visuals().text_color());
                 ui.horizontal(|ui| {
+                    let (role, label) = colors::reading(
+                        session.connected(),
+                        session.readings.get(&(b.space, b.address)),
+                        Some(prefs.poll_ms),
+                    );
+                    colors::badge(ui, role, label);
                     ui.colored_label(color, style.map(|s| s.label.as_str()).unwrap_or(&b.name));
                     ui.monospace(
                         r.as_ref()
@@ -707,7 +705,7 @@ fn render_widget(
     let value = raw.map(|v| e.decode(v));
     let rule = value.and_then(|v| w.thresholds.iter().find(|t| t.matches(v)));
     let color = rule
-        .map(|r| role_color(&r.role))
+        .map(|r| colors::role(ui, &r.role))
         .unwrap_or(ui.visuals().text_color());
     let text = raw.map(|v| w.format.format(&e, v)).unwrap_or("—".into());
     match w.kind {
@@ -717,7 +715,7 @@ fn render_widget(
         }
         WidgetKind::Gauge => {
             if w.max <= w.min {
-                ui.colored_label(role_color("warn"), "Maximum must exceed minimum");
+                ui.colored_label(colors::role(ui, "warn"), "Maximum must exceed minimum");
                 return;
             }
             let (rect, _) = ui.allocate_exact_size(
@@ -822,7 +820,11 @@ fn render_widget(
                 for bit in 0..32 {
                     let on = raw.is_some_and(|v| (v as u32) & (1 << bit) != 0);
                     ui.colored_label(
-                        if on { role_color("ok") } else { Color32::GRAY },
+                        if on {
+                            colors::role(ui, "ok")
+                        } else {
+                            Color32::GRAY
+                        },
                         format!("{bit:02} {}", if on { "●" } else { "○" }),
                     );
                     if bit % 8 == 7 {
@@ -892,13 +894,16 @@ fn render_widget(
         _ => {}
     }
     if let Some(outcome) = session.writes.get(&(binding.space, binding.address)) {
-        ui.label(outcome.label());
+        colors::outcome(ui, outcome);
     }
-    if raw.is_none() {
-        ui.weak(if session.connected() {
-            "Waiting for a valid reading"
+    let (role, label) = colors::reading(
+        session.connected(),
+        session.readings.get(&(binding.space, binding.address)),
+        Some(if w.kind == WidgetKind::MiniPlot {
+            w.poll_ms
         } else {
-            "Offline"
-        });
-    }
+            prefs.poll_ms
+        }),
+    );
+    colors::badge(ui, role, label);
 }
