@@ -18,7 +18,7 @@ pub fn dashboard(
         });
     }
     pane.dashboard = pane.dashboard.min(profile.dashboards.len() - 1);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         egui::ComboBox::from_id_salt("dashboards")
             .selected_text(&profile.dashboards[pane.dashboard].name)
             .show_ui(ui, |ui| {
@@ -27,32 +27,34 @@ pub fn dashboard(
                 }
             });
         ui.checkbox(&mut pane.editing, "Edit dashboard");
-        if profile.id == "cnc_motor_controller" && ui.button("Add CNC panels").clicked() {
-            let mut panels = default_profiles().remove(1).dashboards;
-            for panel in &mut panels {
-                panel.id = unique_id();
+        if pane.editing {
+            if profile.id == "cnc_motor_controller" && ui.button("Add CNC panels").clicked() {
+                let mut panels = default_profiles().remove(1).dashboards;
+                for panel in &mut panels {
+                    panel.id = unique_id();
+                }
+                profile.dashboards.extend(panels);
+                pane.dashboard = profile.dashboards.len() - 3;
             }
-            profile.dashboards.extend(panels);
-            pane.dashboard = profile.dashboards.len() - 3;
-        }
-        if ui.button("New").clicked() {
-            profile.dashboards.push(Dashboard {
-                id: unique_id(),
-                name: "Dashboard".into(),
-                widgets: vec![],
-            });
-            pane.dashboard = profile.dashboards.len() - 1;
-        }
-        if ui.button("Duplicate").clicked() {
-            let mut d = profile.dashboards[pane.dashboard].clone();
-            d.id = unique_id();
-            d.name.push_str(" Copy");
-            profile.dashboards.push(d);
-            pane.dashboard = profile.dashboards.len() - 1;
-        }
-        if profile.dashboards.len() > 1 && ui.button("Delete").clicked() {
-            profile.dashboards.remove(pane.dashboard);
-            pane.dashboard = 0;
+            if ui.button("New").clicked() {
+                profile.dashboards.push(Dashboard {
+                    id: unique_id(),
+                    name: "Dashboard".into(),
+                    widgets: vec![],
+                });
+                pane.dashboard = profile.dashboards.len() - 1;
+            }
+            if ui.button("Duplicate").clicked() {
+                let mut d = profile.dashboards[pane.dashboard].clone();
+                d.id = unique_id();
+                d.name.push_str(" Copy");
+                profile.dashboards.push(d);
+                pane.dashboard = profile.dashboards.len() - 1;
+            }
+            if profile.dashboards.len() > 1 && ui.button("Delete").clicked() {
+                profile.dashboards.remove(pane.dashboard);
+                pane.dashboard = 0;
+            }
         }
     });
     let snapshot = profile.clone();
@@ -109,12 +111,14 @@ fn render_grid(
     let columns = (available / widest).floor().max(1.) as usize;
     egui::Grid::new(("widget-grid", depth))
         .num_columns(columns)
-        .spacing(egui::vec2(10., 10.))
+        .spacing(egui::vec2(8., 8.))
         .show(ui, |ui| {
             for (index, w) in widgets.iter_mut().enumerate() {
                 ui.push_id(w.id.clone(), |ui| {
                     ui.vertical(|ui| {
-                        let frame = egui::Frame::group(ui.style())
+                        let frame = egui::Frame::new()
+                            .fill(ui.visuals().faint_bg_color)
+                            .corner_radius(6.)
                             .inner_margin(egui::Margin::same(if w.kind == WidgetKind::Container {
                                 w.padding.clamp(0., 32.) as i8
                             } else {
@@ -124,28 +128,33 @@ fn render_grid(
                                 ui.set_width(
                                     w.width.clamp(180., 1600.).min((available - 24.).max(100.)),
                                 );
-                                ui.set_min_height(w.height.clamp(80., 1200.));
-                                ui.horizontal(|ui| {
-                                    ui.label(RichText::new(&w.label).strong());
-                                    if editing {
-                                        ui.dnd_drag_source(
-                                            egui::Id::new((&w.id, "drag")),
-                                            index,
-                                            |ui| {
-                                                ui.label("≡");
-                                            },
-                                        );
-                                        if ui.small_button("←").clicked() && index > 0 {
-                                            swap = Some((index, index - 1));
+                                // Controls fit their content; plots retain their configured canvas height.
+                                if w.kind == WidgetKind::MiniPlot {
+                                    ui.set_min_height(w.height.clamp(80., 1200.));
+                                }
+                                if editing || w.kind != WidgetKind::Button {
+                                    ui.horizontal(|ui| {
+                                        ui.label(RichText::new(&w.label).strong());
+                                        if editing {
+                                            ui.dnd_drag_source(
+                                                egui::Id::new((&w.id, "drag")),
+                                                index,
+                                                |ui| {
+                                                    ui.label("≡");
+                                                },
+                                            );
+                                            if ui.small_button("←").clicked() && index > 0 {
+                                                swap = Some((index, index - 1));
+                                            }
+                                            if ui.small_button("→").clicked() {
+                                                swap = Some((index, index + 1));
+                                            }
+                                            if ui.small_button("×").clicked() {
+                                                remove = Some(index);
+                                            }
                                         }
-                                        if ui.small_button("→").clicked() {
-                                            swap = Some((index, index + 1));
-                                        }
-                                        if ui.small_button("×").clicked() {
-                                            remove = Some(index);
-                                        }
-                                    }
-                                });
+                                    });
+                                }
                                 if editing {
                                     ui.collapsing("Configure", |ui| config(ui, w, profile));
                                 }
@@ -247,9 +256,12 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
     }
 
     ui.horizontal(|ui| {
-        ui.label("Size");
+        ui.label("Width");
         ui.add(egui::DragValue::new(&mut w.width).range(180.0..=1600.));
-        ui.add(egui::DragValue::new(&mut w.height).range(80.0..=1200.));
+        if w.kind == WidgetKind::MiniPlot {
+            ui.label("Height");
+            ui.add(egui::DragValue::new(&mut w.height).range(80.0..=1200.));
+        }
     });
     if !matches!(
         w.kind,
@@ -666,7 +678,15 @@ fn render_widget(
     }
     if let (WidgetKind::Button, Some(command)) = (w.kind, w.command) {
         if ui
-            .add_enabled(session.controlled(), egui::Button::new(&w.label))
+            .add_enabled(
+                session.controlled(),
+                egui::Button::new(
+                    RichText::new(&w.label)
+                        .strong()
+                        .color(colors::role(ui, "accent")),
+                )
+                .min_size(egui::vec2(ui.available_width(), 30.)),
+            )
             .clicked()
         {
             match w.value.parse() {
@@ -711,7 +731,9 @@ fn render_widget(
     match w.kind {
         WidgetKind::ValueRead => {
             ui.label(RichText::new(&text).size(32.).monospace().color(color));
-            ui.label(&w.unit);
+            if !w.unit.is_empty() {
+                ui.weak(&w.unit);
+            }
         }
         WidgetKind::Gauge => {
             if w.max <= w.min {
@@ -795,25 +817,27 @@ fn render_widget(
         }
         WidgetKind::LedIndicator | WidgetKind::StateLed => {
             let on = value.is_some_and(|v| v == w.on_value);
-            ui.label(
-                RichText::new(if on { "●" } else { "○" })
-                    .size(38.)
-                    .color(if raw.is_none() { Color32::GRAY } else { color }),
-            );
-            ui.label(
-                rule.map(|r| r.label.clone())
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or(
-                        if raw.is_none() {
-                            "Waiting"
-                        } else if on {
-                            &w.on_label
-                        } else {
-                            &w.off_label
-                        }
-                        .into(),
-                    ),
-            );
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(if on { "●" } else { "○" })
+                        .size(24.)
+                        .color(if raw.is_none() { Color32::GRAY } else { color }),
+                );
+                ui.label(
+                    rule.map(|r| r.label.clone())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or(
+                            if raw.is_none() {
+                                "Waiting"
+                            } else if on {
+                                &w.on_label
+                            } else {
+                                &w.off_label
+                            }
+                            .into(),
+                        ),
+                );
+            });
         }
         WidgetKind::StatusMatrix => {
             egui::Grid::new("bits").num_columns(8).show(ui, |ui| {
@@ -837,7 +861,12 @@ fn render_widget(
             if ui
                 .add_enabled(
                     session.controlled() && e.writable,
-                    egui::Button::new(&w.label),
+                    egui::Button::new(
+                        RichText::new(&w.label)
+                            .strong()
+                            .color(colors::role(ui, "accent")),
+                    )
+                    .min_size(egui::vec2(ui.available_width(), 30.)),
                 )
                 .clicked()
             {
@@ -905,5 +934,5 @@ fn render_widget(
             prefs.poll_ms
         }),
     );
-    colors::badge(ui, role, label);
+    ui.colored_label(colors::role(ui, role), RichText::new(label).small());
 }

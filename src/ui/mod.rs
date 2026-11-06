@@ -331,77 +331,100 @@ impl Desktop {
                 if ui.button("Guide").clicked() {
                     self.guide_open = true;
                 }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    colors::connection(ui, &self.session);
-                });
             });
             ui.separator();
             ui.horizontal_wrapped(|ui| {
-                ui.label("Device");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.saved.preferences.last_ip)
-                        .desired_width(150.),
-                );
-                ui.selectable_value(&mut self.saved.preferences.udp, false, "TCP");
-                ui.selectable_value(&mut self.saved.preferences.udp, true, "UDP");
-                if ui
-                    .add_enabled(
-                        !self.session.busy,
-                        egui::Button::new(
-                            RichText::new("Connect").color(colors::role(ui, "accent")),
-                        ),
-                    )
-                    .clicked()
-                {
-                    self.session.send(Action::Connect(
-                        self.saved.preferences.last_ip.clone(),
-                        self.saved.preferences.udp,
-                    ));
+                ui.label(RichText::new("DEVICE").small().weak());
+                ui.menu_button("Connect…", |ui| {
+                    ui.set_min_width(300.);
+                    ui.label(RichText::new("Connect to a device").strong());
+                    ui.horizontal(|ui| {
+                        ui.label("Address");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.saved.preferences.last_ip)
+                                .desired_width(170.),
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Transport");
+                        ui.selectable_value(&mut self.saved.preferences.udp, false, "TCP");
+                        ui.selectable_value(&mut self.saved.preferences.udp, true, "UDP");
+                    });
+                    if ui
+                        .add_enabled(
+                            !self.session.busy,
+                            egui::Button::new(
+                                RichText::new("Connect to address")
+                                    .color(colors::role(ui, "accent")),
+                            ),
+                        )
+                        .clicked()
+                    {
+                        self.session.send(Action::Connect(
+                            self.saved.preferences.last_ip.clone(),
+                            self.saved.preferences.udp,
+                        ));
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Network discovery").strong());
+                        if ui
+                            .add_enabled(
+                                !self.session.scanning,
+                                egui::Button::new(if self.session.scanning {
+                                    "Scanning…"
+                                } else {
+                                    "Scan network"
+                                }),
+                            )
+                            .clicked()
+                        {
+                            self.session.send(Action::Scan);
+                        }
+                    });
+                    ui.weak("Select a device to fill its address, then connect.");
+                    egui::ScrollArea::vertical()
+                        .max_height(220.)
+                        .show(ui, |ui| {
+                            if self.session.devices.is_empty() {
+                                ui.weak("No devices discovered yet.");
+                            }
+                            for device in &self.session.devices {
+                                if ui
+                                    .selectable_label(
+                                        self.saved.preferences.last_ip == device.ip_address,
+                                        format!("{} · {}", device.board_name, device.ip_address),
+                                    )
+                                    .clicked()
+                                {
+                                    self.saved.preferences.last_ip = device.ip_address.clone();
+                                }
+                            }
+                        });
+                });
+                if let Some(connection) = &self.session.connection {
+                    ui.monospace(&connection.ip);
+                    if ui
+                        .add_enabled(!self.session.busy, egui::Button::new("Disconnect"))
+                        .clicked()
+                    {
+                        self.session.send(Action::Disconnect);
+                    }
                 }
-                if ui
-                    .add_enabled(self.session.connected(), egui::Button::new("Disconnect"))
-                    .clicked()
-                {
-                    self.session.send(Action::Disconnect);
-                }
-                if ui
-                    .add_enabled(
-                        self.session.connected(),
-                        egui::Button::new(
-                            RichText::new("Take Control").color(colors::role(ui, "accent")),
-                        ),
-                    )
-                    .clicked()
+                colors::connection(ui, &self.session);
+                if self.session.connected()
+                    && !self.session.controlled()
+                    && ui
+                        .button(RichText::new("Take control").color(colors::role(ui, "accent")))
+                        .on_hover_text("Claim permission to write values and send commands")
+                        .clicked()
                 {
                     self.session.send(Action::Control);
                 }
-                if ui
-                    .add_enabled(
-                        !self.session.scanning,
-                        egui::Button::new(if self.session.scanning {
-                            "Scanning…"
-                        } else {
-                            "Scan"
-                        }),
-                    )
-                    .clicked()
-                {
-                    self.session.send(Action::Scan);
-                }
-                egui::ComboBox::from_id_salt("discovered")
-                    .selected_text(format!("{} discovered", self.session.devices.len()))
-                    .show_ui(ui, |ui| {
-                        for d in &self.session.devices {
-                            if ui
-                                .button(format!("{} — {}", d.board_name, d.ip_address))
-                                .clicked()
-                            {
-                                self.saved.preferences.last_ip = d.ip_address.clone();
-                                ui.close_menu();
-                            }
-                        }
-                    });
-                ui.separator();
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new("PROFILE").small().weak());
                 let review_count = review::count(
                     &self.saved.profiles[self.profile_index()],
                     &self.saved.series,
