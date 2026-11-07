@@ -605,6 +605,7 @@ impl Viewer<'_> {
     fn editor(&mut self, ui: &mut egui::Ui, p: &mut Pane) {
         if p.draft.as_ref().is_none_or(|d| d.id != self.profile.id) {
             p.draft = Some(self.profile.clone());
+            p.map_rows.clear();
         }
         let draft = p.draft.as_mut().unwrap();
         ui.horizontal(|ui| {
@@ -627,6 +628,7 @@ impl Viewer<'_> {
             }
             if ui.button("Revert").clicked() {
                 *draft = self.profile.clone();
+                p.map_rows.clear();
             }
         });
         ui.horizontal(|ui| {
@@ -636,6 +638,29 @@ impl Viewer<'_> {
             ui.selectable_value(&mut p.editing, false, "Maps");
             ui.selectable_value(&mut p.editing, true, "Commands / Metadata");
         });
+        if p.map_space == Space::SysRegister {
+            ui.label("System registers are preset by the datastream library and cannot be edited.");
+            egui::ScrollArea::both()
+                .id_salt("system-map-reference")
+                .show(ui, |ui| {
+                    egui::Grid::new("system-map-reference-table")
+                        .striped(true)
+                        .show(ui, |ui| {
+                            for heading in ["Address", "Name", "Type", "Access"] {
+                                ui.strong(heading);
+                            }
+                            ui.end_row();
+                            for entry in self.profile.entries(Space::SysRegister) {
+                                ui.monospace(entry.address.to_string());
+                                ui.label(&entry.name);
+                                ui.monospace(&entry.data_type);
+                                ui.weak("Read-only");
+                                ui.end_row();
+                            }
+                        });
+                });
+            return;
+        }
         if p.editing {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.collapsing("Board type definitions", |ui| {
@@ -757,56 +782,26 @@ impl Viewer<'_> {
             });
             return;
         }
-        ui.horizontal(|ui| {
-            if ui.button("Add entry").clicked() {
-                let map = draft.map_mut(p.map_space);
-                let mut n = 1;
-                while map.contains(&format!("NEW_ENTRY_{n}")) {
-                    n += 1;
+        if let std::collections::btree_map::Entry::Vacant(entry) = p.map_rows.entry(p.map_space) {
+            match super::map_table::rows(draft.map(p.map_space), p.map_space) {
+                Ok(rows) => {
+                    entry.insert(rows);
                 }
-                map.push_str(&format!("\nuint32_t NEW_ENTRY_{n};\n"));
-            }
-            if ui.button("Import map").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("Map", &["map", "h", "txt"])
-                    .pick_file()
-                {
-                    match std::fs::read_to_string(path) {
-                        Ok(text) => *draft.map_mut(p.map_space) = text,
-                        Err(e) => self.session.notice = e.to_string(),
+                Err(errors) => {
+                    for error in errors {
+                        ui.colored_label(colors::role(ui, "error"), error);
                     }
-                }
-            }
-            if ui.button("Export map").clicked() {
-                self.session
-                    .export(draft.map(p.map_space).into(), "entries.map", "map");
-            }
-            if ui.button("Export C header").clicked() {
-                if let Ok(entries) = parse_map(draft.map(p.map_space), p.map_space) {
-                    let header = crate::map_files::header(&entries, p.map_space);
-                    self.session.export(header, "dshub_map.h", "h");
-                }
-            }
-        });
-        match parse_map(draft.map(p.map_space), p.map_space) {
-            Ok(e) => {
-                ui.label(format!("{} valid entries", e.len()));
-            }
-            Err(errors) => {
-                for error in errors.iter().take(4) {
-                    ui.colored_label(colors::role(ui, "error"), error);
+                    return;
                 }
             }
         }
-        egui::ScrollArea::both().show(ui, |ui| {
-            ui.add(
-                egui::TextEdit::multiline(draft.map_mut(p.map_space))
-                    .font(egui::TextStyle::Monospace)
-                    .desired_width(f32::INFINITY)
-                    .desired_rows(30)
-                    .code_editor(),
-            );
-        });
+        super::map_table::show(
+            ui,
+            p.map_rows.get_mut(&p.map_space).unwrap(),
+            draft,
+            p.map_space,
+            self.session,
+        );
     }
 }
 pub fn log_color(ui: &egui::Ui, l: &LogLevel) -> Color32 {

@@ -11,7 +11,8 @@ pub fn dashboards(profile: &Profile) -> Vec<Dashboard> {
         let mut w = Widget::new(kind);
         w.label = label.into();
         w.binding = Some(Binding::new(space, &entry));
-        w.height = 140.;
+        w.width = 160.;
+        w.height = 100.;
         w.decimals = 0;
         w
     };
@@ -20,8 +21,16 @@ pub fn dashboards(profile: &Profile) -> Vec<Dashboard> {
         w.label = label.into();
         w.command = Some(code);
         w.confirm = confirm;
-        w.width = 180.;
-        w.height = 90.;
+        if code == 14 {
+            w.thresholds.push(Threshold {
+                op: "==".into(),
+                value: 0.,
+                role: "error".into(),
+                label: String::new(),
+            });
+        }
+        w.width = 160.;
+        w.height = 40.;
         w
     };
     let mut control = vec![];
@@ -39,7 +48,13 @@ pub fn dashboards(profile: &Profile) -> Vec<Dashboard> {
     .map(|(i, label)| Threshold {
         op: "==".into(),
         value: i as f64,
-        role: if i >= 5 { "error" } else { "ok" }.into(),
+        role: match i {
+            5 | 6 => "error",
+            1 | 4 => "warn",
+            2 | 3 => "ok",
+            _ => "idle",
+        }
+        .into(),
         label: (*label).into(),
     })
     .collect();
@@ -51,18 +66,18 @@ pub fn dashboards(profile: &Profile) -> Vec<Dashboard> {
     control.push(button(1, "Disable all axes", false));
     control.push(button(10, "Home all axes", true));
     let mut machine = Widget::new(WidgetKind::Container);
-    machine.label = "Machine controls".into();
-    machine.width = 650.;
+    machine.label = "Machine · status & recovery".into();
+    machine.width = 380.;
     machine.height = 420.;
     for w in &mut control {
-        w.width = 180.;
+        w.width = 160.;
     }
     machine.children = control;
     let mut control = vec![machine];
     for (i, axis) in ["X", "Y", "Z"].iter().enumerate() {
         let mut group = Widget::new(WidgetKind::Container);
         group.label = format!("{axis} axis · encoder counts");
-        group.width = 650.;
+        group.width = 380.;
         group.height = 500.;
         let mut position = bind(
             WidgetKind::EncoderDisplay,
@@ -71,12 +86,20 @@ pub fn dashboards(profile: &Profile) -> Vec<Dashboard> {
             "Position",
         );
         position.unit = "counts".into();
-        let enabled = bind(
+        let mut enabled = bind(
             WidgetKind::LedIndicator,
             Space::Register,
             &format!("MOTOR_{axis}_ENABLED"),
             "Driver enabled",
         );
+        enabled.on_label = "Enabled".into();
+        enabled.off_label = "Disabled".into();
+        enabled.thresholds = vec![Threshold {
+            op: "==".into(),
+            value: 1.,
+            role: "ok".into(),
+            label: "Enabled".into(),
+        }];
         let mut target = bind(
             WidgetKind::ValueWrite,
             Space::Register,
@@ -89,6 +112,7 @@ pub fn dashboards(profile: &Profile) -> Vec<Dashboard> {
         let mut jog = Widget::new(WidgetKind::DirectionalControl);
         jog.label = format!("Jog {axis}");
         jog.height = 100.;
+        jog.width = 160.;
         jog.directions = [
             ("left", 21 + i as u16 * 2, "−"),
             ("right", 20 + i as u16 * 2, "+"),
@@ -124,10 +148,10 @@ pub fn dashboards(profile: &Profile) -> Vec<Dashboard> {
             label: v.to_string(),
         })
         .collect();
-    control.push(distance);
+    control[0].children.push(distance);
     let mut spindle = Widget::new(WidgetKind::Container);
     spindle.label = "Spindle".into();
-    spindle.width = 650.;
+    spindle.width = 380.;
     spindle.height = 440.;
     let mut rpm = bind(
         WidgetKind::Gauge,
@@ -144,6 +168,7 @@ pub fn dashboards(profile: &Profile) -> Vec<Dashboard> {
         "Target speed (RPM)",
     );
     speed.max = 24000.;
+    speed.value = "12000".into();
     speed.confirm = true;
     let mut load = bind(
         WidgetKind::ProgressBar,
@@ -152,6 +177,12 @@ pub fn dashboards(profile: &Profile) -> Vec<Dashboard> {
         "Spindle load",
     );
     load.unit = "%".into();
+    load.thresholds = vec![Threshold {
+        op: ">=".into(),
+        value: 80.,
+        role: "warn".into(),
+        label: "High load".into(),
+    }];
     spindle.children = vec![
         rpm,
         load,
@@ -174,7 +205,7 @@ pub fn dashboards(profile: &Profile) -> Vec<Dashboard> {
         "SPINDLE_RPM",
     ] {
         let mut w = bind(WidgetKind::MiniPlot, Space::Register, name, name);
-        w.width = 500.;
+        w.width = 360.;
         w.height = 240.;
         monitoring.push(w);
     }
@@ -185,6 +216,7 @@ pub fn dashboards(profile: &Profile) -> Vec<Dashboard> {
         .iter()
         .map(|e| Binding::new(Space::SysRegister, e))
         .collect();
+    diagnostics.width = 360.;
     monitoring.push(diagnostics);
     let tuning = profile
         .entries(Space::Parameter)
@@ -193,23 +225,27 @@ pub fn dashboards(profile: &Profile) -> Vec<Dashboard> {
             let mut w = bind(WidgetKind::ValueWrite, Space::Parameter, &e.name, &e.name);
             w.confirm = true;
             w.decimals = 3;
+            w.width = 250.;
+            if let Some(metadata) = profile.metadata(Space::Parameter, &e.name) {
+                w.unit = metadata.unit.clone();
+            }
             w
         })
         .collect();
     vec![
         Dashboard {
-            id: "cnc-control".into(),
-            name: "CNC Control".into(),
+            id: "cnc-emulator-control-v2".into(),
+            name: "CNC · Operator".into(),
             widgets: control,
         },
         Dashboard {
-            id: "cnc-monitoring".into(),
-            name: "Monitoring".into(),
+            id: "cnc-emulator-monitoring-v2".into(),
+            name: "CNC · Trends".into(),
             widgets: monitoring,
         },
         Dashboard {
-            id: "cnc-tuning".into(),
-            name: "Motion tuning".into(),
+            id: "cnc-emulator-tuning-v2".into(),
+            name: "CNC · Tuning".into(),
             widgets: tuning,
         },
     ]

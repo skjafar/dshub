@@ -312,7 +312,7 @@ impl Profile {
     pub fn apply_map_draft(&mut self, draft: &Profile) {
         self.registers_map = draft.registers_map.clone();
         self.parameters_map = draft.parameters_map.clone();
-        self.system_registers_map = draft.system_registers_map.clone();
+        // System register definitions belong to the datastream protocol, not the editor draft.
         self.board_types_map = draft.board_types_map.clone();
         self.sys_commands = draft.sys_commands.clone();
         self.registers_metadata = draft.registers_metadata.clone();
@@ -597,6 +597,9 @@ pub struct Widget {
     pub children: Vec<Widget>,
     pub width: f32,
     pub height: f32,
+    /// Canvas coordinates relative to the containing dashboard or container.
+    #[serde(default)]
+    pub position: Option<[f32; 2]>,
     pub confirm: bool,
     #[serde(default)]
     pub format: DisplayFormat,
@@ -680,6 +683,7 @@ impl Widget {
             children: vec![],
             width: 300.,
             height: 180.,
+            position: None,
             confirm: false,
             format: DisplayFormat::default(),
             directions: vec![],

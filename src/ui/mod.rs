@@ -1,4 +1,7 @@
+mod canvas_layout;
 mod colors;
+mod fonts;
+mod map_table;
 mod panes;
 mod review;
 mod session;
@@ -71,6 +74,8 @@ pub struct Pane {
     pub dashboard: usize,
     pub editing: bool,
     pub draft: Option<Profile>,
+    #[serde(default)]
+    pub map_rows: std::collections::BTreeMap<Space, Vec<map_table::Row>>,
     pub map_space: Space,
     pub focus: bool,
     #[serde(default)]
@@ -92,6 +97,7 @@ impl Pane {
             dashboard: 0,
             editing: false,
             draft: None,
+            map_rows: Default::default(),
             map_space: Space::Register,
             focus: false,
             format: DisplayFormat::default(),
@@ -153,6 +159,28 @@ pub struct LayoutState {
     pub series: Vec<PlotSeries>,
 }
 
+impl Saved {
+    fn leave_dashboard_edit_mode(&mut self) {
+        fn reset(dock: &mut DockState<Pane>, windows: &mut [NativeWindow]) {
+            for (_, pane) in dock.iter_all_tabs_mut() {
+                if pane.kind == PaneKind::Dashboard {
+                    pane.editing = false;
+                }
+            }
+            for window in windows {
+                reset(&mut window.dock, &mut []);
+            }
+        }
+        reset(&mut self.dock, &mut self.windows);
+        for state in self.profile_sessions.values_mut() {
+            reset(&mut state.dock, &mut state.windows);
+        }
+        for workspace in &mut self.workspaces {
+            reset(&mut workspace.dock, &mut workspace.windows);
+        }
+    }
+}
+
 fn default_dock() -> DockState<Pane> {
     let mut d = DockState::new(vec![
         Pane::new(PaneKind::Registers),
@@ -206,10 +234,28 @@ pub struct Desktop {
 }
 impl Desktop {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let saved = cc
+        fonts::install(&cc.egui_ctx);
+        let mut saved = cc
             .storage
             .and_then(|s| eframe::get_value::<Saved>(s, "dshub-native-v1"))
             .unwrap_or_default();
+        saved.leave_dashboard_edit_mode();
+        // Add the revised emulator panels once, retaining existing user dashboards.
+        if let Some(profile) = saved
+            .profiles
+            .iter_mut()
+            .find(|p| p.id == "cnc_motor_controller")
+        {
+            if !profile
+                .dashboards
+                .iter()
+                .any(|d| d.id == "cnc-emulator-control-v2")
+            {
+                let mut panels = default_profiles().remove(1).dashboards;
+                panels.append(&mut profile.dashboards);
+                profile.dashboards = panels;
+            }
+        }
         let mut app = Self {
             saved,
             session: Session::new(),
@@ -664,7 +710,7 @@ impl Desktop {
             self.workspaces_open = open;
         }
         if self.guide_open {
-            egui::Window::new("DSHub Guide").open(&mut self.guide_open).show(ctx,|ui|{ui.heading("Connect → Take Control → Inspect");ui.label("Scan for devices, or enter an IP and select TCP or UDP. Connect, then Take Control before sending writes and commands.");ui.label("Drag pane tabs to split or rearrange the workspace. Right-click a tab to move it into a native window or focus it. Add closed panes from the Panes menu.");ui.label("Choose a Profile for the device's maps. Register and parameter tables support search, live refresh, writes, Inspector selection and plotting. System registers are always read-only.");ui.label("Add widgets in a Dashboard and configure their bindings. Map edits that move or replace entries require binding review before affected widgets can read or write.");ui.label("Export Profiles to move maps and dashboards between installations. Save named Workspaces to retain pane arrangements.");ui.separator();ui.label(format!("DSHub {} · egui / Rust · MIT",env!("CARGO_PKG_VERSION")));});
+            egui::Window::new("DSHub Guide").open(&mut self.guide_open).show(ctx,|ui|{ui.heading("Connect → Take Control → Inspect");ui.label("Scan for devices, or enter an IP and select TCP or UDP. Connect, then Take Control before sending writes and commands.");ui.label("Drag pane tabs to split or rearrange the workspace. Right-click a tab to move it into a native window or focus it. Add closed panes from the Panes menu.");ui.label("Choose a Profile for the device's maps. Register and parameter tables support search, live refresh, writes, Inspector selection and plotting. System registers are always read-only.");ui.label("Add widgets in a Dashboard and configure their bindings. Map edits that move or replace entries require binding review before affected widgets can read or write.");ui.label("Export Profiles to move maps and dashboards between installations. Save named Workspaces to retain pane arrangements.");ui.separator();ui.label(format!("DSHub {} · egui / Rust · MIT",env!("CARGO_PKG_VERSION")));ui.collapsing("Bundled font license", |ui| { egui::ScrollArea::vertical().max_height(200.).show(ui, |ui| { ui.label(fonts::LICENSE); }); });});
         }
         if let Some((message, action)) = self.session.confirm.clone() {
             egui::Window::new("Confirm device action")

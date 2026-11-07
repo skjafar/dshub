@@ -54,3 +54,37 @@ Linux compilation, automated UI/device checks and rendered layout inspection do 
 Native release packaging currently supplies archives and a Debian package. Signed installers, notarization, RPM packaging and updating the published AUR recipe/checksums belong to release preparation. The existing AUR recipe remains a description of the published 0.2.4 release.
 
 The user's backend-only review has not been performed. Keep that review separate from native interface acceptance.
+
+### Dashboard canvas editing
+
+Widgets retain their canvas coordinates and dimensions in both viewing and editing
+modes. In **Edit dashboard**, drag the top of a widget to move it, drag any edge
+or the bottom-right corner to resize it, and hover to reveal **Configure**.
+Configuration opens in a separate floating window and applies immediately; Width,
+Height, X, and Y are also editable numerically there. Container children use their
+own coordinates relative to their container. Overflow remains accessible through
+scrolling. Device-action buttons are disabled while editing. Positions are stored
+in native profiles and session persistence; legacy Tauri exports still use their
+legacy grid arrangement.
+
+While editing, hover a widget to reveal its top-left remove button. Dragging into
+a container highlights its content area; releasing transfers the widget into
+that container. Dragging out onto the dashboard removes that containment.
+Containers cannot be dropped into themselves or their descendants. Sibling widgets and containers stay fixed during dragging. A horizontal or
+vertical insertion line previews the destination; red means there is no room.
+Only releasing above an item shifts items in the affected column downward. Side insertions may shift one neighbor sideways on release when that neighbor
+has space without hitting other items or the canvas edge; otherwise blocked
+drops return to their starting position. The moving widget is drawn above container clipping during preview.
+
+Binding selection supports search by name, address, type, and address space.
+Drag the results panel's bottom resize handle to expand it vertically; large
+result sets scroll without rendering every row at once.
+
+Dashboard sessions always start in normal mode. The edit hint appears beside the
+edit toggle only while editing is disabled. Edge resizing softly snaps within
+eight pixels of content-fit dimensions and sibling sizes; dragging farther
+overrides the snap. Neighbors stay fixed until resize release, then move only
+as far as needed horizontally or vertically.
+
+Map Editor rows can be reordered by dragging their address handles. Reordering
+stays within the same read/write access section; system registers remain fixed.

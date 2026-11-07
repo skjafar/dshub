@@ -1,4 +1,4 @@
-use super::colors;
+use super::{canvas_layout, colors};
 use super::{session::Session, Pane};
 use crate::model::*;
 use eframe::egui::{self, Color32, RichText};
@@ -26,57 +26,156 @@ pub fn dashboard(
                     ui.selectable_value(&mut pane.dashboard, i, &d.name);
                 }
             });
-        ui.checkbox(&mut pane.editing, "Edit dashboard");
-        if pane.editing {
-            if profile.id == "cnc_motor_controller" && ui.button("Add CNC panels").clicked() {
-                let mut panels = default_profiles().remove(1).dashboards;
-                for panel in &mut panels {
-                    panel.id = unique_id();
-                }
-                profile.dashboards.extend(panels);
-                pane.dashboard = profile.dashboards.len() - 3;
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.checkbox(&mut pane.editing, "Edit dashboard");
+            if !pane.editing {
+                ui.weak("Enable Edit dashboard to arrange and configure widgets.");
             }
-            if ui.button("New").clicked() {
-                profile.dashboards.push(Dashboard {
-                    id: unique_id(),
-                    name: "Dashboard".into(),
-                    widgets: vec![],
+            if pane.editing {
+                ui.menu_button("Manage dashboard", |ui| {
+                    ui.text_edit_singleline(&mut profile.dashboards[pane.dashboard].name);
+                    if ui.button("New").clicked() {
+                        profile.dashboards.push(Dashboard {
+                            id: unique_id(),
+                            name: "Dashboard".into(),
+                            widgets: vec![],
+                        });
+                        pane.dashboard = profile.dashboards.len() - 1;
+                        ui.close_menu();
+                    }
+                    if ui.button("Duplicate").clicked() {
+                        let mut d = profile.dashboards[pane.dashboard].clone();
+                        d.id = unique_id();
+                        d.name.push_str(" Copy");
+                        profile.dashboards.push(d);
+                        pane.dashboard = profile.dashboards.len() - 1;
+                        ui.close_menu();
+                    }
+                    if profile.dashboards.len() > 1 && ui.button("Delete").clicked() {
+                        profile.dashboards.remove(pane.dashboard);
+                        pane.dashboard = 0;
+                        ui.close_menu();
+                    }
+                    if profile.id == "cnc_motor_controller" && ui.button("Add CNC panels").clicked()
+                    {
+                        let mut panels = default_profiles().remove(1).dashboards;
+                        for panel in &mut panels {
+                            panel.id = unique_id();
+                        }
+                        profile.dashboards.extend(panels);
+                        pane.dashboard = profile.dashboards.len() - 3;
+                        ui.close_menu();
+                    }
                 });
-                pane.dashboard = profile.dashboards.len() - 1;
+                add_widget_menu(ui, &mut profile.dashboards[pane.dashboard].widgets);
             }
-            if ui.button("Duplicate").clicked() {
-                let mut d = profile.dashboards[pane.dashboard].clone();
-                d.id = unique_id();
-                d.name.push_str(" Copy");
-                profile.dashboards.push(d);
-                pane.dashboard = profile.dashboards.len() - 1;
-            }
-            if profile.dashboards.len() > 1 && ui.button("Delete").clicked() {
-                profile.dashboards.remove(pane.dashboard);
-                pane.dashboard = 0;
-            }
-        }
+        });
     });
     let snapshot = profile.clone();
     let d = &mut profile.dashboards[pane.dashboard];
-    if pane.editing {
-        ui.horizontal(|ui| {
-            ui.text_edit_singleline(&mut d.name);
-            add_widget_menu(ui, &mut d.widgets);
-        });
-    }
-    ui.separator();
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        render_grid(
-            ui,
-            &mut d.widgets,
-            pane.editing,
-            session,
-            &snapshot,
-            prefs,
-            0,
-        );
+    // Keep canvas geometry stable when the editing controls appear or disappear.
+    ui.allocate_space(egui::vec2(0., ui.spacing().interact_size.y));
+    let drag_key = ui.id().with((&d.id, "dashboard-drag"));
+    let previous = ui
+        .ctx()
+        .data_mut(|data| data.get_temp::<canvas_layout::Drag>(drag_key));
+    canvas_layout::with_frame(ui.ctx(), |frame| {
+        *frame = canvas_layout::Frame {
+            drag: if pane.editing { previous } else { None },
+            ..Default::default()
+        };
     });
+    ui.separator();
+    egui::ScrollArea::both()
+        .drag_to_scroll(false)
+        .show(ui, |ui| {
+            ui.push_id(&d.id, |ui| {
+                render_grid(
+                    ui,
+                    &mut d.widgets,
+                    pane.editing,
+                    session,
+                    &snapshot,
+                    prefs,
+                    0,
+                    None,
+                );
+            });
+        });
+    let frame = ui
+        .ctx()
+        .data_mut(|data| data.get_temp::<canvas_layout::Frame>(egui::Id::new(canvas_layout::FRAME)))
+        .unwrap_or_default();
+    if let Some((id, parent, before)) = &frame.resize {
+        if frame.resize_released {
+            if let Some(group) = frame.groups.iter().find(|g| &g.parent == parent) {
+                canvas_layout::finish_resize(
+                    &mut d.widgets,
+                    id,
+                    parent.as_deref(),
+                    group.width,
+                    *before,
+                );
+            }
+        }
+    } else if let Some(drag) = &frame.drag {
+        let pointer = ui
+            .input(|i| i.pointer.interact_pos())
+            .unwrap_or(drag.rect.center());
+        let target = canvas_layout::target(&frame, &d.widgets, pointer);
+        let group = frame.groups.iter().find(|g| g.parent == target);
+        if let Some(group) = group {
+            let plan = canvas_layout::plan(
+                &d.widgets,
+                &drag.id,
+                target.as_deref(),
+                (pointer - group.origin).to_pos2(),
+                drag.rect.min - group.origin,
+                group.width,
+            );
+            let painter = ui
+                .ctx()
+                .layer_painter(egui::LayerId::new(egui::Order::Tooltip, drag_key));
+            let color = colors::role(ui, if plan.valid { "accent" } else { "error" });
+            if let Some(line) = plan.line {
+                painter.line_segment(
+                    [
+                        group.origin + line[0].to_vec2(),
+                        group.origin + line[1].to_vec2(),
+                    ],
+                    egui::Stroke::new(3_f32, color),
+                );
+            } else {
+                // Empty-space destination: show only the insertion edge, not displaced neighbors.
+                let start = group.origin + plan.position;
+                painter.line_segment(
+                    [start, start + egui::vec2(drag.rect.width(), 0.)],
+                    egui::Stroke::new(3_f32, color),
+                );
+            }
+            if !plan.valid {
+                painter.text(
+                    drag.rect.left_top(),
+                    egui::Align2::LEFT_BOTTOM,
+                    "No room here",
+                    egui::FontId::proportional(13.),
+                    color,
+                );
+            }
+            if frame.dropped || !ui.input(|i| i.pointer.primary_down()) {
+                if !canvas_layout::commit(&mut d.widgets, &drag.id, target.as_deref(), &plan) {
+                    canvas_layout::restore(&mut d.widgets, drag);
+                }
+                ui.ctx()
+                    .data_mut(|data| data.remove::<canvas_layout::Drag>(drag_key));
+            } else {
+                ui.ctx()
+                    .data_mut(|data| data.insert_temp(drag_key, drag.clone()));
+            }
+        }
+    } else {
+        canvas_layout::settle(&mut d.widgets, None, None);
+    }
 }
 fn add_widget_menu(ui: &mut egui::Ui, widgets: &mut Vec<Widget>) {
     ui.menu_button("Add widget", |ui| {
@@ -88,6 +187,7 @@ fn add_widget_menu(ui: &mut egui::Ui, widgets: &mut Vec<Widget>) {
         }
     });
 }
+#[allow(clippy::too_many_arguments)]
 fn render_grid(
     ui: &mut egui::Ui,
     widgets: &mut Vec<Widget>,
@@ -96,88 +196,373 @@ fn render_grid(
     profile: &Profile,
     prefs: &Preferences,
     depth: usize,
+    parent: Option<&str>,
 ) {
     if depth > 8 {
         ui.label("Maximum container depth reached");
         return;
     }
-    let mut remove = None;
-    let mut swap = None;
-    let available = ui.available_width();
-    let widest = widgets
+    let origin = ui.cursor().min;
+    canvas_layout::with_frame(ui.ctx(), |frame| {
+        frame.groups.push(canvas_layout::Group {
+            parent: parent.map(str::to_string),
+            origin,
+            width: ui.available_width().max(120.),
+        })
+    });
+    let available = ui.available_width().max(160.);
+    // Only unplaced widgets are packed. Existing coordinates never reflow during edits.
+    let mut cursor = egui::Vec2::ZERO;
+    let mut row_height = 0_f32;
+    for w in widgets.iter_mut() {
+        w.width = w.width.clamp(120., 1600.);
+        w.height = w.height.clamp(48., 1200.);
+        if let Some([_, y]) = w.position {
+            cursor.y = cursor.y.max(y + w.height + 8.);
+            cursor.x = 0.;
+            row_height = 0.;
+        } else {
+            if cursor.x > 0. && cursor.x + w.width > available {
+                cursor.x = 0.;
+                cursor.y += row_height + 8.;
+                row_height = 0.;
+            }
+            w.position = Some([cursor.x, cursor.y]);
+            cursor.x += w.width + 8.;
+            row_height = row_height.max(w.height);
+        }
+    }
+    let active_id = ui.id().with(("active-widget", depth));
+    let active = ui.ctx().data_mut(|d| d.get_temp::<String>(active_id));
+    let mut order: Vec<_> = (0..widgets.len()).collect();
+    order.sort_by_key(|i| active.as_ref() == Some(&widgets[*i].id));
+    let neighbor_sizes: Vec<_> = widgets
         .iter()
-        .map(|w| w.width.clamp(180., 1600.) + 24.)
-        .fold(1_f32, f32::max);
-    let columns = (available / widest).floor().max(1.) as usize;
-    egui::Grid::new(("widget-grid", depth))
-        .num_columns(columns)
-        .spacing(egui::vec2(8., 8.))
-        .show(ui, |ui| {
-            for (index, w) in widgets.iter_mut().enumerate() {
-                ui.push_id(w.id.clone(), |ui| {
-                    ui.vertical(|ui| {
-                        let frame = egui::Frame::new()
-                            .fill(ui.visuals().faint_bg_color)
-                            .corner_radius(6.)
-                            .inner_margin(egui::Margin::same(if w.kind == WidgetKind::Container {
-                                w.padding.clamp(0., 32.) as i8
-                            } else {
-                                6
-                            }))
-                            .show(ui, |ui| {
-                                ui.set_width(
-                                    w.width.clamp(180., 1600.).min((available - 24.).max(100.)),
-                                );
-                                // Controls fit their content; plots retain their configured canvas height.
-                                if w.kind == WidgetKind::MiniPlot {
-                                    ui.set_min_height(w.height.clamp(80., 1200.));
-                                }
-                                if editing || w.kind != WidgetKind::Button {
-                                    ui.horizontal(|ui| {
-                                        ui.label(RichText::new(&w.label).strong());
-                                        if editing {
-                                            ui.dnd_drag_source(
-                                                egui::Id::new((&w.id, "drag")),
-                                                index,
-                                                |ui| {
-                                                    ui.label("≡");
-                                                },
-                                            );
-                                            if ui.small_button("←").clicked() && index > 0 {
-                                                swap = Some((index, index - 1));
-                                            }
-                                            if ui.small_button("→").clicked() {
-                                                swap = Some((index, index + 1));
-                                            }
-                                            if ui.small_button("×").clicked() {
-                                                remove = Some(index);
-                                            }
-                                        }
-                                    });
-                                }
-                                if editing {
-                                    ui.collapsing("Configure", |ui| config(ui, w, profile));
-                                }
-                                render_widget(ui, w, editing, session, profile, prefs, depth);
-                            });
-                        if editing {
-                            if let Some(source) = frame.response.dnd_release_payload::<usize>() {
-                                swap = Some((*source, index));
-                            }
-                        }
-                    });
+        .map(|w| (w.id.clone(), egui::vec2(w.width, w.height)))
+        .collect();
+    let mut remove = None;
+    let mut extent = egui::vec2(available, 0.);
+    for index in order {
+        let w = &mut widgets[index];
+        let id = ui.id().with((&w.id, "canvas"));
+        let config_id = id.with("config-open");
+        let mut open = editing
+            && ui
+                .ctx()
+                .data_mut(|d| d.get_temp::<bool>(config_id).unwrap_or(false));
+        let position = w.position.unwrap();
+        let initial = egui::Rect::from_min_size(
+            origin + egui::vec2(position[0], position[1]),
+            egui::vec2(w.width, w.height),
+        );
+        if open {
+            egui::Window::new(format!("Configure {}", w.label))
+                .id(id.with("configuration"))
+                .open(&mut open)
+                .default_pos(initial.left_top() + egui::vec2(24., 24.))
+                .default_width(320.)
+                .max_height(500.)
+                .vscroll(true)
+                .show(ui.ctx(), |ui| {
+                    ui.weak("Changes apply immediately");
+                    config(ui, w, profile);
+                    ui.separator();
+                    if ui.button("Remove widget").clicked() {
+                        remove = Some(index);
+                    }
                 });
-                if (index + 1) % columns == 0 {
-                    ui.end_row();
+        }
+        let position = w.position.unwrap();
+        let mut rect = egui::Rect::from_min_size(
+            origin + egui::vec2(position[0], position[1]),
+            egui::vec2(w.width, w.height),
+        );
+        // Interact before painting so pointer movement is visible in this very frame.
+        if editing {
+            let title = egui::Rect::from_min_max(
+                rect.min + egui::vec2(30., 6.),
+                egui::pos2(rect.right() - 84., rect.top() + 26.),
+            );
+            let drag = ui
+                .interact(title, id.with("move"), egui::Sense::drag())
+                .on_hover_cursor(egui::CursorIcon::Grab);
+            if drag.dragged() {
+                ui.ctx()
+                    .data_mut(|d| d.insert_temp(active_id, w.id.clone()));
+                let delta = drag.drag_delta();
+                let next = rect.min - origin + delta;
+                rect = egui::Rect::from_min_size(origin + next, rect.size());
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            }
+            if drag.dragged() || drag.drag_stopped() {
+                canvas_layout::with_frame(ui.ctx(), |frame| {
+                    let start = frame
+                        .drag
+                        .as_ref()
+                        .filter(|d| d.id == w.id)
+                        .map_or(egui::vec2(position[0], position[1]), |d| d.start);
+                    frame.drag = Some(canvas_layout::Drag {
+                        id: w.id.clone(),
+                        parent: parent.map(str::to_string),
+                        rect,
+                        start,
+                    });
+                    frame.dropped = drag.drag_stopped();
+                });
+            }
+            let edges = [
+                (
+                    egui::Rect::from_min_max(rect.min, egui::pos2(rect.left() + 5., rect.bottom())),
+                    0,
+                ),
+                (
+                    egui::Rect::from_min_max(
+                        egui::pos2(rect.right() - 5., rect.top()),
+                        rect.max - egui::vec2(0., 12.),
+                    ),
+                    1,
+                ),
+                (
+                    egui::Rect::from_min_max(rect.min, egui::pos2(rect.right(), rect.top() + 5.)),
+                    2,
+                ),
+                (
+                    egui::Rect::from_min_max(
+                        egui::pos2(rect.left(), rect.bottom() - 5.),
+                        rect.max - egui::vec2(12., 0.),
+                    ),
+                    3,
+                ),
+                (
+                    egui::Rect::from_min_size(
+                        rect.right_bottom() - egui::vec2(12., 12.),
+                        egui::vec2(12., 12.),
+                    ),
+                    4,
+                ),
+            ];
+            for (hit, edge) in edges {
+                let response = ui
+                    .interact(hit, id.with(("resize", edge)), egui::Sense::drag())
+                    .on_hover_cursor(match edge {
+                        0 | 1 => egui::CursorIcon::ResizeHorizontal,
+                        2 | 3 => egui::CursorIcon::ResizeVertical,
+                        _ => egui::CursorIcon::ResizeNwSe,
+                    });
+                if response.dragged() || response.drag_stopped() {
+                    let start_id = id.with("resize-before");
+                    let before = ui.ctx().data_mut(|data| {
+                        let before = *data
+                            .get_temp_mut_or_insert_with::<egui::Rect>(start_id, || {
+                                initial.translate(-origin.to_vec2())
+                            });
+                        if response.drag_stopped() {
+                            data.remove::<egui::Rect>(start_id);
+                        }
+                        before
+                    });
+                    canvas_layout::with_frame(ui.ctx(), |frame| {
+                        frame.resize = Some((w.id.clone(), parent.map(str::to_string), before));
+                        frame.resize_released = response.drag_stopped();
+                    });
+                }
+                if response.dragged() {
+                    ui.ctx()
+                        .data_mut(|d| d.insert_temp(active_id, w.id.clone()));
+                    let raw_id = id.with("raw-resize");
+                    let targets_id = id.with("resize-targets");
+                    let targets = ui.ctx().data_mut(|data| {
+                        if data.get_temp::<Vec<egui::Vec2>>(targets_id).is_none() {
+                            let mut targets: Vec<_> = neighbor_sizes
+                                .iter()
+                                .filter(|(other, _)| other != &w.id)
+                                .map(|(_, size)| *size)
+                                .collect();
+                            if let Some(content) =
+                                data.get_temp::<egui::Vec2>(id.with("content-fit"))
+                            {
+                                targets.push(content);
+                            }
+                            data.insert_temp(targets_id, targets);
+                        }
+                        rect = data.get_temp::<egui::Rect>(raw_id).unwrap_or(rect);
+                        data.get_temp::<Vec<egui::Vec2>>(targets_id).unwrap()
+                    });
+                    let delta = response.drag_delta();
+                    match edge {
+                        0 => {
+                            rect.min.x = (rect.min.x + delta.x)
+                                .clamp((rect.max.x - 1600.).max(origin.x), rect.max.x - 120.)
+                        }
+                        1 => {
+                            rect.max.x =
+                                (rect.max.x + delta.x).clamp(rect.min.x + 120., rect.min.x + 1600.)
+                        }
+                        2 => {
+                            rect.min.y = (rect.min.y + delta.y)
+                                .clamp((rect.max.y - 1200.).max(origin.y), rect.max.y - 48.)
+                        }
+                        3 => {
+                            rect.max.y =
+                                (rect.max.y + delta.y).clamp(rect.min.y + 48., rect.min.y + 1200.)
+                        }
+                        _ => {
+                            rect.max = rect.min
+                                + (rect.size() + delta)
+                                    .clamp(egui::vec2(120., 48.), egui::vec2(1600., 1200.));
+                        }
+                    }
+                    ui.ctx().data_mut(|data| data.insert_temp(raw_id, rect));
+                    let size = rect.size();
+                    let width = canvas_layout::soft_snap(size.x, targets.iter().map(|s| s.x))
+                        .clamp(120., 1600.);
+                    let height = canvas_layout::soft_snap(size.y, targets.iter().map(|s| s.y))
+                        .clamp(48., 1200.);
+                    match edge {
+                        0 => rect.min.x = (rect.max.x - width).max(origin.x),
+                        1 => rect.max.x = rect.min.x + width,
+                        2 => rect.min.y = (rect.max.y - height).max(origin.y),
+                        3 => rect.max.y = rect.min.y + height,
+                        _ => rect.max = rect.min + egui::vec2(width, height),
+                    }
+                }
+                if response.drag_stopped() {
+                    ui.ctx().data_mut(|data| {
+                        data.remove::<egui::Rect>(id.with("raw-resize"));
+                        data.remove::<Vec<egui::Vec2>>(id.with("resize-targets"));
+                    });
                 }
             }
-        });
+            w.position = Some([rect.left() - origin.x, rect.top() - origin.y]);
+            w.width = rect.width();
+            w.height = rect.height();
+        }
+        if w.kind == WidgetKind::Container {
+            let body = egui::Rect::from_min_max(
+                rect.min + egui::vec2(6., 30.),
+                rect.max - egui::vec2(6., 6.),
+            )
+            .intersect(ui.clip_rect());
+            canvas_layout::with_frame(ui.ctx(), |frame| {
+                frame.containers.push((w.id.clone(), body, depth))
+            });
+        }
+        ui.ctx().data_mut(|d| d.insert_temp(config_id, open));
+        let floating = ui
+            .ctx()
+            .data_mut(|data| {
+                data.get_temp::<canvas_layout::Frame>(egui::Id::new(canvas_layout::FRAME))
+            })
+            .and_then(|frame| frame.drag)
+            .is_some_and(|drag| drag.id == w.id)
+            && ui.input(|i| i.pointer.primary_down());
+        let layer = if floating {
+            egui::LayerId::new(egui::Order::Tooltip, id.with("moving-preview"))
+        } else {
+            ui.layer_id()
+        };
+        let painter = if floating {
+            ui.ctx().layer_painter(layer)
+        } else {
+            ui.painter().clone()
+        };
+        painter.rect_filled(
+            rect,
+            6.,
+            if floating {
+                ui.visuals().panel_fill
+            } else {
+                ui.visuals().faint_bg_color
+            },
+        );
+        let margin = if w.kind == WidgetKind::Container {
+            w.padding.clamp(6., 32.)
+        } else {
+            6.
+        };
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .id_salt(id)
+                .layer_id(layer)
+                .max_rect(rect.shrink(margin))
+                .layout(egui::Layout::top_down(egui::Align::Min)),
+        );
+        child.set_clip_rect(rect.shrink(5.).intersect(if floating {
+            ui.ctx().screen_rect()
+        } else {
+            ui.clip_rect()
+        }));
+        if w.kind != WidgetKind::Button {
+            child.add(egui::Label::new(RichText::new(&w.label).strong()).selectable(false));
+        }
+        let content = egui::ScrollArea::both()
+            .id_salt(id.with("content"))
+            .drag_to_scroll(false)
+            .max_height(child.available_height().max(1.))
+            .max_width(child.available_width().max(1.))
+            .show(&mut child, |ui| {
+                render_widget(ui, w, editing, session, profile, prefs, depth);
+            });
+        let header = if w.kind == WidgetKind::Button {
+            0.
+        } else {
+            24.
+        };
+        let fit = if w.kind == WidgetKind::Container {
+            w.children.iter().fold(egui::vec2(120., 48.), |size, c| {
+                let p = c.position.unwrap_or([0., 0.]);
+                size.max(egui::vec2(
+                    p[0] + c.width + margin * 2.,
+                    p[1] + c.height + margin * 2. + header,
+                ))
+            })
+        } else {
+            content.content_size + egui::vec2(margin * 2., margin * 2. + header)
+        };
+        ui.ctx()
+            .data_mut(|data| data.insert_temp(id.with("content-fit"), fit));
+        if editing {
+            let hovered = ui.rect_contains_pointer(rect);
+            if hovered || open {
+                ui.painter().rect_stroke(
+                    rect,
+                    6.,
+                    egui::Stroke::new(1_f32, colors::role(ui, "accent")),
+                    egui::StrokeKind::Inside,
+                );
+                let remove_rect =
+                    egui::Rect::from_min_size(rect.min + egui::vec2(6., 6.), egui::vec2(20., 22.));
+                if ui
+                    .put(remove_rect, egui::Button::new("×"))
+                    .on_hover_text("Remove widget")
+                    .clicked()
+                {
+                    remove = Some(index);
+                }
+                let button_rect = egui::Rect::from_min_size(
+                    egui::pos2(rect.right() - 82., rect.top() + 6.),
+                    egui::vec2(76., 22.),
+                );
+                if ui
+                    .put(button_rect, egui::Button::new("Configure"))
+                    .clicked()
+                {
+                    ui.ctx().data_mut(|d| d.insert_temp(config_id, true));
+                }
+                ui.painter().line_segment(
+                    [
+                        rect.right_bottom() - egui::vec2(12., 4.),
+                        rect.right_bottom() - egui::vec2(4., 12.),
+                    ],
+                    egui::Stroke::new(2_f32, colors::role(ui, "accent")),
+                );
+            }
+        }
+        extent = extent.max(rect.max - origin + egui::vec2(8., 8.));
+    }
+    ui.allocate_space(extent);
     if let Some(i) = remove {
         widgets.remove(i);
-    } else if let Some((a, b)) = swap {
-        if b < widgets.len() {
-            widgets.swap(a, b);
-        }
     }
 }
 fn binding_picker(
@@ -190,39 +575,82 @@ fn binding_picker(
         .as_ref()
         .map(|b| format!("{} · {}", b.space.title(), b.name))
         .unwrap_or("Choose binding".into());
-    egui::ComboBox::from_id_salt("binding")
-        .selected_text(text)
-        .width(250.)
-        .show_ui(ui, |ui| {
-            if ui.selectable_label(binding.is_none(), "Unbound").clicked() {
-                *binding = None;
-            }
-            for s in Space::ALL {
-                if writable && s == Space::SysRegister {
-                    continue;
-                }
-                ui.collapsing(s.title(), |ui| {
-                    for e in profile
-                        .entries(s)
-                        .into_iter()
-                        .filter(|e| !writable || e.writable)
-                    {
-                        if ui
-                            .selectable_label(
-                                binding
-                                    .as_ref()
-                                    .is_some_and(|b| b.space == s && b.name == e.name),
-                                &e.name,
-                            )
-                            .clicked()
-                        {
-                            *binding = Some(Binding::new(s, &e));
-                            ui.close_menu();
+    let search_id = ui.id().with("binding-search");
+    let mut query = ui
+        .ctx()
+        .data_mut(|d| d.get_temp::<String>(search_id).unwrap_or_default());
+    let open_id = search_id.with("open");
+    let was_open = ui
+        .ctx()
+        .data_mut(|d| d.get_temp::<bool>(open_id).unwrap_or(false));
+    let menu = ui.menu_button(text, |ui| {
+        ui.set_min_width(320.);
+        let search = ui.add(
+            egui::TextEdit::singleline(&mut query)
+                .hint_text("Search name, address, type or space")
+                .desired_width(310.),
+        );
+        if !was_open {
+            search.request_focus();
+        }
+        if ui.selectable_label(binding.is_none(), "Unbound").clicked() {
+            *binding = None;
+            ui.close_menu();
+        }
+        let filter = query.trim().to_lowercase();
+        let entries: Vec<_> = Space::ALL
+            .into_iter()
+            .filter(|s| !writable || *s != Space::SysRegister)
+            .flat_map(|s| profile.entries(s).into_iter().map(move |e| (s, e)))
+            .filter(|(s, e)| {
+                (!writable || e.writable)
+                    && format!("{} {} {} {}", e.name, e.address, e.data_type, s.title())
+                        .to_lowercase()
+                        .contains(&filter)
+            })
+            .collect();
+        ui.weak(format!(
+            "{} matches · drag the bottom edge to resize",
+            entries.len()
+        ));
+        egui::Resize::default()
+            .id_salt("binding-results-size")
+            .resizable([false, true])
+            .default_height(260.)
+            .min_height(100.)
+            .max_height(600.)
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show_rows(ui, 24., entries.len(), |ui, range| {
+                        for (space, entry) in &entries[range] {
+                            let selected = binding
+                                .as_ref()
+                                .is_some_and(|b| b.space == *space && b.name == entry.name);
+                            if ui
+                                .selectable_label(
+                                    selected,
+                                    format!(
+                                        "{} · {} · {} ({})",
+                                        entry.name,
+                                        space.title(),
+                                        entry.address,
+                                        entry.data_type
+                                    ),
+                                )
+                                .clicked()
+                            {
+                                *binding = Some(Binding::new(*space, entry));
+                                ui.close_menu();
+                            }
                         }
-                    }
-                });
-            }
-        });
+                    });
+            });
+    });
+    ui.ctx().data_mut(|d| {
+        d.insert_temp(search_id, query);
+        d.insert_temp(open_id, menu.inner.is_some());
+    });
 }
 fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
     ui.text_edit_singleline(&mut w.label);
@@ -234,6 +662,7 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
         ui.add(egui::Slider::new(&mut w.time_span, 1.0..=3600.).text("Time span (seconds)"));
     }
     if w.kind == WidgetKind::Container {
+        add_widget_menu(ui, &mut w.children);
         ui.add(egui::Slider::new(&mut w.padding, 0.0..=32.).text("Padding"));
         ui.add(egui::Slider::new(&mut w.spacing, 0.0..=32.).text("Spacing"));
     }
@@ -257,12 +686,18 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
 
     ui.horizontal(|ui| {
         ui.label("Width");
-        ui.add(egui::DragValue::new(&mut w.width).range(180.0..=1600.));
-        if w.kind == WidgetKind::MiniPlot {
-            ui.label("Height");
-            ui.add(egui::DragValue::new(&mut w.height).range(80.0..=1200.));
-        }
+        ui.add(egui::DragValue::new(&mut w.width).range(120.0..=1600.));
+        ui.label("Height");
+        ui.add(egui::DragValue::new(&mut w.height).range(48.0..=1200.));
     });
+    if let Some(position) = &mut w.position {
+        ui.horizontal(|ui| {
+            ui.label("X");
+            ui.add(egui::DragValue::new(&mut position[0]).range(0.0..=100000.));
+            ui.label("Y");
+            ui.add(egui::DragValue::new(&mut position[1]).range(0.0..=100000.));
+        });
+    }
     if !matches!(
         w.kind,
         WidgetKind::DeviceInfo
@@ -471,7 +906,8 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                         remove = Some(i);
                     }
                 });
-                ui.text_edit_singleline(&mut t.label);
+                ui.add(egui::TextEdit::singleline(&mut t.label).hint_text("Optional state label (e.g. Over limit)"))
+                    .on_hover_text("Shown by state LEDs and alarm lists. Encoder displays use the threshold color and keep showing the numeric value.");
             });
         }
         if let Some(i) = remove {
@@ -525,9 +961,6 @@ fn render_widget(
     depth: usize,
 ) {
     if w.kind == WidgetKind::Container {
-        if editing {
-            add_widget_menu(ui, &mut w.children);
-        }
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing = egui::vec2(w.spacing, w.spacing);
             render_grid(
@@ -538,6 +971,7 @@ fn render_widget(
                 profile,
                 prefs,
                 depth + 1,
+                Some(&w.id),
             );
         });
         return;
@@ -615,7 +1049,10 @@ fn render_widget(
                         ui.add(egui::TextEdit::singleline(&mut input).desired_width(80.));
                         ui.ctx().data_mut(|d| d.insert_temp(id, input.clone()));
                         if ui
-                            .add_enabled(session.controlled(), egui::Button::new("Write"))
+                            .add_enabled(
+                                session.controlled() && !editing,
+                                egui::Button::new("Write"),
+                            )
                             .clicked()
                         {
                             session.write_formatted(
@@ -653,7 +1090,7 @@ fn render_widget(
                     &d.label
                 };
                 let response = ui.add_enabled(
-                    session.connected(),
+                    session.connected() && !editing,
                     egui::Button::new(label).min_size(egui::vec2(45., 35.)),
                 );
                 let id = ui.id().with(("jog", &d.direction));
@@ -679,12 +1116,11 @@ fn render_widget(
     if let (WidgetKind::Button, Some(command)) = (w.kind, w.command) {
         if ui
             .add_enabled(
-                session.controlled(),
-                egui::Button::new(
-                    RichText::new(&w.label)
-                        .strong()
-                        .color(colors::role(ui, "accent")),
-                )
+                session.controlled() && !editing,
+                egui::Button::new(RichText::new(&w.label).strong().color(colors::role(
+                    ui,
+                    w.thresholds.first().map_or("accent", |t| t.role.as_str()),
+                )))
                 .min_size(egui::vec2(ui.available_width(), 30.)),
             )
             .clicked()
@@ -693,6 +1129,9 @@ fn render_widget(
                 Ok(v) => session.command(command, v, w.confirm),
                 Err(_) => session.notice = "Invalid command value".into(),
             }
+        }
+        if let Some(outcome) = session.commands.get(&command) {
+            colors::outcome(ui, outcome);
         }
         return;
     }
@@ -860,7 +1299,7 @@ fn render_widget(
         WidgetKind::Button => {
             if ui
                 .add_enabled(
-                    session.controlled() && e.writable,
+                    session.controlled() && !editing && e.writable,
                     egui::Button::new(
                         RichText::new(&w.label)
                             .strong()
@@ -878,7 +1317,7 @@ fn render_widget(
             ui.text_edit_singleline(&mut w.value);
             if ui
                 .add_enabled(
-                    session.controlled() && e.writable,
+                    session.controlled() && !editing && e.writable,
                     egui::Button::new("Write"),
                 )
                 .clicked()
@@ -894,7 +1333,7 @@ fn render_widget(
                     for o in &w.options {
                         if ui
                             .add_enabled(
-                                session.controlled() && e.writable,
+                                session.controlled() && !editing && e.writable,
                                 egui::Button::new(&o.label),
                             )
                             .clicked()
@@ -907,7 +1346,7 @@ fn render_widget(
         }
         WidgetKind::MiniPlot => {
             egui_plot::Plot::new("mini-plot")
-                .height(110.)
+                .height((w.height - 70.).max(40.))
                 .show_axes([false, true])
                 .show(ui, |plot| {
                     if let Some(h) = session.histories.get(&(binding.space, binding.address)) {

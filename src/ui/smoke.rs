@@ -8,7 +8,7 @@ impl Desktop {
         self.active_profile = self.saved.active.clone();
         self.saved.preferences.poll_ms = 100;
         let kind = match scene {
-            "dashboard" | "cnc" => PaneKind::Dashboard,
+            "dashboard" | "cnc" | "cnc-edit" => PaneKind::Dashboard,
             "parameters" => PaneKind::Parameters,
             "system" => PaneKind::System,
             "commands" => PaneKind::Commands,
@@ -20,8 +20,12 @@ impl Desktop {
         };
         let mut pane = Pane::new(kind);
         pane.auto = true;
+        pane.editing = scene == "cnc-edit";
         let profile = &mut self.saved.profiles[1];
-        for kind in WidgetKind::ALL.into_iter().filter(|_| scene != "cnc") {
+        for kind in WidgetKind::ALL
+            .into_iter()
+            .filter(|_| !matches!(scene, "cnc" | "cnc-edit"))
+        {
             let writable = matches!(
                 kind,
                 WidgetKind::ValueWrite | WidgetKind::Button | WidgetKind::Dropdown

@@ -5,6 +5,8 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "DSHub",
         eframe::NativeOptions {
+            // EGL swap waits can block event handling when Wayland hides a workspace.
+            vsync: !(cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some()),
             viewport: eframe::egui::ViewportBuilder::default()
                 .with_inner_size([1440.0, 900.0])
                 .with_min_inner_size([700.0, 500.0])
