@@ -43,7 +43,7 @@ On a Linux desktop with Python 3 and free TCP 2009 / UDP 2011:
 bash tests/native-smoke.sh /tmp/dshub-native-smoke
 ```
 
-The harness uses a separate Cargo target directory and isolated application storage. It starts the emulator, opens eleven native scenes, asserts a live controlled connection, captures screenshots and exits each scene. It verifies that the requested fixture was actually loaded. Scenes cover Registers, Parameters, System, Commands, Inspector, Log, Plot, Map Editor, Dashboard, Binding review and a genuine daughter viewport.
+The harness uses a separate Cargo target directory and isolated application storage. It starts the emulator, opens eighteen native scenes, asserts a live controlled connection, captures screenshots and exits each scene. It verifies that the requested fixture was actually loaded. Scenes cover Registers, Parameters, System, Commands, Inspector, Log, Plot, Map Editor, Dashboards (widgets, CNC panels and edit mode), Binding review, a genuine daughter viewport, the full default workspace in dark and light themes, and the Profiles, Preferences and Guide windows.
 
 The `native-smoke` feature is opt-in and is not part of the release build. The normal application does not seed demonstration widgets or automatically take Control.
 

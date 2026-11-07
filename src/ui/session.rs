@@ -64,6 +64,25 @@ impl WriteOutcome {
         }
     }
 }
+/// A transient message shown over the workspace and kept in the Activity log.
+#[derive(Debug, Clone)]
+pub struct Toast {
+    pub role: Role,
+    pub text: String,
+    pub created: f64,
+    /// Identical messages in a row collapse into one with a count.
+    pub count: usize,
+}
+impl Toast {
+    /// How long the toast stays, in ms; errors stay until dismissed.
+    pub fn lifetime(&self) -> Option<f64> {
+        match self.role {
+            Role::Error => None,
+            Role::Warn => Some(8000.),
+            _ => Some(4000.),
+        }
+    }
+}
 pub struct Session {
     pub _runtime: tokio::runtime::Runtime,
     pub app: AppHandle,
@@ -78,7 +97,9 @@ pub struct Session {
     pub readings: BTreeMap<(Space, u16), RegisterData>,
     pub histories: BTreeMap<(Space, u16), VecDeque<[f64; 2]>>,
     pub logs: VecDeque<LogEntry>,
+    /// A warning for the operator; becomes a toast at the end of the frame.
     pub notice: String,
+    pub toasts: Vec<Toast>,
     pub selection: Option<(Space, Entry)>,
     pub interests: BTreeSet<(Space, u16, String, u64)>,
     pub last_interests: BTreeSet<(Space, u16, String, u64)>,
@@ -169,6 +190,7 @@ impl Session {
             histories: BTreeMap::new(),
             logs: VecDeque::new(),
             notice: String::new(),
+            toasts: vec![],
             selection: None,
             interests: BTreeSet::new(),
             last_interests: BTreeSet::new(),
@@ -313,12 +335,56 @@ impl Session {
                 .insert((b.space, b.address, b.name.clone(), ms.max(50)));
         }
     }
+    /// Shows a message over the workspace and records it in the Activity log.
+    pub fn toast(&mut self, role: Role, text: impl Into<String>) {
+        let text = text.into();
+        let now = crate::communicator::now_ms();
+        self.logs.push_back(LogEntry {
+            level: match role {
+                Role::Error => LogLevel::Error,
+                Role::Warn => LogLevel::Warning,
+                Role::Ok => LogLevel::Success,
+                _ => LogLevel::Info,
+            },
+            category: LogCategory::Connection,
+            message: text.clone(),
+            timestamp: now,
+            packet_data: None,
+        });
+        if let Some(last) = self
+            .toasts
+            .last_mut()
+            .filter(|t| t.text == text && t.role == role)
+        {
+            last.count += 1;
+            last.created = now;
+            return;
+        }
+        self.toasts.push(Toast {
+            role,
+            text,
+            created: now,
+            count: 1,
+        });
+        // Keep the stack short; the Activity log holds the full history.
+        if self.toasts.len() > 5 {
+            self.toasts.remove(0);
+        }
+    }
+    /// Turns a pending notice into a warning toast.
+    fn flush_notice(&mut self) {
+        if !self.notice.is_empty() {
+            let text = std::mem::take(&mut self.notice);
+            self.toast(Role::Warn, text);
+        }
+    }
     /// Asks for `b`'s readings to be kept as a plot history.
     pub fn want_history(&mut self, b: &Binding) {
         self.history_wanted.insert((b.space, b.address));
     }
     /// Ends a frame: sends changed subscriptions and drops histories nothing plots.
     pub fn sync(&mut self) {
+        self.flush_notice();
         if self.interests != self.last_interests {
             self.send(Action::Subscriptions(self.interests.clone()));
             self.last_interests = self.interests.clone();
@@ -383,6 +449,7 @@ impl Session {
         }
     }
     pub fn drain(&mut self, p: &Profile, prefs: &Preferences) {
+        self.flush_notice();
         for event in self.app.drain() {
             match event {
                 Event::DeviceDiscovered(d) => {
@@ -401,9 +468,10 @@ impl Session {
                         }
                         self.readings.clear();
                     } else if self.connection.as_ref().is_some_and(|old| old.reconnecting) {
-                        self.notice =
-                            "Connection restored. Take Control again before writing or sending commands."
-                                .into();
+                        self.toast(
+                            Role::Info,
+                            "Connection restored. Take Control again before writing or sending commands.",
+                        );
                     }
                     self.connection = Some(c);
                 }
@@ -414,20 +482,24 @@ impl Session {
                 Event::Idle => self.busy = false,
                 Event::Error(error) => {
                     self.busy = false;
-                    self.notice = error;
+                    self.toast(Role::Error, error);
                 }
                 Event::Log(l) => self.logs.push_back(l),
                 Event::CommandResponse(response) => {
-                    self.notice = format!(
-                        "Command {}: {} (status {})",
-                        response.command,
-                        if response.valid {
-                            "acknowledged"
-                        } else {
-                            "refused"
-                        },
-                        response.status
-                    );
+                    if response.valid {
+                        self.toast(
+                            Role::Ok,
+                            format!("Command {} acknowledged", response.command),
+                        );
+                    } else {
+                        self.toast(
+                            Role::Error,
+                            format!(
+                                "Command {} refused (status {})",
+                                response.command, response.status
+                            ),
+                        );
+                    }
                     if let Some(outcome) = self.commands.get_mut(&response.command) {
                         outcome.status = if response.valid {
                             OutcomeStatus::Confirmed
@@ -486,9 +558,12 @@ impl Session {
                 c.control_state = r.value as u32;
             }
             if held && !self.controlled() {
-                self.notice = format!(
-                    "Control was taken by {}. Writes and commands are disabled until you take it back.",
-                    control_interface_name(r.value)
+                self.toast(
+                    Role::Warn,
+                    format!(
+                        "Control was taken by {}. Writes and commands are disabled until you take it back.",
+                        control_interface_name(r.value)
+                    ),
                 );
             }
         }

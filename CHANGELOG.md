@@ -24,6 +24,13 @@
 - Map Editor drafts are no longer stored in layouts or Workspaces. Map errors quote the offending line.
 - Mini-plots no longer capture dashboard drags or scrolling.
 - Remove unused Tauri-era commands and the `base64` dependency. CI lints all features and runs the emulator integration test on Linux.
+- Visual redesign: tonal dark and light themes with a restrained cyan accent; bundled Inter (tabular figures) and JetBrains Mono.
+- One-row toolbar with a device chip that shows connection, transport and Control, and opens a connection panel listing discovered devices.
+- Messages appear as toasts by severity and are kept in the Activity log.
+- Registers, Parameters and System Registers are tables with headers, resizable columns, units, status and in-place editing (double-click or Edit, Enter to write, Esc to cancel).
+- Activity log is a filterable table with local times; plots use clock-time axes, read-outs on hover and an empty state.
+- Dashboard widgets: cards by depth, fitted read-outs, arc gauge with limits, level bars, lamps, bit grid, inline value writes, dropdowns that show the current option, and a quiet status dot.
+- Widget configuration is grouped into labelled sections. Overview, Inspector, Commands, Profiles, Preferences, Workspaces and Guide are redesigned.
 
 # Changelog
 

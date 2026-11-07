@@ -1,4 +1,4 @@
-use super::colors;
+use super::{clock, colors, controls, theme};
 use super::{
     session::{ImportTarget, Session},
     widgets, Pane, PaneKind,
@@ -100,107 +100,206 @@ impl Viewer<'_> {
         }
     }
     fn overview(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Device overview");
-        ui.separator();
-        if let Some(c) = &self.session.connection {
-            ui.label(RichText::new(c.device_name.as_deref().unwrap_or(&c.ip)).size(24.));
-            ui.label(format!("{}:{} · {:?}", c.ip, c.port, c.interface_type));
-            colors::connection(ui, self.session);
-            ui.label(format!("Control interface: {}", c.control_state));
-            if let Some(device) = self.session.devices.iter().find(|d| d.ip_address == c.ip) {
-                ui.label(&device.board_name);
-                ui.label(self.profile.board_type_name(device.board_type));
-                ui.label(format!(
-                    "Firmware: 0x{:04X} · Device ID: {}",
-                    device.firmware_version, device.device_id
-                ));
-                ui.monospace(&device.mac_address);
+        let palette = theme::of(ui);
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.label(theme::caption(ui, "Device"));
+            let device = self
+                .session
+                .connection
+                .as_ref()
+                .and_then(|c| self.session.devices.iter().find(|d| d.ip_address == c.ip));
+            egui::Grid::new("overview-device")
+                .num_columns(2)
+                .spacing([16., 5.])
+                .show(ui, |ui| {
+                    let (role, state) = match &self.session.connection {
+                        Some(c) if c.reconnecting => (Role::Warn, "Reconnecting"),
+                        _ if self.session.busy => (Role::Info, "Connecting"),
+                        Some(_) if self.session.connected() => (Role::Ok, "Connected"),
+                        _ => (Role::Idle, "Not connected"),
+                    };
+                    key(ui, "State");
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("●").color(colors::role(ui, role)));
+                        ui.label(state);
+                    });
+                    ui.end_row();
+                    if let Some(c) = &self.session.connection {
+                        if let Some(name) = c.device_name.as_ref().or(device.map(|d| &d.board_name))
+                        {
+                            key(ui, "Name");
+                            ui.label(name);
+                            ui.end_row();
+                        }
+                        key(ui, "Address");
+                        ui.monospace(format!("{}:{}", c.ip, c.port));
+                        ui.end_row();
+                        key(ui, "Transport");
+                        ui.label(format!("{:?}", c.interface_type).to_uppercase());
+                        ui.end_row();
+                        key(ui, "Control");
+                        if self.session.controlled() {
+                            ui.label(
+                                RichText::new("Held by this session")
+                                    .color(colors::role(ui, Role::Accent)),
+                            );
+                        } else {
+                            ui.label(
+                                RichText::new(format!(
+                                    "Held by {}",
+                                    super::session::control_interface_name(c.control_state as i32)
+                                ))
+                                .color(colors::role(ui, Role::Warn)),
+                            );
+                        }
+                        ui.end_row();
+                    }
+                    if let Some(d) = device {
+                        key(ui, "Board");
+                        ui.label(self.profile.board_type_name(d.board_type));
+                        ui.end_row();
+                        key(ui, "Firmware");
+                        ui.monospace(format!("0x{:04X}", d.firmware_version));
+                        ui.end_row();
+                        key(ui, "Device ID");
+                        ui.monospace(d.device_id.to_string());
+                        ui.end_row();
+                        key(ui, "MAC");
+                        ui.monospace(&d.mac_address);
+                        ui.end_row();
+                    }
+                });
+            if self.session.connection.is_none() {
+                ui.label(
+                    RichText::new("Open the device menu in the toolbar to scan or connect.")
+                        .color(palette.text_weak),
+                );
             }
-        } else {
-            colors::connection(ui, self.session);
-            ui.label("Use Scan or enter an IP address above.");
-        }
-        ui.separator();
-        ui.label(format!("Profile: {}", self.profile.name));
-        for s in Space::ALL {
-            ui.label(format!(
-                "{}: {} entries",
-                s.title(),
-                self.profile.parsed(s).entries.len()
-            ));
-        }
-        for address in [0, 1, 2, 3] {
-            if let Some(e) = self.profile.entry_at(Space::SysRegister, address) {
-                self.session
-                    .interest(&Binding::new(Space::SysRegister, &e), self.profile, 1000);
-                if let Some(r) = self
-                    .session
-                    .readings
-                    .get(&(Space::SysRegister, address))
-                    .filter(|r| r.valid)
-                {
-                    ui.label(format!("{}: {}", e.name, e.format(r.value)));
-                }
+            ui.add_space(10.);
+            ui.label(theme::caption(ui, "System registers"));
+            let parsed = self.profile.parsed(Space::SysRegister);
+            egui::Grid::new("overview-system")
+                .num_columns(2)
+                .spacing([16., 5.])
+                .show(ui, |ui| {
+                    for e in parsed.entries.iter().take(8) {
+                        self.session.interest(
+                            &Binding::new(Space::SysRegister, e),
+                            self.profile,
+                            1000,
+                        );
+                        key(ui, &e.name);
+                        let value = self
+                            .session
+                            .readings
+                            .get(&(Space::SysRegister, e.address))
+                            .filter(|r| r.valid)
+                            .map_or("—".into(), |r| e.format(r.value));
+                        ui.monospace(value);
+                        ui.end_row();
+                    }
+                });
+            ui.add_space(10.);
+            ui.label(theme::caption(ui, "Profile"));
+            egui::Grid::new("overview-profile")
+                .num_columns(2)
+                .spacing([16., 5.])
+                .show(ui, |ui| {
+                    key(ui, "Name");
+                    ui.label(&self.profile.name);
+                    ui.end_row();
+                    for s in Space::ALL {
+                        key(ui, s.title());
+                        ui.monospace(self.profile.parsed(s).entries.len().to_string());
+                        ui.end_row();
+                    }
+                });
+            ui.add_space(10.);
+            ui.label(theme::caption(ui, "Recent activity"));
+            let dark = ui.visuals().dark_mode;
+            for l in self.session.logs.iter().rev().take(6) {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(clock::time_of_day(l.timestamp))
+                            .monospace()
+                            .small()
+                            .color(palette.text_weak),
+                    );
+                    ui.label(RichText::new("●").small().color(log_color(dark, &l.level)));
+                    ui.add(egui::Label::new(&l.message).truncate());
+                });
             }
-        }
-        ui.separator();
-        ui.label(RichText::new("Recent activity").strong());
-        for l in self.session.logs.iter().rev().take(8) {
-            ui.colored_label(log_color(ui, &l.level), &l.message);
-        }
+        });
     }
     fn entries(&mut self, ui: &mut egui::Ui, p: &mut Pane, s: Space) {
+        let palette = theme::of(ui);
+        let search = p.search.trim().to_lowercase();
+        let parsed = self.profile.parsed(s);
+        let entries: Vec<&Entry> = parsed
+            .entries
+            .iter()
+            .filter(|e| {
+                search.is_empty()
+                    || e.name.to_lowercase().contains(&search)
+                    || e.address.to_string() == search
+            })
+            .collect();
         ui.horizontal(|ui| {
-            ui.label(RichText::new(s.title()).strong());
             ui.add(
                 egui::TextEdit::singleline(&mut p.search)
-                    .hint_text("Search name or address")
-                    .desired_width(180.),
+                    .hint_text("Filter by name or address")
+                    .desired_width(200.),
             );
-            ui.checkbox(&mut p.auto, "Live");
-            ui.add(
+            ui.separator();
+            ui.checkbox(&mut p.auto, "Live")
+                .on_hover_text("Poll every listed entry at this interval");
+            ui.add_enabled(
+                p.auto,
                 egui::DragValue::new(&mut p.interval)
                     .range(50..=10000)
                     .suffix(" ms"),
             );
-        });
-        ui.horizontal(|ui| {
-            for format in DisplayFormat::ALL {
-                ui.selectable_value(&mut p.format, format, format.title());
-            }
-        });
-        let search = p.search.to_lowercase();
-        let entries: Vec<_> = self
-            .profile
-            .entries(s)
-            .into_iter()
-            .filter(|e| e.name.to_lowercase().contains(&search) || e.address.to_string() == search)
-            .collect();
-        ui.horizontal(|ui| {
-            ui.label(format!("{} entries", entries.len()));
-            if ui
-                .add_enabled(self.session.connected(), egui::Button::new("Read visible"))
-                .clicked()
-            {
-                for e in &entries {
-                    self.session.read(s, e);
+            ui.separator();
+            controls::segmented(
+                ui,
+                &mut p.format,
+                &[
+                    (DisplayFormat::Decimal, "DEC"),
+                    (DisplayFormat::Hexadecimal, "HEX"),
+                    (DisplayFormat::Binary, "BIN"),
+                ],
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Export CSV").clicked() {
+                    let mut text = "address,name,type,value,valid\n".to_string();
+                    for e in &entries {
+                        let r = self.session.readings.get(&(s, e.address));
+                        text.push_str(&format!(
+                            "{},\"{}\",{},\"{}\",{}\n",
+                            e.address,
+                            e.name,
+                            e.data_type,
+                            r.map(|r| e.format(r.value)).unwrap_or_default(),
+                            r.is_some_and(|r| r.valid)
+                        ));
+                    }
+                    self.session.export(text, "entries.csv", "csv");
                 }
-            }
-            if ui.button("Export CSV").clicked() {
-                let mut text = "address,name,type,value,valid\n".to_string();
-                for e in &entries {
-                    let r = self.session.readings.get(&(s, e.address));
-                    text.push_str(&format!(
-                        "{},\"{}\",{},\"{}\",{}\n",
-                        e.address,
-                        e.name,
-                        e.data_type,
-                        r.map(|r| e.format(r.value)).unwrap_or_default(),
-                        r.is_some_and(|r| r.valid)
-                    ));
+                if ui
+                    .add_enabled(self.session.connected(), egui::Button::new("Read all"))
+                    .on_hover_text("Read every listed entry once")
+                    .clicked()
+                {
+                    for e in &entries {
+                        self.session.read(s, e);
+                    }
                 }
-                self.session.export(text, "entries.csv", "csv");
-            }
+                ui.label(
+                    RichText::new(format!("{} entries", entries.len()))
+                        .small()
+                        .color(palette.text_weak),
+                );
+            });
         });
         if p.auto {
             for e in &entries {
@@ -208,92 +307,226 @@ impl Viewer<'_> {
                     .interest(&Binding::new(s, e), self.profile, p.interval);
             }
         }
-        ui.separator();
-        egui::ScrollArea::both().id_salt("entries").show_rows(
-            ui,
-            24.,
-            entries.len(),
-            |ui, range| {
-                for e in &entries[range] {
-                    ui.horizontal(|ui| {
-                        ui.monospace(format!("{:5}", e.address));
-                        let selected = self
-                            .session
-                            .selection
-                            .as_ref()
-                            .is_some_and(|(ss, ee)| *ss == s && ee.address == e.address);
-                        if ui
-                            .add_sized([235., 22.], egui::Button::new(&e.name).selected(selected))
-                            .clicked()
-                        {
-                            self.session.selection = Some((s, e.clone()));
-                            self.session.read(s, e);
-                        }
-                        ui.add_sized(
-                            [70., 22.],
-                            egui::Label::new(RichText::new(e.data_type.as_str()).weak()),
-                        );
-                        let reading = self.session.readings.get(&(s, e.address));
-                        let (role, status) = colors::reading(
-                            self.session.connected(),
-                            reading,
-                            p.auto.then_some(p.interval),
-                        );
-                        let text = match reading {
-                            Some(r) if r.valid => p.format.format(e, r.value),
-                            Some(_) => "Error".into(),
-                            None => "—".into(),
-                        };
-                        ui.add_sized(
-                            [100., 22.],
-                            egui::Label::new(
-                                RichText::new(text)
-                                    .monospace()
-                                    .color(colors::role(ui, role)),
-                            ),
-                        );
-                        ui.add_sized(
-                            [105., 22.],
-                            egui::Label::new(
-                                RichText::new(status).small().color(colors::role(ui, role)),
-                            ),
-                        );
-                        if ui
-                            .add_enabled(self.session.connected(), egui::Button::new("Read"))
-                            .clicked()
-                        {
-                            self.session.read(s, e);
-                        }
-                        if ui.button("Plot").clicked() {
-                            self.add_series(s, e);
-                        }
-                        if e.writable && s != Space::SysRegister {
-                            let key = egui::Id::new((&p.id, e.address, "write"));
-                            let mut text = ui
-                                .ctx()
-                                .data_mut(|d| d.get_temp::<String>(key).unwrap_or_default());
-                            ui.add(
-                                egui::TextEdit::singleline(&mut text)
-                                    .desired_width(90.)
-                                    .hint_text("New value"),
+        ui.add_space(4.);
+        if entries.is_empty() {
+            ui.label(
+                RichText::new(if parsed.entries.is_empty() {
+                    "This Profile defines no entries here. Add them in the Map Editor."
+                } else {
+                    "No entries match the filter."
+                })
+                .color(palette.text_weak),
+            );
+            return;
+        }
+
+        // In-place editing: the row being edited and its text, per pane.
+        let edit_id = ui.id().with((&p.id, "editing"));
+        let mut editing: Option<(u16, String)> = ui.ctx().data_mut(|d| d.get_temp(edit_id));
+        let controlled = self.session.connected() && self.session.controlled();
+        let connected = self.session.connected();
+        let row_height = 24.;
+        let mut clicked = None;
+        let mut actions: Vec<RowAction> = vec![];
+        egui_extras::TableBuilder::new(ui)
+            .id_salt((&p.id, "entries"))
+            .striped(true)
+            .resizable(true)
+            .sense(egui::Sense::click())
+            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+            .column(egui_extras::Column::exact(52.))
+            .column(egui_extras::Column::initial(230.).at_least(120.).clip(true))
+            .column(egui_extras::Column::exact(70.))
+            .column(egui_extras::Column::initial(150.).at_least(90.).clip(true))
+            .column(egui_extras::Column::initial(84.).at_least(36.).clip(true))
+            .column(egui_extras::Column::initial(130.).at_least(90.))
+            .column(egui_extras::Column::remainder().at_least(120.))
+            .header(22., |mut header| {
+                for (title, right) in [
+                    ("Addr", true),
+                    ("Name", false),
+                    ("Type", false),
+                    ("Value", true),
+                    ("Unit", false),
+                    ("Status", false),
+                    ("", false),
+                ] {
+                    header.col(|ui| {
+                        let text = theme::caption(ui, title);
+                        if right {
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(text);
+                                },
                             );
-                            ui.ctx().data_mut(|d| d.insert_temp(key, text.clone()));
-                            if ui
-                                .add_enabled(self.session.controlled(), egui::Button::new("Write"))
-                                .clicked()
-                            {
-                                self.session.write_formatted(s, e, &text, p.format, false);
-                            }
                         } else {
-                            ui.weak("Read-only");
-                        }
-                        if let Some(outcome) = self.session.writes.get(&(s, e.address)) {
-                            colors::outcome(ui, outcome);
+                            ui.label(text);
                         }
                     });
                 }
-            },
-        );
+            })
+            .body(|body| {
+                body.rows(row_height, entries.len(), |mut row| {
+                    let e = entries[row.index()];
+                    let selected = self
+                        .session
+                        .selection
+                        .as_ref()
+                        .is_some_and(|(ss, ee)| *ss == s && ee.address == e.address);
+                    row.set_selected(selected);
+                    let reading = self.session.readings.get(&(s, e.address));
+                    let writable = e.writable && s != Space::SysRegister;
+                    let is_editing = editing.as_ref().is_some_and(|(a, _)| *a == e.address);
+                    row.col(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                RichText::new(e.address.to_string())
+                                    .monospace()
+                                    .color(palette.text_weak),
+                            );
+                        });
+                    });
+                    row.col(|ui| {
+                        ui.label(RichText::new(&e.name).color(palette.text));
+                    });
+                    row.col(|ui| {
+                        ui.label(
+                            RichText::new(e.data_type.as_str())
+                                .small()
+                                .color(palette.text_weak),
+                        );
+                    });
+                    row.col(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if let Some((_, text)) = editing.as_mut().filter(|_| is_editing) {
+                                let edit = ui.add(
+                                    egui::TextEdit::singleline(text)
+                                        .font(egui::TextStyle::Monospace)
+                                        .horizontal_align(egui::Align::Max)
+                                        .desired_width(f32::INFINITY),
+                                );
+                                if !edit.has_focus() && !edit.lost_focus() {
+                                    edit.request_focus();
+                                }
+                                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                    actions.push(RowAction::Cancel);
+                                } else if edit.lost_focus() {
+                                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                        actions.push(RowAction::Write(e.clone(), text.clone()));
+                                    } else {
+                                        actions.push(RowAction::Cancel);
+                                    }
+                                }
+                            } else {
+                                let text = match reading {
+                                    Some(r) if r.valid => p.format.format(e, r.value),
+                                    Some(_) => "error".into(),
+                                    None => "—".into(),
+                                };
+                                let color = match reading {
+                                    Some(r) if !r.valid => colors::role(ui, Role::Error),
+                                    Some(_) => palette.text,
+                                    None => palette.text_weak,
+                                };
+                                let value = ui.add(
+                                    egui::Label::new(RichText::new(text).monospace().color(color))
+                                        .sense(egui::Sense::click()),
+                                );
+                                if writable && controlled && value.double_clicked() {
+                                    actions.push(RowAction::Edit(
+                                        e.address,
+                                        reading
+                                            .filter(|r| r.valid)
+                                            .map(|r| p.format.format(e, r.value))
+                                            .unwrap_or_default(),
+                                    ));
+                                }
+                            }
+                        });
+                    });
+                    row.col(|ui| {
+                        if let Some(m) = self.profile.metadata(s, &e.name) {
+                            ui.label(RichText::new(&m.unit).color(palette.text_weak));
+                        }
+                    });
+                    row.col(|ui| {
+                        if let Some(outcome) = self.session.writes.get(&(s, e.address)) {
+                            colors::outcome_inline(ui, outcome);
+                        } else {
+                            let (role, label) =
+                                colors::reading(connected, reading, p.auto.then_some(p.interval));
+                            ui.label(RichText::new("●").small().color(colors::role(ui, role)));
+                            ui.label(RichText::new(label).small().color(palette.text_weak));
+                        }
+                    });
+                    row.col(|ui| {
+                        let hovered =
+                            ui.rect_contains_pointer(ui.max_rect().expand2(egui::vec2(2000., 0.)));
+                        if !(hovered || selected || is_editing) {
+                            return;
+                        }
+                        if is_editing {
+                            if let Some((_, text)) = &editing {
+                                if ui.add(controls::primary(ui, "Write")).clicked() {
+                                    actions.push(RowAction::Write(e.clone(), text.clone()));
+                                }
+                            }
+                            if ui.small_button("Cancel").clicked() {
+                                actions.push(RowAction::Cancel);
+                            }
+                            return;
+                        }
+                        if ui
+                            .add_enabled(connected, egui::Button::new("Read").small())
+                            .clicked()
+                        {
+                            actions.push(RowAction::Read(e.clone()));
+                        }
+                        if ui.small_button("Plot").clicked() {
+                            actions.push(RowAction::Plot(e.clone()));
+                        }
+                        if writable
+                            && ui
+                                .add_enabled(controlled, egui::Button::new("Edit").small())
+                                .on_hover_text("Write a new value (or double-click the value)")
+                                .on_disabled_hover_text("Take Control to write")
+                                .clicked()
+                        {
+                            actions.push(RowAction::Edit(
+                                e.address,
+                                reading
+                                    .filter(|r| r.valid)
+                                    .map(|r| p.format.format(e, r.value))
+                                    .unwrap_or_default(),
+                            ));
+                        }
+                    });
+                    if row.response().clicked() {
+                        clicked = Some(e.clone());
+                    }
+                });
+            });
+        for action in actions {
+            match action {
+                RowAction::Read(e) => self.session.read(s, &e),
+                RowAction::Plot(e) => self.add_series(s, &e),
+                RowAction::Edit(address, text) => editing = Some((address, text)),
+                RowAction::Cancel => editing = None,
+                RowAction::Write(e, text) => {
+                    self.session.write_formatted(s, &e, &text, p.format, false);
+                    editing = None;
+                }
+            }
+        }
+        if let Some(e) = clicked {
+            self.session.read(s, &e);
+            self.session.selection = Some((s, e));
+        }
+        ui.ctx().data_mut(|d| match editing {
+            Some(editing) => d.insert_temp(edit_id, editing),
+            None => d.remove::<(u16, String)>(edit_id),
+        });
     }
     fn add_series(&mut self, s: Space, e: &Entry) {
         let binding = Binding::new(s, e);
@@ -311,169 +544,357 @@ impl Viewer<'_> {
         self.added.push(super::PaneRequest::Plot(id));
     }
     fn commands(&mut self, ui: &mut egui::Ui, p: &mut Pane) {
-        ui.heading("Commands");
+        let palette = theme::of(ui);
+        let controlled = self.session.controlled();
         ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut p.search)
+                    .hint_text("Filter by name or code")
+                    .desired_width(200.),
+            );
+            ui.separator();
             ui.label("Argument");
-            ui.text_edit_singleline(&mut p.input);
-            ui.label("Filter");
-            ui.text_edit_singleline(&mut p.search);
-        });
-        ui.separator();
-        let commands = self.profile.commands();
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for c in commands.iter().filter(|c| {
-                c.name.to_lowercase().contains(&p.search.to_lowercase())
-                    || c.code.to_string().contains(&p.search)
-            }) {
-                ui.horizontal(|ui| {
-                    ui.monospace(c.code.to_string());
-                    ui.label(&c.name).on_hover_text(&c.description);
-                    if let Some(outcome) = self.session.commands.get(&c.code) {
-                        colors::outcome(ui, outcome);
-                    }
-                    if ui
-                        .add_enabled(self.session.controlled(), egui::Button::new("Send"))
-                        .clicked()
-                    {
-                        match p.input.parse::<i32>() {
-                            Ok(v) => self.session.command(c.code, v, true),
-                            Err(_) => {
-                                self.session.notice =
-                                    "Command argument must be a signed 32-bit integer".into()
-                            }
-                        }
-                    }
-                });
-            }
-        });
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.label("Custom command code");
-            ui.add(egui::DragValue::new(&mut p.address).range(0..=64999));
-            if ui
-                .add_enabled(self.session.controlled(), egui::Button::new("Send custom"))
-                .clicked()
-            {
-                if p.address >= 65000 {
-                    self.session.notice =
-                        "Codes 65000 and above are library commands; use the list above".into();
-                } else if let Ok(value) = p.input.parse() {
-                    self.session.command(p.address, value, true);
-                } else {
-                    self.session.notice = "Invalid command argument".into();
-                }
-            }
-        });
-    }
-    fn inspector(&mut self, ui: &mut egui::Ui, p: &mut Pane) {
-        ui.heading("Inspector");
-        ui.collapsing("Read an arbitrary address", |ui| {
-            egui::ComboBox::from_id_salt("rawspace")
-                .selected_text(p.space.title())
-                .show_ui(ui, |ui| {
-                    for s in Space::ALL {
-                        ui.selectable_value(&mut p.space, s, s.title());
-                    }
-                });
-            ui.add(egui::DragValue::new(&mut p.address));
-            if ui
-                .add_enabled(self.session.connected(), egui::Button::new("Read address"))
-                .clicked()
-            {
-                let e = self.profile.entry_at(p.space, p.address).unwrap_or(Entry {
-                    address: p.address,
-                    name: format!("ADDRESS_{}", p.address),
-                    data_type: DataType::Int32,
-                    writable: false,
-                    array_size: None,
-                });
-                self.session.selection = Some((p.space, e));
-                self.session.raw_read(p.space, p.address);
-            }
-        });
-        let Some((s, e)) = self.session.selection.clone() else {
-            ui.label("Select an entry in any data pane.");
-            return;
-        };
-        ui.separator();
-        ui.heading(&e.name);
-        ui.label(format!(
-            "{} · address {} · {}",
-            s.title(),
-            e.address,
-            e.data_type
-        ));
-        ui.label(if e.writable {
-            "Read / Write"
-        } else {
-            "Read-only"
-        });
-        self.session
-            .interest(&Binding::new(s, &e), self.profile, 250);
-        if let Some(r) = self.session.readings.get(&(s, e.address)) {
-            let (role, label) = colors::reading(self.session.connected(), Some(r), Some(250));
-            colors::badge(ui, role, label);
-            ui.monospace(format!(
-                "Signed:   {}\nUnsigned: {}\nHex:      0x{:08X}\nFloat:    {}\nBinary:   {:032b}",
-                r.value,
-                r.value as u32,
-                r.value as u32,
-                f32::from_bits(r.value as u32),
-                r.value as u32
-            ));
-        }
-        if let Some(m) = self.profile.metadata(s, &e.name) {
-            ui.label(&m.description);
-            ui.label(format!("Unit: {}", m.unit));
-            for v in &m.value_list {
-                ui.label(format!("{} = {}", v.value, v.label));
-            }
-        }
-        if ui.button("Add to Plot").clicked() {
-            self.add_series(s, &e);
-        }
-        if e.writable && s != Space::SysRegister {
-            ui.horizontal(|ui| {
-                ui.text_edit_singleline(&mut p.input);
+            ui.add(
+                egui::TextEdit::singleline(&mut p.input)
+                    .font(egui::TextStyle::Monospace)
+                    .desired_width(90.),
+            )
+            .on_hover_text("Signed 32-bit value sent with each command");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .add_enabled(self.session.controlled(), egui::Button::new("Write"))
+                    .add_enabled(controlled, egui::Button::new("Send code"))
+                    .on_disabled_hover_text("Take Control to send commands")
                     .clicked()
                 {
-                    self.session.write(s, &e, &p.input, false);
+                    if p.address >= 65000 {
+                        self.session.notice =
+                            "Codes 65000 and above are library commands; use the list".into();
+                    } else if let Ok(value) = p.input.trim().parse() {
+                        self.session.command(p.address, value, true);
+                    } else {
+                        self.session.notice = "The argument must be a signed 32-bit integer".into();
+                    }
+                }
+                ui.add(egui::DragValue::new(&mut p.address).range(0..=64999));
+                ui.label(RichText::new("Other code").color(palette.text_weak));
+            });
+        });
+        ui.add_space(4.);
+        let search = p.search.trim().to_lowercase();
+        let commands: Vec<SysCommand> = self
+            .profile
+            .commands()
+            .into_iter()
+            .filter(|c| {
+                search.is_empty()
+                    || c.name.to_lowercase().contains(&search)
+                    || c.code.to_string().contains(&search)
+            })
+            .collect();
+        let mut send = None;
+        egui_extras::TableBuilder::new(ui)
+            .id_salt((&p.id, "commands"))
+            .striped(true)
+            .resizable(true)
+            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+            .column(egui_extras::Column::exact(60.))
+            .column(egui_extras::Column::initial(200.).at_least(120.).clip(true))
+            .column(egui_extras::Column::initial(260.).at_least(80.).clip(true))
+            .column(egui_extras::Column::initial(110.).at_least(80.))
+            .column(egui_extras::Column::remainder().at_least(60.))
+            .header(22., |mut header| {
+                for title in ["Code", "Command", "Description", "Result", ""] {
+                    header.col(|ui| {
+                        ui.label(theme::caption(ui, title));
+                    });
+                }
+            })
+            .body(|body| {
+                body.rows(26., commands.len(), |mut row| {
+                    let c = &commands[row.index()];
+                    let library = (65000..=65002).contains(&c.code);
+                    row.col(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                RichText::new(c.code.to_string())
+                                    .monospace()
+                                    .color(palette.text_weak),
+                            );
+                        });
+                    });
+                    row.col(|ui| {
+                        ui.label(&c.name);
+                        if library {
+                            ui.label(RichText::new("library").small().color(palette.text_weak));
+                        }
+                    });
+                    row.col(|ui| {
+                        ui.label(RichText::new(&c.description).color(palette.text_weak));
+                    });
+                    row.col(|ui| {
+                        if let Some(outcome) = self.session.commands.get(&c.code) {
+                            colors::outcome_inline(ui, outcome);
+                        }
+                    });
+                    row.col(|ui| {
+                        if ui
+                            .add_enabled(controlled, egui::Button::new("Send").small())
+                            .on_disabled_hover_text("Take Control to send commands")
+                            .clicked()
+                        {
+                            send = Some(c.code);
+                        }
+                    });
+                });
+            });
+        if let Some(code) = send {
+            match p.input.trim().parse::<i32>() {
+                Ok(v) => self.session.command(code, v, true),
+                Err(_) => {
+                    self.session.notice = "The argument must be a signed 32-bit integer".into()
+                }
+            }
+        }
+    }
+    fn inspector(&mut self, ui: &mut egui::Ui, p: &mut Pane) {
+        let palette = theme::of(ui);
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            if let Some((s, e)) = self.session.selection.clone() {
+                self.inspect(ui, p, s, &e);
+            } else {
+                ui.label(
+                    RichText::new("Select an entry in a data pane to inspect it.")
+                        .color(palette.text_weak),
+                );
+            }
+            ui.add_space(10.);
+            egui::CollapsingHeader::new(theme::caption(ui, "Read any address")).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    egui::ComboBox::from_id_salt("rawspace")
+                        .selected_text(p.space.title())
+                        .show_ui(ui, |ui| {
+                            for s in Space::ALL {
+                                ui.selectable_value(&mut p.space, s, s.title());
+                            }
+                        });
+                    ui.add(egui::DragValue::new(&mut p.address).prefix("address "));
+                    if ui
+                        .add_enabled(self.session.connected(), egui::Button::new("Read"))
+                        .clicked()
+                    {
+                        let e = self.profile.entry_at(p.space, p.address).unwrap_or(Entry {
+                            address: p.address,
+                            name: format!("ADDRESS_{}", p.address),
+                            data_type: DataType::Int32,
+                            writable: false,
+                            array_size: None,
+                        });
+                        self.session.selection = Some((p.space, e));
+                        self.session.raw_read(p.space, p.address);
+                    }
+                });
+            });
+        });
+    }
+    fn inspect(&mut self, ui: &mut egui::Ui, p: &mut Pane, s: Space, e: &Entry) {
+        let palette = theme::of(ui);
+        let writable = e.writable && s != Space::SysRegister;
+        ui.label(
+            RichText::new(&e.name)
+                .family(egui::FontFamily::Name(super::fonts::SEMIBOLD.into()))
+                .size(15.),
+        );
+        ui.label(theme::caption(
+            ui,
+            &format!(
+                "{} · address {} · {} · {}",
+                s.title(),
+                e.address,
+                e.data_type,
+                if writable { "read/write" } else { "read-only" }
+            ),
+        ));
+        self.session
+            .interest(&Binding::new(s, e), self.profile, 250);
+        let reading = self.session.readings.get(&(s, e.address)).cloned();
+        let unit = self
+            .profile
+            .metadata(s, &e.name)
+            .map(|m| m.unit.clone())
+            .unwrap_or_default();
+        ui.add_space(6.);
+        // A value list from the metadata names the current value, if it matches.
+        let state = reading.as_ref().filter(|r| r.valid).and_then(|r| {
+            self.profile.metadata(s, &e.name).and_then(|m| {
+                m.value_list
+                    .iter()
+                    .find(|v| v.value.trim().parse::<f64>().ok() == Some(e.decode(r.value)))
+                    .map(|v| v.label.clone())
+            })
+        });
+        ui.horizontal(|ui| {
+            let text = reading
+                .as_ref()
+                .filter(|r| r.valid)
+                .map_or("—".into(), |r| e.format(r.value));
+            ui.label(RichText::new(text).monospace().size(26.));
+            if !unit.is_empty() {
+                ui.label(RichText::new(&unit).color(palette.text_weak));
+            }
+            if let Some(state) = state {
+                ui.label(RichText::new(state).color(palette.accent));
+            }
+        });
+        let (role, label) = colors::reading(self.session.connected(), reading.as_ref(), Some(250));
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("●").small().color(colors::role(ui, role)));
+            ui.label(RichText::new(label).small().color(palette.text_weak));
+            if let Some(r) = &reading {
+                ui.label(
+                    RichText::new(clock::time_of_day(r.timestamp))
+                        .small()
+                        .monospace()
+                        .color(palette.text_weak),
+                );
+            }
+        });
+        if let Some(r) = reading.filter(|r| r.valid) {
+            ui.add_space(8.);
+            ui.label(theme::caption(ui, "Decoded"));
+            let bits = format!("{:032b}", r.value as u32);
+            let grouped = bits
+                .as_bytes()
+                .chunks(4)
+                .map(|c| std::str::from_utf8(c).unwrap_or_default())
+                .collect::<Vec<_>>()
+                .join(" ");
+            egui::Grid::new("inspector-decoded")
+                .num_columns(2)
+                .spacing([16., 4.])
+                .show(ui, |ui| {
+                    for (name, value) in [
+                        ("Signed", r.value.to_string()),
+                        ("Unsigned", (r.value as u32).to_string()),
+                        ("Hex", format!("0x{:08X}", r.value as u32)),
+                        ("Float", format_float(f32::from_bits(r.value as u32))),
+                        ("Binary", grouped),
+                    ] {
+                        key(ui, name);
+                        ui.add(egui::Label::new(RichText::new(value).monospace()).selectable(true));
+                        ui.end_row();
+                    }
+                });
+        }
+        if let Some(m) = self.profile.metadata(s, &e.name).cloned() {
+            if !m.description.is_empty() || !m.value_list.is_empty() {
+                ui.add_space(8.);
+                ui.label(theme::caption(ui, "Description"));
+                if !m.description.is_empty() {
+                    ui.label(&m.description);
+                }
+                egui::Grid::new("inspector-values")
+                    .num_columns(2)
+                    .spacing([16., 4.])
+                    .show(ui, |ui| {
+                        for v in &m.value_list {
+                            ui.monospace(&v.value);
+                            ui.label(&v.label);
+                            ui.end_row();
+                        }
+                    });
+            }
+        }
+        ui.add_space(8.);
+        ui.horizontal(|ui| {
+            if ui.button("Add to Plot").clicked() {
+                self.add_series(s, e);
+            }
+            if ui
+                .add_enabled(self.session.connected(), egui::Button::new("Read"))
+                .clicked()
+            {
+                self.session.read(s, e);
+            }
+        });
+        if writable {
+            ui.add_space(6.);
+            ui.label(theme::caption(ui, "Write"));
+            ui.horizontal(|ui| {
+                let input = ui.add(
+                    egui::TextEdit::singleline(&mut p.input)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(140.),
+                );
+                let submit = input.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let controlled = self.session.controlled();
+                if ui
+                    .add_enabled(controlled, controls::primary(ui, "Write"))
+                    .on_disabled_hover_text("Take Control to write")
+                    .clicked()
+                    || (submit && controlled)
+                {
+                    self.session.write(s, e, &p.input, false);
+                }
+                if let Some(outcome) = self.session.writes.get(&(s, e.address)) {
+                    colors::outcome_inline(ui, outcome);
                 }
             });
         }
     }
     fn logs(&mut self, ui: &mut egui::Ui, p: &mut Pane) {
+        let palette = theme::of(ui);
         ui.horizontal(|ui| {
-            ui.heading("Activity");
-            ui.text_edit_singleline(&mut p.search);
-            if ui.button("Clear").clicked() {
-                self.session.logs.clear();
-            }
-            if ui.button("Export").clicked() {
-                let text = self
-                    .session
-                    .logs
-                    .iter()
-                    .map(|l| {
-                        format!(
-                            "{:.0}\t{:?}\t{:?}\t{}",
-                            l.timestamp, l.level, l.category, l.message
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                self.session.export(text, "activity.txt", "txt");
-            }
+            ui.add(
+                egui::TextEdit::singleline(&mut p.search)
+                    .hint_text("Filter messages")
+                    .desired_width(220.),
+            );
+            controls::segmented(
+                ui,
+                &mut p.min_level,
+                &[(0, "All"), (1, "Warnings"), (2, "Errors")],
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Export").clicked() {
+                    let text = self
+                        .session
+                        .logs
+                        .iter()
+                        .map(|l| {
+                            format!(
+                                "{}\t{:?}\t{:?}\t{}",
+                                clock::full(l.timestamp),
+                                l.level,
+                                l.category,
+                                l.message
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    self.session.export(text, "activity.txt", "txt");
+                }
+                if controls::confirm_button(ui, ("clear-log", &p.id), "Clear") {
+                    self.session.logs.clear();
+                }
+                ui.label(
+                    RichText::new(format!("{} entries", self.session.logs.len()))
+                        .small()
+                        .color(palette.text_weak),
+                );
+            });
         });
-        // One line per entry so only visible rows are laid out, however long
-        // the log grows; packet details stay on the same line.
+        ui.add_space(4.);
+        let severity = |level: &LogLevel| match level {
+            LogLevel::Error => 2,
+            LogLevel::Warning => 1,
+            _ => 0,
+        };
         let query = p.search.trim().to_lowercase();
         let rows: Vec<&LogEntry> = self
             .session
             .logs
             .iter()
+            .filter(|l| severity(&l.level) >= p.min_level)
             .filter(|l| {
                 query.is_empty()
                     || contains_ignore_case(&l.message, &query)
@@ -482,35 +903,71 @@ impl Viewer<'_> {
                         .is_some_and(|d| contains_ignore_case(&d.analysis, &query))
             })
             .collect();
-        let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 4.;
-        egui::ScrollArea::both()
+        if rows.is_empty() {
+            ui.label(RichText::new("No activity to show.").color(palette.text_weak));
+            return;
+        }
+        // One line per entry so only visible rows are laid out, however long
+        // the log grows; packet details stay on the same line.
+        let dark = ui.visuals().dark_mode;
+        egui_extras::TableBuilder::new(ui)
+            .id_salt((&p.id, "log"))
+            .striped(true)
             .stick_to_bottom(true)
-            .auto_shrink([false, false])
-            .show_rows(ui, row_height, rows.len(), |ui, range| {
-                for l in &rows[range] {
-                    ui.horizontal(|ui| {
-                        ui.monospace(format!("{:.3}", l.timestamp / 1000.));
-                        ui.colored_label(log_color(ui, &l.level), &l.message);
+            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+            .column(egui_extras::Column::exact(96.))
+            .column(egui_extras::Column::exact(78.))
+            .column(egui_extras::Column::initial(92.).clip(true))
+            .column(egui_extras::Column::remainder().clip(true))
+            .header(22., |mut header| {
+                for title in ["Time", "Level", "Source", "Message"] {
+                    header.col(|ui| {
+                        ui.label(theme::caption(ui, title));
+                    });
+                }
+            })
+            .body(|body| {
+                body.rows(22., rows.len(), |mut row| {
+                    let l = rows[row.index()];
+                    let color = log_color(dark, &l.level);
+                    row.col(|ui| {
+                        ui.label(
+                            RichText::new(clock::time_of_day(l.timestamp))
+                                .monospace()
+                                .color(palette.text_weak),
+                        )
+                        .on_hover_text(clock::full(l.timestamp));
+                    });
+                    row.col(|ui| {
+                        ui.label(RichText::new("●").small().color(color));
+                        ui.label(RichText::new(log_level_name(&l.level)).small().color(color));
+                    });
+                    row.col(|ui| {
+                        ui.label(
+                            RichText::new(log_category_name(&l.category))
+                                .small()
+                                .color(palette.text_weak),
+                        );
+                    });
+                    row.col(|ui| {
+                        let message = ui.label(RichText::new(&l.message).color(palette.text));
                         if let Some(packet) = &l.packet_data {
-                            ui.add(
-                                egui::Label::new(
-                                    RichText::new(format!(
-                                        "{}  {}  → {}",
-                                        packet.hex_data, packet.analysis, packet.destination
-                                    ))
+                            message.on_hover_text(format!(
+                                "{}\n{}\n→ {}",
+                                packet.hex_data, packet.analysis, packet.destination
+                            ));
+                            ui.label(
+                                RichText::new(&packet.hex_data)
                                     .monospace()
-                                    .weak(),
-                                )
-                                .truncate(),
+                                    .color(palette.text_weak),
                             );
                         }
                     });
-                }
+                });
             });
     }
     fn plot(&mut self, ui: &mut egui::Ui, p: &mut Pane) {
         ui.horizontal(|ui| {
-            ui.heading("Live Plot");
             ui.checkbox(&mut p.auto, "Follow live");
             // Pausing freezes this pane's view; recording continues.
             let mut paused = p.frozen.is_some();
@@ -594,6 +1051,22 @@ impl Viewer<'_> {
                 ))
             })
             .collect();
+        if traces.iter().all(|(_, points)| points.is_empty()) {
+            ui.add_space(24.);
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    RichText::new(if p.plot_series.is_empty() {
+                        "Tick a trace above, or choose Plot on an entry."
+                    } else if self.session.connected() {
+                        "Waiting for samples…"
+                    } else {
+                        "Connect to a device to record samples."
+                    })
+                    .color(theme::of(ui).text_weak),
+                );
+            });
+            return;
+        }
         let newest = traces
             .iter()
             .filter_map(|(_, points)| points.last().map(|p| p[0]))
@@ -601,27 +1074,42 @@ impl Viewer<'_> {
         let mut plot = egui_plot::Plot::new((&p.id, "chart"))
             .legend(egui_plot::Legend::default())
             .height((ui.available_height() - 8.).max(100.))
-            .x_axis_label("Unix time (seconds)")
-            .y_axis_label("Value");
+            .x_axis_formatter(|mark, _| clock::short_time(mark.value * 1000.))
+            .label_formatter(|name, point| {
+                let time = clock::time_of_day(point.x * 1000.);
+                if name.is_empty() {
+                    format!("{time}\n{:.6}", point.y)
+                } else {
+                    format!("{name}\n{time}\n{:.6}", point.y)
+                }
+            });
         plot = plot.allow_zoom(true).allow_drag(true);
-        plot.show(ui, |plot_ui| {
-            if p.auto && newest.is_finite() {
-                // Follow the newest sample and fit Y to what is visible.
-                let (low, high) = traces
-                    .iter()
-                    .flat_map(|(_, points)| points.iter().map(|p| p[1]))
-                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
-                        (lo.min(v), hi.max(v))
-                    });
-                let pad = ((high - low) * 0.05).max(1e-9);
-                plot_ui.set_plot_bounds(egui_plot::PlotBounds::from_min_max(
-                    [newest - span, low - pad],
-                    [newest, high + pad],
-                ));
-            }
-            for (name, points) in traces {
-                plot_ui.line(egui_plot::Line::new(points).name(name));
-            }
+        theme::plot_tone(ui, |ui| {
+            plot.show(ui, |plot_ui| {
+                if p.auto && newest.is_finite() {
+                    // Follow the newest sample and fit Y to what is visible.
+                    let (low, high) = traces
+                        .iter()
+                        .flat_map(|(_, points)| points.iter().map(|p| p[1]))
+                        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
+                            (lo.min(v), hi.max(v))
+                        });
+                    let pad = if high > low {
+                        (high - low) * 0.08
+                    } else if high != 0. {
+                        high.abs() * 0.1
+                    } else {
+                        1.
+                    };
+                    plot_ui.set_plot_bounds(egui_plot::PlotBounds::from_min_max(
+                        [newest - span, low - pad],
+                        [newest, high + pad],
+                    ));
+                }
+                for (name, points) in traces {
+                    plot_ui.line(egui_plot::Line::new(points).name(name));
+                }
+            })
         });
     }
     fn editor(&mut self, ui: &mut egui::Ui, p: &mut Pane) {
@@ -630,36 +1118,61 @@ impl Viewer<'_> {
             p.map_rows.clear();
         }
         let draft = p.draft.as_mut().unwrap();
+        let dirty = draft.maps_differ(self.profile);
         ui.horizontal(|ui| {
-            ui.heading("Map Editor");
-            if ui.button("Save Profile").clicked() {
-                let errors: Vec<_> = Space::ALL
-                    .into_iter()
-                    .flat_map(|s| parse_map(draft.map(s), s).err().unwrap_or_default())
-                    .collect();
-                if errors.is_empty() {
-                    self.profile.apply_map_draft(draft);
-                    self.session.confirm = None;
-                    self.session.readings.clear();
-                    self.session.histories.clear();
-                    self.session.notice =
-                        "Profile saved. Review affected bindings before using them.".into();
+            controls::segmented(
+                ui,
+                &mut p.map_space,
+                &[
+                    (Space::Register, "Registers"),
+                    (Space::Parameter, "Parameters"),
+                    (Space::SysRegister, "System Registers"),
+                ],
+            );
+            ui.separator();
+            controls::segmented(
+                ui,
+                &mut p.editing,
+                &[(false, "Maps"), (true, "Commands / Metadata")],
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let save = if dirty {
+                    ui.add(controls::primary(ui, "Save Profile"))
                 } else {
-                    self.session.notice = errors.join(" · ");
+                    ui.button("Save Profile")
+                };
+                if save.clicked() {
+                    let errors: Vec<_> = Space::ALL
+                        .into_iter()
+                        .flat_map(|s| parse_map(draft.map(s), s).err().unwrap_or_default())
+                        .collect();
+                    if errors.is_empty() {
+                        self.profile.apply_map_draft(draft);
+                        self.session.confirm = None;
+                        self.session.readings.clear();
+                        self.session.histories.clear();
+                        self.session.toast(
+                            Role::Info,
+                            "Profile saved. Review affected bindings before using them.",
+                        );
+                    } else {
+                        self.session.notice = errors.join(" · ");
+                    }
                 }
-            }
-            if ui.button("Revert").clicked() {
-                *draft = self.profile.clone();
-                p.map_rows.clear();
-            }
+                if ui.add_enabled(dirty, egui::Button::new("Revert")).clicked() {
+                    *draft = self.profile.clone();
+                    p.map_rows.clear();
+                }
+                if dirty {
+                    ui.label(
+                        RichText::new("● Unsaved changes")
+                            .small()
+                            .color(colors::role(ui, Role::Warn)),
+                    );
+                }
+            });
         });
-        ui.horizontal(|ui| {
-            for s in Space::ALL {
-                ui.selectable_value(&mut p.map_space, s, s.title());
-            }
-            ui.selectable_value(&mut p.editing, false, "Maps");
-            ui.selectable_value(&mut p.editing, true, "Commands / Metadata");
-        });
+        ui.add_space(4.);
         if p.map_space == Space::SysRegister {
             ui.label("System registers are preset by the datastream library and cannot be edited.");
             egui::ScrollArea::both()
@@ -886,9 +1399,42 @@ pub(super) fn window(
     out
 }
 
-pub fn log_color(ui: &egui::Ui, l: &LogLevel) -> Color32 {
-    colors::role(
-        ui,
+/// A key in a key/value grid.
+fn key(ui: &mut egui::Ui, text: &str) {
+    ui.label(RichText::new(text).color(theme::of(ui).text_weak));
+}
+
+/// What a table row asked for this frame, applied after the table is drawn.
+enum RowAction {
+    Read(Entry),
+    Plot(Entry),
+    Edit(u16, String),
+    Cancel,
+    Write(Entry, String),
+}
+
+fn log_level_name(level: &LogLevel) -> &'static str {
+    match level {
+        LogLevel::Error => "Error",
+        LogLevel::Warning => "Warning",
+        LogLevel::Success => "OK",
+        LogLevel::Packet => "Packet",
+        LogLevel::Info => "Info",
+    }
+}
+fn log_category_name(category: &LogCategory) -> &'static str {
+    match category {
+        LogCategory::Connection => "Connection",
+        LogCategory::Register => "Register",
+        LogCategory::Parameter => "Parameter",
+        LogCategory::Packet => "Packet",
+        LogCategory::AutoRefresh => "Polling",
+        LogCategory::Plotting => "Plot",
+    }
+}
+pub fn log_color(dark: bool, l: &LogLevel) -> Color32 {
+    colors::rgb(
+        dark,
         match l {
             LogLevel::Error => Role::Error,
             LogLevel::Warning => Role::Warn,

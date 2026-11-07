@@ -1,4 +1,5 @@
 mod canvas_layout;
+mod clock;
 mod colors;
 mod controls;
 mod fonts;
@@ -8,6 +9,8 @@ mod review;
 mod session;
 #[cfg(feature = "native-smoke")]
 mod smoke;
+mod theme;
+mod toasts;
 mod widgets;
 use crate::model::*;
 use eframe::egui::{self, RichText};
@@ -87,6 +90,9 @@ pub struct Pane {
     pub format: DisplayFormat,
     #[serde(default)]
     pub plot_series: Vec<String>,
+    /// Activity log: the least severe level shown (0 all, 1 warnings, 2 errors).
+    #[serde(default)]
+    pub min_level: u8,
     /// Plot panes: the time (Unix seconds) the view is frozen at, if paused.
     #[serde(skip)]
     pub frozen: Option<f64>,
@@ -115,6 +121,7 @@ impl Pane {
             focus: false,
             format: DisplayFormat::default(),
             plot_series: vec![],
+            min_level: 0,
             frozen: None,
         }
     }
@@ -306,6 +313,10 @@ pub struct Desktop {
     screenshot_requested: bool,
     active_profile: String,
     load_error: Option<String>,
+    /// The open Preferences tab.
+    settings_tab: u8,
+    /// A discovered device double-clicked in the connection panel.
+    pending_connect: Option<(String, bool)>,
     /// The theme last applied to the context; visuals change only when it differs.
     applied_dark: Option<bool>,
     /// False when unreadable settings could not be backed up: saving would
@@ -346,6 +357,8 @@ impl Desktop {
             screenshot_requested: false,
             active_profile: String::new(),
             load_error,
+            settings_tab: 0,
+            pending_connect: None,
             applied_dark: None,
             persist,
         };
@@ -423,186 +436,599 @@ impl Desktop {
         self.saved.dock.push_to_focused_leaf(Pane::new(kind));
     }
     fn chrome(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("chrome").show(ctx, |ui| {
-            ui.add_space(4.);
-            ui.horizontal_wrapped(|ui| {
-                ui.label(
-                    RichText::new("DSHUB")
-                        .strong()
-                        .size(22.)
-                        .color(colors::role(ui, Role::Accent)),
-                );
-                ui.separator();
-                ui.menu_button("Panes", |ui| {
-                    for kind in PaneKind::ALL {
-                        if ui.button(kind.title()).clicked() {
-                            self.open_pane(kind, ctx);
-                            ui.close_menu();
-                        }
-                    }
+        let palette = theme::palette(self.saved.preferences.dark);
+        egui::TopBottomPanel::top("chrome")
+            .frame(
+                egui::Frame::new()
+                    .fill(palette.surface)
+                    .inner_margin(egui::Margin::symmetric(10, 6))
+                    .stroke(egui::Stroke::new(1_f32, palette.ghost)),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("DSHub")
+                            .family(egui::FontFamily::Name(fonts::SEMIBOLD.into()))
+                            .size(15.)
+                            .color(palette.accent),
+                    );
+                    ui.add_space(4.);
+                    self.layout_menu(ui, ctx);
                     ui.separator();
-                    if controls::confirm_button(ui, "reset-layout", "Reset layout") {
-                        self.saved.dock = default_dock();
-                        ui.close_menu();
-                    }
+                    self.device_controls(ui);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("?").on_hover_text("Guide and licences").clicked() {
+                            self.guide_open = true;
+                        }
+                        if ui.button("⚙").on_hover_text("Preferences").clicked() {
+                            self.settings_open = true;
+                        }
+                        ui.separator();
+                        self.profile_controls(ui);
+                    });
                 });
-                if ui.button("Profiles").clicked() {
-                    self.profiles_open = true;
+            });
+        egui::TopBottomPanel::bottom("status")
+            .frame(
+                egui::Frame::new()
+                    .fill(palette.surface)
+                    .inner_margin(egui::Margin::symmetric(10, 3))
+                    .stroke(egui::Stroke::new(1_f32, palette.ghost)),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    let weak = |text: String| RichText::new(text).small().color(palette.text_weak);
+                    ui.label(weak(format!(
+                        "{} polled · {} readings",
+                        self.session.last_interests.len(),
+                        self.session.readings.len(),
+                    )));
+                    if !self.saved.windows.is_empty() {
+                        ui.label(weak(format!("· {} windows", self.saved.windows.len())));
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(weak(format!("v{}", env!("CARGO_PKG_VERSION"))));
+                    });
+                });
+            });
+    }
+    fn layout_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui.menu_button("Panes", |ui| {
+            ui.set_min_width(180.);
+            for kind in PaneKind::ALL {
+                if ui.button(kind.title()).clicked() {
+                    self.open_pane(kind, ctx);
+                    ui.close_menu();
                 }
-                if ui.button("Workspaces").clicked() {
-                    self.workspaces_open = true;
+            }
+            ui.separator();
+            if ui.button("Workspaces…").clicked() {
+                self.workspaces_open = true;
+                ui.close_menu();
+            }
+            if controls::confirm_button(ui, "reset-layout", "Reset layout") {
+                self.saved.dock = default_dock();
+                ui.close_menu();
+            }
+        });
+    }
+    /// The device chip (state at a glance; opens the connection panel), plus
+    /// the one action the current state calls for.
+    fn device_controls(&mut self, ui: &mut egui::Ui) {
+        let popup = ui.make_persistent_id("connection-panel");
+        let chip = ui
+            .add(
+                egui::Button::new(controls::device_chip(ui, &self.session))
+                    .min_size(egui::vec2(0., 24.)),
+            )
+            .on_hover_text("Connection");
+        if chip.clicked() {
+            ui.memory_mut(|m| m.toggle_popup(popup));
+        }
+        egui::popup_below_widget(
+            ui,
+            popup,
+            &chip,
+            egui::PopupCloseBehavior::CloseOnClickOutside,
+            |ui| {
+                ui.set_width(460.);
+                if self.connection_panel(ui) {
+                    ui.memory_mut(|m| m.close_popup());
                 }
-                if ui.button("Settings").clicked() {
-                    self.settings_open = true;
-                }
-                if ui.button("Guide").clicked() {
-                    self.guide_open = true;
+            },
+        );
+        if self.session.busy {
+            if ui
+                .button("Cancel")
+                .on_hover_text("Stop connecting")
+                .clicked()
+            {
+                self.session.send(Action::Disconnect);
+            }
+        } else if self.session.connected() && !self.session.controlled() {
+            if controls::primary_button(ui, "Take control")
+                .on_hover_text("Claim permission to write values and send commands")
+                .clicked()
+            {
+                self.session.send(Action::Control);
+            }
+        } else if self.session.connection.is_none()
+            && controls::primary_button(ui, "Connect").clicked()
+        {
+            let address = self.saved.preferences.last_ip.clone();
+            self.session
+                .connect_to(&address, self.saved.preferences.udp);
+        }
+    }
+    /// Returns true when the panel should close.
+    fn connection_panel(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut close = false;
+        let palette = theme::of(ui);
+        ui.label(theme::caption(ui, "Connect"));
+        ui.horizontal(|ui| {
+            let address = ui.add(
+                egui::TextEdit::singleline(&mut self.saved.preferences.last_ip)
+                    .hint_text("IP or IP:port")
+                    .desired_width(190.),
+            );
+            controls::segmented(
+                ui,
+                &mut self.saved.preferences.udp,
+                &[(false, "TCP"), (true, "UDP")],
+            );
+            let enter = address.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if (ui
+                .add_enabled(!self.session.busy, controls::primary(ui, "Connect"))
+                .clicked()
+                || enter)
+                && !self.session.busy
+            {
+                let address = self.saved.preferences.last_ip.clone();
+                self.session
+                    .connect_to(&address, self.saved.preferences.udp);
+                close = true;
+            }
+        });
+        if let Some(summary) = self
+            .session
+            .connection
+            .as_ref()
+            .map(|c| format!("{}:{} · {:?}", c.ip, c.port, c.interface_type))
+        {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(summary).monospace().color(palette.text_weak));
+                if ui.button("Disconnect").clicked() {
+                    self.session.send(Action::Disconnect);
+                    close = true;
                 }
             });
-            ui.separator();
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("DEVICE").small().weak());
-                ui.menu_button("Connect…", |ui| {
-                    ui.set_min_width(300.);
-                    ui.label(RichText::new("Connect to a device").strong());
-                    ui.horizontal(|ui| {
-                        ui.label("Address");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.saved.preferences.last_ip)
-                                .hint_text("IP or IP:port")
-                                .desired_width(170.),
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Transport");
-                        ui.selectable_value(&mut self.saved.preferences.udp, false, "TCP");
-                        ui.selectable_value(&mut self.saved.preferences.udp, true, "UDP");
-                    });
-                    if ui
-                        .add_enabled(
-                            !self.session.busy,
-                            egui::Button::new(
-                                RichText::new("Connect to address")
-                                    .color(colors::role(ui, Role::Accent)),
-                            ),
-                        )
-                        .clicked()
-                    {
-                        let address = self.saved.preferences.last_ip.clone();
-                        self.session
-                            .connect_to(&address, self.saved.preferences.udp);
-                        ui.close_menu();
+        }
+        ui.add_space(6.);
+        ui.horizontal(|ui| {
+            ui.label(theme::caption(ui, "Devices on this network"));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add_enabled(
+                        !self.session.scanning,
+                        egui::Button::new(if self.session.scanning {
+                            "Scanning…"
+                        } else {
+                            "Scan"
+                        }),
+                    )
+                    .clicked()
+                {
+                    self.session.send(Action::Scan);
+                }
+            });
+        });
+        if self.session.devices.is_empty() {
+            ui.label(
+                RichText::new(if self.session.scanning {
+                    "Listening for replies…"
+                } else {
+                    "No devices found yet. Scan, or enter an address above."
+                })
+                .color(palette.text_weak),
+            );
+            return close;
+        }
+        let profile = &self.saved.profiles[self.profile_index()];
+        egui::Grid::new("discovered-devices")
+            .num_columns(4)
+            .striped(true)
+            .spacing([14., 4.])
+            .show(ui, |ui| {
+                for heading in ["Device", "Address", "Board", "Firmware"] {
+                    ui.label(theme::caption(ui, heading));
+                }
+                ui.end_row();
+                for device in &self.session.devices {
+                    let selected = self
+                        .saved
+                        .preferences
+                        .last_ip
+                        .split(':')
+                        .next()
+                        .is_some_and(|ip| ip == device.ip_address);
+                    let row = ui
+                        .selectable_label(selected, &device.board_name)
+                        .on_hover_text(format!(
+                            "MAC {} · ID {} · TCP {} / UDP {}\nDouble-click to connect",
+                            device.mac_address, device.device_id, device.tcp_port, device.udp_port
+                        ));
+                    ui.monospace(&device.ip_address);
+                    ui.label(profile.board_type_name(device.board_type));
+                    ui.monospace(format!("0x{:04X}", device.firmware_version));
+                    ui.end_row();
+                    if row.clicked() || row.double_clicked() {
+                        self.saved.preferences.last_ip = device.ip_address.clone();
                     }
-                    ui.separator();
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("Network discovery").strong());
-                        if ui
-                            .add_enabled(
-                                !self.session.scanning,
-                                egui::Button::new(if self.session.scanning {
-                                    "Scanning…"
-                                } else {
-                                    "Scan network"
-                                }),
-                            )
-                            .clicked()
-                        {
-                            self.session.send(Action::Scan);
-                        }
-                    });
-                    ui.weak("Select a device to fill its address, then connect.");
-                    egui::ScrollArea::vertical()
-                        .max_height(220.)
-                        .show(ui, |ui| {
-                            if self.session.devices.is_empty() {
-                                ui.weak("No devices discovered yet.");
-                            }
-                            for device in &self.session.devices {
+                    if row.double_clicked() {
+                        let address = device.ip_address.clone();
+                        let udp = self.saved.preferences.udp;
+                        // Borrow ends before connecting.
+                        close = true;
+                        self.pending_connect = Some((address, udp));
+                    }
+                }
+            });
+        if let Some((address, udp)) = self.pending_connect.take() {
+            self.session.connect_to(&address, udp);
+        }
+        close
+    }
+    fn profile_controls(&mut self, ui: &mut egui::Ui) {
+        let old = self.saved.active.clone();
+        let index = self.profile_index();
+        egui::ComboBox::from_id_salt("profile")
+            .selected_text(&self.saved.profiles[index].name)
+            .width(170.)
+            .show_ui(ui, |ui| {
+                for p in &self.saved.profiles {
+                    ui.selectable_value(&mut self.saved.active, p.id.clone(), &p.name);
+                }
+                ui.separator();
+                if ui.button("Manage Profiles…").clicked() {
+                    self.profiles_open = true;
+                }
+            });
+        ui.label(theme::caption(ui, "Profile"));
+        if old != self.saved.active {
+            self.session.confirm = None;
+            self.session.readings.clear();
+            self.session.histories.clear();
+            self.session.selection = None;
+        }
+        let review_count = review::count(
+            &self.saved.profiles[self.profile_index()],
+            &self.saved.series,
+        );
+        if review_count > 0
+            && ui
+                .add(
+                    egui::Button::new(
+                        RichText::new(format!("⚠ {review_count} to review"))
+                            .color(colors::role(ui, Role::Warn)),
+                    )
+                    .stroke(egui::Stroke::new(
+                        1_f32,
+                        colors::role(ui, Role::Warn).gamma_multiply(0.5),
+                    )),
+                )
+                .on_hover_text("Map changes moved or replaced bound entries")
+                .clicked()
+        {
+            self.review_open = true;
+        }
+    }
+    fn profile_manager(&mut self, ui: &mut egui::Ui) {
+        let palette = theme::of(ui);
+        let mut remove = None;
+        let mut duplicate = None;
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(220.);
+                ui.label(theme::caption(ui, "Profiles"));
+                egui::ScrollArea::vertical()
+                    .max_height(260.)
+                    .show(ui, |ui| {
+                        ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                            for p in &self.saved.profiles {
+                                let mut text = egui::text::LayoutJob::default();
+                                RichText::new(&p.name).append_to(
+                                    &mut text,
+                                    ui.style(),
+                                    egui::FontSelection::Default,
+                                    egui::Align::Center,
+                                );
+                                if p.is_default {
+                                    RichText::new("   bundled")
+                                        .small()
+                                        .color(palette.text_weak)
+                                        .append_to(
+                                            &mut text,
+                                            ui.style(),
+                                            egui::FontSelection::Default,
+                                            egui::Align::Center,
+                                        );
+                                }
                                 if ui
-                                    .selectable_label(
-                                        self.saved.preferences.last_ip == device.ip_address,
-                                        format!("{} · {}", device.board_name, device.ip_address),
-                                    )
+                                    .selectable_label(self.saved.active == p.id, text)
                                     .clicked()
                                 {
-                                    self.saved.preferences.last_ip = device.ip_address.clone();
+                                    self.saved.active = p.id.clone();
                                 }
                             }
                         });
-                });
-                if self.session.busy {
-                    if ui
-                        .button("Cancel")
-                        .on_hover_text("Stop connecting")
-                        .clicked()
-                    {
-                        self.session.send(Action::Disconnect);
-                    }
-                } else if let Some(connection) = &self.session.connection {
-                    ui.monospace(format!("{}:{}", connection.ip, connection.port));
-                    if ui.button("Disconnect").clicked() {
-                        self.session.send(Action::Disconnect);
-                    }
-                }
-                colors::connection(ui, &self.session);
-                if self.session.connected()
-                    && !self.session.controlled()
-                    && ui
-                        .button(RichText::new("Take control").color(colors::role(ui, Role::Accent)))
-                        .on_hover_text("Claim permission to write values and send commands")
-                        .clicked()
-                {
-                    self.session.send(Action::Control);
+                    });
+                ui.add_space(6.);
+                if ui.button("Import…").clicked() {
+                    self.session.pick_file(
+                        ImportTarget::Profile,
+                        "DSHub Profile",
+                        &["dshub-profile", "json"],
+                    );
                 }
             });
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("PROFILE").small().weak());
-                let review_count = review::count(
-                    &self.saved.profiles[self.profile_index()],
-                    &self.saved.series,
+            ui.add_space(16.);
+            ui.vertical(|ui| {
+                let i = self.profile_index();
+                ui.label(theme::caption(ui, "Active Profile"));
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.saved.profiles[i].name)
+                        .desired_width(260.),
                 );
-                if review_count > 0
-                    && ui
-                        .button(format!("⚠ Review {review_count} bindings"))
-                        .clicked()
+                let name = self.saved.profiles[i].name.trim().to_string();
+                if name.is_empty() {
+                    ui.colored_label(colors::role(ui, Role::Warn), "A Profile needs a name.");
+                } else if self
+                    .saved
+                    .profiles
+                    .iter()
+                    .enumerate()
+                    .any(|(j, p)| j != i && p.name.trim() == name)
                 {
-                    self.review_open = true;
+                    ui.colored_label(
+                        colors::role(ui, Role::Warn),
+                        "Another Profile already has this name.",
+                    );
                 }
-                let old = self.saved.active.clone();
-                let index = self.profile_index();
-                egui::ComboBox::from_id_salt("profile")
-                    .selected_text(&self.saved.profiles[index].name)
-                    .show_ui(ui, |ui| {
-                        for p in &self.saved.profiles {
-                            ui.selectable_value(&mut self.saved.active, p.id.clone(), &p.name);
+                ui.add_space(6.);
+                let p = &self.saved.profiles[i];
+                egui::Grid::new("profile-summary")
+                    .num_columns(2)
+                    .spacing([16., 4.])
+                    .show(ui, |ui| {
+                        for (label, count) in [
+                            ("Registers", p.parsed(Space::Register).entries.len()),
+                            ("Parameters", p.parsed(Space::Parameter).entries.len()),
+                            (
+                                "System registers",
+                                p.parsed(Space::SysRegister).entries.len(),
+                            ),
+                            ("Commands", p.commands().len()),
+                            ("Dashboards", p.dashboards.len()),
+                        ] {
+                            ui.label(RichText::new(label).color(palette.text_weak));
+                            ui.monospace(count.to_string());
+                            ui.end_row();
                         }
                     });
-                if old != self.saved.active {
-                    self.session.confirm = None;
-                    self.session.readings.clear();
-                    self.session.histories.clear();
-                    self.session.selection = None;
-                }
-            });
-            ui.add_space(4.);
-        });
-        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(format!(
-                    "{} subscriptions · {} readings · {} native windows",
-                    self.session.last_interests.len(),
-                    self.session.readings.len(),
-                    self.saved.windows.len()
-                ));
-                ui.separator();
-                if !self.session.notice.is_empty() {
-                    ui.colored_label(colors::role(ui, Role::Warn), &self.session.notice);
-                    if ui.small_button("Dismiss").clicked() {
-                        self.session.notice.clear();
+                ui.add_space(4.);
+                ui.label(
+                    RichText::new("Maps, metadata, commands and dashboards belong to the Profile.")
+                        .small()
+                        .color(palette.text_weak),
+                );
+                ui.add_space(8.);
+                ui.horizontal(|ui| {
+                    if ui.button("Duplicate").clicked() {
+                        duplicate = Some(i);
                     }
-                }
+                    if ui.button("Export…").clicked() {
+                        self.session.export(
+                            serde_json::to_string_pretty(&p.export()).unwrap(),
+                            &format!("{}.dshub-profile", p.name),
+                            "dshub-profile",
+                        );
+                    }
+                    if !p.is_default && controls::confirm_button(ui, &p.id, "Delete") {
+                        remove = Some(i);
+                    }
+                });
             });
         });
+        if let Some(i) = duplicate {
+            let mut p = self.saved.profiles[i].clone();
+            p.id = unique_id();
+            p.name = unique_name(&format!("{} Copy", p.name), &self.saved.profiles);
+            p.is_default = false;
+            self.saved.active = p.id.clone();
+            self.saved.profiles.push(p);
+        }
+        if let Some(i) = remove {
+            self.saved.profiles.remove(i);
+            if !self
+                .saved
+                .profiles
+                .iter()
+                .any(|p| p.id == self.saved.active)
+            {
+                self.saved.active = self.saved.profiles[0].id.clone();
+            }
+        }
+    }
+    fn preferences(&mut self, ui: &mut egui::Ui) {
+        controls::segmented(
+            ui,
+            &mut self.settings_tab,
+            &[
+                (0, "General"),
+                (1, "Connection"),
+                (2, "Data"),
+                (3, "Activity log"),
+            ],
+        );
+        ui.add_space(8.);
+        let p = &mut self.saved.preferences;
+        let before = p.log_settings.clone();
+        let grid = |ui: &mut egui::Ui, id: &str, add: &mut dyn FnMut(&mut egui::Ui)| {
+            egui::Grid::new(id)
+                .num_columns(2)
+                .spacing([16., 8.])
+                .min_col_width(150.)
+                .show(ui, add);
+        };
+        match self.settings_tab {
+            0 => grid(ui, "prefs-general", &mut |ui| {
+                ui.label("Theme");
+                controls::segmented(ui, &mut p.dark, &[(true, "Dark"), (false, "Light")]);
+                ui.end_row();
+            }),
+            1 => grid(ui, "prefs-connection", &mut |ui| {
+                ui.label("On startup");
+                ui.vertical(|ui| {
+                    ui.checkbox(&mut p.auto_scan, "Scan the network");
+                    ui.checkbox(&mut p.auto_connect, "Connect to the last device");
+                });
+                ui.end_row();
+                ui.label("Connection attempts");
+                ui.add(egui::DragValue::new(&mut p.auto_connect_retries).range(1..=10));
+                ui.end_row();
+                ui.label("Delay between attempts");
+                ui.add(
+                    egui::DragValue::new(&mut p.auto_connect_retry_delay)
+                        .range(500..=10000)
+                        .suffix(" ms"),
+                );
+                ui.end_row();
+                ui.label("Request rate limit")
+                    .on_hover_text("Maximum device requests per second. 0 removes the limit.");
+                ui.add(
+                    egui::DragValue::new(&mut p.log_settings.request_rate_limit)
+                        .range(0..=10000)
+                        .custom_formatter(|v, _| {
+                            if v == 0. {
+                                "unlimited".into()
+                            } else {
+                                format!("{v} / s")
+                            }
+                        }),
+                );
+                ui.end_row();
+            }),
+            2 => grid(ui, "prefs-data", &mut |ui| {
+                ui.label("Widget and plot interval");
+                ui.add(
+                    egui::DragValue::new(&mut p.poll_ms)
+                        .range(50..=5000)
+                        .suffix(" ms"),
+                );
+                ui.end_row();
+                ui.label("Plot window");
+                ui.add(
+                    egui::DragValue::new(&mut p.time_span)
+                        .range(1.0..=3600.)
+                        .suffix(" s"),
+                );
+                ui.end_row();
+                ui.label("Samples kept per trace");
+                ui.add(egui::DragValue::new(&mut p.max_points).range(100..=100000));
+                ui.end_row();
+            }),
+            _ => grid(ui, "prefs-log", &mut |ui| {
+                let l = &mut p.log_settings;
+                ui.label("Record");
+                ui.vertical(|ui| {
+                    ui.checkbox(&mut l.enable_connection_logs, "Connection events");
+                    ui.checkbox(&mut l.enable_register_logs, "Register events");
+                    ui.checkbox(&mut l.enable_parameter_logs, "Parameter events");
+                    ui.checkbox(&mut l.enable_auto_refresh_logs, "Polling events");
+                    ui.checkbox(&mut l.enable_plotting_logs, "Plot events");
+                    ui.checkbox(&mut l.enable_packet_logs, "Packet hex dumps");
+                });
+                ui.end_row();
+                ui.label("Retention");
+                ui.add(
+                    egui::DragValue::new(&mut l.max_log_count)
+                        .range(100..=10000)
+                        .suffix(" entries"),
+                );
+                ui.end_row();
+            }),
+        }
+        // Every setting applies as soon as it changes.
+        if p.log_settings != before {
+            self.session
+                .send(Action::LogSettings(p.log_settings.clone()));
+        }
+        ui.add_space(6.);
+        ui.label(
+            RichText::new("Changes apply immediately.")
+                .small()
+                .color(theme::of(ui).text_weak),
+        );
+    }
+    fn workspaces(&mut self, ui: &mut egui::Ui) {
+        let palette = theme::of(ui);
+        ui.label(theme::caption(ui, "Save the current layout"));
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.name)
+                    .hint_text("Workspace name")
+                    .desired_width(220.),
+            );
+            if ui
+                .add_enabled(!self.name.trim().is_empty(), controls::primary(ui, "Save"))
+                .clicked()
+            {
+                self.saved.workspaces.push(Workspace {
+                    id: unique_id(),
+                    name: self.name.trim().to_string(),
+                    profile_id: self.saved.active.clone(),
+                    dock: self.saved.dock.clone(),
+                    windows: self.saved.windows.clone(),
+                    series_catalog: self.saved.series.clone(),
+                });
+                self.name.clear();
+            }
+        });
+        ui.add_space(8.);
+        ui.label(theme::caption(ui, "Saved for this Profile"));
+        let mut remove = None;
+        let mut any = false;
+        egui::Grid::new("workspaces")
+            .num_columns(3)
+            .striped(true)
+            .spacing([12., 4.])
+            .show(ui, |ui| {
+                for (i, w) in self
+                    .saved
+                    .workspaces
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, w)| w.profile_id == self.saved.active)
+                {
+                    any = true;
+                    ui.label(&w.name);
+                    if ui.button("Restore").clicked() {
+                        self.saved.dock = w.dock.clone();
+                        self.saved.windows = w.windows.clone();
+                        self.saved.series = w.series_catalog.clone();
+                    }
+                    if controls::confirm_button(ui, &w.id, "Delete") {
+                        remove = Some(i);
+                    }
+                    ui.end_row();
+                }
+            });
+        if !any {
+            ui.label(RichText::new("None yet.").color(palette.text_weak));
+        }
+        if let Some(i) = remove {
+            self.saved.workspaces.remove(i);
+        }
     }
     fn dialogs(&mut self, ctx: &egui::Context) {
         if self.review_open {
@@ -610,6 +1036,7 @@ impl Desktop {
             let index = self.profile_index();
             egui::Window::new("Binding review")
                 .open(&mut open)
+                .collapsible(false)
                 .default_width(650.)
                 .show(ctx, |ui| {
                     review::show(ui, &mut self.saved.profiles[index], &mut self.saved.series)
@@ -620,219 +1047,37 @@ impl Desktop {
             let mut open = true;
             egui::Window::new("Profiles")
                 .open(&mut open)
-                .default_width(620.)
-                .show(ctx, |ui| {
-                    ui.label("Maps, metadata and dashboards belong to a Profile.");
-                    let mut remove = None;
-                    let mut duplicate = None;
-                    for (i, p) in self.saved.profiles.iter().enumerate() {
-                        ui.horizontal(|ui| {
-                            if ui
-                                .selectable_label(self.saved.active == p.id, &p.name)
-                                .clicked()
-                            {
-                                self.saved.active = p.id.clone();
-                                self.session.confirm = None;
-                                self.session.readings.clear();
-                                self.session.histories.clear();
-                            }
-                            if ui.small_button("Duplicate").clicked() {
-                                duplicate = Some(i);
-                            }
-                            if ui.small_button("Export").clicked() {
-                                self.session.export(
-                                    serde_json::to_string_pretty(&p.export()).unwrap(),
-                                    &format!("{}.dshub-profile", p.name),
-                                    "dshub-profile",
-                                );
-                            }
-                            if !p.is_default && controls::confirm_button(ui, &p.id, "Delete") {
-                                remove = Some(i);
-                            }
-                        });
-                    }
-                    if let Some(i) = duplicate {
-                        let mut p = self.saved.profiles[i].clone();
-                        p.id = unique_id();
-                        p.name = unique_name(&format!("{} Copy", p.name), &self.saved.profiles);
-                        p.is_default = false;
-                        self.saved.active = p.id.clone();
-                        self.saved.profiles.push(p);
-                    }
-                    if let Some(i) = remove {
-                        self.saved.profiles.remove(i);
-                        if !self
-                            .saved
-                            .profiles
-                            .iter()
-                            .any(|p| p.id == self.saved.active)
-                        {
-                            self.saved.active = self.saved.profiles[0].id.clone();
-                        }
-                    }
-                    if ui.button("Import .dshub-profile").clicked() {
-                        self.session.pick_file(
-                            ImportTarget::Profile,
-                            "DSHub Profile",
-                            &["dshub-profile", "json"],
-                        );
-                    }
-                    let i = self.profile_index();
-                    ui.separator();
-                    ui.label("Active Profile name");
-                    ui.text_edit_singleline(&mut self.saved.profiles[i].name);
-                    let name = self.saved.profiles[i].name.trim();
-                    if name.is_empty() {
-                        ui.colored_label(colors::role(ui, Role::Warn), "A Profile needs a name.");
-                    } else if self
-                        .saved
-                        .profiles
-                        .iter()
-                        .enumerate()
-                        .any(|(j, p)| j != i && p.name.trim() == name)
-                    {
-                        ui.colored_label(
-                            colors::role(ui, Role::Warn),
-                            "Another Profile already has this name.",
-                        );
-                    }
-                });
+                .default_width(640.)
+                .resizable(false)
+                .collapsible(false)
+                .show(ctx, |ui| self.profile_manager(ui));
             self.profiles_open = open;
         }
         if self.settings_open {
             let mut open = true;
-            egui::Window::new("Settings")
+            egui::Window::new("Preferences")
                 .open(&mut open)
-                .show(ctx, |ui| {
-                    let p = &mut self.saved.preferences;
-                    let before = p.log_settings.clone();
-                    ui.checkbox(&mut p.dark, "Dark theme");
-                    ui.checkbox(&mut p.auto_scan, "Scan on startup");
-                    ui.checkbox(&mut p.auto_connect, "Connect to last device on startup");
-                    ui.add_space(4.);
-                    egui::Grid::new("settings-numbers")
-                        .num_columns(2)
-                        .spacing([12., 6.])
-                        .show(ui, |ui| {
-                            ui.label("Connection attempts");
-                            ui.add(egui::DragValue::new(&mut p.auto_connect_retries).range(1..=10));
-                            ui.end_row();
-                            ui.label("Retry delay");
-                            ui.add(
-                                egui::DragValue::new(&mut p.auto_connect_retry_delay)
-                                    .range(500..=10000)
-                                    .suffix(" ms"),
-                            );
-                            ui.end_row();
-                            ui.label("Widget / plot interval");
-                            ui.add(
-                                egui::DragValue::new(&mut p.poll_ms)
-                                    .range(50..=5000)
-                                    .suffix(" ms"),
-                            );
-                            ui.end_row();
-                            ui.label("Plot window");
-                            ui.add(
-                                egui::DragValue::new(&mut p.time_span)
-                                    .range(1.0..=3600.)
-                                    .suffix(" s"),
-                            );
-                            ui.end_row();
-                            ui.label("Points kept per plotted address");
-                            ui.add(egui::DragValue::new(&mut p.max_points).range(100..=100000));
-                            ui.end_row();
-                            ui.label("Log retention");
-                            ui.add(
-                                egui::DragValue::new(&mut p.log_settings.max_log_count)
-                                    .range(100..=10000)
-                                    .suffix(" entries"),
-                            );
-                            ui.end_row();
-                            ui.label("Request rate limit").on_hover_text(
-                                "Maximum device requests per second. 0 removes the limit.",
-                            );
-                            ui.add(
-                                egui::DragValue::new(&mut p.log_settings.request_rate_limit)
-                                    .range(0..=10000)
-                                    .custom_formatter(|v, _| {
-                                        if v == 0. {
-                                            "unlimited".into()
-                                        } else {
-                                            format!("{v} / s")
-                                        }
-                                    }),
-                            );
-                            ui.end_row();
-                        });
-                    ui.separator();
-                    ui.label(RichText::new("Activity log").strong());
-                    let l = &mut p.log_settings;
-                    ui.checkbox(&mut l.enable_connection_logs, "Connection events");
-                    ui.checkbox(&mut l.enable_register_logs, "Register events");
-                    ui.checkbox(&mut l.enable_parameter_logs, "Parameter events");
-                    ui.checkbox(&mut l.enable_packet_logs, "Packet hex dumps");
-                    ui.checkbox(&mut l.enable_auto_refresh_logs, "Auto-refresh events");
-                    ui.checkbox(&mut l.enable_plotting_logs, "Plot events");
-                    // Every setting applies as soon as it changes.
-                    if *l != before {
-                        self.session.send(Action::LogSettings(l.clone()));
-                    }
-                });
+                .default_width(420.)
+                .resizable(false)
+                .collapsible(false)
+                .show(ctx, |ui| self.preferences(ui));
             self.settings_open = open;
         }
         if self.workspaces_open {
             let mut open = true;
             egui::Window::new("Workspaces")
                 .open(&mut open)
-                .show(ctx, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.text_edit_singleline(&mut self.name);
-                        if ui
-                            .add_enabled(
-                                !self.name.trim().is_empty(),
-                                egui::Button::new("Save current"),
-                            )
-                            .clicked()
-                        {
-                            self.saved.workspaces.push(Workspace {
-                                id: unique_id(),
-                                name: self.name.clone(),
-                                profile_id: self.saved.active.clone(),
-                                dock: self.saved.dock.clone(),
-                                windows: self.saved.windows.clone(),
-                                series_catalog: self.saved.series.clone(),
-                            });
-                            self.name.clear();
-                        }
-                    });
-                    let mut remove = None;
-                    for (i, w) in self
-                        .saved
-                        .workspaces
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, w)| w.profile_id == self.saved.active)
-                    {
-                        ui.horizontal(|ui| {
-                            ui.label(&w.name);
-                            if ui.button("Restore").clicked() {
-                                self.saved.dock = w.dock.clone();
-                                self.saved.windows = w.windows.clone();
-                                self.saved.series = w.series_catalog.clone();
-                            }
-                            if controls::confirm_button(ui, &w.id, "Delete") {
-                                remove = Some(i);
-                            }
-                        });
-                    }
-                    if let Some(i) = remove {
-                        self.saved.workspaces.remove(i);
-                    }
-                });
+                .default_width(420.)
+                .collapsible(false)
+                .show(ctx, |ui| self.workspaces(ui));
             self.workspaces_open = open;
         }
         if self.guide_open {
-            egui::Window::new("DSHub Guide").open(&mut self.guide_open).show(ctx,|ui|{ui.heading("Connect → Take Control → Inspect");ui.label("Scan for devices, or enter an IP and select TCP or UDP. Connect, then Take Control before sending writes and commands.");ui.label("Drag pane tabs to split or rearrange the workspace. Right-click a tab to move it into a native window or focus it. Add closed panes from the Panes menu.");ui.label("Choose a Profile for the device's maps. Register and parameter tables support search, live refresh, writes, Inspector selection and plotting. System registers are always read-only.");ui.label("Add widgets in a Dashboard and configure their bindings. Map edits that move or replace entries require binding review before affected widgets can read or write.");ui.label("Export Profiles to move maps and dashboards between installations. Save named Workspaces to retain pane arrangements.");ui.separator();ui.label(format!("DSHub {} · egui / Rust · MIT",env!("CARGO_PKG_VERSION")));ui.collapsing("Bundled font license", |ui| { egui::ScrollArea::vertical().max_height(200.).show(ui, |ui| { ui.label(fonts::LICENSE); }); });});
+            egui::Window::new("DSHub")
+                .open(&mut self.guide_open)
+                .default_width(460.)
+                .collapsible(false)
+                .show(ctx, guide);
         }
         if let Some(error) = &self.load_error {
             let mut dismissed = false;
@@ -849,6 +1094,42 @@ impl Desktop {
             }
         }
     }
+}
+fn guide(ui: &mut egui::Ui) {
+    let palette = theme::of(ui);
+    ui.label(theme::caption(ui, "Getting started"));
+    for (step, title, text) in [
+        ("1", "Connect", "Open the device menu in the toolbar. Scan the network or enter an address (IP or IP:port), choose TCP or UDP and connect."),
+        ("2", "Take Control", "Writes and commands need Control on this connection. The toolbar shows who holds it."),
+        ("3", "Inspect", "Registers, Parameters and System Registers list every entry of the Profile's maps. Double-click a value to write it; select a row for the Inspector."),
+        ("4", "Monitor", "Plot traces from any entry, or build Dashboards. Map edits that move entries ask for binding review before widgets read or write again."),
+        ("5", "Arrange", "Drag tabs to split panes. Right-click a tab to move it to its own window or focus it. Save layouts as Workspaces."),
+    ] {
+        ui.horizontal_top(|ui| {
+            ui.label(RichText::new(step).monospace().color(palette.accent));
+            ui.vertical(|ui| {
+                ui.label(RichText::new(title).family(egui::FontFamily::Name(fonts::SEMIBOLD.into())));
+                ui.label(RichText::new(text).color(palette.text_weak));
+            });
+        });
+        ui.add_space(4.);
+    }
+    ui.separator();
+    ui.label(
+        RichText::new(format!(
+            "DSHub {} · Rust and egui · MIT",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .small()
+        .color(palette.text_weak),
+    );
+    egui::CollapsingHeader::new(theme::caption(ui, "Font licences")).show(ui, |ui| {
+        egui::ScrollArea::vertical()
+            .max_height(200.)
+            .show(ui, |ui| {
+                ui.label(RichText::new(fonts::LICENSE).small());
+            });
+    });
 }
 /// The pending device-action confirmation, shown modally in every viewport so it
 /// appears wherever the operator is working and blocks other input until answered.
@@ -932,11 +1213,7 @@ impl eframe::App for Desktop {
             .drain(&self.saved.profiles[i], &self.saved.preferences);
         self.session.interests.clear();
         if self.applied_dark != Some(self.saved.preferences.dark) {
-            ctx.set_visuals(if self.saved.preferences.dark {
-                egui::Visuals::dark()
-            } else {
-                egui::Visuals::light()
-            });
+            theme::apply(ctx, self.saved.preferences.dark);
             self.applied_dark = Some(self.saved.preferences.dark);
         }
         while let Some(import) = self.session.take_import(&ImportTarget::Profile) {
@@ -1134,6 +1411,8 @@ impl eframe::App for Desktop {
             }
         }
         self.session.sync();
+        // After sync, so notices raised anywhere this frame show immediately.
+        toasts::show(ctx, &mut self.session);
         // Backend events wake the interface themselves. Time alone changes only
         // staleness badges and acknowledgement timeouts, which need no more
         // than a slow tick. Screenshot runs keep a fast cadence to finish promptly.
@@ -1182,7 +1461,11 @@ fn draw_dock(
     }
     DockArea::new(dock)
         .id(egui::Id::new(id))
-        .style(egui_dock::Style::from_egui(ui.style().as_ref()))
+        .style(theme::dock_style(ui))
+        // Tab context menus carry move/focus/duplicate; the per-leaf collapse
+        // and close-all buttons only added clutter beside every tab bar.
+        .show_leaf_collapse_buttons(false)
+        .show_leaf_close_all_buttons(false)
         .show_inside(ui, viewer);
 }
 

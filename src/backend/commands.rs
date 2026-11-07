@@ -265,8 +265,13 @@ async fn activate(
         LogLevel::Info,
         LogCategory::Connection,
         format!(
-            "Connected via {:?} to {}:{}",
-            params.interface_type, params.ip, params.port
+            "Connected via {} to {}:{}",
+            match params.interface_type {
+                InterfaceType::Tcp => "TCP",
+                InterfaceType::Udp => "UDP",
+            },
+            params.ip,
+            params.port
         ),
     );
     Some(rx)

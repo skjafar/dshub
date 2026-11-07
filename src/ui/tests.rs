@@ -16,8 +16,12 @@ impl Harness {
         let mut profile = default_profiles().remove(1);
         profile.dashboards.truncate(1);
         profile.dashboards[0].widgets.clear();
+        // Same fonts and theme as the application.
+        let ctx = egui::Context::default();
+        fonts::install(&ctx);
+        theme::apply(&ctx, true);
         Self {
-            ctx: egui::Context::default(),
+            ctx,
             session: Session::new(),
             profile,
             pane: Pane::new(kind),
@@ -567,7 +571,8 @@ fn canvas_drag_resize_and_configuration_keep_geometry_live() {
         "configuration window must not resize widget"
     );
     // DragValue's text entry changes the actual canvas geometry without Save/Apply.
-    h.click(&format!("{}", geometry.1));
+    h.click("SIZE AND POSITION");
+    h.click(&format!("{} px", geometry.1));
     h.frame(vec![
         egui::Event::Key {
             key: egui::Key::A,

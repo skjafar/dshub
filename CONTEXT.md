@@ -7,6 +7,7 @@ The active application on `codex/egui-rebuild` is the root Cargo package. `cargo
 - `src/ui/mod.rs` owns native windows, docked panes, per-Profile layouts, dialogs and persistence.
 - `src/ui/session.rs` owns the GUI's live session. It sends actions to one Tokio actor. Only that actor changes device connection and subscription state; drawing never awaits I/O.
 - `src/backend/` preserves the old Rust communication behavior. Tauri macros, handles and task spawning were replaced with ordinary Rust references, `runtime::AppHandle` and Tokio. Window management moved to the UI. This was an integration migration, not the separately requested backend review.
+- `src/ui/theme.rs` defines the visual system: tonal surfaces, ghost borders, the cyan accent and the type scale (bundled Inter and JetBrains Mono, see `assets/fonts/README.md`). Status colours come from `src/ui/colors.rs` and must stay distinguishable in both themes.
 - `src/runtime.rs` holds shared backend state and a bounded queue of typed `Event`s. When full it sheds telemetry, never state transitions. Each burst of events wakes the interface once to repaint; there is no polling timer, IPC, HTTP service or WebView.
 - `src/model.rs` owns address spaces, map parsing, typed values, Profile artifacts, widget configuration and captured binding identity.
 - `src/profile_compat.rs` imports/exports the existing version-one portable Profile format and translates dashboard configurations. Native fields preserve additional native settings while a compatible dashboard section remains available to the former interface.
@@ -22,4 +23,4 @@ Named Workspaces and current layouts belong to a Profile. Settings, native windo
 
 ## Verification
 
-`cargo test --locked` covers domain behavior and headless egui interactions. `cargo test --locked --test emulator -- --ignored` launches the real Python emulator for TCP/UDP integration. `bash tests/native-smoke.sh` exercises eleven native rendering scenes against the emulator with isolated Linux storage and saves screenshots. See `docs/egui-migration.md` for evidence and the remaining platform/hardware acceptance work.
+`cargo test --locked` covers domain behavior and headless egui interactions. `cargo test --locked --test emulator -- --ignored` launches the real Python emulator for TCP/UDP integration. `bash tests/native-smoke.sh` exercises eighteen native rendering scenes against the emulator with isolated Linux storage and saves screenshots. See `docs/egui-migration.md` for evidence and the remaining platform/hardware acceptance work.

@@ -1,11 +1,15 @@
 //! Semantic palette shared with client/src/design/status.ts.
-use super::session::{OutcomeStatus, Session};
+use super::session::OutcomeStatus;
 use crate::model::Role;
 use crate::types::RegisterData;
 use eframe::egui::{self, Color32};
 
 pub fn role(ui: &egui::Ui, role: Role) -> Color32 {
-    let rgb = match (ui.visuals().dark_mode, role) {
+    rgb(ui.visuals().dark_mode, role)
+}
+/// A role's colour in the dark or light theme.
+pub fn rgb(dark: bool, role: Role) -> Color32 {
+    let rgb = match (dark, role) {
         (true, Role::Ok) => 0x4ade80,
         (true, Role::Warn) => 0xfbbf24,
         (true, Role::Error) => 0xff6b6b,
@@ -32,23 +36,6 @@ pub fn badge(ui: &mut egui::Ui, role_name: Role, text: &str) {
             ui.colored_label(color, text);
         });
 }
-pub fn connection(ui: &mut egui::Ui, session: &Session) {
-    let (role, label) = if session.connection.as_ref().is_some_and(|c| c.reconnecting) {
-        (Role::Warn, "● Reconnecting")
-    } else if session.busy {
-        (Role::Info, "● Connecting")
-    } else if session.connected() {
-        (Role::Ok, "● Connected")
-    } else {
-        (Role::Idle, "○ Offline")
-    };
-    badge(ui, role, label);
-    if session.controlled() {
-        badge(ui, Role::Accent, "Control held");
-    } else if session.connected() {
-        badge(ui, Role::Warn, "No control");
-    }
-}
 pub fn reading(
     connected: bool,
     data: Option<&RegisterData>,
@@ -68,6 +55,19 @@ pub fn reading(
         None if connected => (Role::Idle, "Unread"),
         None => (Role::Idle, "Offline"),
     }
+}
+/// A write outcome as a dot and short label, for table cells.
+pub fn outcome_inline(ui: &mut egui::Ui, value: &super::session::WriteOutcome) {
+    let (state, label) = match value.status {
+        OutcomeStatus::Sending => (Role::Info, "Writing…"),
+        OutcomeStatus::Confirmed => (Role::Ok, "Written"),
+        OutcomeStatus::Refused => (Role::Error, "Refused"),
+        OutcomeStatus::Unknown => (Role::Warn, "No ack"),
+    };
+    let color = role(ui, state);
+    ui.label(egui::RichText::new("●").small().color(color));
+    ui.label(egui::RichText::new(label).small().color(color))
+        .on_hover_text(value.label());
 }
 pub fn outcome(ui: &mut egui::Ui, value: &super::session::WriteOutcome) {
     let role = match value.status {

@@ -479,14 +479,22 @@ fn render_grid(
         } else {
             ui.painter().clone()
         };
-        painter.rect_filled(
+        // Top-level widgets are raised cards; nested ones are outlined regions
+        // of their container, so depth reads through tone rather than boxes.
+        let palette = super::theme::of(ui);
+        let (fill, outline) = if floating {
+            (palette.surface, palette.accent)
+        } else if depth == 0 {
+            (palette.raised, palette.ghost)
+        } else {
+            (Color32::TRANSPARENT, palette.ghost)
+        };
+        painter.rect(
             rect,
-            6.,
-            if floating {
-                ui.visuals().panel_fill
-            } else {
-                ui.visuals().faint_bg_color
-            },
+            4,
+            fill,
+            egui::Stroke::new(1_f32, outline),
+            egui::StrokeKind::Inside,
         );
         let margin = if w.kind == WidgetKind::Container {
             w.padding.clamp(6., 32.)
@@ -506,8 +514,32 @@ fn render_grid(
             ui.clip_rect()
         }));
         if w.kind != WidgetKind::Button {
-            child.add(egui::Label::new(RichText::new(&w.label).strong()).selectable(false));
+            let status = widget_status(w, session, profile, prefs);
+            child.horizontal(|ui| {
+                let title = if depth == 0 || w.kind == WidgetKind::Container {
+                    RichText::new(&w.label)
+                        .family(egui::FontFamily::Name(super::fonts::SEMIBOLD.into()))
+                        .color(palette.text)
+                } else {
+                    RichText::new(&w.label).small().color(palette.text_weak)
+                };
+                ui.add(egui::Label::new(title).selectable(false).truncate());
+                if let Some((role, label)) = status {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // Healthy readings show only a dot; anything else says why.
+                        if role != Role::Ok {
+                            ui.label(RichText::new(label).small().color(colors::role(ui, role)));
+                        }
+                        ui.label(RichText::new("●").small().color(colors::role(ui, role)))
+                            .on_hover_text(label);
+                    });
+                }
+            });
         }
+        // Overflow stays reachable by scrolling, but idle scroll bars would
+        // clutter tightly sized cards.
+        child.spacing_mut().scroll.dormant_handle_opacity = 0.;
+        child.spacing_mut().scroll.dormant_background_opacity = 0.;
         let content = egui::ScrollArea::both()
             .id_salt(id.with("content"))
             .drag_to_scroll(false)
@@ -665,107 +697,199 @@ fn binding_picker(
         d.insert_temp(open_id, menu.inner.is_some());
     });
 }
+/// A titled group of labelled settings in two aligned columns.
+fn section(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
+    ui.add_space(6.);
+    ui.label(super::theme::caption(ui, title));
+    egui::Grid::new(("config-section", title))
+        .num_columns(2)
+        .spacing([12., 6.])
+        .min_col_width(96.)
+        .show(ui, add);
+}
 fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
-    ui.text_edit_singleline(&mut w.label);
-    if w.kind == WidgetKind::ProgressBar {
-        ui.checkbox(&mut w.vertical, "Vertical");
-    }
-    if w.kind == WidgetKind::MiniPlot {
-        ui.add(egui::Slider::new(&mut w.poll_ms, 50..=5000).text("Interval (ms)"));
-        ui.add(egui::Slider::new(&mut w.time_span, 1.0..=3600.).text("Time span (seconds)"));
-    }
-    if w.kind == WidgetKind::Container {
-        add_widget_menu(ui, &mut w.children);
-        ui.add(egui::Slider::new(&mut w.padding, 0.0..=32.).text("Padding"));
-        ui.add(egui::Slider::new(&mut w.spacing, 0.0..=32.).text("Spacing"));
-    }
-
-    egui::ComboBox::from_id_salt("format")
-        .selected_text(w.format.title())
-        .show_ui(ui, |ui| {
-            for format in DisplayFormat::ALL {
-                ui.selectable_value(&mut w.format, format, format.title());
-            }
-        });
-    if w.kind == WidgetKind::LedIndicator {
-        ui.label("On value");
-        ui.add(egui::DragValue::new(&mut w.on_value));
-        ui.text_edit_singleline(&mut w.on_label);
-        ui.text_edit_singleline(&mut w.off_label);
-    }
-    if w.kind == WidgetKind::AlarmList {
-        ui.checkbox(&mut w.show_inactive, "Show clear alarms");
-    }
-
-    ui.horizontal(|ui| {
-        ui.label("Width");
-        ui.add(egui::DragValue::new(&mut w.width).range(120.0..=1600.));
-        ui.label("Height");
-        ui.add(egui::DragValue::new(&mut w.height).range(48.0..=1200.));
-    });
-    if let Some(position) = &mut w.position {
-        ui.horizontal(|ui| {
-            ui.label("X");
-            ui.add(egui::DragValue::new(&mut position[0]).range(0.0..=100000.));
-            ui.label("Y");
-            ui.add(egui::DragValue::new(&mut position[1]).range(0.0..=100000.));
-        });
-    }
-    if !matches!(
+    let bound = !matches!(
         w.kind,
         WidgetKind::DeviceInfo
             | WidgetKind::Container
             | WidgetKind::DirectionalControl
             | WidgetKind::DataTable
             | WidgetKind::AlarmList
-    ) {
-        binding_picker(
-            ui,
-            &mut w.binding,
-            profile,
-            matches!(
-                w.kind,
-                WidgetKind::Button | WidgetKind::Dropdown | WidgetKind::ValueWrite
-            ),
-        );
-    }
-    if matches!(w.kind, WidgetKind::Gauge | WidgetKind::ProgressBar) {
-        ui.horizontal(|ui| {
-            ui.label("Range");
-            ui.add(egui::DragValue::new(&mut w.min));
-            ui.add(egui::DragValue::new(&mut w.max));
-        });
-    }
-    if w.kind == WidgetKind::EncoderDisplay {
-        ui.add(egui::Slider::new(&mut w.decimals, 0..=9).text("Decimals"));
-        ui.checkbox(&mut w.show_raw, "Show raw value");
-        ui.text_edit_singleline(&mut w.secondary_unit);
-        ui.horizontal(|ui| {
-            ui.label("Conversion factor");
-            ui.add(egui::DragValue::new(&mut w.factor).speed(0.01));
-        });
-    }
-    ui.horizontal(|ui| {
-        ui.label("Unit");
-        ui.text_edit_singleline(&mut w.unit);
-    });
-    if w.kind == WidgetKind::Button {
-        let mut command = w.command.is_some();
-        ui.checkbox(&mut command, "Command target");
-        if command {
-            ui.add(egui::DragValue::new(w.command.get_or_insert(0)));
-        } else {
-            w.command = None;
+    );
+    let sends = matches!(
+        w.kind,
+        WidgetKind::Button
+            | WidgetKind::ValueWrite
+            | WidgetKind::Dropdown
+            | WidgetKind::DirectionalControl
+    );
+    section(ui, "General", |ui| {
+        ui.label("Label");
+        ui.add(egui::TextEdit::singleline(&mut w.label).desired_width(200.));
+        ui.end_row();
+        match w.kind {
+            WidgetKind::ProgressBar => {
+                ui.label("Orientation");
+                super::controls::segmented(
+                    ui,
+                    &mut w.vertical,
+                    &[(false, "Horizontal"), (true, "Vertical")],
+                );
+                ui.end_row();
+            }
+            WidgetKind::MiniPlot => {
+                ui.label("Interval");
+                ui.add(
+                    egui::DragValue::new(&mut w.poll_ms)
+                        .range(50..=5000)
+                        .suffix(" ms"),
+                );
+                ui.end_row();
+                ui.label("Time span");
+                ui.add(
+                    egui::DragValue::new(&mut w.time_span)
+                        .range(1.0..=3600.)
+                        .suffix(" s"),
+                );
+                ui.end_row();
+            }
+            WidgetKind::Container => {
+                ui.label("Padding");
+                ui.add(
+                    egui::DragValue::new(&mut w.padding)
+                        .range(0.0..=32.)
+                        .suffix(" px"),
+                );
+                ui.end_row();
+                ui.label("Spacing");
+                ui.add(
+                    egui::DragValue::new(&mut w.spacing)
+                        .range(0.0..=32.)
+                        .suffix(" px"),
+                );
+                ui.end_row();
+                ui.label("Contents");
+                add_widget_menu(ui, &mut w.children);
+                ui.end_row();
+            }
+            WidgetKind::AlarmList => {
+                ui.label("Clear alarms");
+                ui.checkbox(&mut w.show_inactive, "Show");
+                ui.end_row();
+            }
+            _ => {}
         }
-        ui.label("Value to send");
-        ui.text_edit_singleline(&mut w.value);
+    });
+    if bound {
+        section(ui, "Value", |ui| {
+            ui.label("Entry");
+            binding_picker(
+                ui,
+                &mut w.binding,
+                profile,
+                matches!(
+                    w.kind,
+                    WidgetKind::Button | WidgetKind::Dropdown | WidgetKind::ValueWrite
+                ),
+            );
+            ui.end_row();
+            ui.label("Display");
+            egui::ComboBox::from_id_salt("format")
+                .selected_text(w.format.title())
+                .show_ui(ui, |ui| {
+                    for format in DisplayFormat::ALL {
+                        ui.selectable_value(&mut w.format, format, format.title());
+                    }
+                });
+            ui.end_row();
+            ui.label("Unit");
+            ui.add(egui::TextEdit::singleline(&mut w.unit).desired_width(120.));
+            ui.end_row();
+            if matches!(w.kind, WidgetKind::Gauge | WidgetKind::ProgressBar) {
+                ui.label("Range");
+                ui.horizontal(|ui| {
+                    ui.add(egui::DragValue::new(&mut w.min).prefix("min "));
+                    ui.add(egui::DragValue::new(&mut w.max).prefix("max "));
+                });
+                ui.end_row();
+            }
+            if w.kind == WidgetKind::EncoderDisplay {
+                ui.label("Scale factor");
+                ui.add(egui::DragValue::new(&mut w.factor).speed(0.01));
+                ui.end_row();
+                ui.label("Decimals");
+                ui.add(egui::DragValue::new(&mut w.decimals).range(0..=9));
+                ui.end_row();
+                ui.label("Raw value");
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut w.show_raw, "Show");
+                    ui.add_enabled(
+                        w.show_raw,
+                        egui::TextEdit::singleline(&mut w.secondary_unit)
+                            .hint_text("raw unit")
+                            .desired_width(80.),
+                    );
+                });
+                ui.end_row();
+            }
+            if w.kind == WidgetKind::LedIndicator {
+                ui.label("On when value is");
+                ui.add(egui::DragValue::new(&mut w.on_value));
+                ui.end_row();
+                ui.label("On label");
+                ui.add(egui::TextEdit::singleline(&mut w.on_label).desired_width(120.));
+                ui.end_row();
+                ui.label("Off label");
+                ui.add(egui::TextEdit::singleline(&mut w.off_label).desired_width(120.));
+                ui.end_row();
+            }
+        });
+    }
+    if sends {
+        section(ui, "Action", |ui| {
+            if w.kind == WidgetKind::Button {
+                ui.label("Sends");
+                let mut command = w.command.is_some();
+                super::controls::segmented(
+                    ui,
+                    &mut command,
+                    &[(false, "Write to entry"), (true, "Command")],
+                );
+                if command {
+                    w.command.get_or_insert(0);
+                } else {
+                    w.command = None;
+                }
+                ui.end_row();
+                if let Some(code) = &mut w.command {
+                    ui.label("Command code");
+                    ui.add(egui::DragValue::new(code));
+                    ui.end_row();
+                }
+            }
+            if matches!(w.kind, WidgetKind::Button | WidgetKind::DirectionalControl) {
+                ui.label(if w.kind == WidgetKind::Button {
+                    "Value"
+                } else {
+                    "Command argument"
+                });
+                ui.add(egui::TextEdit::singleline(&mut w.value).desired_width(120.));
+                ui.end_row();
+            }
+            ui.label("Confirmation");
+            ui.checkbox(&mut w.confirm, "Ask before sending");
+            ui.end_row();
+        });
     }
     if w.kind == WidgetKind::DirectionalControl {
+        ui.add_space(6.);
+        ui.label(super::theme::caption(ui, "Directions"));
         let mut remove = None;
         for (i, d) in w.directions.iter_mut().enumerate() {
             ui.push_id(i, |ui| {
                 ui.horizontal(|ui| {
                     egui::ComboBox::from_id_salt("direction")
+                        .width(110.)
                         .selected_text(format!("{} {}", d.direction.arrow(), d.direction))
                         .show_ui(ui, |ui| {
                             for &direction in Direction::ALL {
@@ -776,9 +900,13 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                                 );
                             }
                         });
-                    ui.add(egui::DragValue::new(&mut d.command));
-                    ui.text_edit_singleline(&mut d.label);
-                    if ui.small_button("×").clicked() {
+                    ui.add(egui::DragValue::new(&mut d.command).prefix("cmd "));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut d.label)
+                            .hint_text("label")
+                            .desired_width(80.),
+                    );
+                    if ui.small_button("×").on_hover_text("Remove").clicked() {
                         remove = Some(i);
                     }
                 });
@@ -794,27 +922,29 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                 label: String::new(),
             });
         }
-        ui.label("Command argument");
-        ui.text_edit_singleline(&mut w.value);
-    }
-    if matches!(
-        w.kind,
-        WidgetKind::Button
-            | WidgetKind::ValueWrite
-            | WidgetKind::Dropdown
-            | WidgetKind::DirectionalControl
-    ) {
-        ui.checkbox(&mut w.confirm, "Confirm before sending");
     }
     if w.kind == WidgetKind::Dropdown {
+        ui.add_space(6.);
+        ui.label(super::theme::caption(ui, "Options"));
         let mut remove = None;
         for (i, o) in w.options.iter_mut().enumerate() {
-            ui.horizontal(|ui| {
-                ui.text_edit_singleline(&mut o.value);
-                ui.text_edit_singleline(&mut o.label);
-                if ui.small_button("×").clicked() {
-                    remove = Some(i);
-                }
+            ui.push_id(("option", i), |ui| {
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut o.value)
+                            .hint_text("value")
+                            .font(egui::TextStyle::Monospace)
+                            .desired_width(70.),
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut o.label)
+                            .hint_text("label")
+                            .desired_width(140.),
+                    );
+                    if ui.small_button("×").on_hover_text("Remove").clicked() {
+                        remove = Some(i);
+                    }
+                });
             });
         }
         if let Some(i) = remove {
@@ -826,6 +956,10 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                 label: "Option".into(),
             });
         }
+    }
+    if matches!(w.kind, WidgetKind::DataTable | WidgetKind::AlarmList) {
+        ui.add_space(6.);
+        ui.label(super::theme::caption(ui, "Rows"));
     }
     if matches!(w.kind, WidgetKind::DataTable | WidgetKind::AlarmList) {
         let mut selected = None;
@@ -875,8 +1009,49 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
             w.rows.remove(i);
         }
     }
-    ui.collapsing("Thresholds / state labels", |ui| {
-        thresholds_editor(ui, &mut w.thresholds, "Add threshold");
+    if w.kind != WidgetKind::Container && w.kind != WidgetKind::DeviceInfo {
+        ui.add_space(6.);
+        egui::CollapsingHeader::new(super::theme::caption(ui, "Thresholds and state labels"))
+            .default_open(!w.thresholds.is_empty())
+            .show(ui, |ui| {
+                thresholds_editor(ui, &mut w.thresholds, "Add threshold");
+            });
+    }
+    ui.add_space(6.);
+    egui::CollapsingHeader::new(super::theme::caption(ui, "Size and position")).show(ui, |ui| {
+        egui::Grid::new("geometry")
+            .num_columns(4)
+            .spacing([8., 6.])
+            .show(ui, |ui| {
+                ui.label("Width");
+                ui.add(
+                    egui::DragValue::new(&mut w.width)
+                        .range(120.0..=1600.)
+                        .suffix(" px"),
+                );
+                ui.label("Height");
+                ui.add(
+                    egui::DragValue::new(&mut w.height)
+                        .range(48.0..=1200.)
+                        .suffix(" px"),
+                );
+                ui.end_row();
+                if let Some(position) = &mut w.position {
+                    ui.label("X");
+                    ui.add(
+                        egui::DragValue::new(&mut position[0])
+                            .range(0.0..=100000.)
+                            .suffix(" px"),
+                    );
+                    ui.label("Y");
+                    ui.add(
+                        egui::DragValue::new(&mut position[1])
+                            .range(0.0..=100000.)
+                            .suffix(" px"),
+                    );
+                    ui.end_row();
+                }
+            });
     });
 }
 /// Edits threshold rules with constrained choices, so a rule can never hold a
@@ -931,24 +1106,39 @@ pub(super) fn review(ui: &mut egui::Ui, b: &mut Binding, profile: &Profile) -> b
     if b.matches(profile) {
         return true;
     }
-    ui.colored_label(colors::role(ui, Role::Warn), "Binding needs review");
-    ui.label(format!("{} previously at {}", b.name, b.address));
-    if let Some(e) = profile.resolve(b) {
-        if ui
-            .button(format!("Follow {} to {}", e.name, e.address))
-            .clicked()
-        {
-            *b = Binding::new(b.space, &e);
+    let palette = super::theme::of(ui);
+    ui.horizontal_wrapped(|ui| {
+        ui.label(
+            RichText::new("▲ Needs review")
+                .small()
+                .color(colors::role(ui, Role::Warn)),
+        );
+        ui.label(
+            RichText::new(format!("{} was at address {}", b.name, b.address))
+                .small()
+                .color(palette.text_weak),
+        );
+    });
+    ui.horizontal_wrapped(|ui| {
+        if let Some(e) = profile.resolve(b) {
+            if ui
+                .button(format!("Follow {} to {}", e.name, e.address))
+                .on_hover_text("Keep the entry; use its new address")
+                .clicked()
+            {
+                *b = Binding::new(b.space, &e);
+            }
         }
-    }
-    if let Some(e) = profile.entry_at(b.space, b.address) {
-        if ui
-            .button(format!("Keep address: bind {}", e.name))
-            .clicked()
-        {
-            *b = Binding::new(b.space, &e);
+        if let Some(e) = profile.entry_at(b.space, b.address) {
+            if ui
+                .button(format!("Keep address: bind {}", e.name))
+                .on_hover_text("Keep the address; use whatever entry is there now")
+                .clicked()
+            {
+                *b = Binding::new(b.space, &e);
+            }
         }
-    }
+    });
     false
 }
 fn render_widget(
@@ -977,14 +1167,52 @@ fn render_widget(
         return;
     }
     if w.kind == WidgetKind::DeviceInfo {
-        if let Some(c) = &session.connection {
-            ui.heading(c.device_name.as_deref().unwrap_or(&c.ip));
-            ui.label(format!("{}:{} {:?}", c.ip, c.port, c.interface_type));
-            colors::connection(ui, session);
-            ui.label(format!("Control: {}", c.control_state));
+        let palette = super::theme::of(ui);
+        let Some(c) = &session.connection else {
+            ui.label(RichText::new("Not connected").color(palette.text_weak));
+            return;
+        };
+        let (role, state) = if c.reconnecting {
+            (Role::Warn, "Reconnecting")
+        } else if session.connected() {
+            (Role::Ok, "Connected")
         } else {
-            ui.label("Offline");
-        }
+            (Role::Idle, "Offline")
+        };
+        egui::Grid::new("device-info")
+            .num_columns(2)
+            .spacing([12., 3.])
+            .show(ui, |ui| {
+                let key = |ui: &mut egui::Ui, text: &str| {
+                    ui.label(RichText::new(text).small().color(palette.text_weak));
+                };
+                key(ui, "State");
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("●").color(colors::role(ui, role)));
+                    ui.label(state);
+                });
+                ui.end_row();
+                if let Some(name) = &c.device_name {
+                    key(ui, "Device");
+                    ui.label(name);
+                    ui.end_row();
+                }
+                key(ui, "Address");
+                ui.monospace(format!("{}:{}", c.ip, c.port));
+                ui.end_row();
+                key(ui, "Control");
+                if session.controlled() {
+                    ui.label(RichText::new("This session").color(colors::role(ui, Role::Accent)));
+                } else {
+                    ui.label(
+                        RichText::new(super::session::control_interface_name(
+                            c.control_state as i32,
+                        ))
+                        .color(colors::role(ui, Role::Warn)),
+                    );
+                }
+                ui.end_row();
+            });
         return;
     }
     if matches!(w.kind, WidgetKind::DataTable | WidgetKind::AlarmList) {
@@ -1161,49 +1389,75 @@ fn render_widget(
         .unwrap_or(ui.visuals().text_color());
     let text = raw.map(|v| w.format.format(&e, v)).unwrap_or("—".into());
     match w.kind {
-        WidgetKind::ValueRead => {
-            ui.label(RichText::new(&text).size(32.).monospace().color(color));
-            if !w.unit.is_empty() {
-                ui.weak(&w.unit);
-            }
-        }
+        WidgetKind::ValueRead => readout(ui, &text, &w.unit, color, 40.),
         WidgetKind::Gauge => {
             if w.max <= w.min {
                 ui.colored_label(colors::role(ui, Role::Warn), "Maximum must exceed minimum");
                 return;
             }
-            let (rect, _) = ui.allocate_exact_size(
-                egui::vec2(w.width.min(280.) - 20., 95.),
-                egui::Sense::hover(),
-            );
-            let center = egui::pos2(rect.center().x, rect.bottom() - 8.);
-            let radius = rect.height() - 16.;
+            let palette = super::theme::of(ui);
+            let accent = rule.map_or(palette.accent, |r| colors::role(ui, r.role));
+            let width = ui.available_width().min(260.);
+            let height = (width * 0.58).min(ui.available_height() - 4.).max(60.);
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+            let radius = (rect.width() / 2. - 10.).min(rect.height() - 26.).max(18.);
+            let center = egui::pos2(rect.center().x, rect.top() + radius + 6.);
             let fraction = value
                 .map(|v| ((v - w.min) / (w.max - w.min)).clamp(0., 1.))
                 .unwrap_or(0.) as f32;
-            let points: Vec<_> = (0..=40)
-                .map(|i| {
-                    let angle = std::f32::consts::PI * (1. + i as f32 / 40.);
-                    center + egui::vec2(angle.cos(), angle.sin()) * radius
-                })
-                .collect();
+            let arc = |from: f32, to: f32| -> Vec<egui::Pos2> {
+                let steps = ((to - from) * 48.).ceil().max(1.) as usize;
+                (0..=steps)
+                    .map(|i| {
+                        let t = from + (to - from) * i as f32 / steps as f32;
+                        let angle = std::f32::consts::PI * (1. + t);
+                        center + egui::vec2(angle.cos(), angle.sin()) * radius
+                    })
+                    .collect()
+            };
+            let thickness = (radius * 0.16).clamp(6., 14.);
             ui.painter().add(egui::Shape::line(
-                points,
-                egui::Stroke::new(7_f32, ui.visuals().faint_bg_color),
+                arc(0., 1.),
+                egui::Stroke::new(thickness, palette.well),
             ));
-            let a = std::f32::consts::PI * (1. + fraction);
-            ui.painter().line_segment(
-                [
-                    center,
-                    center + egui::vec2(a.cos(), a.sin()) * (radius - 8.),
-                ],
-                egui::Stroke::new(3_f32, color),
+            if value.is_some() && fraction > 0. {
+                ui.painter().add(egui::Shape::line(
+                    arc(0., fraction),
+                    egui::Stroke::new(thickness, accent),
+                ));
+            }
+            let font = |size: f32| egui::FontId::monospace(size);
+            ui.painter().text(
+                center - egui::vec2(0., radius * 0.18),
+                egui::Align2::CENTER_BOTTOM,
+                &text,
+                font(fitted_size(radius * 1.3, text.chars().count(), 12., 30.)),
+                if value.is_some() {
+                    color
+                } else {
+                    palette.text_weak
+                },
             );
-            ui.label(
-                RichText::new(format!("{} {}", text, w.unit))
-                    .size(24.)
-                    .color(color),
-            );
+            if !w.unit.is_empty() {
+                ui.painter().text(
+                    center - egui::vec2(0., radius * 0.18 - 4.),
+                    egui::Align2::CENTER_TOP,
+                    &w.unit,
+                    egui::FontId::proportional(11.),
+                    palette.text_weak,
+                );
+            }
+            let limit = |x: f32, v: f64, align| {
+                ui.painter().text(
+                    egui::pos2(x, center.y + 4.),
+                    align,
+                    format!("{v}"),
+                    egui::FontId::monospace(10.5),
+                    palette.text_weak,
+                );
+            };
+            limit(center.x - radius, w.min, egui::Align2::CENTER_TOP);
+            limit(center.x + radius, w.max, egui::Align2::CENTER_TOP);
         }
         WidgetKind::ProgressBar => {
             let ratio = value
@@ -1215,46 +1469,48 @@ fn render_widget(
                     }
                 })
                 .unwrap_or(0.);
+            let palette = super::theme::of(ui);
+            let fill = rule.map_or(palette.accent, |r| colors::role(ui, r.role));
             if w.vertical {
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(32., 110.), egui::Sense::hover());
-                ui.painter()
-                    .rect_filled(rect, 2., ui.visuals().faint_bg_color);
-                let fill = egui::Rect::from_min_max(
-                    egui::pos2(rect.left(), rect.bottom() - rect.height() * ratio as f32),
-                    rect.right_bottom(),
-                );
-                ui.painter().rect_filled(fill, 2., color);
-                ui.label(format!("{} {}", text, w.unit));
+                ui.horizontal(|ui| {
+                    let height = (ui.available_height() - 8.).clamp(40., 220.);
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(14., height), egui::Sense::hover());
+                    ui.painter().rect_filled(rect, 2, palette.well);
+                    let level = egui::Rect::from_min_max(
+                        egui::pos2(rect.left(), rect.bottom() - rect.height() * ratio as f32),
+                        rect.right_bottom(),
+                    );
+                    ui.painter().rect_filled(level, 2, fill);
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new(&text).monospace().color(color));
+                        ui.label(RichText::new(&w.unit).small().color(palette.text_weak));
+                    });
+                });
             } else {
-                ui.add(
-                    egui::ProgressBar::new(ratio as f32)
-                        .fill(color)
-                        .text(format!("{} {}", text, w.unit)),
-                );
+                level_bar(ui, ratio as f32, &text, &w.unit, fill);
             }
         }
         WidgetKind::EncoderDisplay => {
-            ui.label(
-                RichText::new(
-                    value
-                        .map(|v| format!("{:.*} {}", w.decimals.min(9), v * w.factor, w.unit))
-                        .unwrap_or("—".into()),
-                )
-                .size(28.)
-                .color(color),
-            );
+            let scaled = value
+                .map(|v| format!("{:.*}", w.decimals.min(9), v * w.factor))
+                .unwrap_or("—".into());
+            readout(ui, &scaled, &w.unit, color, 34.);
             if w.show_raw {
                 ui.weak(format!("Raw: {text} {}", w.secondary_unit));
             }
         }
         WidgetKind::LedIndicator | WidgetKind::StateLed => {
-            let on = value.is_some_and(|v| v == w.on_value);
+            // A State LED lights in the colour of its matching state; an LED
+            // indicator lights when the value equals its on value.
+            let on = if w.kind == WidgetKind::StateLed && rule.is_some() {
+                true
+            } else {
+                value.is_some_and(|v| v == w.on_value)
+            };
+            let lit = rule.map_or(colors::role(ui, Role::Ok), |r| colors::role(ui, r.role));
             ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(if on { "●" } else { "○" })
-                        .size(24.)
-                        .color(if raw.is_none() { Color32::GRAY } else { color }),
-                );
+                lamp(ui, raw.map(|_| on), lit, 8.);
                 ui.label(
                     rule.map(|r| r.label.clone())
                         .filter(|s| !s.is_empty())
@@ -1272,22 +1528,51 @@ fn render_widget(
             });
         }
         WidgetKind::StatusMatrix => {
-            egui::Grid::new("bits").num_columns(8).show(ui, |ui| {
-                for bit in 0..32 {
-                    let on = raw.is_some_and(|v| (v as u32) & (1 << bit) != 0);
-                    ui.colored_label(
-                        if on {
-                            colors::role(ui, Role::Ok)
-                        } else {
-                            Color32::GRAY
-                        },
-                        format!("{bit:02} {}", if on { "●" } else { "○" }),
-                    );
-                    if bit % 8 == 7 {
-                        ui.end_row();
+            let palette = super::theme::of(ui);
+            let lit = colors::role(ui, Role::Ok);
+            let cell = ((ui.available_width() - 7. * 4.) / 8.).clamp(16., 34.);
+            egui::Grid::new("bits")
+                .num_columns(8)
+                .spacing([4., 4.])
+                .show(ui, |ui| {
+                    // Most significant bit first, as in a register diagram.
+                    for bit in (0..32).rev() {
+                        let on = raw.map(|v| (v as u32) & (1 << bit) != 0);
+                        let (rect, response) =
+                            ui.allocate_exact_size(egui::vec2(cell, 18.), egui::Sense::hover());
+                        let (fill, text) = match on {
+                            Some(true) => (lit.gamma_multiply(0.85), palette.well),
+                            Some(false) => (palette.well, palette.text_weak),
+                            None => (Color32::TRANSPARENT, palette.text_weak),
+                        };
+                        ui.painter().rect(
+                            rect,
+                            2,
+                            fill,
+                            egui::Stroke::new(1_f32, palette.ghost),
+                            egui::StrokeKind::Inside,
+                        );
+                        ui.painter().text(
+                            rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            bit.to_string(),
+                            egui::FontId::monospace(10.),
+                            text,
+                        );
+                        response.on_hover_text(format!(
+                            "Bit {bit} (0x{:08X}): {}",
+                            1u32 << bit,
+                            match on {
+                                Some(true) => "set",
+                                Some(false) => "clear",
+                                None => "unknown",
+                            }
+                        ));
+                        if bit % 8 == 0 {
+                            ui.end_row();
+                        }
                     }
-                }
-            });
+                });
         }
         WidgetKind::Button => {
             if ui
@@ -1306,28 +1591,45 @@ fn render_widget(
             }
         }
         WidgetKind::ValueWrite => {
-            ui.monospace(&text);
-            ui.text_edit_singleline(&mut w.value);
-            if ui
-                .add_enabled(
-                    session.controlled() && !editing && e.writable,
-                    egui::Button::new("Write"),
-                )
-                .clicked()
-            {
-                session.write_formatted(binding.space, &e, &w.value, w.format, w.confirm);
-            }
+            ui.label(RichText::new(&text).monospace().color(color));
+            ui.horizontal(|ui| {
+                let enabled = session.controlled() && !editing && e.writable;
+                let input = ui.add(
+                    egui::TextEdit::singleline(&mut w.value)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width((ui.available_width() - 60.).max(40.)),
+                );
+                let submit = input.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if (ui
+                    .add_enabled(enabled, egui::Button::new("Write"))
+                    .clicked()
+                    || submit)
+                    && enabled
+                {
+                    session.write_formatted(binding.space, &e, &w.value, w.format, w.confirm);
+                }
+            });
         }
         WidgetKind::Dropdown => {
-            ui.monospace(&text);
+            let current = value.and_then(|v| {
+                w.options
+                    .iter()
+                    .find(|o| o.value.trim().parse::<f64>().ok() == Some(v))
+            });
             egui::ComboBox::from_id_salt("options")
-                .selected_text("Select value")
+                .width(ui.available_width().min(220.))
+                .selected_text(match current {
+                    Some(o) => RichText::new(&o.label).color(color),
+                    None if raw.is_some() => RichText::new(&text).monospace(),
+                    None => RichText::new("—").color(super::theme::of(ui).text_weak),
+                })
                 .show_ui(ui, |ui| {
                     for o in &w.options {
+                        let chosen = current.is_some_and(|c| std::ptr::eq(c, o));
                         if ui
                             .add_enabled(
                                 session.controlled() && !editing && e.writable,
-                                egui::Button::new(&o.label),
+                                egui::Button::new(&o.label).selected(chosen),
                             )
                             .clicked()
                         {
@@ -1339,42 +1641,135 @@ fn render_widget(
         }
         WidgetKind::MiniPlot => {
             session.want_history(binding);
-            egui_plot::Plot::new("mini-plot")
-                .height((w.height - 70.).max(40.))
-                .show_axes([false, true])
-                // Dragging or scrolling inside a dashboard must move the dashboard.
-                .allow_drag(false)
-                .allow_zoom(false)
-                .allow_scroll(false)
-                .allow_boxed_zoom(false)
-                .allow_double_click_reset(false)
-                .show(ui, |plot| {
-                    if let Some(h) = session.histories.get(&(binding.space, binding.address)) {
-                        if let Some(last) = h.back() {
-                            let points = super::panes::window(
-                                h,
-                                last[0] - w.time_span,
-                                last[0],
-                                super::panes::MAX_TRACE_POINTS,
-                            );
-                            plot.line(egui_plot::Line::new(points).color(color));
+            super::theme::plot_tone(ui, |ui| {
+                egui_plot::Plot::new("mini-plot")
+                    .height((w.height - 70.).max(40.))
+                    .show_axes([false, true])
+                    // Dragging or scrolling inside a dashboard must move the dashboard.
+                    .allow_drag(false)
+                    .allow_zoom(false)
+                    .allow_scroll(false)
+                    .allow_boxed_zoom(false)
+                    .allow_double_click_reset(false)
+                    .show(ui, |plot| {
+                        if let Some(h) = session.histories.get(&(binding.space, binding.address)) {
+                            if let Some(last) = h.back() {
+                                let points = super::panes::window(
+                                    h,
+                                    last[0] - w.time_span,
+                                    last[0],
+                                    super::panes::MAX_TRACE_POINTS,
+                                );
+                                plot.line(egui_plot::Line::new(points).color(color));
+                            }
                         }
-                    }
-                });
+                    })
+            });
         }
         _ => {}
     }
     if let Some(outcome) = session.writes.get(&(binding.space, binding.address)) {
-        colors::outcome(ui, outcome);
+        ui.horizontal(|ui| colors::outcome_inline(ui, outcome));
     }
-    let (role, label) = colors::reading(
+}
+/// The reading status shown in a bound widget's title row.
+fn widget_status(
+    w: &Widget,
+    session: &Session,
+    profile: &Profile,
+    prefs: &Preferences,
+) -> Option<(Role, &'static str)> {
+    if matches!(
+        w.kind,
+        WidgetKind::Container
+            | WidgetKind::DeviceInfo
+            | WidgetKind::DirectionalControl
+            | WidgetKind::DataTable
+            | WidgetKind::AlarmList
+    ) {
+        return None;
+    }
+    let b = w.binding.as_ref().filter(|b| b.matches(profile))?;
+    let interval = if w.kind == WidgetKind::MiniPlot {
+        w.poll_ms
+    } else {
+        prefs.poll_ms
+    };
+    Some(colors::reading(
         session.connected(),
-        session.readings.get(&(binding.space, binding.address)),
-        Some(if w.kind == WidgetKind::MiniPlot {
-            w.poll_ms
-        } else {
-            prefs.poll_ms
-        }),
+        session.readings.get(&(b.space, b.address)),
+        Some(interval),
+    ))
+}
+/// A font size that fits `chars` monospace characters into `width`, between
+/// `min` and `max` points.
+fn fitted_size(width: f32, chars: usize, min: f32, max: f32) -> f32 {
+    (width / (chars.max(1) as f32 * 0.62)).clamp(min, max)
+}
+/// A large numeric readout with its unit, sized to the space available.
+fn readout(ui: &mut egui::Ui, text: &str, unit: &str, color: Color32, max: f32) {
+    let palette = super::theme::of(ui);
+    let unit_width = if unit.is_empty() {
+        0.
+    } else {
+        unit.len() as f32 * 8. + 8.
+    };
+    let size = fitted_size(
+        ui.available_width() - unit_width,
+        text.chars().count(),
+        14.,
+        max.min(ui.available_height() * 0.8).max(14.),
     );
-    ui.colored_label(colors::role(ui, role), RichText::new(label).small());
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.;
+        ui.label(RichText::new(text).monospace().size(size).color(color));
+        if !unit.is_empty() {
+            ui.label(RichText::new(unit).color(palette.text_weak));
+        }
+    });
+}
+/// A horizontal level bar: track, fill and the value with its unit.
+fn level_bar(ui: &mut egui::Ui, ratio: f32, text: &str, unit: &str, color: Color32) {
+    let palette = super::theme::of(ui);
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(text).monospace().color(palette.text));
+        if !unit.is_empty() {
+            ui.label(RichText::new(unit).small().color(palette.text_weak));
+        }
+    });
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 8.), egui::Sense::hover());
+    ui.painter().rect_filled(rect, 2, palette.well);
+    if ratio > 0. {
+        let fill =
+            egui::Rect::from_min_size(rect.min, egui::vec2(rect.width() * ratio, rect.height()));
+        ui.painter().rect_filled(fill, 2, color);
+    }
+}
+/// An indicator lamp: filled when on, a ring when off, dashed when unknown.
+fn lamp(ui: &mut egui::Ui, state: Option<bool>, color: Color32, radius: f32) {
+    let palette = super::theme::of(ui);
+    let (rect, _) =
+        ui.allocate_exact_size(egui::Vec2::splat(radius * 2. + 2.), egui::Sense::hover());
+    let center = rect.center();
+    match state {
+        Some(true) => {
+            ui.painter().circle_filled(center, radius, color);
+        }
+        Some(false) => {
+            ui.painter().circle(
+                center,
+                radius,
+                palette.well,
+                egui::Stroke::new(1.5_f32, palette.text_weak),
+            );
+        }
+        None => {
+            ui.painter().circle_stroke(
+                center,
+                radius,
+                egui::Stroke::new(1_f32, palette.ghost_strong),
+            );
+        }
+    }
 }

@@ -38,3 +38,91 @@ pub fn confirm_button(ui: &mut egui::Ui, id: impl std::hash::Hash, label: &str) 
         false
     }
 }
+
+/// The emphasised action of a view: accent fill, dark text.
+pub fn primary(ui: &egui::Ui, text: &str) -> egui::Button<'static> {
+    let accent = super::theme::of(ui).accent;
+    let text_color = if ui.visuals().dark_mode {
+        super::theme::DARK.well
+    } else {
+        egui::Color32::WHITE
+    };
+    egui::Button::new(egui::RichText::new(text).color(text_color)).fill(accent)
+}
+
+pub fn primary_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    let button = primary(ui, text);
+    ui.add(button)
+}
+
+/// A compact segmented choice between a few values.
+pub fn segmented<T: PartialEq + Copy>(ui: &mut egui::Ui, value: &mut T, options: &[(T, &str)]) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.;
+        for (option, label) in options {
+            let selected = *value == *option;
+            let text = egui::RichText::new(*label);
+            let button = egui::Button::new(if selected {
+                text.color(super::theme::of(ui).accent)
+            } else {
+                text
+            })
+            .fill(if selected {
+                ui.visuals().selection.bg_fill
+            } else {
+                ui.visuals().widgets.inactive.weak_bg_fill
+            });
+            if ui.add(button).clicked() {
+                *value = *option;
+            }
+        }
+    });
+}
+
+/// The toolbar's connection summary: status dot, device and transport, and
+/// whether this session holds Control.
+pub fn device_chip(ui: &egui::Ui, session: &super::session::Session) -> egui::text::LayoutJob {
+    use egui::text::{LayoutJob, TextFormat};
+    let palette = super::theme::of(ui);
+    let body = egui::TextStyle::Body.resolve(ui.style());
+    let mono = egui::TextStyle::Monospace.resolve(ui.style());
+    let small = egui::TextStyle::Small.resolve(ui.style());
+    let (role, state) = match &session.connection {
+        Some(c) if c.reconnecting => (Role::Warn, "Reconnecting"),
+        _ if session.busy => (Role::Info, "Connecting"),
+        Some(_) if session.connected() => (Role::Ok, ""),
+        _ => (Role::Idle, "Offline"),
+    };
+    let mut job = LayoutJob::default();
+    job.append(
+        "● ",
+        0.,
+        TextFormat::simple(body.clone(), colors::role(ui, role)),
+    );
+    match session.connection.as_ref().filter(|_| state.is_empty()) {
+        Some(c) => {
+            if let Some(name) = &c.device_name {
+                job.append(name, 0., TextFormat::simple(body.clone(), palette.text));
+                job.append("  ", 0., TextFormat::simple(body.clone(), palette.text));
+            }
+            job.append(
+                &format!("{}:{}", c.ip, c.port),
+                0.,
+                TextFormat::simple(mono, palette.text),
+            );
+            job.append(
+                &format!("  {:?}", c.interface_type).to_uppercase(),
+                0.,
+                TextFormat::simple(small.clone(), palette.text_weak),
+            );
+            let (role, label) = if session.controlled() {
+                (Role::Accent, "  CONTROL")
+            } else {
+                (Role::Warn, "  NO CONTROL")
+            };
+            job.append(label, 0., TextFormat::simple(small, colors::role(ui, role)));
+        }
+        None => job.append(state, 0., TextFormat::simple(body, palette.text)),
+    }
+    job
+}

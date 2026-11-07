@@ -62,7 +62,12 @@ impl Desktop {
         if kind == PaneKind::Plot {
             pane.plot_series = self.saved.series.iter().map(|s| s.id.clone()).collect();
         }
-        self.saved.dock = DockState::new(vec![pane]);
+        self.saved.preferences.dark = scene != "light";
+        self.saved.dock = if matches!(scene, "workspace" | "light") {
+            default_dock()
+        } else {
+            DockState::new(vec![pane])
+        };
         if scene == "native-window" {
             self.saved.windows.push(NativeWindow {
                 id: "smoke-daughter".into(),
@@ -72,6 +77,9 @@ impl Desktop {
                 size: [1000., 700.],
             });
         }
+        self.profiles_open = scene == "profiles";
+        self.settings_open = scene == "preferences";
+        self.guide_open = scene == "guide";
         if scene == "review" {
             profile.registers_map = format!("uint32_t INSERTED;\n{}", profile.registers_map);
             self.review_open = true;

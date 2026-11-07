@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory(prefix='dshub-smoke-state-') as state:
     emulator = subprocess.Popen(['python3', '-u', 'emulator/dshub_emulator.py'], stdout=subprocess.DEVNULL)
     try:
         time.sleep(.8)
-        for scene in ['registers', 'parameters', 'system', 'commands', 'inspector', 'log', 'plot', 'editor', 'dashboard', 'cnc', 'cnc-edit', 'review', 'native-window']:
+        for scene in ['registers', 'parameters', 'system', 'commands', 'inspector', 'log', 'plot', 'editor', 'dashboard', 'cnc', 'cnc-edit', 'review', 'native-window', 'workspace', 'profiles', 'preferences', 'guide', 'light']:
             (out / f'{scene}.png').unlink(missing_ok=True)
             env = os.environ.copy()
             env.update(DSHUB_SCREENSHOT=str(out / f'{scene}.png'), DSHUB_SMOKE_SCENE=scene, XDG_DATA_HOME=state, XDG_CONFIG_HOME=state)

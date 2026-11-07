@@ -212,7 +212,7 @@ impl Entry {
     pub fn format(&self, value: i32) -> String {
         match self.data_type {
             DataType::Hex => format!("0x{:08X}", value as u32),
-            DataType::Float => f32::from_bits(value as u32).to_string(),
+            DataType::Float => format_float(f32::from_bits(value as u32)),
             DataType::Uint32 => (value as u32).to_string(),
             _ => value.to_string(),
         }
@@ -239,6 +239,16 @@ impl Entry {
             text.parse::<i32>()
                 .map_err(|_| "Expected a signed 32-bit value".into())
         }
+    }
+}
+/// Shortest round-trip text for a float, switching to exponent notation where
+/// plain decimals would run to dozens of digits.
+pub fn format_float(v: f32) -> String {
+    let magnitude = v.abs();
+    if v == 0. || !v.is_finite() || (1e-4..1e9).contains(&magnitude) {
+        v.to_string()
+    } else {
+        format!("{v:e}")
     }
 }
 pub fn parse_map(content: &str, space: Space) -> Result<Vec<Entry>, Vec<String>> {
@@ -412,7 +422,7 @@ pub fn parsed_map(text: &str, space: Space) -> Arc<ParsedMap> {
     parsed
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SysCommand {
     pub code: u16,
@@ -493,10 +503,22 @@ impl Profile {
         self.registers_metadata = draft.registers_metadata.clone();
         self.parameters_metadata = draft.parameters_metadata.clone();
     }
+    /// Whether maps, commands or metadata differ (what a Map Editor draft edits).
     pub fn maps_differ(&self, other: &Profile) -> bool {
-        let a = self.export();
-        let b = other.export();
-        a["maps"] != b["maps"] || a["metadata"] != b["metadata"]
+        let profile_commands = |p: &Profile| {
+            p.sys_commands
+                .iter()
+                .filter(|c| !(65000..=65002).contains(&c.code))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        self.registers_map != other.registers_map
+            || self.parameters_map != other.parameters_map
+            || self.system_registers_map != other.system_registers_map
+            || self.board_types_map != other.board_types_map
+            || self.registers_metadata != other.registers_metadata
+            || self.parameters_metadata != other.parameters_metadata
+            || profile_commands(self) != profile_commands(other)
     }
     pub fn map(&self, s: Space) -> &str {
         match s {
@@ -1040,6 +1062,28 @@ mod parse_tests {
         .unwrap();
         let names: Vec<_> = e.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(names, ["A", "B[0]", "B[1]", "C"]);
+    }
+
+    #[test]
+    fn extreme_floats_use_exponent_notation_and_round_trip() {
+        let e = Entry {
+            address: 0,
+            name: "F".into(),
+            data_type: DataType::Float,
+            writable: true,
+            array_size: None,
+        };
+        for raw in [
+            2,
+            0x0080_0000,
+            f32::MAX.to_bits() as i32,
+            1.5f32.to_bits() as i32,
+        ] {
+            let text = e.format(raw);
+            assert!(text.len() < 16, "{text}");
+            assert_eq!(e.encode(&text).unwrap(), raw);
+        }
+        assert_eq!(e.format(1.5f32.to_bits() as i32), "1.5");
     }
 
     #[test]

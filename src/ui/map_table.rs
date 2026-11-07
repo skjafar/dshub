@@ -130,7 +130,7 @@ pub fn show(
                         "Details",
                         "Order / Remove",
                     ] {
-                        ui.strong(label);
+                        ui.label(super::theme::caption(ui, label));
                     }
                     ui.end_row();
                     for (index, row) in rows.iter_mut().enumerate() {
