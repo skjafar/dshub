@@ -146,11 +146,17 @@ pub enum DisplayFormat {
     Decimal,
     Hexadecimal,
     Binary,
+    /// Each entry in its declared type: integers in decimal, floats as floats,
+    /// hex entries in hexadecimal. Offered by the Register and Parameter panes
+    /// only; dashboard widgets keep the three portable Profile formats.
+    Native,
 }
 impl DisplayFormat {
+    /// The formats a dashboard widget can use (portable Profile format v1).
     pub const ALL: [Self; 3] = [Self::Decimal, Self::Hexadecimal, Self::Binary];
     pub fn title(self) -> &'static str {
         match self {
+            Self::Native => "Default",
             Self::Decimal => "Decimal",
             Self::Hexadecimal => "Hexadecimal",
             Self::Binary => "Binary",
@@ -158,6 +164,7 @@ impl DisplayFormat {
     }
     pub fn format(self, e: &Entry, raw: i32) -> String {
         match self {
+            Self::Native => e.format(raw),
             Self::Decimal => {
                 if e.data_type == DataType::Hex {
                     (raw as u32).to_string()
@@ -171,7 +178,7 @@ impl DisplayFormat {
     }
     pub fn encode(self, e: &Entry, text: &str) -> Result<i32, String> {
         match self {
-            Self::Decimal => e.encode(text),
+            Self::Native | Self::Decimal => e.encode(text),
             Self::Hexadecimal => u32::from_str_radix(
                 text.trim()
                     .trim_start_matches("0x")
@@ -1052,6 +1059,20 @@ mod tests {
 #[cfg(test)]
 mod parse_tests {
     use super::*;
+
+    #[test]
+    fn default_format_shows_each_entry_in_its_declared_type() {
+        let e = parse_map("int32_t I;\nuint32_t U;\nfloat F;\nhex H;", Space::Register).unwrap();
+        let native = DisplayFormat::Native;
+        assert_eq!(native.format(&e[0], -5), "-5");
+        assert_eq!(native.format(&e[1], -1), "4294967295");
+        assert_eq!(native.format(&e[2], 1.5_f32.to_bits() as i32), "1.5");
+        assert_eq!(native.format(&e[3], 255), "0x000000FF");
+        for (entry, text) in e.iter().zip(["-5", "7", "1.5", "0xFF"]) {
+            let raw = native.encode(entry, text).unwrap();
+            assert_eq!(native.encode(entry, &native.format(entry, raw)), Ok(raw));
+        }
+    }
 
     #[test]
     fn comments_and_non_ascii_text_are_handled_per_character() {

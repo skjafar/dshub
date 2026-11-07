@@ -72,6 +72,8 @@ pub struct Toast {
     pub created: f64,
     /// Identical messages in a row collapse into one with a count.
     pub count: usize,
+    /// Restores what the message reports as removed.
+    pub undo: Option<Undo>,
 }
 impl Toast {
     /// How long the toast stays, in ms; errors stay until dismissed.
@@ -79,9 +81,25 @@ impl Toast {
         match self.role {
             Role::Error => None,
             Role::Warn => Some(8000.),
+            _ if self.undo.is_some() => Some(8000.),
             _ => Some(4000.),
         }
     }
+}
+/// A removal that a toast can reverse.
+#[derive(Debug, Clone)]
+pub enum Undo {
+    /// A dashboard widget, restored into its container at its old position.
+    Widget {
+        profile: String,
+        dashboard: String,
+        /// The containing widget; `None` for the dashboard's top level.
+        parent: Option<String>,
+        index: usize,
+        widget: Box<Widget>,
+    },
+    /// A plot trace, restored at its old position in the trace list.
+    Trace { index: usize, series: PlotSeries },
 }
 pub struct Session {
     pub _runtime: tokio::runtime::Runtime,
@@ -100,13 +118,18 @@ pub struct Session {
     /// A warning for the operator; becomes a toast at the end of the frame.
     pub notice: String,
     pub toasts: Vec<Toast>,
+    /// An Undo clicked in a toast, applied by the application next frame.
+    pub undo: Option<Undo>,
+    /// A widget removed while drawing a dashboard: (container, index, widget).
+    /// The dashboard turns it into an Undo toast once it knows its identity.
+    pub removed_widget: Option<(Option<String>, usize, Widget)>,
     pub selection: Option<(Space, Entry)>,
     pub interests: BTreeSet<(Space, u16, String, u64)>,
     pub last_interests: BTreeSet<(Space, u16, String, u64)>,
     /// Addresses whose history a visible plot wants this frame.
-    history_wanted: BTreeSet<(Space, u16)>,
+    history_wanted: BTreeMap<(Space, u16), String>,
     /// Last frame's `history_wanted`, which incoming readings are recorded for.
-    history_keys: BTreeSet<(Space, u16)>,
+    history_keys: BTreeMap<(Space, u16), String>,
     pub command_responses: BTreeMap<u16, CommandResponse>,
     pub confirm: Option<(String, Action)>,
     pub writes: BTreeMap<(Space, u16), WriteOutcome>,
@@ -191,11 +214,13 @@ impl Session {
             logs: VecDeque::new(),
             notice: String::new(),
             toasts: vec![],
+            undo: None,
+            removed_widget: None,
             selection: None,
             interests: BTreeSet::new(),
             last_interests: BTreeSet::new(),
-            history_wanted: BTreeSet::new(),
-            history_keys: BTreeSet::new(),
+            history_wanted: BTreeMap::new(),
+            history_keys: BTreeMap::new(),
             command_responses: BTreeMap::new(),
             confirm: None,
             writes: BTreeMap::new(),
@@ -365,8 +390,23 @@ impl Session {
             text,
             created: now,
             count: 1,
+            undo: None,
         });
         // Keep the stack short; the Activity log holds the full history.
+        if self.toasts.len() > 5 {
+            self.toasts.remove(0);
+        }
+    }
+    /// Reports a removal with an Undo action. Not written to the Activity log:
+    /// it is an editing step, not a device or application event.
+    pub fn removed(&mut self, text: impl Into<String>, undo: Undo) {
+        self.toasts.push(Toast {
+            role: Role::Info,
+            text: text.into(),
+            created: crate::communicator::now_ms(),
+            count: 1,
+            undo: Some(undo),
+        });
         if self.toasts.len() > 5 {
             self.toasts.remove(0);
         }
@@ -380,7 +420,9 @@ impl Session {
     }
     /// Asks for `b`'s readings to be kept as a plot history.
     pub fn want_history(&mut self, b: &Binding) {
-        self.history_wanted.insert((b.space, b.address));
+        self.history_wanted
+            .entry((b.space, b.address))
+            .or_insert_with(|| b.name.clone());
     }
     /// Ends a frame: sends changed subscriptions and drops histories nothing plots.
     pub fn sync(&mut self) {
@@ -389,9 +431,52 @@ impl Session {
             self.send(Action::Subscriptions(self.interests.clone()));
             self.last_interests = self.interests.clone();
         }
-        self.history_keys = std::mem::take(&mut self.history_wanted);
+        let wanted = std::mem::take(&mut self.history_wanted);
+        if wanted.len() != self.history_keys.len() || !wanted.keys().eq(self.history_keys.keys()) {
+            self.log_plot_changes(&wanted);
+        }
+        self.history_keys = wanted;
         let keys = &self.history_keys;
-        self.histories.retain(|k, _| keys.contains(k));
+        self.histories.retain(|k, _| keys.contains_key(k));
+    }
+    /// Records traces that started or stopped keeping a history.
+    fn log_plot_changes(&mut self, wanted: &BTreeMap<(Space, u16), String>) {
+        if !self
+            .app
+            .state()
+            .log_filter
+            .category_enabled(&LogCategory::Plotting)
+        {
+            return;
+        }
+        let now = crate::communicator::now_ms();
+        let entry = |message: String| LogEntry {
+            level: LogLevel::Info,
+            category: LogCategory::Plotting,
+            message,
+            timestamp: now,
+            packet_data: None,
+        };
+        let describe = |(s, address): &(Space, u16), name: &str| {
+            let space = match s {
+                Space::Register => "register",
+                Space::Parameter => "parameter",
+                Space::SysRegister => "system register",
+            };
+            format!("{name} ({space} {address})")
+        };
+        for (key, name) in wanted {
+            if !self.history_keys.contains_key(key) {
+                let text = format!("Recording plot history for {}", describe(key, name));
+                self.logs.push_back(entry(text));
+            }
+        }
+        for (key, name) in &self.history_keys {
+            if !wanted.contains_key(key) {
+                let text = format!("Stopped recording plot history for {}", describe(key, name));
+                self.logs.push_back(entry(text));
+            }
+        }
     }
     pub fn read(&mut self, s: Space, e: &Entry) {
         self.send(Action::Read(s, e.address, e.name.clone()));
@@ -569,7 +654,7 @@ impl Session {
         }
         // Only addresses something plots keep a history; everything else needs
         // just the latest value.
-        if r.valid && self.history_keys.contains(&(s, r.address)) {
+        if r.valid && self.history_keys.contains_key(&(s, r.address)) {
             if let Some(e) = p.entry_at(s, r.address) {
                 let value = e.decode(r.value);
                 if value.is_finite() {

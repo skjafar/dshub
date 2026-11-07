@@ -19,8 +19,10 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::commands::AppState;
-use crate::communicator::{make_read_packet, DeviceRequest};
-use crate::types::{CMD_READ_PARAMETER, CMD_READ_REGISTER, CMD_READ_SYS_REG};
+use crate::communicator::{emit_log, make_read_packet, DeviceRequest, Origin};
+use crate::types::{
+    LogCategory, LogLevel, CMD_READ_PARAMETER, CMD_READ_REGISTER, CMD_READ_SYS_REG,
+};
 
 /// Matches `pollRegistry.ts`'s existing `MIN_INTERVAL_MS` floor.
 pub const MIN_INTERVAL_MS: u64 = 50;
@@ -37,6 +39,13 @@ pub enum DataSource {
 }
 
 impl DataSource {
+    fn label(self) -> &'static str {
+        match self {
+            DataSource::Register => "register",
+            DataSource::Parameter => "parameter",
+            DataSource::SysRegister => "system register",
+        }
+    }
     fn read_command(self) -> u16 {
         match self {
             DataSource::Register => CMD_READ_REGISTER,
@@ -196,6 +205,7 @@ fn spawn_address_poll_task(
                 command,
                 address,
                 name: Some(name.clone()),
+                origin: Origin::Poll,
             };
             if tx.send(req).await.is_err() {
                 break; // communicator gone — exit silently
@@ -226,8 +236,23 @@ async fn reschedule_address(app: &AppHandle, key: AddressKey) {
         (subs.name_for(key), subs.fastest_interval_for(key))
     };
 
+    let target = match &name {
+        Some(name) if !name.is_empty() => {
+            format!("{name} ({} {})", key.source.label(), key.address)
+        }
+        _ => format!("{} {}", key.source.label(), key.address),
+    };
     let Some(interval_ms) = fastest else {
+        let running = state.poll_tasks.lock().await.contains_key(&key);
         abort_task(state, key).await;
+        if running {
+            emit_log(
+                app,
+                LogLevel::Info,
+                LogCategory::AutoRefresh,
+                format!("Stopped polling {target}"),
+            );
+        }
         return;
     };
 
@@ -253,6 +278,13 @@ async fn reschedule_address(app: &AppHandle, key: AddressKey) {
     let handle =
         spawn_address_poll_task(app.clone(), tx, key, name.unwrap_or_default(), interval_ms);
     tasks.insert(key, (handle, interval_ms));
+    drop(tasks);
+    emit_log(
+        app,
+        LogLevel::Info,
+        LogCategory::AutoRefresh,
+        format!("Polling {target} every {interval_ms} ms"),
+    );
 }
 
 /// Respawns a task for every address that still has subscribers, against a

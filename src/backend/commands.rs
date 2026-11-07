@@ -10,7 +10,7 @@ use tokio::time::timeout;
 
 use crate::communicator::{
     emit_log, make_control_packet, make_read_packet, make_sys_cmd_packet, make_write_packet,
-    run_tcp_communicator, run_udp_communicator, DeviceRequest,
+    run_tcp_communicator, run_udp_communicator, DeviceRequest, Origin,
 };
 use crate::types::*;
 
@@ -257,7 +257,7 @@ async fn activate(
         *sender = Some(tx.clone());
         *state.connection.lock().await = Some(connection.clone());
     }
-    *state.heartbeat.lock().await = Some(spawn_heartbeat(tx.clone()));
+    *state.heartbeat.lock().await = Some(spawn_heartbeat(app.clone(), tx.clone()));
     crate::poll::resume_poll_subscriptions(app, &tx).await;
     app.emit(Event::ConnectionStatus(connection));
     emit_log(
@@ -367,10 +367,9 @@ async fn supervise(
 /// Spawn a heartbeat task that reads CONTROL_INTERFACE (sys reg addr 2) every
 /// `HEARTBEAT_INTERVAL`. This keeps the communicator's consecutive-timeout counter
 /// ticking even when no panel is actively polling, so a device disconnect is detected
-/// promptly. It deliberately bypasses the rate limiter: liveness detection must not
-/// be throttled by the user's request budget. The task exits silently when the
-/// channel is closed.
-fn spawn_heartbeat(tx: mpsc::Sender<DeviceRequest>) -> JoinHandle<()> {
+/// promptly. Like every other request it waits for the shared rate limiter. The
+/// task exits silently when the channel is closed.
+fn spawn_heartbeat(app: AppHandle, tx: mpsc::Sender<DeviceRequest>) -> JoinHandle<()> {
     const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(HEARTBEAT_INTERVAL);
@@ -379,11 +378,17 @@ fn spawn_heartbeat(tx: mpsc::Sender<DeviceRequest>) -> JoinHandle<()> {
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             ticker.tick().await;
+            let state = app.state();
+            state
+                .rate_limiter
+                .acquire(state.log_filter.request_rate_limit())
+                .await;
             let req = DeviceRequest {
                 packet: make_read_packet(CMD_READ_SYS_REG, 2),
                 command: CMD_READ_SYS_REG,
                 address: 2,
                 name: Some("CONTROL_INTERFACE".into()),
+                origin: Origin::Heartbeat,
             };
             if tx.send(req).await.is_err() {
                 break; // channel closed — exit silently
@@ -502,6 +507,7 @@ pub async fn take_control(state: &AppState) -> Result<(), String> {
             command: CMD_TAKE_CONTROL,
             address: 0,
             name: Some("TAKE_CONTROL".into()),
+            origin: Origin::Manual,
         },
     )
     .await
@@ -515,6 +521,7 @@ async fn read(state: &AppState, command: u16, address: u16, name: String) -> Res
             command,
             address,
             name: Some(name),
+            origin: Origin::Manual,
         },
     )
     .await
@@ -528,6 +535,7 @@ async fn write(state: &AppState, command: u16, address: u16, value: i32) -> Resu
             command,
             address,
             name: None,
+            origin: Origin::Manual,
         },
     )
     .await
@@ -567,6 +575,7 @@ pub async fn send_sys_command(sys_cmd: u16, value: i32, state: &AppState) -> Res
             command: CMD_SYS_COMMAND,
             address: sys_cmd,
             name: Some(format!("SYS_CMD_{}", sys_cmd)),
+            origin: Origin::Manual,
         },
     )
     .await
@@ -584,7 +593,7 @@ mod tests {
     #[tokio::test]
     async fn heartbeat_sends_its_first_request_without_waiting_for_an_interval() {
         let (tx, mut rx) = mpsc::channel::<DeviceRequest>(10);
-        let _handle = spawn_heartbeat(tx);
+        let _handle = spawn_heartbeat(AppHandle::new(), tx);
 
         let first = tokio::time::timeout(Duration::from_millis(200), rx.recv())
             .await

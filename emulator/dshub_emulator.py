@@ -17,6 +17,7 @@ Protocol v0.2.2: 8-byte packets with 16-bit type/address/status fields.
   TX: status(i16 LE) + address(u16 LE) + value(i32 LE) = 8 bytes
 """
 
+import argparse
 import socket
 import threading
 import struct
@@ -552,7 +553,9 @@ class DSHubEmulator:
     """Main emulator class"""
 
     def __init__(self, board_name: str = "DSHub Emulator", board_type: int = 1,
-                 firmware_version: int = 0x0100):
+                 firmware_version: int = 0x0100, host: str = '127.0.0.1'):
+        # TCP listen address; 0.0.0.0 serves other machines on the network.
+        self.host = host
         self.board_name = board_name
         self.board_type = board_type
         self.firmware_version = firmware_version
@@ -624,10 +627,23 @@ class DSHubEmulator:
         except Exception as e:
             print(f"[Discovery/UDP] Failed to start: {e}")
 
+    def _advertised_ip(self, requester: str) -> str:
+        """The address a discovering client should connect to."""
+        if self.host not in ('0.0.0.0', ''):
+            return self.host
+        # Listening everywhere: report the local address that routes to the
+        # requester. Connecting a UDP socket sends nothing.
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+                probe.connect((requester, DISCOVERY_PORT))
+                return probe.getsockname()[0]
+        except OSError:
+            return '127.0.0.1'
+
     def _send_discovery_response(self, addr: Tuple[str, int]):
         board_id = 1
         mac = self.parameters.get_mac_address()
-        ip_bytes = bytes([127, 0, 0, 1])
+        ip_bytes = socket.inet_aton(self._advertised_ip(addr[0]))
         ip_uint32 = struct.unpack('<I', ip_bytes)[0]
 
         response = struct.pack('<IBBHIIHHH',
@@ -645,9 +661,9 @@ class DSHubEmulator:
         try:
             self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.tcp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.tcp_socket.bind(('127.0.0.1', DEFAULT_TCP_PORT))
+            self.tcp_socket.bind((self.host, DEFAULT_TCP_PORT))
             self.tcp_socket.listen(1)
-            print(f"[TCP] Listening on port {DEFAULT_TCP_PORT}")
+            print(f"[TCP] Listening on {self.host}:{DEFAULT_TCP_PORT}")
 
             while self.running:
                 try:
@@ -901,6 +917,12 @@ class DSHubEmulator:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="DSHub board emulator")
+    parser.add_argument(
+        '--host', default='127.0.0.1',
+        help="TCP listen address (default 127.0.0.1; 0.0.0.0 for other machines)")
+    args = parser.parse_args()
+
     print("\n" + "="*60)
     print("DSHub Board Emulator")
     print("="*60)
@@ -913,6 +935,7 @@ def main():
         board_name="Python Emulator",
         board_type=1,
         firmware_version=0x0200,
+        host=args.host,
     )
 
     try:

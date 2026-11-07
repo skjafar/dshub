@@ -60,6 +60,9 @@ pub fn show(
         pane: pane.to_string(),
         space,
     };
+    // Compared at the end: the draft's map text is regenerated only when the
+    // rows change, so it always describes the rows shown.
+    let original = rows.clone();
     if let Some(import) = session.take_import(&target) {
         match import
             .map_err(|e| vec![e])
@@ -69,7 +72,6 @@ pub fn show(
             Err(errors) => session.notice = errors.join(" · "),
         }
     }
-    let original = rows.clone();
     ui.horizontal_wrapped(|ui| {
         if ui.button("Add entry").clicked() {
             let mut n = 1;
@@ -88,14 +90,13 @@ pub fn show(
         if ui.button("Import map / header").clicked() {
             session.pick_file(target.clone(), "Map or header", &["map", "h", "txt"]);
         }
-        let text = generate(rows, space);
-        let parsed = parsed_map(&text, space);
+        let parsed = draft.parsed(space);
         let valid = parsed.errors.is_empty();
         if ui
             .add_enabled(valid, egui::Button::new("Export map"))
             .clicked()
         {
-            session.export(text, "entries.map", "map");
+            session.export(draft.map(space).to_string(), "entries.map", "map");
         }
         if ui
             .add_enabled(valid, egui::Button::new("Export C header"))

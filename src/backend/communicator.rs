@@ -15,6 +15,18 @@ pub struct DeviceRequest {
     pub command: u16,
     pub address: u16,
     pub name: Option<String>,
+    pub origin: Origin,
+}
+
+/// Who asked for a request; decides which log category records its outcome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    /// An operator read, write or command.
+    Manual,
+    /// A poll subscription (live tables, widgets and plots).
+    Poll,
+    /// The liveness heartbeat; never logged when it succeeds.
+    Heartbeat,
 }
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -318,6 +330,7 @@ fn process_response(data: &[u8; 8], req: &DeviceRequest, app: &AppHandle) {
         )
     };
 
+    log_success(app, req, status, address, value);
     match req.command {
         CMD_READ_REGISTER => app.emit(Event::Register(reading(req, address, value, ts, "addr"))),
         CMD_READ_PARAMETER => app.emit(Event::Parameter(reading(req, address, value, ts, "param"))),
@@ -372,6 +385,44 @@ fn process_response(data: &[u8; 8], req: &DeviceRequest, app: &AppHandle) {
             }));
         }
     }
+}
+
+/// Records a successful read or write in the Register, Parameter or Polling
+/// category. Refusals are logged as errors where they are handled, and
+/// commands and Take Control have their own Connection entries.
+fn log_success(app: &AppHandle, req: &DeviceRequest, status: i16, address: u16, value: i32) {
+    if !status_ok(status) {
+        return;
+    }
+    let (space, write) = match req.command {
+        CMD_READ_REGISTER => ("register", false),
+        CMD_WRITE_REGISTER => ("register", true),
+        CMD_READ_PARAMETER => ("parameter", false),
+        CMD_WRITE_PARAMETER => ("parameter", true),
+        CMD_READ_SYS_REG => ("system register", false),
+        CMD_WRITE_SYS_REG => ("system register", true),
+        _ => return,
+    };
+    let category = match (req.origin, req.command) {
+        (Origin::Heartbeat, _) => return,
+        (Origin::Poll, _) => LogCategory::AutoRefresh,
+        (Origin::Manual, CMD_READ_PARAMETER | CMD_WRITE_PARAMETER) => LogCategory::Parameter,
+        (Origin::Manual, _) => LogCategory::Register,
+    };
+    // Checked before formatting: polling can complete hundreds of reads a second.
+    if !app.state().log_filter.category_enabled(&category) {
+        return;
+    }
+    let target = match &req.name {
+        Some(name) => format!("{name} ({space} {address})"),
+        None => format!("{space} {address}"),
+    };
+    let message = match (write, req.origin) {
+        (true, _) => format!("Wrote {value} to {target}"),
+        (false, Origin::Poll) => format!("Polled {target} = {value}"),
+        (false, _) => format!("Read {target} = {value}"),
+    };
+    emit_log(app, LogLevel::Info, category, message);
 }
 
 /// Bookkeeping shared by both transports after each request completes.
@@ -588,6 +639,7 @@ mod tests {
             command,
             address,
             name: None,
+            origin: Origin::Manual,
         }
     }
 
@@ -725,5 +777,46 @@ mod tests {
         let p = make_sys_cmd_packet(SYS_CMD_WRITE_FLASH, 1);
         assert_eq!(u16::from_le_bytes([p[0], p[1]]), CMD_SYS_COMMAND);
         assert_eq!(u16::from_le_bytes([p[2], p[3]]), SYS_CMD_WRITE_FLASH);
+    }
+
+    fn logs_after(origin: Origin, command: u16, settings: LogSettings) -> Vec<LogEntry> {
+        let app = AppHandle::new();
+        app.state().log_filter.update(&settings);
+        let mut request = req(command, 5);
+        request.name = Some("SPEED".into());
+        request.origin = origin;
+        process_response(&response(command as i16, 5, 42), &request, &app);
+        app.drain()
+            .into_iter()
+            .filter_map(|e| match e {
+                Event::Log(entry) => Some(entry),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn successful_reads_and_writes_are_logged_by_their_origin() {
+        let all = LogSettings {
+            enable_register_logs: true,
+            enable_parameter_logs: true,
+            enable_auto_refresh_logs: true,
+            ..Default::default()
+        };
+        let read = logs_after(Origin::Manual, CMD_READ_REGISTER, all.clone());
+        assert_eq!(read.len(), 1);
+        assert!(matches!(read[0].category, LogCategory::Register));
+        assert_eq!(read[0].message, "Read SPEED (register 5) = 42");
+
+        let write = logs_after(Origin::Manual, CMD_WRITE_PARAMETER, all.clone());
+        assert!(matches!(write[0].category, LogCategory::Parameter));
+        assert_eq!(write[0].message, "Wrote 42 to SPEED (parameter 5)");
+
+        let polled = logs_after(Origin::Poll, CMD_READ_REGISTER, all.clone());
+        assert!(matches!(polled[0].category, LogCategory::AutoRefresh));
+        assert_eq!(polled[0].message, "Polled SPEED (register 5) = 42");
+
+        assert!(logs_after(Origin::Heartbeat, CMD_READ_SYS_REG, all).is_empty());
+        assert!(logs_after(Origin::Manual, CMD_READ_REGISTER, LogSettings::default()).is_empty());
     }
 }

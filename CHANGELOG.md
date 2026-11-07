@@ -31,6 +31,12 @@
 - Activity log is a filterable table with local times; plots use clock-time axes, read-outs on hover and an empty state.
 - Dashboard widgets: cards by depth, fitted read-outs, arc gauge with limits, level bars, lamps, bit grid, inline value writes, dropdowns that show the current option, and a quiet status dot.
 - Widget configuration is grouped into labelled sections. Overview, Inspector, Commands, Profiles, Preferences, Workspaces and Guide are redesigned.
+- The connection heartbeat shares the request rate limit with every other request.
+- Settings are written only after input, window moves or imports, instead of serialised every 5 s while idle. The Map Editor no longer regenerates its map every frame, and imported rows reach the draft immediately.
+- Removing a dashboard widget or a plot trace shows a toast with Undo.
+- Register and Parameter panes add a DEFAULT view, now the default for new panes: each entry is shown in its declared type (integers in decimal, floats as floats, hex entries in hexadecimal).
+- The Activity log records successful register and parameter reads and writes, polled reads with polling start and stop, and plot traces starting or stopping recording, each under its own category. Previously only failures and packet dumps appeared.
+- The emulator accepts `--host` to serve other machines; discovery reports the address that reaches the client.
 
 # Changelog
 

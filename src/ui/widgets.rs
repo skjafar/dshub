@@ -1,6 +1,6 @@
 use super::{canvas_layout, colors};
 use super::{
-    session::{OutcomeStatus, Session},
+    session::{OutcomeStatus, Session, Undo},
     Pane,
 };
 use crate::model::*;
@@ -113,6 +113,23 @@ pub fn dashboard(
                 );
             });
         });
+    if let Some((parent, index, widget)) = session.removed_widget.take() {
+        let name = if widget.label.is_empty() {
+            widget.kind.title().to_string()
+        } else {
+            widget.label.clone()
+        };
+        session.removed(
+            format!("Removed {name}"),
+            Undo::Widget {
+                profile: profile.id.clone(),
+                dashboard: dashboard_id.clone(),
+                parent,
+                index,
+                widget: Box::new(widget),
+            },
+        );
+    }
     let frame = ui
         .ctx()
         .data_mut(|data| data.get_temp::<canvas_layout::Frame>(egui::Id::new(canvas_layout::FRAME)))
@@ -195,6 +212,44 @@ pub fn dashboard(
         canvas_layout::settle(&mut widgets, None, None);
     }
     profile.dashboards[pane.dashboard].widgets = widgets;
+}
+/// Puts a removed widget back into its container, if the dashboard and
+/// container still exist.
+pub fn restore(
+    profiles: &mut [Profile],
+    profile: &str,
+    dashboard: &str,
+    parent: Option<&str>,
+    index: usize,
+    widget: Widget,
+) -> bool {
+    fn container<'a>(widgets: &'a mut [Widget], id: &str) -> Option<&'a mut Widget> {
+        for w in widgets {
+            if w.id == id {
+                return Some(w);
+            }
+            if let Some(found) = container(&mut w.children, id) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    let Some(d) = profiles
+        .iter_mut()
+        .find(|p| p.id == profile)
+        .and_then(|p| p.dashboards.iter_mut().find(|d| d.id == dashboard))
+    else {
+        return false;
+    };
+    let siblings = match parent {
+        None => &mut d.widgets,
+        Some(id) => match container(&mut d.widgets, id) {
+            Some(w) => &mut w.children,
+            None => return false,
+        },
+    };
+    siblings.insert(index.min(siblings.len()), widget);
+    true
 }
 fn add_widget_menu(ui: &mut egui::Ui, widgets: &mut Vec<Widget>) {
     ui.menu_button("Add widget", |ui| {
@@ -607,7 +662,7 @@ fn render_grid(
     }
     ui.allocate_space(extent);
     if let Some(i) = remove {
-        widgets.remove(i);
+        session.removed_widget = Some((parent.map(str::to_owned), i, widgets.remove(i)));
     }
 }
 fn binding_picker(

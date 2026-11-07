@@ -13,6 +13,7 @@ pub fn show(ctx: &egui::Context, session: &mut Session) {
     }
     let palette = theme::palette(ctx.style().visuals.dark_mode);
     let mut dismiss = None;
+    let mut undo = None;
     egui::Area::new(egui::Id::new("toasts"))
         .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-14., -30.))
         .order(egui::Order::Foreground)
@@ -47,6 +48,9 @@ pub fn show(ctx: &egui::Context, session: &mut Session) {
                             if ui.small_button("×").on_hover_text("Dismiss").clicked() {
                                 dismiss = Some(i);
                             }
+                            if toast.undo.is_some() && ui.small_button("Undo").clicked() {
+                                undo = Some(i);
+                            }
                         });
                     });
                 ui.add_space(6.);
@@ -54,6 +58,8 @@ pub fn show(ctx: &egui::Context, session: &mut Session) {
         });
     if let Some(i) = dismiss {
         session.toasts.remove(i);
+    } else if let Some(i) = undo {
+        session.undo = session.toasts.remove(i).undo;
     }
     // Repaint when the next toast expires.
     if let Some(remaining) = session

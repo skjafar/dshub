@@ -264,6 +264,7 @@ impl Viewer<'_> {
                 ui,
                 &mut p.format,
                 &[
+                    (DisplayFormat::Native, "DEFAULT"),
                     (DisplayFormat::Decimal, "DEC"),
                     (DisplayFormat::Hexadecimal, "HEX"),
                     (DisplayFormat::Binary, "BIN"),
@@ -1028,8 +1029,12 @@ impl Viewer<'_> {
                 }
             }
         });
-        if let Some(i) = remove {
-            self.series.remove(i);
+        if let Some(index) = remove {
+            let series = self.series.remove(index);
+            self.session.removed(
+                format!("Removed trace {}", series.binding.name),
+                super::session::Undo::Trace { index, series },
+            );
         }
         if self.series.is_empty() {
             ui.label("Click Plot beside an entry to add a trace.");

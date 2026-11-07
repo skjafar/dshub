@@ -842,3 +842,117 @@ fn duplicated_profiles_get_unused_names() {
     profiles[1].name = format!("{name} 2");
     assert_eq!(unique_name(&name, &profiles), format!("{name} 3"));
 }
+
+#[test]
+fn removed_widgets_and_traces_can_be_restored_in_place() {
+    let mut profiles = default_profiles();
+    let profile = profiles[1].id.clone();
+    let dashboard = &mut profiles[1].dashboards[0];
+    let dashboard_id = dashboard.id.clone();
+    let mut container = Widget::new(WidgetKind::Container);
+    container.children = vec![
+        Widget::new(WidgetKind::ValueRead),
+        Widget::new(WidgetKind::StateLed),
+    ];
+    let container_id = container.id.clone();
+    dashboard.widgets.insert(0, container);
+    let removed = dashboard.widgets[0].children.remove(0);
+    let removed_id = removed.id.clone();
+    assert!(widgets::restore(
+        &mut profiles,
+        &profile,
+        &dashboard_id,
+        Some(&container_id),
+        0,
+        removed
+    ));
+    assert_eq!(
+        profiles[1].dashboards[0].widgets[0].children[0].id,
+        removed_id
+    );
+    assert!(!widgets::restore(
+        &mut profiles,
+        &profile,
+        "missing",
+        None,
+        0,
+        Widget::new(WidgetKind::StateLed)
+    ));
+
+    let mut session = Session::new();
+    let entry = default_profiles()[1].entries(Space::Register)[0].clone();
+    session.removed(
+        "Removed trace",
+        session::Undo::Trace {
+            index: 0,
+            series: PlotSeries {
+                id: "trace".into(),
+                binding: Binding::new(Space::Register, &entry),
+                enabled: true,
+            },
+        },
+    );
+    let toast = session.toasts.last().unwrap();
+    assert!(toast.undo.is_some());
+    assert_eq!(toast.lifetime(), Some(8000.));
+}
+
+#[test]
+fn autosave_ignores_hover_but_not_clicks_or_keys() {
+    let ctx = egui::Context::default();
+    let edited_by = |events: Vec<egui::Event>| {
+        let mut result = false;
+        let _ = ctx.run(
+            egui::RawInput {
+                events,
+                ..Default::default()
+            },
+            |ctx| result = edited(ctx),
+        );
+        result
+    };
+    assert!(!edited_by(vec![egui::Event::PointerMoved(egui::pos2(
+        4., 4.
+    ))]));
+    assert!(edited_by(vec![egui::Event::PointerButton {
+        pos: egui::pos2(4., 4.),
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: Default::default(),
+    }]));
+    assert!(edited_by(vec![egui::Event::Text("1".into())]));
+}
+
+#[test]
+fn plot_history_changes_are_logged_when_enabled() {
+    let mut session = Session::new();
+    session
+        .app
+        .state()
+        .log_filter
+        .update(&crate::types::LogSettings {
+            enable_plotting_logs: true,
+            ..Default::default()
+        });
+    let entry = default_profiles()[1].entries(Space::Register)[0].clone();
+    let binding = Binding::new(Space::Register, &entry);
+    session.want_history(&binding);
+    session.sync();
+    session.want_history(&binding);
+    session.sync();
+    session.sync();
+    let messages: Vec<_> = session.logs.iter().map(|l| l.message.clone()).collect();
+    assert_eq!(
+        messages,
+        vec![
+            format!(
+                "Recording plot history for {} (register {})",
+                entry.name, entry.address
+            ),
+            format!(
+                "Stopped recording plot history for {} (register {})",
+                entry.name, entry.address
+            ),
+        ]
+    );
+}

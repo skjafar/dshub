@@ -119,7 +119,7 @@ impl Pane {
             map_rows: Default::default(),
             map_space: Space::Register,
             focus: false,
-            format: DisplayFormat::default(),
+            format: DisplayFormat::Native,
             plot_series: vec![],
             min_level: 0,
             frozen: None,
@@ -219,6 +219,23 @@ fn unique_name(base: &str, profiles: &[Profile]) -> String {
 
 /// Loads saved state. Unreadable state is never silently replaced: the raw text
 /// is backed up first, and if that fails, saving stays disabled for this run.
+/// Whether this frame's input in the current viewport may have changed saved
+/// state. Hover movement alone cannot; presses, keys, text and scrolling can.
+fn edited(ctx: &egui::Context) -> bool {
+    ctx.input(|i| {
+        i.events.iter().any(|e| {
+            !matches!(
+                e,
+                egui::Event::PointerMoved(_)
+                    | egui::Event::MouseMoved(_)
+                    | egui::Event::PointerGone
+                    | egui::Event::WindowFocused(_)
+                    | egui::Event::Screenshot { .. }
+            )
+        })
+    })
+}
+
 fn load_saved(storage: Option<&dyn eframe::Storage>) -> (Saved, Option<String>, bool) {
     let Some(storage) = storage else {
         return (Saved::default(), None, true);
@@ -322,8 +339,39 @@ pub struct Desktop {
     /// False when unreadable settings could not be backed up: saving would
     /// overwrite the user's only copy.
     persist: bool,
+    /// Set by user input, window moves and imports; autosave serialises
+    /// `saved` only when this is set, so an idle application writes nothing.
+    touched: bool,
 }
 impl Desktop {
+    /// Reverses a removal reported by a toast.
+    fn undo(&mut self, undo: session::Undo) {
+        match undo {
+            session::Undo::Widget {
+                profile,
+                dashboard,
+                parent,
+                index,
+                widget,
+            } => {
+                if !widgets::restore(
+                    &mut self.saved.profiles,
+                    &profile,
+                    &dashboard,
+                    parent.as_deref(),
+                    index,
+                    *widget,
+                ) {
+                    self.session.notice = "The widget's dashboard no longer exists".into();
+                }
+            }
+            session::Undo::Trace { index, series } => {
+                let index = index.min(self.saved.series.len());
+                self.saved.series.insert(index, series);
+            }
+        }
+        self.touched = true;
+    }
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         fonts::install(&cc.egui_ctx);
         let (mut saved, load_error, persist) = load_saved(cc.storage);
@@ -361,6 +409,7 @@ impl Desktop {
             pending_connect: None,
             applied_dark: None,
             persist,
+            touched: true,
         };
         if app.saved.profiles.is_empty() {
             app.saved.profiles = default_profiles();
@@ -1208,6 +1257,7 @@ impl eframe::App for Desktop {
                 }
             }
         }
+        self.touched |= edited(ctx);
         let i = self.profile_index();
         self.session
             .drain(&self.saved.profiles[i], &self.saved.preferences);
@@ -1216,11 +1266,15 @@ impl eframe::App for Desktop {
             theme::apply(ctx, self.saved.preferences.dark);
             self.applied_dark = Some(self.saved.preferences.dark);
         }
+        if let Some(undo) = self.session.undo.take() {
+            self.undo(undo);
+        }
         while let Some(import) = self.session.take_import(&ImportTarget::Profile) {
             match import.and_then(|text| Profile::import(&text)) {
                 Ok(p) => {
                     self.saved.active = p.id.clone();
                     self.saved.profiles.push(p);
+                    self.touched = true;
                 }
                 Err(e) => self.session.notice = e,
             }
@@ -1301,6 +1355,7 @@ impl eframe::App for Desktop {
         });
         confirm_modal(ctx, &mut self.session);
         let mut closed = vec![];
+        let mut touched = false;
         for (wi, window) in self.saved.windows.iter_mut().enumerate() {
             let id = egui::ViewportId::from_hash_of(&window.id);
             let mut builder = egui::ViewportBuilder::default()
@@ -1310,6 +1365,7 @@ impl eframe::App for Desktop {
                 builder = builder.with_position(position);
             }
             ctx.show_viewport_immediate(id, builder, |ctx, _class| {
+                let geometry = (window.size, window.position);
                 ctx.input(|i| {
                     if let Some(rect) = i.viewport().inner_rect {
                         window.size = [rect.width(), rect.height()];
@@ -1318,6 +1374,7 @@ impl eframe::App for Desktop {
                         window.position = Some([rect.min.x, rect.min.y]);
                     }
                 });
+                touched |= edited(ctx) || geometry != (window.size, window.position);
                 if ctx.input(|i| i.viewport().close_requested()) {
                     closed.push(wi);
                 }
@@ -1337,6 +1394,7 @@ impl eframe::App for Desktop {
                 confirm_modal(ctx, &mut self.session);
             });
         }
+        self.touched |= touched || !closed.is_empty();
         for i in closed.into_iter().rev() {
             let window = self.saved.windows.remove(i);
             for (_, p) in window.dock.iter_all_tabs() {
@@ -1423,8 +1481,9 @@ impl eframe::App for Desktop {
         }
     }
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        if self.persist {
+        if self.persist && self.touched {
             eframe::set_value(storage, STORAGE_KEY, &self.saved);
+            self.touched = false;
         }
     }
     fn auto_save_interval(&self) -> std::time::Duration {
