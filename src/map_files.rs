@@ -19,10 +19,10 @@ pub fn header(entries: &[Entry], space: Space) -> String {
         if !seen.insert(base) {
             continue;
         }
-        let ty = if e.data_type == "hex" {
-            "uint32_t"
+        let ty = if e.data_type == DataType::Hex {
+            DataType::Uint32
         } else {
-            &e.data_type
+            e.data_type
         };
         if let Some(size) = e.array_size {
             out.push_str(&format!("    {ty} {base}[{size}];\n"));

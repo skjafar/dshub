@@ -1,7 +1,6 @@
 //! `.scratch/rust-owned-polling` issue 03: address-keyed poll subscriptions.
 //!
-//! Generalises `spawn_plot_task` (`commands.rs`) — a reconnect-safe poll loop
-//! keyed by plot-series name — to every address any widget currently polls,
+//! A reconnect-safe poll loop for every address any widget currently polls,
 //! reference-counted by subscriber so N widgets watching one address still
 //! costs one read. This replaces `pollRegistry.ts`'s coalescing for
 //! single-address widgets; issue 01's spike already proved the per-address-task
@@ -163,12 +162,9 @@ pub type PollTasks = HashMap<AddressKey, (JoinHandle<()>, u64)>;
 
 /// Spawns a task that reads `key`'s address every `interval_ms`. Shares the
 /// same request queue and rate limiter every one-shot command goes through
-/// (`commands.rs`'s `queue_request`) rather than sending straight to the
-/// communicator's channel the way `spawn_plot_task`/`spawn_heartbeat` do —
-/// deliberately different from that established precedent, per the design
-/// this generalises: a subscription-driven read must obey the user's
-/// `requestRateLimit` setting exactly like a manual read does, not bypass it
-/// just because a widget triggered it instead of a click. Exits silently
+/// (`commands.rs`'s `queue_request`): a subscription-driven read must obey the
+/// user's `requestRateLimit` setting exactly like a manual read does. Only the
+/// liveness heartbeat bypasses it. Exits silently
 /// once the channel closes; `resume_poll_subscriptions` respawns it against
 /// the next connection.
 fn spawn_address_poll_task(
@@ -200,7 +196,6 @@ fn spawn_address_poll_task(
                 command,
                 address,
                 name: Some(name.clone()),
-                emit_plot: false,
             };
             if tx.send(req).await.is_err() {
                 break; // communicator gone — exit silently

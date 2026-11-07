@@ -54,15 +54,6 @@ pub struct RegisterData {
     pub timestamp: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ParameterData {
-    pub address: u16,
-    pub name: String,
-    pub value: i32,
-    pub valid: bool,
-    pub timestamp: f64,
-}
-
 /// A Command's answer from the Device.
 ///
 /// `command` is the request's own address field, not the response's — SYS_COMMAND
@@ -77,18 +68,20 @@ pub struct CommandResponse {
     pub timestamp: f64,
 }
 
+/// The Device's answer to a register, parameter or system-register write.
+///
+/// Kept apart from `RegisterData`: a write response echoes the written value
+/// only on success (PROTOCOL.md) and carries nothing meaningful on refusal, so
+/// it never replaces the live value or enters a plot history. The status alone
+/// decides the outcome.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlotDataPoint {
-    pub x: f64, // Unix timestamp in seconds
-    pub y: f64, // register value
-}
-
-/// Payload for the "plotData" Tauri event (single-arg replacement for Socket.IO two-arg emit)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlotDataPayload {
-    #[serde(rename = "seriesName")]
-    pub series_name: String,
-    pub point: PlotDataPoint,
+pub struct WriteAck {
+    /// The write operation that was sent (`CMD_WRITE_*`).
+    pub command: u16,
+    pub address: u16,
+    pub status: i16,
+    pub valid: bool,
+    pub timestamp: f64,
 }
 
 // ── Log types ─────────────────────────────────────────────────────────────────
@@ -144,7 +137,7 @@ pub struct LogEntry {
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogSettings {
     pub enable_connection_logs: bool,

@@ -1,5 +1,6 @@
 mod canvas_layout;
 mod colors;
+mod controls;
 mod fonts;
 mod map_table;
 mod panes;
@@ -12,7 +13,7 @@ use crate::model::*;
 use eframe::egui::{self, RichText};
 use egui_dock::{DockArea, DockState, NodeIndex};
 use serde::{Deserialize, Serialize};
-use session::{Action, Session};
+use session::{Action, ImportTarget, Session};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PaneKind {
@@ -62,6 +63,7 @@ impl PaneKind {
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Pane {
     pub id: String,
     pub kind: PaneKind,
@@ -73,8 +75,11 @@ pub struct Pane {
     pub address: u16,
     pub dashboard: usize,
     pub editing: bool,
+    /// Map Editor working copy. Kept out of layouts and Workspaces, which
+    /// would otherwise store whole Profile copies and restore stale drafts.
+    #[serde(skip)]
     pub draft: Option<Profile>,
-    #[serde(default)]
+    #[serde(skip)]
     pub map_rows: std::collections::BTreeMap<Space, Vec<map_table::Row>>,
     pub map_space: Space,
     pub focus: bool,
@@ -82,6 +87,14 @@ pub struct Pane {
     pub format: DisplayFormat,
     #[serde(default)]
     pub plot_series: Vec<String>,
+    /// Plot panes: the time (Unix seconds) the view is frozen at, if paused.
+    #[serde(skip)]
+    pub frozen: Option<f64>,
+}
+impl Default for Pane {
+    fn default() -> Self {
+        Self::new(PaneKind::Overview)
+    }
 }
 impl Pane {
     pub fn new(kind: PaneKind) -> Self {
@@ -102,6 +115,7 @@ impl Pane {
             focus: false,
             format: DisplayFormat::default(),
             plot_series: vec![],
+            frozen: None,
         }
     }
 }
@@ -141,6 +155,7 @@ pub struct Workspace {
     pub windows: Vec<NativeWindow>,
 }
 #[derive(Serialize, Deserialize)]
+#[serde(default)]
 pub struct Saved {
     pub profiles: Vec<Profile>,
     pub active: String,
@@ -178,6 +193,65 @@ impl Saved {
         for workspace in &mut self.workspaces {
             reset(&mut workspace.dock, &mut workspace.windows);
         }
+    }
+}
+
+const STORAGE_KEY: &str = "dshub-native-v1";
+
+/// `base`, or `base 2`, `base 3`… when another Profile already uses it.
+fn unique_name(base: &str, profiles: &[Profile]) -> String {
+    let taken = |name: &str| profiles.iter().any(|p| p.name == name);
+    if !taken(base) {
+        return base.to_string();
+    }
+    (2..)
+        .map(|n| format!("{base} {n}"))
+        .find(|name| !taken(name))
+        .expect("an unused name")
+}
+
+/// Loads saved state. Unreadable state is never silently replaced: the raw text
+/// is backed up first, and if that fails, saving stays disabled for this run.
+fn load_saved(storage: Option<&dyn eframe::Storage>) -> (Saved, Option<String>, bool) {
+    let Some(storage) = storage else {
+        return (Saved::default(), None, true);
+    };
+    let Some(raw) = storage.get_string(STORAGE_KEY) else {
+        return (Saved::default(), None, true);
+    };
+    if let Some(saved) = eframe::get_value::<Saved>(storage, STORAGE_KEY) {
+        return (saved, None, true);
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let backup = eframe::storage_dir("DSHub")
+        .ok_or_else(|| "no application data directory".to_string())
+        .and_then(|dir| {
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            let path = dir.join(format!("{STORAGE_KEY}-unreadable-{stamp}.ron"));
+            std::fs::write(&path, &raw).map_err(|e| e.to_string())?;
+            Ok(path)
+        });
+    match backup {
+        Ok(path) => (
+            Saved::default(),
+            Some(format!(
+                "This version of DSHub could not read the saved Profiles, dashboards and layouts. \
+                 Defaults are loaded. The original data was preserved at:\n{}",
+                path.display()
+            )),
+            true,
+        ),
+        Err(e) => (
+            Saved::default(),
+            Some(format!(
+                "This version of DSHub could not read the saved Profiles, dashboards and layouts, \
+                 and could not back them up ({e}). Defaults are loaded and nothing will be saved \
+                 this session, so the original data is left untouched."
+            )),
+            false,
+        ),
     }
 }
 
@@ -231,14 +305,17 @@ pub struct Desktop {
     frame_count: usize,
     screenshot_requested: bool,
     active_profile: String,
+    load_error: Option<String>,
+    /// The theme last applied to the context; visuals change only when it differs.
+    applied_dark: Option<bool>,
+    /// False when unreadable settings could not be backed up: saving would
+    /// overwrite the user's only copy.
+    persist: bool,
 }
 impl Desktop {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         fonts::install(&cc.egui_ctx);
-        let mut saved = cc
-            .storage
-            .and_then(|s| eframe::get_value::<Saved>(s, "dshub-native-v1"))
-            .unwrap_or_default();
+        let (mut saved, load_error, persist) = load_saved(cc.storage);
         saved.leave_dashboard_edit_mode();
         // Add the revised emulator panels once, retaining existing user dashboards.
         if let Some(profile) = saved
@@ -268,6 +345,9 @@ impl Desktop {
             frame_count: 0,
             screenshot_requested: false,
             active_profile: String::new(),
+            load_error,
+            applied_dark: None,
+            persist,
         };
         if app.saved.profiles.is_empty() {
             app.saved.profiles = default_profiles();
@@ -276,6 +356,9 @@ impl Desktop {
             app.saved.active = app.saved.profiles[0].id.clone();
         }
         app.active_profile = app.saved.active.clone();
+        // Repaint when the backend has news instead of polling on a timer.
+        let ctx = cc.egui_ctx.clone();
+        app.session.app.set_notifier(move || ctx.request_repaint());
         app.session.send(Action::LogSettings(
             app.saved.preferences.log_settings.clone(),
         ));
@@ -283,18 +366,15 @@ impl Desktop {
             app.session.send(Action::Scan);
         }
         if app.saved.preferences.auto_connect {
-            app.session.send(Action::AutoConnect(
-                app.saved.preferences.last_ip.clone(),
-                app.saved.preferences.udp,
-                app.saved.preferences.auto_connect_retries,
-                app.saved.preferences.auto_connect_retry_delay,
-            ));
+            let p = &app.saved.preferences;
+            let (address, udp, attempts, delay) = (
+                p.last_ip.clone(),
+                p.udp,
+                p.auto_connect_retries,
+                p.auto_connect_retry_delay,
+            );
+            app.session.auto_connect(&address, udp, attempts, delay);
         }
-        cc.egui_ctx.set_visuals(if app.saved.preferences.dark {
-            egui::Visuals::dark()
-        } else {
-            egui::Visuals::light()
-        });
         #[cfg(feature = "native-smoke")]
         if let Ok(scene) = std::env::var("DSHUB_SMOKE_SCENE") {
             app.configure_smoke(&scene);
@@ -350,7 +430,7 @@ impl Desktop {
                     RichText::new("DSHUB")
                         .strong()
                         .size(22.)
-                        .color(colors::role(ui, "accent")),
+                        .color(colors::role(ui, Role::Accent)),
                 );
                 ui.separator();
                 ui.menu_button("Panes", |ui| {
@@ -360,7 +440,8 @@ impl Desktop {
                             ui.close_menu();
                         }
                     }
-                    if ui.button("Reset layout").clicked() {
+                    ui.separator();
+                    if controls::confirm_button(ui, "reset-layout", "Reset layout") {
                         self.saved.dock = default_dock();
                         ui.close_menu();
                     }
@@ -388,6 +469,7 @@ impl Desktop {
                         ui.label("Address");
                         ui.add(
                             egui::TextEdit::singleline(&mut self.saved.preferences.last_ip)
+                                .hint_text("IP or IP:port")
                                 .desired_width(170.),
                         );
                     });
@@ -401,15 +483,14 @@ impl Desktop {
                             !self.session.busy,
                             egui::Button::new(
                                 RichText::new("Connect to address")
-                                    .color(colors::role(ui, "accent")),
+                                    .color(colors::role(ui, Role::Accent)),
                             ),
                         )
                         .clicked()
                     {
-                        self.session.send(Action::Connect(
-                            self.saved.preferences.last_ip.clone(),
-                            self.saved.preferences.udp,
-                        ));
+                        let address = self.saved.preferences.last_ip.clone();
+                        self.session
+                            .connect_to(&address, self.saved.preferences.udp);
                         ui.close_menu();
                     }
                     ui.separator();
@@ -449,12 +530,17 @@ impl Desktop {
                             }
                         });
                 });
-                if let Some(connection) = &self.session.connection {
-                    ui.monospace(&connection.ip);
+                if self.session.busy {
                     if ui
-                        .add_enabled(!self.session.busy, egui::Button::new("Disconnect"))
+                        .button("Cancel")
+                        .on_hover_text("Stop connecting")
                         .clicked()
                     {
+                        self.session.send(Action::Disconnect);
+                    }
+                } else if let Some(connection) = &self.session.connection {
+                    ui.monospace(format!("{}:{}", connection.ip, connection.port));
+                    if ui.button("Disconnect").clicked() {
                         self.session.send(Action::Disconnect);
                     }
                 }
@@ -462,7 +548,7 @@ impl Desktop {
                 if self.session.connected()
                     && !self.session.controlled()
                     && ui
-                        .button(RichText::new("Take control").color(colors::role(ui, "accent")))
+                        .button(RichText::new("Take control").color(colors::role(ui, Role::Accent)))
                         .on_hover_text("Claim permission to write values and send commands")
                         .clicked()
                 {
@@ -510,7 +596,7 @@ impl Desktop {
                 ));
                 ui.separator();
                 if !self.session.notice.is_empty() {
-                    ui.colored_label(colors::role(ui, "warn"), &self.session.notice);
+                    ui.colored_label(colors::role(ui, Role::Warn), &self.session.notice);
                     if ui.small_button("Dismiss").clicked() {
                         self.session.notice.clear();
                     }
@@ -560,7 +646,7 @@ impl Desktop {
                                     "dshub-profile",
                                 );
                             }
-                            if !p.is_default && ui.small_button("Delete").clicked() {
+                            if !p.is_default && controls::confirm_button(ui, &p.id, "Delete") {
                                 remove = Some(i);
                             }
                         });
@@ -568,7 +654,7 @@ impl Desktop {
                     if let Some(i) = duplicate {
                         let mut p = self.saved.profiles[i].clone();
                         p.id = unique_id();
-                        p.name.push_str(" Copy");
+                        p.name = unique_name(&format!("{} Copy", p.name), &self.saved.profiles);
                         p.is_default = false;
                         self.saved.active = p.id.clone();
                         self.saved.profiles.push(p);
@@ -585,26 +671,31 @@ impl Desktop {
                         }
                     }
                     if ui.button("Import .dshub-profile").clicked() {
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("DSHub Profile", &["dshub-profile", "json"])
-                            .pick_file()
-                        {
-                            match std::fs::read_to_string(path)
-                                .map_err(|e| e.to_string())
-                                .and_then(|text| Profile::import(&text))
-                            {
-                                Ok(p) => {
-                                    self.saved.active = p.id.clone();
-                                    self.saved.profiles.push(p);
-                                }
-                                Err(e) => self.session.notice = e,
-                            }
-                        }
+                        self.session.pick_file(
+                            ImportTarget::Profile,
+                            "DSHub Profile",
+                            &["dshub-profile", "json"],
+                        );
                     }
                     let i = self.profile_index();
                     ui.separator();
                     ui.label("Active Profile name");
                     ui.text_edit_singleline(&mut self.saved.profiles[i].name);
+                    let name = self.saved.profiles[i].name.trim();
+                    if name.is_empty() {
+                        ui.colored_label(colors::role(ui, Role::Warn), "A Profile needs a name.");
+                    } else if self
+                        .saved
+                        .profiles
+                        .iter()
+                        .enumerate()
+                        .any(|(j, p)| j != i && p.name.trim() == name)
+                    {
+                        ui.colored_label(
+                            colors::role(ui, Role::Warn),
+                            "Another Profile already has this name.",
+                        );
+                    }
                 });
             self.profiles_open = open;
         }
@@ -614,30 +705,67 @@ impl Desktop {
                 .open(&mut open)
                 .show(ctx, |ui| {
                     let p = &mut self.saved.preferences;
+                    let before = p.log_settings.clone();
                     ui.checkbox(&mut p.dark, "Dark theme");
                     ui.checkbox(&mut p.auto_scan, "Scan on startup");
                     ui.checkbox(&mut p.auto_connect, "Connect to last device on startup");
-                    ui.add(
-                        egui::Slider::new(&mut p.auto_connect_retries, 1..=10)
-                            .text("Connection attempts"),
-                    );
-                    ui.add(
-                        egui::Slider::new(&mut p.auto_connect_retry_delay, 500..=10000)
-                            .text("Retry delay (ms)"),
-                    );
-                    ui.add(
-                        egui::Slider::new(&mut p.poll_ms, 50..=5000)
-                            .text("Widget / plot interval (ms)"),
-                    );
-                    ui.add(
-                        egui::Slider::new(&mut p.time_span, 1.0..=3600.)
-                            .text("Plot window (seconds)"),
-                    );
-                    ui.add(
-                        egui::Slider::new(&mut p.max_points, 100..=100000)
-                            .text("Maximum points per address"),
-                    );
+                    ui.add_space(4.);
+                    egui::Grid::new("settings-numbers")
+                        .num_columns(2)
+                        .spacing([12., 6.])
+                        .show(ui, |ui| {
+                            ui.label("Connection attempts");
+                            ui.add(egui::DragValue::new(&mut p.auto_connect_retries).range(1..=10));
+                            ui.end_row();
+                            ui.label("Retry delay");
+                            ui.add(
+                                egui::DragValue::new(&mut p.auto_connect_retry_delay)
+                                    .range(500..=10000)
+                                    .suffix(" ms"),
+                            );
+                            ui.end_row();
+                            ui.label("Widget / plot interval");
+                            ui.add(
+                                egui::DragValue::new(&mut p.poll_ms)
+                                    .range(50..=5000)
+                                    .suffix(" ms"),
+                            );
+                            ui.end_row();
+                            ui.label("Plot window");
+                            ui.add(
+                                egui::DragValue::new(&mut p.time_span)
+                                    .range(1.0..=3600.)
+                                    .suffix(" s"),
+                            );
+                            ui.end_row();
+                            ui.label("Points kept per plotted address");
+                            ui.add(egui::DragValue::new(&mut p.max_points).range(100..=100000));
+                            ui.end_row();
+                            ui.label("Log retention");
+                            ui.add(
+                                egui::DragValue::new(&mut p.log_settings.max_log_count)
+                                    .range(100..=10000)
+                                    .suffix(" entries"),
+                            );
+                            ui.end_row();
+                            ui.label("Request rate limit").on_hover_text(
+                                "Maximum device requests per second. 0 removes the limit.",
+                            );
+                            ui.add(
+                                egui::DragValue::new(&mut p.log_settings.request_rate_limit)
+                                    .range(0..=10000)
+                                    .custom_formatter(|v, _| {
+                                        if v == 0. {
+                                            "unlimited".into()
+                                        } else {
+                                            format!("{v} / s")
+                                        }
+                                    }),
+                            );
+                            ui.end_row();
+                        });
                     ui.separator();
+                    ui.label(RichText::new("Activity log").strong());
                     let l = &mut p.log_settings;
                     ui.checkbox(&mut l.enable_connection_logs, "Connection events");
                     ui.checkbox(&mut l.enable_register_logs, "Register events");
@@ -645,14 +773,8 @@ impl Desktop {
                     ui.checkbox(&mut l.enable_packet_logs, "Packet hex dumps");
                     ui.checkbox(&mut l.enable_auto_refresh_logs, "Auto-refresh events");
                     ui.checkbox(&mut l.enable_plotting_logs, "Plot events");
-                    ui.add(
-                        egui::Slider::new(&mut l.max_log_count, 100..=10000).text("Log retention"),
-                    );
-                    ui.add(
-                        egui::Slider::new(&mut l.request_rate_limit, 1..=10000)
-                            .text("Requests per second"),
-                    );
-                    if ui.button("Apply").clicked() {
+                    // Every setting applies as soon as it changes.
+                    if *l != before {
                         self.session.send(Action::LogSettings(l.clone()));
                     }
                 });
@@ -698,7 +820,7 @@ impl Desktop {
                                 self.saved.windows = w.windows.clone();
                                 self.saved.series = w.series_catalog.clone();
                             }
-                            if ui.button("Delete").clicked() {
+                            if controls::confirm_button(ui, &w.id, "Delete") {
                                 remove = Some(i);
                             }
                         });
@@ -712,22 +834,53 @@ impl Desktop {
         if self.guide_open {
             egui::Window::new("DSHub Guide").open(&mut self.guide_open).show(ctx,|ui|{ui.heading("Connect → Take Control → Inspect");ui.label("Scan for devices, or enter an IP and select TCP or UDP. Connect, then Take Control before sending writes and commands.");ui.label("Drag pane tabs to split or rearrange the workspace. Right-click a tab to move it into a native window or focus it. Add closed panes from the Panes menu.");ui.label("Choose a Profile for the device's maps. Register and parameter tables support search, live refresh, writes, Inspector selection and plotting. System registers are always read-only.");ui.label("Add widgets in a Dashboard and configure their bindings. Map edits that move or replace entries require binding review before affected widgets can read or write.");ui.label("Export Profiles to move maps and dashboards between installations. Save named Workspaces to retain pane arrangements.");ui.separator();ui.label(format!("DSHub {} · egui / Rust · MIT",env!("CARGO_PKG_VERSION")));ui.collapsing("Bundled font license", |ui| { egui::ScrollArea::vertical().max_height(200.).show(ui, |ui| { ui.label(fonts::LICENSE); }); });});
         }
-        if let Some((message, action)) = self.session.confirm.clone() {
-            egui::Window::new("Confirm device action")
-                .collapsible(false)
-                .show(ctx, |ui| {
-                    ui.label(message);
-                    ui.horizontal(|ui| {
-                        if ui.button("Confirm").clicked() {
-                            self.session.send(action);
-                            self.session.confirm = None;
-                        }
-                        if ui.button("Cancel").clicked() {
-                            self.session.confirm = None;
-                        }
-                    });
-                });
+        if let Some(error) = &self.load_error {
+            let mut dismissed = false;
+            egui::Modal::new(egui::Id::new("load-error")).show(ctx, |ui| {
+                ui.set_max_width(520.);
+                ui.heading("Saved settings could not be read");
+                ui.label(error);
+                if ui.button("Continue").clicked() {
+                    dismissed = true;
+                }
+            });
+            if dismissed {
+                self.load_error = None;
+            }
         }
+    }
+}
+/// The pending device-action confirmation, shown modally in every viewport so it
+/// appears wherever the operator is working and blocks other input until answered.
+fn confirm_modal(ctx: &egui::Context, session: &mut Session) {
+    let Some((message, action)) = session.confirm.clone() else {
+        return;
+    };
+    let response = egui::Modal::new(egui::Id::new("confirm-device-action")).show(ctx, |ui| {
+        ui.set_max_width(420.);
+        ui.heading("Confirm device action");
+        ui.label(message);
+        ui.add_space(8.);
+        ui.horizontal(|ui| {
+            let cancel = ui.button("Cancel");
+            if ui.memory(|m| m.focused().is_none()) {
+                cancel.request_focus();
+            }
+            if cancel.clicked() {
+                session.confirm = None;
+            }
+            if ui
+                .button(RichText::new("Confirm").color(colors::role(ui, Role::Warn)))
+                .clicked()
+            {
+                session.send(action);
+                session.confirm = None;
+            }
+        });
+    });
+    // Esc or a click outside cancels.
+    if response.should_close() {
+        session.confirm = None;
     }
 }
 impl eframe::App for Desktop {
@@ -778,11 +931,23 @@ impl eframe::App for Desktop {
         self.session
             .drain(&self.saved.profiles[i], &self.saved.preferences);
         self.session.interests.clear();
-        ctx.set_visuals(if self.saved.preferences.dark {
-            egui::Visuals::dark()
-        } else {
-            egui::Visuals::light()
-        });
+        if self.applied_dark != Some(self.saved.preferences.dark) {
+            ctx.set_visuals(if self.saved.preferences.dark {
+                egui::Visuals::dark()
+            } else {
+                egui::Visuals::light()
+            });
+            self.applied_dark = Some(self.saved.preferences.dark);
+        }
+        while let Some(import) = self.session.take_import(&ImportTarget::Profile) {
+            match import.and_then(|text| Profile::import(&text)) {
+                Ok(p) => {
+                    self.saved.active = p.id.clone();
+                    self.saved.profiles.push(p);
+                }
+                Err(e) => self.session.notice = e,
+            }
+        }
         self.chrome(ctx);
         self.dialogs(ctx);
         if self.active_profile != self.saved.active {
@@ -842,6 +1007,7 @@ impl eframe::App for Desktop {
             .collect();
         for s in series.iter().filter(|s| wanted.contains(&s.id)) {
             self.session.interest(&s.binding, profile, prefs.poll_ms);
+            self.session.want_history(&s.binding);
         }
         egui::CentralPanel::default().show(ctx, |ui| {
             let mut viewer = panes::Viewer {
@@ -856,6 +1022,7 @@ impl eframe::App for Desktop {
             };
             draw_dock(ui, &mut self.saved.dock, "main-dock", &mut viewer);
         });
+        confirm_modal(ctx, &mut self.session);
         let mut closed = vec![];
         for (wi, window) in self.saved.windows.iter_mut().enumerate() {
             let id = egui::ViewportId::from_hash_of(&window.id);
@@ -890,6 +1057,7 @@ impl eframe::App for Desktop {
                     };
                     draw_dock(ui, &mut window.dock, &window.id, &mut viewer);
                 });
+                confirm_modal(ctx, &mut self.session);
             });
         }
         for i in closed.into_iter().rev() {
@@ -966,10 +1134,19 @@ impl eframe::App for Desktop {
             }
         }
         self.session.sync();
-        ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        // Backend events wake the interface themselves. Time alone changes only
+        // staleness badges and acknowledgement timeouts, which need no more
+        // than a slow tick. Screenshot runs keep a fast cadence to finish promptly.
+        if std::env::var_os("DSHUB_SCREENSHOT").is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        } else if self.session.connected() || self.session.awaiting_outcome() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
     }
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, "dshub-native-v1", &self.saved);
+        if self.persist {
+            eframe::set_value(storage, STORAGE_KEY, &self.saved);
+        }
     }
     fn auto_save_interval(&self) -> std::time::Duration {
         std::time::Duration::from_secs(5)
@@ -991,8 +1168,10 @@ fn draw_dock(
     if let Some((_, pane)) = dock.iter_all_tabs_mut().find(|(_, p)| p.focus) {
         ui.horizontal(|ui| {
             ui.heading(pane.kind.title());
+            // Esc that closes a popup or leaves a text field stays with it.
+            let idle = ui.memory(|m| m.focused().is_none() && !m.any_popup_open());
             if ui.button("Exit Focus · Esc").clicked()
-                || ui.input(|i| i.key_pressed(egui::Key::Escape))
+                || (idle && ui.input(|i| i.key_pressed(egui::Key::Escape)))
             {
                 pane.focus = false;
             }

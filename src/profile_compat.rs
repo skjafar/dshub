@@ -12,7 +12,7 @@ fn binding(v: &Value, p: &Profile) -> Option<Binding> {
             space,
             address,
             name: String::new(),
-            data_type: String::new(),
+            data_type: DataType::Unknown,
             array_size: None,
         });
     }
@@ -25,10 +25,7 @@ fn binding(v: &Value, p: &Profile) -> Option<Binding> {
             array_size: snapshot["arraySize"].as_u64().map(|v| v as usize),
         })
     } else {
-        p.entries(space)
-            .into_iter()
-            .find(|e| e.address == address)
-            .map(|e| Binding::new(space, &e))
+        p.entry_at(space, address).map(|e| Binding::new(space, &e))
     }
 }
 fn widget(v: &Value, p: &Profile, depth: usize) -> Option<Widget> {

@@ -1,4 +1,7 @@
-use super::{colors, session::Session};
+use super::{
+    colors,
+    session::{ImportTarget, Session},
+};
 use crate::model::*;
 use eframe::egui;
 use serde::{Deserialize, Serialize};
@@ -6,7 +9,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Row {
     name: String,
-    data_type: String,
+    data_type: DataType,
     array: bool,
     count: usize,
     writable: bool,
@@ -51,7 +54,21 @@ pub fn show(
     draft: &mut Profile,
     space: Space,
     session: &mut Session,
+    pane: &str,
 ) {
+    let target = ImportTarget::Map {
+        pane: pane.to_string(),
+        space,
+    };
+    if let Some(import) = session.take_import(&target) {
+        match import
+            .map_err(|e| vec![e])
+            .and_then(|text| self::rows(&text, space))
+        {
+            Ok(imported) => *rows = imported,
+            Err(errors) => session.notice = errors.join(" · "),
+        }
+    }
     let original = rows.clone();
     ui.horizontal_wrapped(|ui| {
         if ui.button("Add entry").clicked() {
@@ -61,7 +78,7 @@ pub fn show(
             }
             rows.push(Row {
                 name: format!("NEW_ENTRY_{n}"),
-                data_type: "uint32_t".into(),
+                data_type: DataType::Uint32,
                 array: false,
                 count: 1,
                 writable: space == Space::Parameter
@@ -69,33 +86,23 @@ pub fn show(
             });
         }
         if ui.button("Import map / header").clicked() {
-            if let Some(path) = rfd::FileDialog::new()
-                .add_filter("Map or header", &["map", "h", "txt"])
-                .pick_file()
-            {
-                match std::fs::read_to_string(path)
-                    .map_err(|e| vec![e.to_string()])
-                    .and_then(|text| self::rows(&text, space))
-                {
-                    Ok(imported) => *rows = imported,
-                    Err(errors) => session.notice = errors.join(" · "),
-                }
-            }
+            session.pick_file(target.clone(), "Map or header", &["map", "h", "txt"]);
         }
         let text = generate(rows, space);
-        let valid = parse_map(&text, space);
+        let parsed = parsed_map(&text, space);
+        let valid = parsed.errors.is_empty();
         if ui
-            .add_enabled(valid.is_ok(), egui::Button::new("Export map"))
+            .add_enabled(valid, egui::Button::new("Export map"))
             .clicked()
         {
             session.export(text, "entries.map", "map");
         }
         if ui
-            .add_enabled(valid.is_ok(), egui::Button::new("Export C header"))
+            .add_enabled(valid, egui::Button::new("Export C header"))
             .clicked()
         {
             session.export(
-                crate::map_files::header(&valid.unwrap(), space),
+                crate::map_files::header(&parsed.entries, space),
                 "dshub_map.h",
                 "h",
             );
@@ -136,10 +143,10 @@ pub fn show(
                         ui.add_sized([220., 22.], egui::TextEdit::singleline(&mut row.name));
                         egui::ComboBox::from_id_salt(("type", index))
                             .width(90.)
-                            .selected_text(&row.data_type)
+                            .selected_text(row.data_type)
                             .show_ui(ui, |ui| {
-                                for ty in ["uint32_t", "int32_t", "float", "hex"] {
-                                    ui.selectable_value(&mut row.data_type, ty.into(), ty);
+                                for ty in DataType::DECLARABLE {
+                                    ui.selectable_value(&mut row.data_type, ty, ty);
                                 }
                             });
                         ui.checkbox(&mut row.array, "");
@@ -254,7 +261,7 @@ pub fn show(
                                         egui::pos2(row_rect.left(), y),
                                         egui::pos2(row_rect.right(), y),
                                     ],
-                                    egui::Stroke::new(2_f32, colors::role(ui, "accent")),
+                                    egui::Stroke::new(2_f32, colors::role(ui, Role::Accent)),
                                 );
                                 if response.dnd_release_payload::<usize>().is_some() {
                                     movement = Some((*source, index));
@@ -277,15 +284,16 @@ pub fn show(
     if *rows != original {
         *draft.map_mut(space) = generate(rows, space);
     }
-    match parse_map(draft.map(space), space) {
-        Ok(entries) => {
-            ui.weak(format!("{} rows · {} addresses", rows.len(), entries.len()));
-        }
-        Err(errors) => {
-            for error in errors {
-                ui.colored_label(colors::role(ui, "error"), error);
-            }
-        }
+    let parsed = draft.parsed(space);
+    if parsed.errors.is_empty() {
+        ui.weak(format!(
+            "{} rows · {} addresses",
+            rows.len(),
+            parsed.entries.len()
+        ));
+    }
+    for error in &parsed.errors {
+        ui.colored_label(colors::role(ui, Role::Error), error);
     }
 }
 
@@ -309,7 +317,7 @@ mod tests {
         assert_eq!(table.len(), 2);
         table[1].name = "POSITION".into();
         table[1].count = 4;
-        table[0].data_type = "int32_t".into();
+        table[0].data_type = DataType::Int32;
         let map = generate(&table, Space::Register);
         let entries = parse_map(&map, Space::Register).unwrap();
         assert_eq!(entries.len(), 5);

@@ -7,7 +7,7 @@ The active application on `codex/egui-rebuild` is the root Cargo package. `cargo
 - `src/ui/mod.rs` owns native windows, docked panes, per-Profile layouts, dialogs and persistence.
 - `src/ui/session.rs` owns the GUI's live session. It sends actions to one Tokio actor. Only that actor changes device connection and subscription state; drawing never awaits I/O.
 - `src/backend/` preserves the old Rust communication behavior. Tauri macros, handles and task spawning were replaced with ordinary Rust references, `runtime::AppHandle` and Tokio. Window management moved to the UI. This was an integration migration, not the separately requested backend review.
-- `src/runtime.rs` holds shared backend state and a bounded event queue. Existing serializable backend events remain in-process; there is no IPC, HTTP service or WebView.
+- `src/runtime.rs` holds shared backend state and a bounded queue of typed `Event`s. When full it sheds telemetry, never state transitions. Each burst of events wakes the interface once to repaint; there is no polling timer, IPC, HTTP service or WebView.
 - `src/model.rs` owns address spaces, map parsing, typed values, Profile artifacts, widget configuration and captured binding identity.
 - `src/profile_compat.rs` imports/exports the existing version-one portable Profile format and translates dashboard configurations. Native fields preserve additional native settings while a compatible dashboard section remains available to the former interface.
 - `src/map_files.rs` exports firmware-ready C structures and command definitions.

@@ -368,6 +368,16 @@ pub fn finish_resize(
     }
     valid
 }
+/// Whether `id` is the widget being dragged this frame. Reads the frame in
+/// place; cloning it per widget made dashboard frames quadratic in size.
+pub fn is_dragging(ctx: &egui::Context, id: &str) -> bool {
+    let mut dragging = false;
+    with_frame(ctx, |frame| {
+        dragging = frame.drag.as_ref().is_some_and(|drag| drag.id == id);
+    });
+    dragging
+}
+
 pub fn with_frame(ctx: &egui::Context, f: impl FnOnce(&mut Frame)) {
     ctx.data_mut(|d| {
         let frame = d.get_temp_mut_or_default::<Frame>(egui::Id::new(FRAME));

@@ -76,8 +76,11 @@ impl Desktop {
             profile.registers_map = format!("uint32_t INSERTED;\n{}", profile.registers_map);
             self.review_open = true;
         }
-        self.session
-            .send(Action::Connect("127.0.0.1".into(), false));
+        self.session.send(Action::Connect(
+            "127.0.0.1".into(),
+            crate::types::DEFAULT_TCP_PORT,
+            false,
+        ));
         self.session.send(Action::Control);
     }
 }

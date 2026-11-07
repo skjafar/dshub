@@ -1,6 +1,119 @@
 //! Persistent domain state shared by every native viewport.
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::sync::{Arc, Mutex};
+
+/// Declares a string-backed enum that keeps the persisted and portable text
+/// form while the program works with variants. Unrecognised text maps to the
+/// fallback, matching how the former interface treated it.
+macro_rules! text_enum {
+    ($(#[$meta:meta])* $name:ident, fallback $fallback:ident, { $($variant:ident => $text:literal),+ $(,)? }) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[serde(from = "String", into = "String")]
+        pub enum $name { $($variant),+ }
+        impl $name {
+            pub const ALL: &'static [Self] = &[$(Self::$variant),+];
+            pub fn as_str(self) -> &'static str {
+                match self { $(Self::$variant => $text),+ }
+            }
+        }
+        impl From<&str> for $name {
+            fn from(text: &str) -> Self {
+                match text { $($text => Self::$variant,)+ _ => Self::$fallback }
+            }
+        }
+        impl From<String> for $name {
+            fn from(text: String) -> Self {
+                text.as_str().into()
+            }
+        }
+        impl From<$name> for String {
+            fn from(value: $name) -> Self {
+                value.as_str().into()
+            }
+        }
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(self.as_str())
+            }
+        }
+        impl From<$name> for eframe::egui::WidgetText {
+            fn from(value: $name) -> Self {
+                value.as_str().into()
+            }
+        }
+    };
+}
+
+text_enum!(
+    /// A map entry's C type. `Unknown` marks a binding whose snapshot recorded no
+    /// type; it never matches an entry, so such bindings always need review.
+    DataType, fallback Unknown, {
+        Int32 => "int32_t",
+        Uint32 => "uint32_t",
+        Float => "float",
+        Hex => "hex",
+        Unknown => "",
+    }
+);
+impl DataType {
+    /// The types a map may declare.
+    pub const DECLARABLE: [Self; 4] = [Self::Int32, Self::Uint32, Self::Float, Self::Hex];
+}
+text_enum!(
+    /// Threshold comparison. Unknown comparators compare for equality.
+    Comparator, fallback Eq, {
+        Eq => "==",
+        Ne => "!=",
+        Gt => ">",
+        Ge => ">=",
+        Lt => "<",
+        Le => "<=",
+    }
+);
+text_enum!(
+    /// Semantic status colour role.
+    Role, fallback Idle, {
+        Ok => "ok",
+        Warn => "warn",
+        Error => "error",
+        Info => "info",
+        Accent => "accent",
+        Idle => "idle",
+    }
+);
+impl Role {
+    /// Roles a user may assign to a threshold.
+    pub const THRESHOLD: [Self; 4] = [Self::Ok, Self::Warn, Self::Error, Self::Idle];
+}
+text_enum!(
+    /// Jog direction of a directional control button.
+    Direction, fallback Up, {
+        Up => "up",
+        Down => "down",
+        Left => "left",
+        Right => "right",
+        UpLeft => "upLeft",
+        UpRight => "upRight",
+        DownLeft => "downLeft",
+        DownRight => "downRight",
+    }
+);
+impl Direction {
+    pub fn arrow(self) -> &'static str {
+        match self {
+            Self::Up => "↑",
+            Self::Down => "↓",
+            Self::Left => "←",
+            Self::Right => "→",
+            Self::UpLeft => "↖",
+            Self::UpRight => "↗",
+            Self::DownLeft => "↙",
+            Self::DownRight => "↘",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,7 +159,7 @@ impl DisplayFormat {
     pub fn format(self, e: &Entry, raw: i32) -> String {
         match self {
             Self::Decimal => {
-                if e.data_type == "hex" {
+                if e.data_type == DataType::Hex {
                     (raw as u32).to_string()
                 } else {
                     e.format(raw)
@@ -83,30 +196,30 @@ impl DisplayFormat {
 pub struct Entry {
     pub address: u16,
     pub name: String,
-    pub data_type: String,
+    pub data_type: DataType,
     pub writable: bool,
     #[serde(default)]
     pub array_size: Option<usize>,
 }
 impl Entry {
     pub fn decode(&self, value: i32) -> f64 {
-        match self.data_type.as_str() {
-            "float" => f32::from_bits(value as u32) as f64,
-            "uint32_t" | "hex" => value as u32 as f64,
+        match self.data_type {
+            DataType::Float => f32::from_bits(value as u32) as f64,
+            DataType::Uint32 | DataType::Hex => value as u32 as f64,
             _ => value as f64,
         }
     }
     pub fn format(&self, value: i32) -> String {
-        match self.data_type.as_str() {
-            "hex" => format!("0x{:08X}", value as u32),
-            "float" => f32::from_bits(value as u32).to_string(),
-            "uint32_t" => (value as u32).to_string(),
+        match self.data_type {
+            DataType::Hex => format!("0x{:08X}", value as u32),
+            DataType::Float => f32::from_bits(value as u32).to_string(),
+            DataType::Uint32 => (value as u32).to_string(),
             _ => value.to_string(),
         }
     }
     pub fn encode(&self, text: &str) -> Result<i32, String> {
         let text = text.trim();
-        if self.data_type == "float" {
+        if self.data_type == DataType::Float {
             let value = text.parse::<f32>().map_err(|_| "Expected a finite float")?;
             if !value.is_finite() {
                 return Err("Expected a finite float".into());
@@ -118,7 +231,7 @@ impl Entry {
                 .map(|x| x as i32)
                 .map_err(|_| "Expected a 32-bit hexadecimal value".into());
         }
-        if self.data_type == "uint32_t" || self.data_type == "hex" {
+        if matches!(self.data_type, DataType::Uint32 | DataType::Hex) {
             text.parse::<u32>()
                 .map(|x| x as i32)
                 .map_err(|_| "Expected an unsigned 32-bit value".into())
@@ -151,24 +264,34 @@ pub fn parse_map(content: &str, space: Space) -> Result<Vec<Entry>, Vec<String>>
             continue;
         }
         let mut clean = String::new();
-        let bytes = line.as_bytes();
-        let mut i = 0;
-        while i < bytes.len() {
+        let mut rest = line;
+        while !rest.is_empty() {
             if block {
-                if bytes[i..].starts_with(b"*/") {
-                    block = false;
-                    i += 2;
-                } else {
-                    i += 1;
+                match rest.find("*/") {
+                    Some(end) => {
+                        block = false;
+                        rest = &rest[end + 2..];
+                    }
+                    None => rest = "",
                 }
-            } else if bytes[i..].starts_with(b"/*") {
-                block = true;
-                i += 2;
-            } else if bytes[i..].starts_with(b"//") {
-                break;
             } else {
-                clean.push(bytes[i] as char);
-                i += 1;
+                let open = rest.find("/*");
+                let comment = rest.find("//");
+                match (open, comment) {
+                    (_, Some(c)) if open.is_none_or(|o| c < o) => {
+                        clean.push_str(&rest[..c]);
+                        rest = "";
+                    }
+                    (Some(o), _) => {
+                        clean.push_str(&rest[..o]);
+                        block = true;
+                        rest = &rest[o + 2..];
+                    }
+                    _ => {
+                        clean.push_str(rest);
+                        rest = "";
+                    }
+                }
             }
         }
         let clean = clean.trim();
@@ -181,7 +304,10 @@ pub fn parse_map(content: &str, space: Space) -> Result<Vec<Entry>, Vec<String>>
             continue;
         }
         let Some(c) = declaration.captures(clean) else {
-            errors.push(format!("Line {}: invalid declaration", line_no + 1));
+            errors.push(format!(
+                "Line {}: invalid declaration \"{clean}\" (expected e.g. \"float NAME;\" or \"uint32_t NAME[4];\")",
+                line_no + 1
+            ));
             continue;
         };
         let name = c[2].to_string();
@@ -209,7 +335,7 @@ pub fn parse_map(content: &str, space: Space) -> Result<Vec<Entry>, Vec<String>>
                 } else {
                     name.clone()
                 },
-                data_type: c[1].to_string(),
+                data_type: c[1].into(),
                 writable,
                 array_size: c.get(3).map(|_| count),
             });
@@ -221,6 +347,71 @@ pub fn parse_map(content: &str, space: Space) -> Result<Vec<Entry>, Vec<String>>
         Err(errors)
     }
 }
+/// A parsed map with indexed lookups.
+#[derive(Debug, Default)]
+pub struct ParsedMap {
+    pub entries: Vec<Entry>,
+    pub errors: Vec<String>,
+    by_address: HashMap<u16, usize>,
+    by_name: HashMap<String, usize>,
+}
+impl ParsedMap {
+    fn new(text: &str, space: Space) -> Self {
+        let (entries, errors) = match parse_map(text, space) {
+            Ok(entries) => (entries, vec![]),
+            Err(errors) => (vec![], errors),
+        };
+        let by_address = entries
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (e.address, i))
+            .collect();
+        let by_name = entries
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (e.name.clone(), i))
+            .collect();
+        Self {
+            entries,
+            errors,
+            by_address,
+            by_name,
+        }
+    }
+    pub fn at(&self, address: u16) -> Option<&Entry> {
+        self.by_address.get(&address).map(|&i| &self.entries[i])
+    }
+    pub fn named(&self, name: &str) -> Option<&Entry> {
+        self.by_name.get(name).map(|&i| &self.entries[i])
+    }
+}
+
+/// Parses `text`, reusing an earlier parse of identical text.
+///
+/// Maps are looked up many times per frame (every binding check, reading and
+/// table row); parsing them each time made frame cost grow with map size times
+/// the number of bindings. Comparing the text against a few cached sources is
+/// a length check plus at most one memcmp per entry.
+pub fn parsed_map(text: &str, space: Space) -> Arc<ParsedMap> {
+    const CAPACITY: usize = 32;
+    type Cache = Mutex<VecDeque<(Space, Arc<str>, Arc<ParsedMap>)>>;
+    static CACHE: std::sync::OnceLock<Cache> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some((_, _, parsed)) = cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|(s, source, _)| *s == space && &**source == text)
+    {
+        return parsed.clone();
+    }
+    let parsed = Arc::new(ParsedMap::new(text, space));
+    let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
+    cache.push_front((space, text.into(), parsed.clone()));
+    cache.truncate(CAPACITY);
+    parsed
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SysCommand {
@@ -229,7 +420,7 @@ pub struct SysCommand {
     #[serde(default)]
     pub description: String,
 }
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Metadata {
     #[serde(default)]
@@ -239,7 +430,7 @@ pub struct Metadata {
     #[serde(default)]
     pub value_list: Vec<ValueLabel>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValueLabel {
     pub value: String,
     pub label: String,
@@ -268,23 +459,7 @@ pub struct Profile {
 }
 impl Profile {
     pub fn commands(&self) -> Vec<SysCommand> {
-        let mut commands = vec![
-            SysCommand {
-                code: 65000,
-                name: "Read Flash".into(),
-                description: "Load parameters from flash".into(),
-            },
-            SysCommand {
-                code: 65001,
-                name: "Write Flash".into(),
-                description: "Persist parameters to flash".into(),
-            },
-            SysCommand {
-                code: 65002,
-                name: "Reset Firmware".into(),
-                description: "Restart the device".into(),
-            },
-        ];
+        let mut commands = library_commands();
         commands.extend(
             self.sys_commands
                 .iter()
@@ -337,13 +512,21 @@ impl Profile {
             Space::SysRegister => &mut self.system_registers_map,
         }
     }
+    /// The parsed map for `s`; an invalid map has no entries.
+    pub fn parsed(&self, s: Space) -> Arc<ParsedMap> {
+        parsed_map(self.map(s), s)
+    }
     pub fn entries(&self, s: Space) -> Vec<Entry> {
-        parse_map(self.map(s), s).unwrap_or_default()
+        self.parsed(s).entries.clone()
+    }
+    pub fn entry_at(&self, s: Space, address: u16) -> Option<Entry> {
+        self.parsed(s).at(address).cloned()
     }
     pub fn resolve(&self, b: &Binding) -> Option<Entry> {
-        self.entries(b.space)
-            .into_iter()
-            .find(|e| e.name == b.name && e.data_type == b.data_type)
+        self.parsed(b.space)
+            .named(&b.name)
+            .filter(|e| e.data_type == b.data_type)
+            .cloned()
     }
     pub fn metadata(&self, s: Space, name: &str) -> Option<&Metadata> {
         let name = name.split('[').next().unwrap_or(name);
@@ -365,7 +548,7 @@ impl Profile {
             .as_str()
             .filter(|s| !s.trim().is_empty())
             .ok_or("Missing profile name")?;
-        let mut p = default_profiles().remove(0);
+        let mut p = Profile::template();
         p.id = unique_id();
         p.name = name.into();
         p.is_default = false;
@@ -396,17 +579,27 @@ impl Profile {
         Ok(p)
     }
 }
-pub fn unique_id() -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    format!(
-        "{}-{}",
-        crate::communicator::now_ms() as u64,
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    )
+impl Profile {
+    /// A blank, non-default Profile carrying the protocol's system registers,
+    /// board types and library commands.
+    fn template() -> Self {
+        Profile {
+            id: unique_id(),
+            name: String::new(),
+            is_default: false,
+            registers_map: String::new(),
+            parameters_map: String::new(),
+            system_registers_map: include_str!("../assets/maps/system_registers.map").into(),
+            board_types_map: include_str!("../assets/maps/boardtypes.map").into(),
+            sys_commands: library_commands(),
+            registers_metadata: BTreeMap::new(),
+            parameters_metadata: BTreeMap::new(),
+            dashboards: vec![],
+        }
+    }
 }
-pub fn default_profiles() -> Vec<Profile> {
-    let commands = vec![
+fn library_commands() -> Vec<SysCommand> {
+    vec![
         SysCommand {
             code: 65000,
             name: "Read Flash".into(),
@@ -422,7 +615,19 @@ pub fn default_profiles() -> Vec<Profile> {
             name: "Reset Firmware".into(),
             description: "Restart the device".into(),
         },
-    ];
+    ]
+}
+pub fn unique_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    format!(
+        "{}-{}",
+        crate::communicator::now_ms() as u64,
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )
+}
+pub fn default_profiles() -> Vec<Profile> {
+    let commands = library_commands();
     let mut profiles: Vec<Profile> = [
         (
             "default",
@@ -478,7 +683,7 @@ pub struct Binding {
     pub space: Space,
     pub address: u16,
     pub name: String,
-    pub data_type: String,
+    pub data_type: DataType,
     #[serde(default)]
     pub array_size: Option<usize>,
 }
@@ -488,16 +693,13 @@ impl Binding {
             space,
             address: e.address,
             name: e.name.clone(),
-            data_type: e.data_type.clone(),
+            data_type: e.data_type,
             array_size: e.array_size,
         }
     }
     pub fn matches(&self, p: &Profile) -> bool {
-        p.entries(self.space).iter().any(|e| {
-            e.address == self.address
-                && e.name == self.name
-                && e.data_type == self.data_type
-                && e.array_size == self.array_size
+        p.parsed(self.space).at(self.address).is_some_and(|e| {
+            e.name == self.name && e.data_type == self.data_type && e.array_size == self.array_size
         })
     }
 }
@@ -562,24 +764,25 @@ impl WidgetKind {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Threshold {
-    pub op: String,
+    pub op: Comparator,
     pub value: f64,
-    pub role: String,
+    pub role: Role,
     pub label: String,
 }
 impl Threshold {
     pub fn matches(&self, v: f64) -> bool {
-        match self.op.as_str() {
-            ">" => v > self.value,
-            ">=" => v >= self.value,
-            "<" => v < self.value,
-            "<=" => v <= self.value,
-            "!=" => v != self.value,
-            _ => v == self.value,
+        match self.op {
+            Comparator::Gt => v > self.value,
+            Comparator::Ge => v >= self.value,
+            Comparator::Lt => v < self.value,
+            Comparator::Le => v <= self.value,
+            Comparator::Ne => v != self.value,
+            Comparator::Eq => v == self.value,
         }
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Widget {
     pub id: String,
     pub kind: WidgetKind,
@@ -652,7 +855,7 @@ fn default_true() -> bool {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DirectionTarget {
-    pub direction: String,
+    pub direction: Direction,
     pub command: u16,
     #[serde(default)]
     pub label: String,
@@ -664,6 +867,11 @@ pub struct RowStyle {
     pub thresholds: Vec<Threshold>,
 }
 
+impl Default for Widget {
+    fn default() -> Self {
+        Self::new(WidgetKind::ValueRead)
+    }
+}
 impl Widget {
     pub fn new(kind: WidgetKind) -> Self {
         Self {
@@ -716,6 +924,7 @@ pub struct PlotSeries {
     pub enabled: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Preferences {
     pub dark: bool,
     pub last_ip: String,
@@ -779,18 +988,18 @@ mod tests {
     }
     #[test]
     fn float_and_unsigned_roundtrip() {
-        for ty in ["float", "uint32_t", "int32_t", "hex"] {
+        for ty in DataType::DECLARABLE {
             let e = Entry {
                 address: 0,
                 name: "V".into(),
-                data_type: ty.into(),
+                data_type: ty,
                 writable: true,
                 array_size: None,
             };
             let text = match ty {
-                "float" => "-2.5",
-                "uint32_t" => "4294967295",
-                "hex" => "0xFFFFFFFF",
+                DataType::Float => "-2.5",
+                DataType::Uint32 => "4294967295",
+                DataType::Hex => "0xFFFFFFFF",
                 _ => "-2147483648",
             };
             let raw = e.encode(text).unwrap();
@@ -815,5 +1024,50 @@ mod tests {
         p.registers_map = "float B;\nfloat A;".into();
         assert!(!b.matches(&p));
         assert_eq!(p.resolve(&b).unwrap().address, 0);
+    }
+}
+
+#[cfg(test)]
+mod parse_tests {
+    use super::*;
+
+    #[test]
+    fn comments_and_non_ascii_text_are_handled_per_character() {
+        let e = parse_map(
+            "float A; // température °C\n/* bloc\n é */ uint32_t B[2]; /* x */\nhex C;",
+            Space::Parameter,
+        )
+        .unwrap();
+        let names: Vec<_> = e.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["A", "B[0]", "B[1]", "C"]);
+    }
+
+    #[test]
+    fn invalid_declarations_quote_the_offending_text() {
+        let errors = parse_map("floot A;", Space::Register).unwrap_err();
+        assert!(errors[0].contains("floot A;"), "{errors:?}");
+    }
+
+    #[test]
+    fn parsed_maps_are_shared_and_indexed() {
+        let text = "float A;\nuint32_t B[2];";
+        let first = parsed_map(text, Space::Register);
+        assert!(Arc::ptr_eq(&first, &parsed_map(text, Space::Register)));
+        assert_eq!(first.at(2).unwrap().name, "B[1]");
+        assert_eq!(first.named("A").unwrap().address, 0);
+        assert!(!Arc::ptr_eq(&first, &parsed_map(text, Space::Parameter)));
+    }
+
+    #[test]
+    fn text_enums_keep_their_portable_spelling() {
+        let t: Threshold =
+            serde_json::from_str(r#"{"op":">=","value":1,"role":"warn","label":""}"#).unwrap();
+        assert_eq!((t.op, t.role), (Comparator::Ge, Role::Warn));
+        assert_eq!(
+            serde_json::to_value(&t).unwrap(),
+            serde_json::json!({"op":">=","value":1.0,"role":"warn","label":""})
+        );
+        assert_eq!(DataType::from(""), DataType::Unknown);
+        assert_eq!(Role::from("typo"), Role::Idle);
     }
 }

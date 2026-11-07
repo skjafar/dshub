@@ -1,4 +1,4 @@
-use crate::runtime::AppHandle;
+use crate::runtime::{AppHandle, Event};
 use if_addrs::{get_if_addrs, IfAddr};
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::time::Duration;
@@ -16,14 +16,14 @@ pub async fn scan_devices(app: AppHandle) {
         Ok(s) => s,
         Err(e) => {
             log::error!("Failed to bind discovery socket: {}", e);
-            let _ = app.emit("scanComplete", ());
+            app.emit(Event::ScanComplete);
             return;
         }
     };
 
     if let Err(e) = socket.set_broadcast(true) {
         log::error!("Failed to enable UDP broadcast: {}", e);
-        let _ = app.emit("scanComplete", ());
+        app.emit(Event::ScanComplete);
         return;
     }
 
@@ -83,9 +83,12 @@ pub async fn scan_devices(app: AppHandle) {
                         device.board_name,
                         device.ip_address
                     );
-                    let _ = app.emit("deviceDiscovered", &device);
+                    app.emit(Event::DeviceDiscovered(device));
                 }
             }
+            // Windows surfaces an ICMP port-unreachable from one interface as a
+            // reset on the next receive; other replies may still be on the way.
+            Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionReset => {}
             Ok(Err(e)) => {
                 log::error!("Discovery receive error: {}", e);
                 break;
@@ -95,7 +98,7 @@ pub async fn scan_devices(app: AppHandle) {
     }
 
     log::info!("Discovery scan complete");
-    let _ = app.emit("scanComplete", ());
+    app.emit(Event::ScanComplete);
 }
 
 fn parse_discovery_response(data: &[u8]) -> Option<DiscoveredDevice> {
@@ -117,10 +120,10 @@ fn parse_discovery_response(data: &[u8]) -> Option<DiscoveredDevice> {
     let tcp_port = u16::from_le_bytes([data[16], data[17]]);
     let udp_port = u16::from_le_bytes([data[18], data[19]]);
 
-    // MAC address: 6 bytes at offset 20
+    // Bytes 20–21 are reserved; the MAC address occupies 22–27 (PROTOCOL.md).
     let mac_address = format!(
         "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-        data[20], data[21], data[22], data[23], data[24], data[25]
+        data[22], data[23], data[24], data[25], data[26], data[27]
     );
 
     // IP from little-endian uint32
@@ -155,4 +158,40 @@ fn parse_discovery_response(data: &[u8]) -> Option<DiscoveredDevice> {
         tcp_port,
         udp_port,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The emulator's `struct.pack('<IBBHIIHHH', ...) + mac + name` layout.
+    fn response(mac: [u8; 6], tcp_port: u16, udp_port: u16) -> Vec<u8> {
+        let mut b = vec![];
+        b.extend_from_slice(&DS_DISCOVERY_MAGIC.to_le_bytes());
+        b.push(DS_DISCOVERY_RESPONSE);
+        b.push(1);
+        b.extend_from_slice(&0x0100u16.to_le_bytes());
+        b.extend_from_slice(&7u32.to_le_bytes());
+        b.extend_from_slice(&[10, 0, 0, 5]);
+        b.extend_from_slice(&tcp_port.to_le_bytes());
+        b.extend_from_slice(&udp_port.to_le_bytes());
+        b.extend_from_slice(&[0, 0]);
+        b.extend_from_slice(&mac);
+        b.extend_from_slice(b"Board\0");
+        b
+    }
+
+    #[test]
+    fn mac_address_follows_the_reserved_field() {
+        let d = parse_discovery_response(&response([0x02, 0, 0, 0, 0, 0x01], 2009, 2011)).unwrap();
+        assert_eq!(d.mac_address, "02:00:00:00:00:01");
+        assert_eq!(d.ip_address, "10.0.0.5");
+        assert_eq!(d.board_name, "Board");
+    }
+
+    #[test]
+    fn reported_ports_are_preserved() {
+        let d = parse_discovery_response(&response([0; 6], 3009, 3011)).unwrap();
+        assert_eq!((d.tcp_port, d.udp_port), (3009, 3011));
+    }
 }

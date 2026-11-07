@@ -38,19 +38,23 @@ fn review_widgets(ui: &mut egui::Ui, widgets: &mut [Widget], p: &Profile) {
     }
 }
 pub fn show(ui: &mut egui::Ui, p: &mut Profile, series: &mut [PlotSeries]) {
-    let baseline = p.clone();
+    // Lend the dashboards out so bindings are checked against the maps without
+    // copying the whole Profile every frame.
+    let mut dashboards = std::mem::take(&mut p.dashboards);
+    let baseline = &*p;
     ui.label("Map changes can alter addresses and types. Confirm each affected binding before it can read or write again.");
     egui::ScrollArea::vertical().show(ui, |ui| {
-        for d in &mut p.dashboards {
-            ui.collapsing(&d.name, |ui| review_widgets(ui, &mut d.widgets, &baseline));
+        for d in &mut dashboards {
+            ui.collapsing(&d.name, |ui| review_widgets(ui, &mut d.widgets, baseline));
         }
         for s in series {
-            if !s.binding.matches(&baseline) {
+            if !s.binding.matches(baseline) {
                 ui.push_id(&s.id, |ui| {
                     ui.label("Plot series");
-                    super::widgets::review(ui, &mut s.binding, &baseline);
+                    super::widgets::review(ui, &mut s.binding, baseline);
                 });
             }
         }
     });
+    p.dashboards = dashboards;
 }

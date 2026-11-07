@@ -1,16 +1,25 @@
-use crate::runtime::AppHandle;
-use std::collections::HashMap;
+use crate::runtime::{AppHandle, Event};
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use tokio::time::timeout;
 
 use crate::communicator::{
-    emit_log, make_control_packet, make_read_packet, make_sys_cmd_packet, make_user_cmd_packet,
-    make_write_packet, run_tcp_communicator, run_udp_communicator, DeviceRequest,
+    emit_log, make_control_packet, make_read_packet, make_sys_cmd_packet, make_write_packet,
+    run_tcp_communicator, run_udp_communicator, DeviceRequest,
 };
 use crate::types::*;
+
+/// Upper bound for opening a transport, including the UDP liveness probe.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
+const RECONNECT_MIN_DELAY: Duration = Duration::from_secs(1);
+const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(10);
+/// Capacity of the per-connection request queue (matches the original MAX_QUEUE_SIZE).
+const QUEUE_CAPACITY: usize = 100;
 
 // ── Reconnect parameters ──────────────────────────────────────────────────────
 
@@ -20,14 +29,6 @@ pub struct ReconnectParams {
     pub port: u16,
     pub interface_type: InterfaceType,
     pub device_name: Option<String>,
-}
-
-/// Enough info to resume a plot's polling task after a reconnect.
-#[derive(Clone)]
-pub struct ActivePlotSpec {
-    pub address: u16,
-    pub command: u16,
-    pub poll_interval: u64,
 }
 
 // ── Managed application state ─────────────────────────────────────────────────
@@ -68,7 +69,7 @@ impl RateLimiter {
                 // Charge the token now and sleep off the deficit.
                 let deficit = (1.0 - refilled) / rate;
                 *bucket = (now, 0.0);
-                Some(std::time::Duration::from_secs_f64(deficit))
+                Some(Duration::from_secs_f64(deficit))
             }
         };
         if let Some(d) = sleep_for {
@@ -80,12 +81,8 @@ impl RateLimiter {
 pub struct AppState {
     /// Sender half of the communicator channel; None when not connected
     pub communicator_tx: tokio::sync::Mutex<Option<mpsc::Sender<DeviceRequest>>>,
-    /// Active plot task handles keyed by register name
-    pub plot_tasks: tokio::sync::Mutex<HashMap<String, JoinHandle<()>>>,
-    /// Specs for currently-plotted registers, kept across reconnects so their
-    /// polling tasks (aborted when the communicator drops) can be respawned
-    /// once a new connection is established.
-    pub active_plots: tokio::sync::Mutex<HashMap<String, ActivePlotSpec>>,
+    /// Liveness heartbeat for the current connection; aborted on disconnect.
+    pub heartbeat: tokio::sync::Mutex<Option<JoinHandle<()>>>,
     /// Current device connection info (for takeControl to know interface type)
     pub connection: tokio::sync::Mutex<Option<DeviceConnection>>,
     /// Lock-free log filter, read by the communicator on every request
@@ -94,20 +91,15 @@ pub struct AppState {
     pub rate_limiter: RateLimiter,
     /// Prevents concurrent scans (shared as Arc for spawned tasks)
     pub is_scanning: Arc<tokio::sync::Mutex<bool>>,
-    /// Last directory used for saving files
-    pub last_save_dir: tokio::sync::Mutex<Option<std::path::PathBuf>>,
-    /// Stop token for the *current* connection's reconnect loop.
+    /// Stop token for the *current* connection's supervisor.
     ///
-    /// Replaced wholesale on every connect rather than cleared, so a reconnect
-    /// loop belonging to a previous connection can never be re-enabled and race
-    /// the new one for `communicator_tx`.
+    /// Replaced wholesale on every connect rather than cleared, so a supervisor
+    /// belonging to a previous connection can never be re-enabled and race the
+    /// new one for `communicator_tx`.
     pub connection_token: tokio::sync::Mutex<Arc<AtomicBool>>,
-    /// Parameters of the last successful connection, used by the reconnect loop
-    pub reconnect_params: tokio::sync::Mutex<Option<ReconnectParams>>,
-    /// Per-address poll subscriber bookkeeping (`.scratch/rust-owned-polling`
-    /// issue 03) — which widgets want which addresses, at what rate. Survives
-    /// every connect, disconnect and reconnect; only an explicit unsubscribe
-    /// removes an entry.
+    /// Per-address poll subscriber bookkeeping — which widgets want which
+    /// addresses, at what rate. Survives every connect, disconnect and
+    /// reconnect; only an explicit unsubscribe removes an entry.
     pub poll_subscriptions: tokio::sync::Mutex<crate::poll::PollSubscriptions>,
     /// Live poll tasks for `poll_subscriptions`' current entries, aborted on
     /// disconnect and respawned by `poll::resume_poll_subscriptions`.
@@ -124,35 +116,35 @@ impl AppState {
     pub fn new() -> Self {
         AppState {
             communicator_tx: tokio::sync::Mutex::new(None),
-            plot_tasks: tokio::sync::Mutex::new(HashMap::new()),
-            active_plots: tokio::sync::Mutex::new(HashMap::new()),
+            heartbeat: tokio::sync::Mutex::new(None),
             connection: tokio::sync::Mutex::new(None),
             log_filter: Arc::new(LogFilter::new()),
             rate_limiter: RateLimiter::new(),
             is_scanning: Arc::new(tokio::sync::Mutex::new(false)),
-            last_save_dir: tokio::sync::Mutex::new(None),
             connection_token: tokio::sync::Mutex::new(Arc::new(AtomicBool::new(true))),
-            reconnect_params: tokio::sync::Mutex::new(None),
             poll_subscriptions: tokio::sync::Mutex::new(crate::poll::PollSubscriptions::new()),
-            poll_tasks: tokio::sync::Mutex::new(HashMap::new()),
+            poll_tasks: tokio::sync::Mutex::new(Default::default()),
         }
     }
 }
 
-// ── Internal helpers ──────────────────────────────────────────────────────────
+// ── Connection lifecycle ──────────────────────────────────────────────────────
 
-async fn disconnect_internal(state: &&AppState) {
-    // Abort all active plot tasks (drops their tx clones)
-    let mut plots = state.plot_tasks.lock().await;
-    for (_, handle) in plots.drain() {
+/// An opened, verified link to the Device.
+enum Transport {
+    Tcp(TcpStream),
+    /// A socket `connect`ed to the Device's address.
+    Udp(UdpSocket),
+}
+
+async fn disconnect_internal(state: &AppState) {
+    if let Some(handle) = state.heartbeat.lock().await.take() {
         handle.abort();
     }
-    drop(plots);
 
     // Abort all active address-poll tasks. Their subscriber bookkeeping
-    // (`poll_subscriptions`) is untouched — unlike `active_plots` below, it is
-    // not cleared here, so `resume_poll_subscriptions` can respawn every entry
-    // once a connection exists again.
+    // (`poll_subscriptions`) is untouched, so `resume_poll_subscriptions` can
+    // respawn every entry once a connection exists again.
     let mut polls = state.poll_tasks.lock().await;
     for (_, (handle, _)) in polls.drain() {
         handle.abort();
@@ -160,200 +152,221 @@ async fn disconnect_internal(state: &&AppState) {
     drop(polls);
 
     // Drop the main sender → background task's rx will return None → task exits
-    let mut tx = state.communicator_tx.lock().await;
-    *tx = None;
+    *state.communicator_tx.lock().await = None;
+    *state.connection.lock().await = None;
 }
 
-/// Emits a `connectionStatus` event and logs the disconnect/reconnect state.
-fn emit_connection_status(app: &AppHandle, mut conn: DeviceConnection, reconnecting: bool) {
-    conn.connected = false;
-    conn.reconnecting = reconnecting;
-    if let Err(e) = app.emit("connectionStatus", &conn) {
-        log::warn!("Failed to emit connectionStatus event: {}", e);
+/// Resolves `host:port`; works for IPv4, IPv6 literals and host names.
+async fn resolve(host: &str, port: u16) -> Result<SocketAddr, String> {
+    tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|e| format!("Cannot resolve {host}: {e}"))?
+        .next()
+        .ok_or_else(|| format!("Cannot resolve {host}"))
+}
+
+/// Confirms a Device answers on a fresh UDP socket. UDP has no handshake, so
+/// without this a wrong address would be reported as connected.
+async fn probe_udp(socket: &UdpSocket) -> Result<(), String> {
+    let packet = make_read_packet(CMD_READ_SYS_REG, 2);
+    let mut buf = [0u8; 64];
+    for _ in 0..3 {
+        socket
+            .send(&packet)
+            .await
+            .map_err(|e| format!("UDP send failed: {e}"))?;
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(800);
+        loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match timeout(remaining, socket.recv(&mut buf)).await {
+                Ok(Ok(n)) if n >= 8 && buf[2..4] == 2u16.to_le_bytes() => return Ok(()),
+                Ok(Ok(_)) => continue,
+                Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionReset => break,
+                Ok(Err(e)) => return Err(format!("UDP receive failed: {e}")),
+                Err(_) => break,
+            }
+        }
+    }
+    Err("No response from the device over UDP".into())
+}
+
+async fn open(params: &ReconnectParams) -> Result<Transport, String> {
+    let open = async {
+        let remote = resolve(&params.ip, params.port).await?;
+        match params.interface_type {
+            InterfaceType::Tcp => {
+                let stream = TcpStream::connect(remote)
+                    .await
+                    .map_err(|e| format!("TCP connect failed: {e}"))?;
+                // Small stop-and-wait frames must not wait on Nagle/delayed-ACK.
+                stream
+                    .set_nodelay(true)
+                    .map_err(|e| format!("TCP configuration failed: {e}"))?;
+                Ok(Transport::Tcp(stream))
+            }
+            InterfaceType::Udp => {
+                let local = if remote.is_ipv6() {
+                    "[::]:0"
+                } else {
+                    "0.0.0.0:0"
+                };
+                let socket = UdpSocket::bind(local)
+                    .await
+                    .map_err(|e| format!("UDP bind failed: {e}"))?;
+                socket
+                    .connect(remote)
+                    .await
+                    .map_err(|e| format!("UDP connect failed: {e}"))?;
+                probe_udp(&socket).await?;
+                Ok(Transport::Udp(socket))
+            }
+        }
+    };
+    timeout(CONNECT_TIMEOUT, open)
+        .await
+        .map_err(|_| "Connection timed out".to_string())?
+}
+
+/// Publishes a freshly opened connection: request queue, heartbeat, resumed
+/// subscriptions and the connected status. Returns `None` without publishing
+/// anything when `stop` was set meanwhile — a newer connect or a disconnect
+/// owns the state now.
+async fn activate(
+    app: &AppHandle,
+    params: &ReconnectParams,
+    stop: &AtomicBool,
+) -> Option<mpsc::Receiver<DeviceRequest>> {
+    let state = app.state();
+    let (tx, rx) = mpsc::channel::<DeviceRequest>(QUEUE_CAPACITY);
+    let connection = DeviceConnection {
+        ip: params.ip.clone(),
+        port: params.port,
+        interface_type: params.interface_type.clone(),
+        connected: true,
+        reconnecting: false,
+        control_state: 0,
+        device_name: params.device_name.clone(),
+    };
+    {
+        // `connect_device` and `disconnect_device` set the token before they
+        // take this lock, so checking it here cannot miss one.
+        let mut sender = state.communicator_tx.lock().await;
+        if stop.load(Ordering::Acquire) {
+            return None;
+        }
+        *sender = Some(tx.clone());
+        *state.connection.lock().await = Some(connection.clone());
+    }
+    *state.heartbeat.lock().await = Some(spawn_heartbeat(tx.clone()));
+    crate::poll::resume_poll_subscriptions(app, &tx).await;
+    app.emit(Event::ConnectionStatus(connection));
+    emit_log(
+        app,
+        LogLevel::Info,
+        LogCategory::Connection,
+        format!(
+            "Connected via {:?} to {}:{}",
+            params.interface_type, params.ip, params.port
+        ),
+    );
+    Some(rx)
+}
+
+async fn communicate(
+    transport: Transport,
+    rx: mpsc::Receiver<DeviceRequest>,
+    app: &AppHandle,
+    params: &ReconnectParams,
+) -> bool {
+    let destination = format!("{}:{}", params.ip, params.port);
+    match transport {
+        Transport::Tcp(stream) => run_tcp_communicator(stream, rx, app.clone(), destination).await,
+        Transport::Udp(socket) => run_udp_communicator(socket, rx, app.clone(), destination).await,
     }
 }
 
-/// Background reconnect loop: retries the connection every few seconds until the device
-/// responds or the user explicitly disconnects (sets `stop` to true).
-async fn reconnect_loop(app: AppHandle, params: ReconnectParams, stop: Arc<AtomicBool>) {
-    const RETRY_DELAY: tokio::time::Duration = tokio::time::Duration::from_secs(3);
+fn status(params: &ReconnectParams, reconnecting: bool) -> DeviceConnection {
+    DeviceConnection {
+        ip: params.ip.clone(),
+        port: params.port,
+        interface_type: params.interface_type.clone(),
+        connected: false,
+        reconnecting,
+        control_state: 0,
+        device_name: params.device_name.clone(),
+    }
+}
 
+/// Up to ±20 % of `delay`, so several hosts do not retry in lockstep.
+fn jittered(delay: Duration) -> Duration {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    let factor = 0.8 + (nanos % 1000) as f64 / 2500.;
+    delay.mul_f64(factor)
+}
+
+/// Runs a connection until it is stopped, reconnecting with exponential
+/// backoff after unexpected loss. A stopped supervisor touches no shared state
+/// and emits nothing: whoever stopped it owns the connection state now.
+async fn supervise(
+    app: AppHandle,
+    params: ReconnectParams,
+    stop: Arc<AtomicBool>,
+    mut transport: Transport,
+    mut rx: mpsc::Receiver<DeviceRequest>,
+) {
     loop {
-        if stop.load(Ordering::Relaxed) {
-            break;
+        let lost = communicate(transport, rx, &app, &params).await;
+        if stop.load(Ordering::Acquire) {
+            return;
         }
-
-        tokio::time::sleep(RETRY_DELAY).await;
-
-        if stop.load(Ordering::Relaxed) {
-            break;
+        disconnect_internal(app.state()).await;
+        if !lost {
+            app.emit(Event::ConnectionStatus(status(&params, false)));
+            return;
         }
+        app.emit(Event::ConnectionStatus(status(&params, true)));
 
-        emit_log(
-            &app,
-            LogLevel::Info,
-            LogCategory::Connection,
-            format!("Reconnecting to {}:{}…", params.ip, params.port),
-        );
-
-        let (tx, rx) = mpsc::channel::<DeviceRequest>(100);
-
-        let should_reconnect = match params.interface_type {
-            InterfaceType::Tcp => {
-                match TcpStream::connect(format!("{}:{}", params.ip, params.port)).await {
-                    Err(e) => {
-                        emit_log(
-                            &app,
-                            LogLevel::Warning,
-                            LogCategory::Connection,
-                            format!("Reconnect failed: {}", e),
-                        );
-                        continue; // retry
-                    }
-                    Ok(stream) => {
-                        let connection = DeviceConnection {
-                            ip: params.ip.clone(),
-                            port: params.port,
-                            interface_type: InterfaceType::Tcp,
-                            connected: true,
-                            reconnecting: false,
-                            control_state: 0,
-                            device_name: params.device_name.clone(),
-                        };
-
-                        // Update AppState before signalling the frontend
-                        let state = app.state();
-                        let heartbeat_tx = tx.clone();
-                        let plot_tx = tx.clone();
-                        let poll_tx = tx.clone();
-                        *state.communicator_tx.lock().await = Some(tx);
-                        *state.connection.lock().await = Some(connection.clone());
-                        let heartbeat = spawn_heartbeat(heartbeat_tx);
-                        state
-                            .plot_tasks
-                            .lock()
-                            .await
-                            .insert("__heartbeat__".into(), heartbeat);
-                        resume_active_plots(&app, &plot_tx).await;
-                        crate::poll::resume_poll_subscriptions(&app, &poll_tx).await;
-
-                        if let Err(e) = app.emit("connectionStatus", &connection) {
-                            log::warn!("Failed to emit connectionStatus event: {}", e);
-                        }
-                        emit_log(
-                            &app,
-                            LogLevel::Info,
-                            LogCategory::Connection,
-                            format!("Reconnected via TCP to {}:{}", params.ip, params.port),
-                        );
-
-                        run_tcp_communicator(stream, rx, app.clone(), connection).await
-                    }
-                }
+        let mut delay = RECONNECT_MIN_DELAY;
+        (transport, rx) = loop {
+            tokio::time::sleep(jittered(delay)).await;
+            if stop.load(Ordering::Acquire) {
+                return;
             }
-            InterfaceType::Udp => {
-                match UdpSocket::bind("0.0.0.0:0").await {
-                    Err(e) => {
-                        emit_log(
-                            &app,
-                            LogLevel::Warning,
-                            LogCategory::Connection,
-                            format!("Reconnect failed (UDP bind): {}", e),
-                        );
-                        continue; // retry
-                    }
-                    Ok(socket) => {
-                        let connection = DeviceConnection {
-                            ip: params.ip.clone(),
-                            port: params.port,
-                            interface_type: InterfaceType::Udp,
-                            connected: true,
-                            reconnecting: false,
-                            control_state: 0,
-                            device_name: params.device_name.clone(),
-                        };
-
-                        let state = app.state();
-                        let heartbeat_tx = tx.clone();
-                        let plot_tx = tx.clone();
-                        let poll_tx = tx.clone();
-                        *state.communicator_tx.lock().await = Some(tx);
-                        *state.connection.lock().await = Some(connection.clone());
-                        let heartbeat = spawn_heartbeat(heartbeat_tx);
-                        state
-                            .plot_tasks
-                            .lock()
-                            .await
-                            .insert("__heartbeat__".into(), heartbeat);
-                        resume_active_plots(&app, &plot_tx).await;
-                        crate::poll::resume_poll_subscriptions(&app, &poll_tx).await;
-
-                        if let Err(e) = app.emit("connectionStatus", &connection) {
-                            log::warn!("Failed to emit connectionStatus event: {}", e);
-                        }
-                        emit_log(
-                            &app,
-                            LogLevel::Info,
-                            LogCategory::Connection,
-                            format!("Reconnected via UDP to {}:{}", params.ip, params.port),
-                        );
-
-                        let ip = params.ip.clone();
-                        let port = params.port;
-                        run_udp_communicator(socket, rx, app.clone(), connection, ip, port).await
-                    }
+            emit_log(
+                &app,
+                LogLevel::Info,
+                LogCategory::Connection,
+                format!("Reconnecting to {}:{}…", params.ip, params.port),
+            );
+            match open(&params).await {
+                Ok(transport) => match activate(&app, &params, &stop).await {
+                    Some(rx) => break (transport, rx),
+                    None => return,
+                },
+                Err(e) => {
+                    emit_log(
+                        &app,
+                        LogLevel::Warning,
+                        LogCategory::Connection,
+                        format!("Reconnect failed: {e}"),
+                    );
+                    delay = (delay * 2).min(RECONNECT_MAX_DELAY);
                 }
             }
         };
-
-        // Communicator exited — clear state and decide what to do next
-        {
-            let state = app.state();
-            *state.communicator_tx.lock().await = None;
-            *state.connection.lock().await = None;
-        }
-
-        if should_reconnect && !stop.load(Ordering::Relaxed) {
-            // Emit reconnecting state and loop again
-            let conn = DeviceConnection {
-                ip: params.ip.clone(),
-                port: params.port,
-                interface_type: params.interface_type.clone(),
-                connected: false,
-                reconnecting: true,
-                control_state: 0,
-                device_name: params.device_name.clone(),
-            };
-            if let Err(e) = app.emit("connectionStatus", &conn) {
-                log::warn!("Failed to emit connectionStatus event: {}", e);
-            }
-        } else {
-            // Intentional disconnect — emit final disconnected state and exit
-            let conn = DeviceConnection {
-                ip: params.ip.clone(),
-                port: params.port,
-                interface_type: params.interface_type.clone(),
-                connected: false,
-                reconnecting: false,
-                control_state: 0,
-                device_name: params.device_name.clone(),
-            };
-            if let Err(e) = app.emit("connectionStatus", &conn) {
-                log::warn!("Failed to emit connectionStatus event: {}", e);
-            }
-            break;
-        }
     }
 }
 
 /// Spawn a heartbeat task that reads CONTROL_INTERFACE (sys reg addr 2) every
-/// `HEARTBEAT_INTERVAL` seconds. This keeps the communicator's consecutive-timeout counter
-/// ticking even when no panel is actively polling, so a device disconnect is detected promptly.
-/// The task exits silently when the channel is closed.
-/// The returned handle should be stored in `plot_tasks` under `"__heartbeat__"` so that
-/// `disconnect_internal` aborts it automatically.
+/// `HEARTBEAT_INTERVAL`. This keeps the communicator's consecutive-timeout counter
+/// ticking even when no panel is actively polling, so a device disconnect is detected
+/// promptly. It deliberately bypasses the rate limiter: liveness detection must not
+/// be throttled by the user's request budget. The task exits silently when the
+/// channel is closed.
 fn spawn_heartbeat(tx: mpsc::Sender<DeviceRequest>) -> JoinHandle<()> {
-    const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+    const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(HEARTBEAT_INTERVAL);
         // Never replay missed ticks: the default Burst behaviour would fire them
@@ -362,11 +375,10 @@ fn spawn_heartbeat(tx: mpsc::Sender<DeviceRequest>) -> JoinHandle<()> {
         loop {
             ticker.tick().await;
             let req = DeviceRequest {
-                packet: crate::communicator::make_read_packet(CMD_READ_SYS_REG, 2),
+                packet: make_read_packet(CMD_READ_SYS_REG, 2),
                 command: CMD_READ_SYS_REG,
                 address: 2,
                 name: Some("CONTROL_INTERFACE".into()),
-                emit_plot: false,
             };
             if tx.send(req).await.is_err() {
                 break; // channel closed — exit silently
@@ -375,72 +387,12 @@ fn spawn_heartbeat(tx: mpsc::Sender<DeviceRequest>) -> JoinHandle<()> {
     })
 }
 
-/// Spawn a task that polls `address` via `command` every `interval_ms` and emits a
-/// plotData event for each response. Exits silently once the communicator channel closes.
-fn spawn_plot_task(
-    tx: mpsc::Sender<DeviceRequest>,
-    name: String,
-    address: u16,
-    command: u16,
-    interval_ms: u64,
-) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_millis(interval_ms));
-        // A plot polling faster than the device can answer must fall behind
-        // gracefully, not accumulate ticks and burst them at the queue.
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        loop {
-            ticker.tick().await;
-            let req = DeviceRequest {
-                packet: make_read_packet(command, address),
-                command,
-                address,
-                name: Some(name.clone()),
-                emit_plot: true,
-            };
-            if tx.send(req).await.is_err() {
-                break; // communicator gone — exit silently
-            }
-        }
-    })
-}
-
-/// Respawn polling tasks for every registered plot using the freshly (re)established
-/// communicator channel. Called after both the initial connect and every successful
-/// reconnect, so plots that were running before an unexpected disconnect keep going.
-async fn resume_active_plots(app: &AppHandle, tx: &mpsc::Sender<DeviceRequest>) {
-    let state = app.state();
-    let specs: Vec<(String, ActivePlotSpec)> = state
-        .active_plots
-        .lock()
-        .await
-        .iter()
-        .map(|(name, spec)| (name.clone(), spec.clone()))
-        .collect();
-
-    if specs.is_empty() {
-        return;
-    }
-
-    let mut tasks = state.plot_tasks.lock().await;
-    for (name, spec) in specs {
-        let handle = spawn_plot_task(
-            tx.clone(),
-            name.clone(),
-            spec.address,
-            spec.command,
-            spec.poll_interval,
-        );
-        tasks.insert(name, handle);
-    }
-}
-
 /// Enqueue a request; awaits if the channel is at capacity (backpressure).
 ///
 /// The sender is cloned and the mutex released *before* awaiting the send. Holding
 /// the guard across the await would block every other command — including
 /// `disconnect_device` — whenever the channel filled up.
-async fn queue_request(state: &&AppState, req: DeviceRequest) -> Result<(), String> {
+async fn queue_request(state: &AppState, req: DeviceRequest) -> Result<(), String> {
     let tx = {
         let guard = state.communicator_tx.lock().await;
         guard.as_ref().cloned().ok_or("Not connected to device")?
@@ -456,7 +408,7 @@ async fn queue_request(state: &&AppState, req: DeviceRequest) -> Result<(), Stri
         .map_err(|_| "Communicator channel closed".to_string())
 }
 
-// ── Tauri commands ────────────────────────────────────────────────────────────
+// ── Operations ────────────────────────────────────────────────────────────────
 
 pub async fn start_scan(app: AppHandle, state: &AppState) -> Result<(), String> {
     {
@@ -467,19 +419,22 @@ pub async fn start_scan(app: AppHandle, state: &AppState) -> Result<(), String> 
         *scanning = true;
     }
 
-    let app_clone = app.clone();
     let scanning_flag = Arc::clone(&state.is_scanning);
-
     tokio::spawn(async move {
-        crate::scanner::scan_devices(app_clone).await;
+        crate::scanner::scan_devices(app).await;
         *scanning_flag.lock().await = false;
     });
 
     Ok(())
 }
 
+/// Connects to `ip:port`. The port comes from the Device's discovery response
+/// or the user's explicit address; [`DEFAULT_TCP_PORT`]/[`DEFAULT_UDP_PORT`]
+/// apply only when neither is known. Returns once the connection is verified
+/// and published; a background supervisor then keeps it alive.
 pub async fn connect_device(
     ip: String,
+    port: u16,
     interface_type: InterfaceType,
     device_name: Option<String>,
     app: AppHandle,
@@ -487,187 +442,41 @@ pub async fn connect_device(
 ) -> Result<(), String> {
     // Retire the previous connection's stop token and mint a fresh one for this
     // attempt. Replacing the Arc (rather than setting the old flag back to false)
-    // means a reconnect loop still sleeping from the previous connection can never
+    // means a supervisor still sleeping from the previous connection can never
     // wake up "allowed" and race this connection for `communicator_tx`.
     let stop = {
         let mut guard = state.connection_token.lock().await;
-        guard.store(true, Ordering::Relaxed);
+        guard.store(true, Ordering::Release);
         let fresh = Arc::new(AtomicBool::new(false));
         *guard = Arc::clone(&fresh);
         fresh
     };
 
-    disconnect_internal(&state).await;
-
-    // An explicit connect starts clean: plots belonging to the previous device
-    // must not be resumed against this one.
-    state.active_plots.lock().await.clear();
-
-    let port = match interface_type {
-        InterfaceType::Tcp => DEFAULT_TCP_PORT,
-        InterfaceType::Udp => DEFAULT_UDP_PORT,
-    };
-
-    // Store params so the reconnect loop can reuse them
-    *state.reconnect_params.lock().await = Some(ReconnectParams {
-        ip: ip.clone(),
-        port,
-        interface_type: interface_type.clone(),
-        device_name: device_name.clone(),
-    });
-
-    // Channel with capacity 100 (matches original MAX_QUEUE_SIZE)
-    let (tx, rx) = mpsc::channel::<DeviceRequest>(100);
-
-    let app_clone = app.clone();
-
-    let connection = DeviceConnection {
-        ip: ip.clone(),
-        port,
-        interface_type: interface_type.clone(),
-        connected: true,
-        reconnecting: false,
-        control_state: 0,
-        device_name: device_name.clone(),
-    };
+    disconnect_internal(state).await;
 
     let params = ReconnectParams {
-        ip: ip.clone(),
+        ip,
         port,
-        interface_type: interface_type.clone(),
-        device_name: device_name.clone(),
+        interface_type,
+        device_name,
     };
-
-    match interface_type {
-        InterfaceType::Tcp => {
-            let stream = TcpStream::connect(format!("{}:{}", ip, port))
-                .await
-                .map_err(|e| format!("TCP connect failed: {}", e))?;
-
-            let _ = app.emit("connectionStatus", &connection);
-            emit_log(
-                &app,
-                LogLevel::Info,
-                LogCategory::Connection,
-                format!("TCP connected to {}:{}", ip, port),
-            );
-
-            let conn_clone = connection.clone();
-            tokio::spawn(async move {
-                let should_reconnect =
-                    run_tcp_communicator(stream, rx, app_clone.clone(), conn_clone.clone()).await;
-
-                // Communicator exited — clear state
-                {
-                    let s = app_clone.state();
-                    *s.communicator_tx.lock().await = None;
-                    *s.connection.lock().await = None;
-                }
-
-                let reconnecting = should_reconnect && !stop.load(Ordering::Relaxed);
-                emit_connection_status(&app_clone, conn_clone, reconnecting);
-
-                if reconnecting {
-                    reconnect_loop(app_clone, params, stop).await;
-                }
-            });
-        }
-        InterfaceType::Udp => {
-            let socket = UdpSocket::bind("0.0.0.0:0")
-                .await
-                .map_err(|e| format!("UDP bind failed: {}", e))?;
-
-            let _ = app.emit("connectionStatus", &connection);
-            emit_log(
-                &app,
-                LogLevel::Info,
-                LogCategory::Connection,
-                format!("UDP ready for {}:{}", ip, port),
-            );
-
-            let ip_clone = ip.clone();
-            let conn_clone = connection.clone();
-            tokio::spawn(async move {
-                let should_reconnect = run_udp_communicator(
-                    socket,
-                    rx,
-                    app_clone.clone(),
-                    conn_clone.clone(),
-                    ip_clone,
-                    port,
-                )
-                .await;
-
-                // Communicator exited — clear state
-                {
-                    let s = app_clone.state();
-                    *s.communicator_tx.lock().await = None;
-                    *s.connection.lock().await = None;
-                }
-
-                let reconnecting = should_reconnect && !stop.load(Ordering::Relaxed);
-                emit_connection_status(&app_clone, conn_clone, reconnecting);
-
-                if reconnecting {
-                    reconnect_loop(app_clone, params, stop).await;
-                }
-            });
-        }
-    }
-
-    // Set communicator_tx before connection so any concurrent command that
-    // reads connection then communicator_tx never sees one without the other.
-    let heartbeat_tx = tx.clone();
-    let plot_tx = tx.clone();
-    let poll_tx = tx.clone();
-    *state.communicator_tx.lock().await = Some(tx);
-    *state.connection.lock().await = Some(connection);
-
-    // Heartbeat: detect device loss even when no panel is actively reading
-    let heartbeat = spawn_heartbeat(heartbeat_tx);
-    state
-        .plot_tasks
-        .lock()
+    let transport = open(&params).await?;
+    let rx = activate(&app, &params, &stop)
         .await
-        .insert("__heartbeat__".into(), heartbeat);
-
-    // Resume any plots that were running before this (re)connect
-    resume_active_plots(&app, &plot_tx).await;
-    // Poll subscriptions are never cleared by an explicit connect (unlike
-    // active_plots, just above — a subscription belongs to a mounted widget,
-    // not to whichever device happens to answer it), so this always has every
-    // subscription made since the app started to resume, not only ones from
-    // an interrupted connection to this same device.
-    crate::poll::resume_poll_subscriptions(&app, &poll_tx).await;
-
+        .ok_or("Connection was cancelled")?;
+    tokio::spawn(supervise(app, params, stop, transport, rx));
     Ok(())
 }
 
 pub async fn disconnect_device(state: &AppState) -> Result<(), String> {
-    // Stop the current connection's reconnect loop before dropping the channel
+    // Stop the current connection's supervisor before dropping the channel
     state
         .connection_token
         .lock()
         .await
-        .store(true, Ordering::Relaxed);
-    disconnect_internal(&state).await;
-    // Explicit disconnect discards plot registrations; only an automatic
-    // reconnect of the *same* connection resumes them.
-    state.active_plots.lock().await.clear();
-    *state.connection.lock().await = None;
+        .store(true, Ordering::Release);
+    disconnect_internal(state).await;
     Ok(())
-}
-
-/// A newly-mounted `DSHubProvider` — a Daughter Window's own, per
-/// `.scratch/daughter-windows-native` issue 02 — has no way to learn whether
-/// the device is already connected: `connectionStatus` only broadcasts on a
-/// state *transition*, never on demand, so a provider that mounts after the
-/// transition already happened would otherwise show "disconnected"
-/// indefinitely. This is that on-demand read, called once from
-/// `DSHubContext.tsx`'s setup effect alongside subscribing to future
-/// transitions (ADR 0003's amendment).
-pub async fn get_connection_status(state: &AppState) -> Result<Option<DeviceConnection>, String> {
-    Ok(state.connection.lock().await.clone())
 }
 
 pub async fn take_control(state: &AppState) -> Result<(), String> {
@@ -682,202 +491,77 @@ pub async fn take_control(state: &AppState) -> Result<(), String> {
     };
 
     queue_request(
-        &state,
+        state,
         DeviceRequest {
             packet: make_control_packet(value),
             command: CMD_TAKE_CONTROL,
             address: 0,
             name: Some("TAKE_CONTROL".into()),
-            emit_plot: false,
+        },
+    )
+    .await
+}
+
+async fn read(state: &AppState, command: u16, address: u16, name: String) -> Result<(), String> {
+    queue_request(
+        state,
+        DeviceRequest {
+            packet: make_read_packet(command, address),
+            command,
+            address,
+            name: Some(name),
+        },
+    )
+    .await
+}
+
+async fn write(state: &AppState, command: u16, address: u16, value: i32) -> Result<(), String> {
+    queue_request(
+        state,
+        DeviceRequest {
+            packet: make_write_packet(command, address, value),
+            command,
+            address,
+            name: None,
         },
     )
     .await
 }
 
 pub async fn read_register(address: u16, name: String, state: &AppState) -> Result<(), String> {
-    queue_request(
-        &state,
-        DeviceRequest {
-            packet: make_read_packet(CMD_READ_REGISTER, address),
-            command: CMD_READ_REGISTER,
-            address,
-            name: Some(name),
-            emit_plot: false,
-        },
-    )
-    .await
+    read(state, CMD_READ_REGISTER, address, name).await
 }
 
 pub async fn write_register(address: u16, value: i32, state: &AppState) -> Result<(), String> {
-    queue_request(
-        &state,
-        DeviceRequest {
-            packet: make_write_packet(CMD_WRITE_REGISTER, address, value),
-            command: CMD_WRITE_REGISTER,
-            address,
-            name: None,
-            emit_plot: false,
-        },
-    )
-    .await
+    write(state, CMD_WRITE_REGISTER, address, value).await
 }
 
 pub async fn read_parameter(address: u16, name: String, state: &AppState) -> Result<(), String> {
-    queue_request(
-        &state,
-        DeviceRequest {
-            packet: make_read_packet(CMD_READ_PARAMETER, address),
-            command: CMD_READ_PARAMETER,
-            address,
-            name: Some(name),
-            emit_plot: false,
-        },
-    )
-    .await
+    read(state, CMD_READ_PARAMETER, address, name).await
 }
 
 pub async fn write_parameter(address: u16, value: i32, state: &AppState) -> Result<(), String> {
-    queue_request(
-        &state,
-        DeviceRequest {
-            packet: make_write_packet(CMD_WRITE_PARAMETER, address, value),
-            command: CMD_WRITE_PARAMETER,
-            address,
-            name: None,
-            emit_plot: false,
-        },
-    )
-    .await
+    write(state, CMD_WRITE_PARAMETER, address, value).await
 }
 
-pub async fn start_plotting(
-    register_name: String,
-    poll_interval: u64,
+pub async fn read_system_register(
     address: u16,
+    name: String,
     state: &AppState,
 ) -> Result<(), String> {
-    // Stop any existing plot for this register
-    if let Some(handle) = state.plot_tasks.lock().await.remove(&register_name) {
-        handle.abort();
-    }
-
-    // Clone the sender before spawning
-    let tx = {
-        let guard = state.communicator_tx.lock().await;
-        guard.as_ref().ok_or("Not connected")?.clone()
-    };
-
-    let interval_ms = poll_interval.max(10); // enforce 10ms minimum
-
-    let handle = spawn_plot_task(
-        tx,
-        register_name.clone(),
-        address,
-        CMD_READ_REGISTER,
-        interval_ms,
-    );
-
-    state
-        .plot_tasks
-        .lock()
-        .await
-        .insert(register_name.clone(), handle);
-    state.active_plots.lock().await.insert(
-        register_name,
-        ActivePlotSpec {
-            address,
-            command: CMD_READ_REGISTER,
-            poll_interval: interval_ms,
-        },
-    );
-    Ok(())
+    read(state, CMD_READ_SYS_REG, address, name).await
 }
 
-pub async fn stop_plotting(register_name: String, state: &AppState) -> Result<(), String> {
-    if let Some(handle) = state.plot_tasks.lock().await.remove(&register_name) {
-        handle.abort();
-    }
-    state.active_plots.lock().await.remove(&register_name);
-    Ok(())
-}
-
-pub async fn start_plotting_sys_register(
-    register_name: String,
-    poll_interval: u64,
-    address: u16,
-    state: &AppState,
-) -> Result<(), String> {
-    // Stop any existing plot for this name
-    if let Some(handle) = state.plot_tasks.lock().await.remove(&register_name) {
-        handle.abort();
-    }
-
-    let tx = {
-        let guard = state.communicator_tx.lock().await;
-        guard.as_ref().ok_or("Not connected")?.clone()
-    };
-
-    let interval_ms = poll_interval.max(10);
-
-    let handle = spawn_plot_task(
-        tx,
-        register_name.clone(),
-        address,
-        CMD_READ_SYS_REG,
-        interval_ms,
-    );
-
-    state
-        .plot_tasks
-        .lock()
-        .await
-        .insert(register_name.clone(), handle);
-    state.active_plots.lock().await.insert(
-        register_name,
-        ActivePlotSpec {
-            address,
-            command: CMD_READ_SYS_REG,
-            poll_interval: interval_ms,
-        },
-    );
-    Ok(())
-}
-
-/// Send a user-defined command (type field = command, for CNC and other app-specific commands).
-/// command: u16 type value (100–64999 for user-defined; e.g. 200 = ENABLE_ALL_MOTORS)
-/// address: sub-address passed in the address field (typically 0 for CNC commands)
-/// value:   parameter passed in the value field
-pub async fn send_command(
-    command: u16,
-    address: u16,
-    value: i32,
-    state: &AppState,
-) -> Result<(), String> {
-    queue_request(
-        &state,
-        DeviceRequest {
-            packet: make_user_cmd_packet(command, address, value),
-            command,
-            address,
-            name: Some(format!("CMD_{}", command)),
-            emit_plot: false,
-        },
-    )
-    .await
-}
-
-/// Send a library system command (type=0, address=sys_cmd address).
-/// sys_cmd: one of SYS_CMD_READ_FLASH (65000), SYS_CMD_WRITE_FLASH (65001),
-///          SYS_CMD_RESET_FIRMWARE (65002)
+/// Send a system command (type=0, address=command code): library commands
+/// 65000–65002 or a Profile's application commands 0–64999.
 pub async fn send_sys_command(sys_cmd: u16, value: i32, state: &AppState) -> Result<(), String> {
     queue_request(
-        &state,
+        state,
         DeviceRequest {
             packet: make_sys_cmd_packet(sys_cmd, value),
             command: CMD_SYS_COMMAND,
             address: sys_cmd,
             name: Some(format!("SYS_CMD_{}", sys_cmd)),
-            emit_plot: false,
         },
     )
     .await
@@ -888,160 +572,16 @@ pub async fn update_log_settings(settings: LogSettings, state: &AppState) -> Res
     Ok(())
 }
 
-pub async fn read_system_register(
-    address: u16,
-    name: String,
-    state: &AppState,
-) -> Result<(), String> {
-    queue_request(
-        &state,
-        DeviceRequest {
-            packet: make_read_packet(CMD_READ_SYS_REG, address),
-            command: CMD_READ_SYS_REG,
-            address,
-            name: Some(name),
-            emit_plot: false,
-        },
-    )
-    .await
-}
-
-/// Sends a write system register packet (command type 7).
-/// The device always returns PERMISSION_ERROR (-5) — all system registers are read-only
-/// from the external protocol. This command is provided for future compatibility should
-/// the library introduce writable system registers.
-pub async fn write_system_register(
-    address: u16,
-    value: i32,
-    state: &AppState,
-) -> Result<(), String> {
-    queue_request(
-        &state,
-        DeviceRequest {
-            packet: make_write_packet(CMD_WRITE_SYS_REG, address, value),
-            command: CMD_WRITE_SYS_REG,
-            address,
-            name: None,
-            emit_plot: false,
-        },
-    )
-    .await
-}
-
-/// Opens a native save dialog and writes text content to the chosen file.
-/// `filter_name` and `filter_ext` control the file-type filter shown in the dialog (e.g. "Map File", "map").
-pub async fn save_text_file(
-    content: String,
-    suggested_name: String,
-    filter_name: String,
-    filter_ext: String,
-    state: &AppState,
-) -> Result<bool, String> {
-    let last_dir = state.last_save_dir.lock().await.clone();
-
-    let mut dialog = rfd::AsyncFileDialog::new()
-        .set_file_name(&suggested_name)
-        .add_filter(&filter_name, &[filter_ext.as_str()]);
-
-    if let Some(dir) = last_dir {
-        dialog = dialog.set_directory(dir);
-    }
-
-    match dialog.save_file().await {
-        Some(path) => {
-            if let Some(parent) = path.path().parent() {
-                *state.last_save_dir.lock().await = Some(parent.to_path_buf());
-            }
-            std::fs::write(path.path(), content.as_bytes())
-                .map(|_| true)
-                .map_err(|e| e.to_string())
-        }
-        None => Ok(false),
-    }
-}
-
-/// Opens a native save dialog and writes binary (PDF) content to the chosen file.
-/// `data_base64` is the file content encoded as a standard Base64 string.
-pub async fn save_pdf_file(
-    data_base64: String,
-    suggested_name: String,
-    state: &AppState,
-) -> Result<bool, String> {
-    use base64::{engine::general_purpose, Engine as _};
-
-    let data = general_purpose::STANDARD
-        .decode(&data_base64)
-        .map_err(|e| format!("Base64 decode error: {e}"))?;
-
-    let last_dir = state.last_save_dir.lock().await.clone();
-
-    let mut dialog = rfd::AsyncFileDialog::new()
-        .set_file_name(&suggested_name)
-        .add_filter("PDF Document", &["pdf"]);
-
-    if let Some(dir) = last_dir {
-        dialog = dialog.set_directory(dir);
-    }
-
-    match dialog.save_file().await {
-        Some(path) => {
-            if let Some(parent) = path.path().parent() {
-                *state.last_save_dir.lock().await = Some(parent.to_path_buf());
-            }
-            std::fs::write(path.path(), data)
-                .map(|_| true)
-                .map_err(|e| e.to_string())
-        }
-        None => Ok(false),
-    }
-}
-
-/// Opens a native save dialog and writes CSV data to the chosen file.
-/// Remembers the last used directory and reopens it on subsequent calls.
-pub async fn save_csv(
-    content: String,
-    suggested_name: String,
-    state: &AppState,
-) -> Result<bool, String> {
-    let last_dir = state.last_save_dir.lock().await.clone();
-
-    let mut dialog = rfd::AsyncFileDialog::new()
-        .set_file_name(&suggested_name)
-        .add_filter("CSV", &["csv"]);
-
-    if let Some(dir) = last_dir {
-        dialog = dialog.set_directory(dir);
-    }
-
-    match dialog.save_file().await {
-        Some(path) => {
-            if let Some(parent) = path.path().parent() {
-                *state.last_save_dir.lock().await = Some(parent.to_path_buf());
-            }
-            std::fs::write(path.path(), content.as_bytes())
-                .map(|_| true)
-                .map_err(|e| e.to_string())
-        }
-        None => Ok(false), // User cancelled
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // `spawn_heartbeat` runs on `tauri::async_runtime`'s own global runtime
-    // (a real, separate Tokio runtime — see `default_runtime` in the `tauri`
-    // crate), not on whatever runtime this test function itself runs on, so
-    // there is no virtual clock to pause here. A short real-time timeout,
-    // well under the old skipped-tick's ~1s delay, is what actually
-    // distinguishes "sent immediately" from "sent after the first interval".
     #[tokio::test]
     async fn heartbeat_sends_its_first_request_without_waiting_for_an_interval() {
         let (tx, mut rx) = mpsc::channel::<DeviceRequest>(10);
         let _handle = spawn_heartbeat(tx);
 
-        let first = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv())
+        let first = tokio::time::timeout(Duration::from_millis(200), rx.recv())
             .await
             .expect("heartbeat did not send its first request promptly — is the first tick still being skipped?")
             .expect("heartbeat's channel closed before sending anything");
@@ -1049,5 +589,24 @@ mod tests {
         assert_eq!(first.command, CMD_READ_SYS_REG);
         assert_eq!(first.address, 2);
         assert_eq!(first.name.as_deref(), Some("CONTROL_INTERFACE"));
+    }
+
+    #[test]
+    fn reconnect_jitter_stays_within_twenty_percent() {
+        let d = jittered(Duration::from_secs(10));
+        assert!(d >= Duration::from_secs(8) && d <= Duration::from_secs(12));
+    }
+
+    #[tokio::test]
+    async fn udp_connect_fails_when_no_device_answers() {
+        // Bind a silent peer so the probe has a reachable but mute target.
+        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let params = ReconnectParams {
+            ip: "127.0.0.1".into(),
+            port: peer.local_addr().unwrap().port(),
+            interface_type: InterfaceType::Udp,
+            device_name: None,
+        };
+        assert!(open(&params).await.is_err());
     }
 }

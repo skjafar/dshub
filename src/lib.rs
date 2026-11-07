@@ -1,19 +1,11 @@
-#[path = "backend/commands.rs"]
-pub mod commands;
-#[path = "backend/communicator.rs"]
-pub mod communicator;
+pub mod backend;
+pub mod map_files;
 pub mod model;
-#[path = "backend/poll.rs"]
-pub mod poll;
+pub mod profile_compat;
 pub mod runtime;
-#[path = "backend/scanner.rs"]
-pub mod scanner;
-#[path = "backend/types.rs"]
-pub mod types;
 pub mod ui;
 
-pub mod profile_compat;
-
-pub mod map_files;
-
 mod cnc_dashboard;
+
+// Backend modules stay addressable at the crate root for existing callers.
+pub use backend::{commands, communicator, poll, scanner, types};

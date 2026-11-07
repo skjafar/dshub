@@ -1,4 +1,5 @@
 use super::*;
+use crate::runtime::Event;
 use crate::types::{DeviceConnection, InterfaceType, RegisterData};
 
 struct Harness {
@@ -260,85 +261,59 @@ fn saving_a_map_draft_preserves_concurrent_dashboard_changes() {
 }
 #[test]
 fn write_outcomes_wait_for_device_acknowledgement_and_preserve_refusal() {
+    use crate::types::{WriteAck, CMD_WRITE_REGISTER};
     use session::{OutcomeStatus, WriteOutcome};
     let mut h = Harness::new(PaneKind::Registers);
     let now = crate::communicator::now_ms();
-    h.session.writes.insert(
-        (Space::Register, 10),
-        WriteOutcome {
-            sent_at: now,
-            expected: 123,
-            status: OutcomeStatus::Sending,
-        },
-    );
-    h.session
-        .app
-        .emit(
-            "registerUpdate",
-            RegisterData {
-                address: 10,
-                name: "MOTOR_X_SETPOINT".into(),
-                value: 123,
-                valid: false,
-                timestamp: now + 1.,
-            },
-        )
-        .unwrap();
+    let ack = |status: i16, timestamp: f64| WriteAck {
+        command: CMD_WRITE_REGISTER,
+        address: 10,
+        status,
+        valid: status >= 0,
+        timestamp,
+    };
+    let sending = || WriteOutcome {
+        sent_at: now,
+        status: OutcomeStatus::Sending,
+    };
+    h.session.writes.insert((Space::Register, 10), sending());
+    h.session.app.emit(Event::WriteAck(ack(-5, now + 1.)));
     h.session.drain(&h.profile, &h.prefs);
     assert_eq!(
         h.session.writes[&(Space::Register, 10)].status,
         OutcomeStatus::Refused
     );
-    h.session
-        .app
-        .emit(
-            "registerUpdate",
-            RegisterData {
-                address: 10,
-                name: "MOTOR_X_SETPOINT".into(),
-                value: 123,
-                valid: true,
-                timestamp: now + 2.,
-            },
-        )
-        .unwrap();
+    h.session.app.emit(Event::Register(RegisterData {
+        address: 10,
+        name: "MOTOR_X_SETPOINT".into(),
+        value: 123,
+        valid: true,
+        timestamp: now + 2.,
+    }));
+    h.session.app.emit(Event::WriteAck(ack(2, now + 3.)));
     h.session.drain(&h.profile, &h.prefs);
     assert_eq!(
         h.session.writes[&(Space::Register, 10)].status,
         OutcomeStatus::Refused,
-        "a later read must not turn a refused write into a success"
+        "later traffic must not turn a refused write into a success"
     );
-    h.session.writes.insert(
-        (Space::Register, 10),
-        WriteOutcome {
-            sent_at: now,
-            expected: 123,
-            status: OutcomeStatus::Sending,
-        },
-    );
-    h.session
-        .app
-        .emit(
-            "registerUpdate",
-            RegisterData {
-                address: 10,
-                name: "MOTOR_X_SETPOINT".into(),
-                value: 123,
-                valid: true,
-                timestamp: now + 3.,
-            },
-        )
-        .unwrap();
+    // PROTOCOL.md: the status decides the outcome, not the echoed value.
+    h.session.writes.insert((Space::Register, 10), sending());
+    h.session.app.emit(Event::WriteAck(ack(2, now + 4.)));
     h.session.drain(&h.profile, &h.prefs);
     assert_eq!(
         h.session.writes[&(Space::Register, 10)].status,
         OutcomeStatus::Confirmed
     );
+    assert_eq!(
+        h.session.readings[&(Space::Register, 10)].value,
+        123,
+        "an acknowledgement is not a reading"
+    );
     h.session.writes.insert(
         (Space::Register, 11),
         WriteOutcome {
             sent_at: now - 6000.,
-            expected: 123,
             status: OutcomeStatus::Sending,
         },
     );
@@ -349,13 +324,67 @@ fn write_outcomes_wait_for_device_acknowledgement_and_preserve_refusal() {
     );
 }
 #[test]
+fn connection_endpoints_prefer_explicit_then_reported_ports() {
+    use crate::types::{DiscoveredDevice, DEFAULT_TCP_PORT, DEFAULT_UDP_PORT};
+    let mut h = Harness::new(PaneKind::Registers);
+    assert_eq!(
+        h.session.endpoint("10.0.0.5", false).unwrap(),
+        ("10.0.0.5".into(), DEFAULT_TCP_PORT)
+    );
+    h.session.devices.push(DiscoveredDevice {
+        ip_address: "10.0.0.5".into(),
+        board_name: "Board".into(),
+        mac_address: String::new(),
+        device_id: 1,
+        board_type: 1,
+        firmware_version: 1,
+        tcp_port: 3009,
+        udp_port: 3011,
+    });
+    assert_eq!(h.session.endpoint("10.0.0.5", false).unwrap().1, 3009);
+    assert_eq!(h.session.endpoint("10.0.0.5", true).unwrap().1, 3011);
+    assert_eq!(h.session.endpoint(" 10.0.0.5:4000 ", true).unwrap().1, 4000);
+    assert_eq!(
+        h.session.endpoint("[::1]:2009", false).unwrap(),
+        ("::1".into(), 2009)
+    );
+    assert_eq!(
+        h.session.endpoint("10.0.0.6", true).unwrap().1,
+        DEFAULT_UDP_PORT
+    );
+    assert!(h.session.endpoint("10.0.0.5:0", false).is_err());
+    assert!(h.session.endpoint("", false).is_err());
+}
+#[test]
+fn opening_metadata_without_editing_leaves_the_draft_unchanged() {
+    let mut h = Harness::new(PaneKind::MapEditor);
+    h.frame(vec![]);
+    h.click("Commands / Metadata");
+    let name = h.profile.entries(Space::Register)[0]
+        .name
+        .split('[')
+        .next()
+        .unwrap()
+        .to_string();
+    h.profile.registers_metadata.remove(&name);
+    h.pane.draft = None;
+    h.frame(vec![]);
+    h.click(&name);
+    h.frame(vec![]);
+    assert!(!h.pane.draft.as_ref().unwrap().maps_differ(&h.profile));
+}
+#[test]
 fn changing_connections_cancels_old_write_confirmations() {
     let mut h = Harness::new(PaneKind::Registers);
     h.session.confirm = Some((
         "Old device write".into(),
         Action::Write(Space::Register, 10, 42),
     ));
-    h.session.send(Action::Connect("127.0.0.1".into(), false));
+    h.session.send(Action::Connect(
+        "127.0.0.1".into(),
+        crate::types::DEFAULT_TCP_PORT,
+        false,
+    ));
     assert!(h.session.confirm.is_none());
 }
 
@@ -753,4 +782,58 @@ fn refinement_map_rows_drag_within_access_sections() {
     assert_eq!(entries[0].name, "SECOND");
     assert_eq!(entries[1].name, "FIRST");
     assert!(entries[2].writable);
+}
+#[test]
+fn plot_windows_keep_extremes_when_thinned() {
+    let h: std::collections::VecDeque<[f64; 2]> = (0..10_000)
+        .map(|i| [i as f64, if i == 5_000 { 99. } else { 0. }])
+        .collect();
+    let points = panes::window(&h, 1_000., 9_000., 500);
+    assert!(points.len() <= 502);
+    assert!(points.first().unwrap()[0] >= 1_000.);
+    assert!(points.last().unwrap()[0] <= 9_000.);
+    assert!(
+        points.iter().any(|p| p[1] == 99.),
+        "the spike must survive thinning"
+    );
+    assert_eq!(panes::window(&h, 10., 19., 500).len(), 10);
+}
+#[test]
+fn histories_are_kept_only_for_plotted_addresses() {
+    let mut h = Harness::new(PaneKind::Registers);
+    let plotted = Binding::new(Space::Register, &h.profile.entries(Space::Register)[0]);
+    let reading = |address| {
+        Event::Register(RegisterData {
+            address,
+            name: String::new(),
+            value: 1,
+            valid: true,
+            timestamp: crate::communicator::now_ms(),
+        })
+    };
+    h.session.want_history(&plotted);
+    h.session.sync();
+    h.session.app.emit(reading(plotted.address));
+    h.session.app.emit(reading(plotted.address + 1));
+    h.session.drain(&h.profile, &h.prefs);
+    assert!(h
+        .session
+        .histories
+        .contains_key(&(Space::Register, plotted.address)));
+    assert!(!h
+        .session
+        .histories
+        .contains_key(&(Space::Register, plotted.address + 1)));
+    // Once nothing plots it, the history is released.
+    h.session.sync();
+    assert!(h.session.histories.is_empty());
+}
+#[test]
+fn duplicated_profiles_get_unused_names() {
+    let mut profiles = default_profiles();
+    let name = profiles[0].name.clone();
+    assert_eq!(unique_name("Fresh", &profiles), "Fresh");
+    assert_eq!(unique_name(&name, &profiles), format!("{name} 2"));
+    profiles[1].name = format!("{name} 2");
+    assert_eq!(unique_name(&name, &profiles), format!("{name} 3"));
 }

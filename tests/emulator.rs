@@ -31,6 +31,17 @@ async fn wait(app: &AppHandle, predicate: impl Fn(&Event) -> bool) -> Event {
     .await
     .expect("Expected device event did not arrive")
 }
+async fn write_ack(app: &AppHandle, address: u16) -> WriteAck {
+    match wait(
+        app,
+        |e| matches!(e, Event::WriteAck(a) if a.address == address),
+    )
+    .await
+    {
+        Event::WriteAck(ack) => ack,
+        _ => unreachable!(),
+    }
+}
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "launches the Python emulator and binds TCP 2009 / UDP 2011"]
 async fn native_backend_tcp_udp_control_reads_writes_commands_and_subscriptions() {
@@ -47,6 +58,11 @@ async fn native_backend_tcp_udp_control_reads_writes_commands_and_subscriptions(
     for interface in [InterfaceType::Tcp, InterfaceType::Udp] {
         commands::connect_device(
             "127.0.0.1".into(),
+            if interface == InterfaceType::Tcp {
+                DEFAULT_TCP_PORT
+            } else {
+                DEFAULT_UDP_PORT
+            },
             interface.clone(),
             Some("Test emulator".into()),
             app.clone(),
@@ -56,12 +72,16 @@ async fn native_backend_tcp_udp_control_reads_writes_commands_and_subscriptions(
         .unwrap();
         app.drain();
         commands::take_control(app.state()).await.unwrap();
-        let control = wait(&app, |e| {
-            e.name == "sysRegisterUpdate" && e.payload["address"] == 2
-        })
-        .await;
+        let Event::SysRegister(control) = wait(
+            &app,
+            |e| matches!(e, Event::SysRegister(r) if r.address == 2),
+        )
+        .await
+        else {
+            unreachable!()
+        };
         assert_eq!(
-            control.payload["value"],
+            control.value,
             if interface == InterfaceType::Tcp {
                 1
             } else {
@@ -71,50 +91,44 @@ async fn native_backend_tcp_udp_control_reads_writes_commands_and_subscriptions(
         commands::write_register(10, 1234, app.state())
             .await
             .unwrap();
-        let event = wait(&app, |e| {
-            e.name == "registerUpdate" && e.payload["address"] == 10
-        })
-        .await;
-        assert_eq!(event.payload["valid"], true);
-        assert_eq!(event.payload["value"], 1234);
+        let ack = write_ack(&app, 10).await;
+        assert!(ack.valid);
         commands::read_register(10, "MOTOR_X_SETPOINT".into(), app.state())
             .await
             .unwrap();
-        let event = wait(&app, |e| {
-            e.name == "registerUpdate" && e.payload["address"] == 10
-        })
-        .await;
-        assert_eq!(event.payload["value"], 1234);
+        let Event::Register(r) =
+            wait(&app, |e| matches!(e, Event::Register(r) if r.address == 10)).await
+        else {
+            unreachable!()
+        };
+        assert_eq!(r.value, 1234);
         let float = 2.75f32.to_bits() as i32;
         commands::write_parameter(6, float, app.state())
             .await
             .unwrap();
-        let event = wait(&app, |e| {
-            e.name == "parameterUpdate" && e.payload["address"] == 6
-        })
-        .await;
-        assert_eq!(event.payload["valid"], true);
+        assert!(write_ack(&app, 6).await.valid);
         commands::read_parameter(6, "MOTOR_X_KP".into(), app.state())
             .await
             .unwrap();
-        let event = wait(&app, |e| {
-            e.name == "parameterUpdate" && e.payload["address"] == 6
-        })
-        .await;
-        assert_eq!(event.payload["value"], float);
+        let Event::Parameter(r) =
+            wait(&app, |e| matches!(e, Event::Parameter(r) if r.address == 6)).await
+        else {
+            unreachable!()
+        };
+        assert_eq!(r.value, float);
         commands::send_sys_command(0, 0, app.state()).await.unwrap();
-        let event = wait(&app, |e| {
-            e.name == "commandResponse" && e.payload["command"] == 0
-        })
-        .await;
-        assert_eq!(event.payload["valid"], true);
+        let Event::CommandResponse(response) = wait(
+            &app,
+            |e| matches!(e, Event::CommandResponse(r) if r.command == 0),
+        )
+        .await
+        else {
+            unreachable!()
+        };
+        assert!(response.valid);
         commands::write_register(0, 999, app.state()).await.unwrap();
-        let event = wait(&app, |e| {
-            e.name == "registerUpdate" && e.payload["address"] == 0
-        })
-        .await;
-        assert_eq!(
-            event.payload["valid"], false,
+        assert!(
+            !write_ack(&app, 0).await.valid,
             "read-only writes must be reported refused"
         );
         let id = poll::subscribe_address(
@@ -127,11 +141,15 @@ async fn native_backend_tcp_udp_control_reads_writes_commands_and_subscriptions(
         )
         .await
         .unwrap();
-        let event = wait(&app, |e| {
-            e.name == "sysRegisterUpdate" && e.payload["address"] == 3
-        })
-        .await;
-        assert_eq!(event.payload["valid"], true);
+        let Event::SysRegister(r) = wait(
+            &app,
+            |e| matches!(e, Event::SysRegister(r) if r.address == 3),
+        )
+        .await
+        else {
+            unreachable!()
+        };
+        assert!(r.valid);
         poll::unsubscribe_address(id, app.clone(), app.state())
             .await
             .unwrap();

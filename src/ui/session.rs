@@ -1,12 +1,22 @@
-use crate::{commands, model::*, poll, runtime::AppHandle, types::*};
+use crate::{
+    commands,
+    model::*,
+    poll,
+    runtime::{AppHandle, Event},
+    types::*,
+};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone)]
 pub enum Action {
     Scan,
-    Connect(String, bool),
-    AutoConnect(String, bool, u32, u64),
+    /// Address, port, UDP.
+    Connect(String, u16, bool),
+    /// Address, port, UDP, attempts, delay between attempts (ms).
+    AutoConnect(String, u16, bool, u32, u64),
+    /// Handled out of band: it cancels whatever the actor is doing.
     Disconnect,
     Control,
     Read(Space, u16, String),
@@ -15,6 +25,23 @@ pub enum Action {
     Subscriptions(BTreeSet<(Space, u16, String, u64)>),
     LogSettings(LogSettings),
 }
+impl Action {
+    /// Device traffic queued before a Disconnect belongs to the old connection.
+    fn targets_connection(&self) -> bool {
+        matches!(
+            self,
+            Self::Control | Self::Read(..) | Self::Write(..) | Self::Command(..)
+        )
+    }
+}
+/// Where a picked file's contents should go once the dialog completes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImportTarget {
+    Profile,
+    CommandMap { pane: String },
+    Map { pane: String, space: Space },
+}
+type Imports = Arc<Mutex<Vec<(ImportTarget, Result<String, String>)>>>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutcomeStatus {
     Sending,
@@ -25,7 +52,6 @@ pub enum OutcomeStatus {
 #[derive(Debug, Clone)]
 pub struct WriteOutcome {
     pub sent_at: f64,
-    pub expected: i32,
     pub status: OutcomeStatus,
 }
 impl WriteOutcome {
@@ -42,6 +68,9 @@ pub struct Session {
     pub _runtime: tokio::runtime::Runtime,
     pub app: AppHandle,
     pub tx: mpsc::UnboundedSender<Action>,
+    cancel: mpsc::UnboundedSender<()>,
+    imports: Imports,
+    received_imports: Vec<(ImportTarget, Result<String, String>)>,
     pub connection: Option<DeviceConnection>,
     pub devices: Vec<DiscoveredDevice>,
     pub scanning: bool,
@@ -53,7 +82,10 @@ pub struct Session {
     pub selection: Option<(Space, Entry)>,
     pub interests: BTreeSet<(Space, u16, String, u64)>,
     pub last_interests: BTreeSet<(Space, u16, String, u64)>,
-    pub paused: bool,
+    /// Addresses whose history a visible plot wants this frame.
+    history_wanted: BTreeSet<(Space, u16)>,
+    /// Last frame's `history_wanted`, which incoming readings are recorded for.
+    history_keys: BTreeSet<(Space, u16)>,
     pub command_responses: BTreeMap<u16, CommandResponse>,
     pub confirm: Option<(String, Action)>,
     pub writes: BTreeMap<(Space, u16), WriteOutcome>,
@@ -72,102 +104,52 @@ impl Session {
             .expect("Tokio runtime");
         let app = AppHandle::new();
         let (tx, mut rx) = mpsc::unbounded_channel::<Action>();
+        let (cancel, mut cancelled) = mpsc::unbounded_channel::<()>();
         let a = app.clone();
         runtime.spawn(async move {
             let mut subscriptions: BTreeMap<(Space, u16), (u64, String, u64)> = BTreeMap::new();
-            while let Some(action) = rx.recv().await {
-                let state = a.state();
+            // Actions that survived a Disconnect, still in submission order.
+            let mut backlog: VecDeque<Action> = VecDeque::new();
+            loop {
+                let action = match backlog.pop_front() {
+                    Some(action) => action,
+                    None => tokio::select! {
+                        biased;
+                        Some(()) = cancelled.recv() => {
+                            disconnect(&a, &mut rx, &mut backlog).await;
+                            continue;
+                        }
+                        action = rx.recv() => match action {
+                            Some(action) => action,
+                            None => break,
+                        },
+                    },
+                };
                 let result = match action {
-                    Action::Scan => commands::start_scan(a.clone(), state).await,
-                    Action::Connect(ip, udp) => {
-                        let result = connect(&a, ip, udp).await;
-                        let _ = a.emit("busy", false);
-                        result
-                    }
-                    Action::AutoConnect(ip, udp, retries, delay) => {
-                        let mut result = Err("No connection attempts requested".into());
-                        for attempt in 0..retries.max(1) {
-                            result = connect(&a, ip.clone(), udp).await;
-                            if result.is_ok() {
-                                break;
-                            }
-                            if attempt + 1 < retries {
-                                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                            }
-                        }
-                        let _ = a.emit("busy", false);
-                        result
-                    }
                     Action::Disconnect => {
-                        let r = commands::disconnect_device(state).await;
-                        let _ = a.emit("disconnected", ());
-                        r
-                    }
-                    Action::Control => commands::take_control(state).await,
-                    Action::Read(s, address, name) => match s {
-                        Space::Register => commands::read_register(address, name, state).await,
-                        Space::Parameter => commands::read_parameter(address, name, state).await,
-                        Space::SysRegister => {
-                            commands::read_system_register(address, name, state).await
-                        }
-                    },
-                    Action::Write(s, address, value) => match s {
-                        Space::Register => commands::write_register(address, value, state).await,
-                        Space::Parameter => commands::write_parameter(address, value, state).await,
-                        Space::SysRegister => Err("System registers are read-only".into()),
-                    },
-                    Action::Command(code, value) => {
-                        commands::send_sys_command(code, value, state).await
-                    }
-                    Action::LogSettings(settings) => {
-                        commands::update_log_settings(settings, state).await
-                    }
-                    Action::Subscriptions(wanted) => {
-                        let mut desired: BTreeMap<(Space, u16), (String, u64)> = BTreeMap::new();
-                        for (s, address, name, ms) in wanted {
-                            desired
-                                .entry((s, address))
-                                .and_modify(|v| v.1 = v.1.min(ms))
-                                .or_insert((name, ms));
-                        }
-                        let old: Vec<_> = subscriptions
-                            .iter()
-                            .filter(|(k, (_, name, ms))| {
-                                desired.get(k) != Some(&(name.clone(), *ms))
-                            })
-                            .map(|(k, v)| (*k, v.0))
-                            .collect();
-                        for (key, id) in old {
-                            let _ = poll::unsubscribe_address(id, a.clone(), state).await;
-                            subscriptions.remove(&key);
-                        }
-                        for ((s, address), (name, ms)) in desired {
-                            if subscriptions.contains_key(&(s, address)) {
-                                continue;
-                            }
-                            let source = match s {
-                                Space::Register => poll::DataSource::Register,
-                                Space::Parameter => poll::DataSource::Parameter,
-                                Space::SysRegister => poll::DataSource::SysRegister,
-                            };
-                            if let Ok(id) = poll::subscribe_address(
-                                source,
-                                address,
-                                name.clone(),
-                                ms,
-                                a.clone(),
-                                state,
-                            )
-                            .await
-                            {
-                                subscriptions.insert((s, address), (id, name, ms));
-                            }
-                        }
+                        disconnect(&a, &mut rx, &mut backlog).await;
                         Ok(())
                     }
+                    Action::Subscriptions(wanted) => {
+                        // Not cancellable: it must keep `subscriptions` in step
+                        // with the backend's registry.
+                        update_subscriptions(&a, &mut subscriptions, wanted).await;
+                        Ok(())
+                    }
+                    action => tokio::select! {
+                        // Connecting, retrying, rate limiting and a full request
+                        // queue can each take seconds; Disconnect must not wait
+                        // behind them.
+                        biased;
+                        Some(()) = cancelled.recv() => {
+                            disconnect(&a, &mut rx, &mut backlog).await;
+                            Ok(())
+                        }
+                        result = run(&a, action) => result,
+                    },
                 };
                 if let Err(error) = result {
-                    let _ = a.emit("error", error);
+                    a.emit(Event::Error(error));
                 }
             }
             let _ = commands::disconnect_device(a.state()).await;
@@ -176,6 +158,9 @@ impl Session {
             _runtime: runtime,
             app,
             tx,
+            cancel,
+            imports: Default::default(),
+            received_imports: vec![],
             connection: None,
             devices: vec![],
             scanning: false,
@@ -187,11 +172,61 @@ impl Session {
             selection: None,
             interests: BTreeSet::new(),
             last_interests: BTreeSet::new(),
-            paused: false,
+            history_wanted: BTreeSet::new(),
+            history_keys: BTreeSet::new(),
             command_responses: BTreeMap::new(),
             confirm: None,
             writes: BTreeMap::new(),
             commands: BTreeMap::new(),
+        }
+    }
+    /// Resolves the user's address to an endpoint. An explicit `host:port` wins;
+    /// otherwise a discovered Device at that address supplies the port it
+    /// reported for the chosen transport, then the protocol default applies.
+    pub fn endpoint(&self, address: &str, udp: bool) -> Result<(String, u16), String> {
+        let address = address.trim();
+        if address.is_empty() {
+            return Err("Enter a device address".into());
+        }
+        if let Ok(socket) = address.parse::<std::net::SocketAddr>() {
+            if socket.port() == 0 {
+                return Err(format!("Invalid port in {address}"));
+            }
+            return Ok((socket.ip().to_string(), socket.port()));
+        }
+        if let Some((host, port)) = address.rsplit_once(':') {
+            if !host.contains(':') {
+                let port = port
+                    .parse::<u16>()
+                    .ok()
+                    .filter(|p| *p != 0)
+                    .ok_or_else(|| format!("Invalid port in {address}"))?;
+                return Ok((host.to_string(), port));
+            }
+        }
+        let reported = self
+            .devices
+            .iter()
+            .find(|d| d.ip_address == address)
+            .map(|d| if udp { d.udp_port } else { d.tcp_port })
+            .filter(|p| *p != 0);
+        let default = if udp {
+            DEFAULT_UDP_PORT
+        } else {
+            DEFAULT_TCP_PORT
+        };
+        Ok((address.to_string(), reported.unwrap_or(default)))
+    }
+    pub fn connect_to(&mut self, address: &str, udp: bool) {
+        match self.endpoint(address, udp) {
+            Ok((host, port)) => self.send(Action::Connect(host, port, udp)),
+            Err(e) => self.notice = e,
+        }
+    }
+    pub fn auto_connect(&mut self, address: &str, udp: bool, attempts: u32, delay: u64) {
+        match self.endpoint(address, udp) {
+            Ok((host, port)) => self.send(Action::AutoConnect(host, port, udp, attempts, delay)),
+            Err(e) => self.notice = e,
         }
     }
     pub fn send(&mut self, action: Action) {
@@ -201,22 +236,20 @@ impl Session {
             return;
         }
         match &action {
-            Action::Write(space, address, value) => {
+            Action::Write(space, address, _) => {
                 self.writes.insert(
                     (*space, *address),
                     WriteOutcome {
                         sent_at: crate::communicator::now_ms(),
-                        expected: *value,
                         status: OutcomeStatus::Sending,
                     },
                 );
             }
-            Action::Command(code, value) => {
+            Action::Command(code, _) => {
                 self.commands.insert(
                     *code,
                     WriteOutcome {
                         sent_at: crate::communicator::now_ms(),
-                        expected: *value,
                         status: OutcomeStatus::Sending,
                     },
                 );
@@ -224,8 +257,13 @@ impl Session {
             Action::Disconnect => {
                 self.confirm = None;
                 self.connection = None;
+                self.busy = false;
                 self.writes.clear();
                 self.commands.clear();
+                if let Err(e) = self.cancel.send(()) {
+                    self.notice = e.to_string();
+                }
+                return;
             }
             Action::Scan => {
                 self.scanning = true;
@@ -245,6 +283,13 @@ impl Session {
         if let Err(e) = self.tx.send(action) {
             self.notice = e.to_string();
         }
+    }
+    /// Whether a write or command still awaits its acknowledgement.
+    pub fn awaiting_outcome(&self) -> bool {
+        self.writes
+            .values()
+            .chain(self.commands.values())
+            .any(|o| o.status == OutcomeStatus::Sending)
     }
     pub fn connected(&self) -> bool {
         self.connection
@@ -268,11 +313,19 @@ impl Session {
                 .insert((b.space, b.address, b.name.clone(), ms.max(50)));
         }
     }
+    /// Asks for `b`'s readings to be kept as a plot history.
+    pub fn want_history(&mut self, b: &Binding) {
+        self.history_wanted.insert((b.space, b.address));
+    }
+    /// Ends a frame: sends changed subscriptions and drops histories nothing plots.
     pub fn sync(&mut self) {
         if self.interests != self.last_interests {
             self.send(Action::Subscriptions(self.interests.clone()));
             self.last_interests = self.interests.clone();
         }
+        self.history_keys = std::mem::take(&mut self.history_wanted);
+        let keys = &self.history_keys;
+        self.histories.retain(|k, _| keys.contains(k));
     }
     pub fn read(&mut self, s: Space, e: &Entry) {
         self.send(Action::Read(s, e.address, e.name.clone()));
@@ -331,108 +384,87 @@ impl Session {
     }
     pub fn drain(&mut self, p: &Profile, prefs: &Preferences) {
         for event in self.app.drain() {
-            match event.name.as_str() {
-                "deviceDiscovered" => {
-                    if let Ok(d) = serde_json::from_value::<DiscoveredDevice>(event.payload) {
-                        if !self.devices.iter().any(|x| x.ip_address == d.ip_address) {
-                            self.devices.push(d);
-                        }
+            match event {
+                Event::DeviceDiscovered(d) => {
+                    if !self.devices.iter().any(|x| x.ip_address == d.ip_address) {
+                        self.devices.push(d);
                     }
                 }
-                "scanComplete" => self.scanning = false,
-                "connectionStatus" => {
-                    if let Ok(c) = serde_json::from_value::<DeviceConnection>(event.payload) {
-                        if !c.connected {
-                            self.confirm = None;
-                            for outcome in
-                                self.writes.values_mut().chain(self.commands.values_mut())
-                            {
-                                if outcome.status == OutcomeStatus::Sending {
-                                    outcome.status = OutcomeStatus::Unknown;
-                                }
+                Event::ScanComplete => self.scanning = false,
+                Event::ConnectionStatus(c) => {
+                    if !c.connected {
+                        self.confirm = None;
+                        for outcome in self.writes.values_mut().chain(self.commands.values_mut()) {
+                            if outcome.status == OutcomeStatus::Sending {
+                                outcome.status = OutcomeStatus::Unknown;
                             }
-                            self.readings.clear();
                         }
-                        self.connection = Some(c);
+                        self.readings.clear();
+                    } else if self.connection.as_ref().is_some_and(|old| old.reconnecting) {
+                        self.notice =
+                            "Connection restored. Take Control again before writing or sending commands."
+                                .into();
                     }
+                    self.connection = Some(c);
                 }
-                "disconnected" => {
+                Event::Disconnected => {
                     self.connection = None;
                     self.readings.clear();
                 }
-                "busy" => self.busy = false,
-                "error" => {
+                Event::Idle => self.busy = false,
+                Event::Error(error) => {
                     self.busy = false;
-                    self.notice = event.payload.as_str().unwrap_or("Unknown error").into();
+                    self.notice = error;
                 }
-                "logEntry" => {
-                    if let Ok(l) = serde_json::from_value(event.payload) {
-                        self.logs.push_back(l);
+                Event::Log(l) => self.logs.push_back(l),
+                Event::CommandResponse(response) => {
+                    self.notice = format!(
+                        "Command {}: {} (status {})",
+                        response.command,
+                        if response.valid {
+                            "acknowledged"
+                        } else {
+                            "refused"
+                        },
+                        response.status
+                    );
+                    if let Some(outcome) = self.commands.get_mut(&response.command) {
+                        outcome.status = if response.valid {
+                            OutcomeStatus::Confirmed
+                        } else {
+                            OutcomeStatus::Refused
+                        };
                     }
+                    self.command_responses.insert(response.command, response);
                 }
-                "commandResponse" => {
-                    if let Ok(response) = serde_json::from_value::<CommandResponse>(event.payload) {
-                        self.notice = format!(
-                            "Command {}: {} (status {})",
-                            response.command,
-                            if response.valid {
-                                "acknowledged"
-                            } else {
-                                "refused"
-                            },
-                            response.status
-                        );
-                        if let Some(outcome) = self.commands.get_mut(&response.command) {
-                            outcome.status = if response.valid {
+                Event::WriteAck(ack) => {
+                    let s = match ack.command {
+                        CMD_WRITE_REGISTER => Space::Register,
+                        CMD_WRITE_PARAMETER => Space::Parameter,
+                        _ => Space::SysRegister,
+                    };
+                    if let Some(outcome) = self.writes.get_mut(&(s, ack.address)) {
+                        if outcome.status == OutcomeStatus::Sending
+                            && ack.timestamp >= outcome.sent_at
+                        {
+                            outcome.status = if ack.valid {
                                 OutcomeStatus::Confirmed
                             } else {
                                 OutcomeStatus::Refused
                             };
                         }
-                        self.command_responses.insert(response.command, response);
+                    }
+                    // Read the value back so every view shows what the Device
+                    // now holds; the acknowledgement itself is not a reading.
+                    if ack.valid && s != Space::SysRegister {
+                        if let Some(e) = p.entry_at(s, ack.address) {
+                            self.send(Action::Read(s, e.address, e.name));
+                        }
                     }
                 }
-                "registerUpdate" | "parameterUpdate" | "sysRegisterUpdate" => {
-                    if let Ok(r) = serde_json::from_value::<RegisterData>(event.payload) {
-                        let s = match event.name.as_str() {
-                            "parameterUpdate" => Space::Parameter,
-                            "sysRegisterUpdate" => Space::SysRegister,
-                            _ => Space::Register,
-                        };
-                        if let Some(outcome) = self.writes.get_mut(&(s, r.address)) {
-                            if outcome.status == OutcomeStatus::Sending
-                                && r.timestamp >= outcome.sent_at
-                            {
-                                if !r.valid {
-                                    outcome.status = OutcomeStatus::Refused;
-                                } else if r.value == outcome.expected {
-                                    outcome.status = OutcomeStatus::Confirmed;
-                                }
-                            }
-                        }
-                        if s == Space::SysRegister && r.address == 2 && r.valid {
-                            if let Some(c) = &mut self.connection {
-                                c.control_state = r.value as u32;
-                            }
-                        }
-                        if r.valid && !self.paused {
-                            if let Some(e) =
-                                p.entries(s).into_iter().find(|e| e.address == r.address)
-                            {
-                                let value = e.decode(r.value);
-                                if value.is_finite() {
-                                    let h = self.histories.entry((s, r.address)).or_default();
-                                    h.push_back([r.timestamp / 1000., value]);
-                                    while h.len() > prefs.max_points {
-                                        h.pop_front();
-                                    }
-                                }
-                            }
-                        }
-                        self.readings.insert((s, r.address), r);
-                    }
-                }
-                _ => {}
+                Event::Register(r) => self.reading(Space::Register, r, p, prefs),
+                Event::Parameter(r) => self.reading(Space::Parameter, r, p, prefs),
+                Event::SysRegister(r) => self.reading(Space::SysRegister, r, p, prefs),
             }
         }
         let now = crate::communicator::now_ms();
@@ -444,19 +476,76 @@ impl Session {
         while self.logs.len() > prefs.log_settings.max_log_count as usize {
             self.logs.pop_front();
         }
+        let mut imports = self.imports.lock().unwrap_or_else(|e| e.into_inner());
+        self.received_imports.append(&mut imports);
+    }
+    fn reading(&mut self, s: Space, r: RegisterData, p: &Profile, prefs: &Preferences) {
+        if s == Space::SysRegister && r.address == CONTROL_INTERFACE && r.valid {
+            let held = self.controlled();
+            if let Some(c) = &mut self.connection {
+                c.control_state = r.value as u32;
+            }
+            if held && !self.controlled() {
+                self.notice = format!(
+                    "Control was taken by {}. Writes and commands are disabled until you take it back.",
+                    control_interface_name(r.value)
+                );
+            }
+        }
+        // Only addresses something plots keep a history; everything else needs
+        // just the latest value.
+        if r.valid && self.history_keys.contains(&(s, r.address)) {
+            if let Some(e) = p.entry_at(s, r.address) {
+                let value = e.decode(r.value);
+                if value.is_finite() {
+                    let h = self.histories.entry((s, r.address)).or_default();
+                    h.push_back([r.timestamp / 1000., value]);
+                    while h.len() > prefs.max_points {
+                        h.pop_front();
+                    }
+                }
+            }
+        }
+        self.readings.insert((s, r.address), r);
+    }
+    /// Takes a completed file pick for `target`, if one has arrived.
+    pub fn take_import(&mut self, target: &ImportTarget) -> Option<Result<String, String>> {
+        let i = self
+            .received_imports
+            .iter()
+            .position(|(t, _)| t == target)?;
+        Some(self.received_imports.remove(i).1)
+    }
+    /// Opens a native file picker without blocking the interface; the contents
+    /// arrive through [`Session::take_import`].
+    pub fn pick_file(&self, target: ImportTarget, filter: &str, extensions: &[&str]) {
+        let dialog = rfd::AsyncFileDialog::new().add_filter(filter, extensions);
+        let imports = self.imports.clone();
+        let app = self.app.clone();
+        self._runtime.spawn(async move {
+            if let Some(file) = dialog.pick_file().await {
+                let text = tokio::fs::read_to_string(file.path())
+                    .await
+                    .map_err(|e| e.to_string());
+                imports
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push((target, text));
+                app.notify();
+            }
+        });
     }
     pub fn export(&self, content: String, name: &str, ext: &str) {
-        let name = name.to_string();
-        let ext = ext.to_string();
+        // The async dialog runs on the platform's required thread (the main
+        // thread on macOS) without blocking the interface.
+        let dialog = rfd::AsyncFileDialog::new()
+            .set_file_name(name)
+            .add_filter(ext, &[ext]);
         let app = self.app.clone();
-        std::thread::spawn(move || {
-            if let Some(path) = rfd::FileDialog::new()
-                .set_file_name(&name)
-                .add_filter(&ext, &[ext.as_str()])
-                .save_file()
-            {
-                if let Err(e) = std::fs::write(path, content) {
-                    let _ = app.emit("error", e.to_string());
+        self._runtime.spawn(async move {
+            if let Some(file) = dialog.save_file().await {
+                if let Err(e) = tokio::fs::write(file.path(), content).await {
+                    app.emit(Event::Error(e.to_string()));
                 }
             }
         });
@@ -466,11 +555,121 @@ impl Session {
     }
 }
 
-async fn connect(app: &AppHandle, ip: String, udp: bool) -> Result<(), String> {
+const CONTROL_INTERFACE: u16 = 2;
+
+/// PROTOCOL.md, Control Interface Values.
+pub fn control_interface_name(value: i32) -> &'static str {
+    match value {
+        0 => "no interface",
+        1 => "a TCP datastream client",
+        2 => "a UDP datastream client",
+        101 => "the TCP command line",
+        102 => "USB",
+        _ => "another interface",
+    }
+}
+
+async fn run(a: &AppHandle, action: Action) -> Result<(), String> {
+    let state = a.state();
+    match action {
+        Action::Scan => commands::start_scan(a.clone(), state).await,
+        Action::Connect(ip, port, udp) => {
+            let result = connect(a, ip, port, udp).await;
+            a.emit(Event::Idle);
+            result
+        }
+        Action::AutoConnect(ip, port, udp, retries, delay) => {
+            let mut result = Err("No connection attempts requested".into());
+            for attempt in 0..retries.max(1) {
+                result = connect(a, ip.clone(), port, udp).await;
+                if result.is_ok() {
+                    break;
+                }
+                if attempt + 1 < retries {
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                }
+            }
+            a.emit(Event::Idle);
+            result
+        }
+        Action::Control => commands::take_control(state).await,
+        Action::Read(s, address, name) => match s {
+            Space::Register => commands::read_register(address, name, state).await,
+            Space::Parameter => commands::read_parameter(address, name, state).await,
+            Space::SysRegister => commands::read_system_register(address, name, state).await,
+        },
+        Action::Write(s, address, value) => match s {
+            Space::Register => commands::write_register(address, value, state).await,
+            Space::Parameter => commands::write_parameter(address, value, state).await,
+            Space::SysRegister => Err("System registers are read-only".into()),
+        },
+        Action::Command(code, value) => commands::send_sys_command(code, value, state).await,
+        Action::LogSettings(settings) => commands::update_log_settings(settings, state).await,
+        Action::Disconnect | Action::Subscriptions(_) => Ok(()),
+    }
+}
+
+/// Disconnects, then drops device traffic that was queued for the connection
+/// that no longer exists. Everything else keeps its order in `backlog`.
+async fn disconnect(
+    a: &AppHandle,
+    rx: &mut mpsc::UnboundedReceiver<Action>,
+    backlog: &mut VecDeque<Action>,
+) {
+    let _ = commands::disconnect_device(a.state()).await;
+    a.emit(Event::Idle);
+    a.emit(Event::Disconnected);
+    while let Ok(action) = rx.try_recv() {
+        backlog.push_back(action);
+    }
+    backlog.retain(|action| !action.targets_connection());
+}
+
+async fn update_subscriptions(
+    a: &AppHandle,
+    subscriptions: &mut BTreeMap<(Space, u16), (u64, String, u64)>,
+    wanted: BTreeSet<(Space, u16, String, u64)>,
+) {
+    let state = a.state();
+    let mut desired: BTreeMap<(Space, u16), (String, u64)> = BTreeMap::new();
+    for (s, address, name, ms) in wanted {
+        desired
+            .entry((s, address))
+            .and_modify(|v| v.1 = v.1.min(ms))
+            .or_insert((name, ms));
+    }
+    let old: Vec<_> = subscriptions
+        .iter()
+        .filter(|(k, (_, name, ms))| desired.get(k) != Some(&(name.clone(), *ms)))
+        .map(|(k, v)| (*k, v.0))
+        .collect();
+    for (key, id) in old {
+        let _ = poll::unsubscribe_address(id, a.clone(), state).await;
+        subscriptions.remove(&key);
+    }
+    for ((s, address), (name, ms)) in desired {
+        if subscriptions.contains_key(&(s, address)) {
+            continue;
+        }
+        let source = match s {
+            Space::Register => poll::DataSource::Register,
+            Space::Parameter => poll::DataSource::Parameter,
+            Space::SysRegister => poll::DataSource::SysRegister,
+        };
+        if let Ok(id) =
+            poll::subscribe_address(source, address, name.clone(), ms, a.clone(), state).await
+        {
+            subscriptions.insert((s, address), (id, name, ms));
+        }
+    }
+}
+
+async fn connect(app: &AppHandle, ip: String, port: u16, udp: bool) -> Result<(), String> {
     tokio::time::timeout(
         std::time::Duration::from_secs(5),
         commands::connect_device(
             ip,
+            port,
             if udp {
                 InterfaceType::Udp
             } else {

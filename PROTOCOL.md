@@ -69,8 +69,10 @@ Offset  Size  Field            Type
 Offset  Size  Field            Type
   0      2    Status           i16   — positive = success code, negative = error
   2      2    Address          u16   — echoes the request address
-  4      4    Value            i32   — read payload on reads, zero on writes
+  4      4    Value            i32   — read payload on reads, echo of the written value on writes
 ```
+
+On a successful write (`WRITE_REGISTER_OK`, `WRITE_PARAMETER_OK`) the `Value` field echoes the value written, as now held at `Address`. On a refused write (negative status) `Value` carries no meaning and must not be read as the register's contents.
 
 ### Operation Types
 

@@ -1,5 +1,8 @@
 use super::{canvas_layout, colors};
-use super::{session::Session, Pane};
+use super::{
+    session::{OutcomeStatus, Session},
+    Pane,
+};
 use crate::model::*;
 use eframe::egui::{self, Color32, RichText};
 
@@ -51,7 +54,13 @@ pub fn dashboard(
                         pane.dashboard = profile.dashboards.len() - 1;
                         ui.close_menu();
                     }
-                    if profile.dashboards.len() > 1 && ui.button("Delete").clicked() {
+                    if profile.dashboards.len() > 1
+                        && super::controls::confirm_button(
+                            ui,
+                            &profile.dashboards[pane.dashboard].id,
+                            "Delete",
+                        )
+                    {
                         profile.dashboards.remove(pane.dashboard);
                         pane.dashboard = 0;
                         ui.close_menu();
@@ -71,11 +80,13 @@ pub fn dashboard(
             }
         });
     });
-    let snapshot = profile.clone();
-    let d = &mut profile.dashboards[pane.dashboard];
+    // Lend the widgets out so the rest of the Profile stays readable while they
+    // are edited, instead of copying the whole Profile every frame.
+    let dashboard_id = profile.dashboards[pane.dashboard].id.clone();
+    let mut widgets = std::mem::take(&mut profile.dashboards[pane.dashboard].widgets);
     // Keep canvas geometry stable when the editing controls appear or disappear.
     ui.allocate_space(egui::vec2(0., ui.spacing().interact_size.y));
-    let drag_key = ui.id().with((&d.id, "dashboard-drag"));
+    let drag_key = ui.id().with((&dashboard_id, "dashboard-drag"));
     let previous = ui
         .ctx()
         .data_mut(|data| data.get_temp::<canvas_layout::Drag>(drag_key));
@@ -89,13 +100,13 @@ pub fn dashboard(
     egui::ScrollArea::both()
         .drag_to_scroll(false)
         .show(ui, |ui| {
-            ui.push_id(&d.id, |ui| {
+            ui.push_id(&dashboard_id, |ui| {
                 render_grid(
                     ui,
-                    &mut d.widgets,
+                    &mut widgets,
                     pane.editing,
                     session,
-                    &snapshot,
+                    profile,
                     prefs,
                     0,
                     None,
@@ -110,7 +121,7 @@ pub fn dashboard(
         if frame.resize_released {
             if let Some(group) = frame.groups.iter().find(|g| &g.parent == parent) {
                 canvas_layout::finish_resize(
-                    &mut d.widgets,
+                    &mut widgets,
                     id,
                     parent.as_deref(),
                     group.width,
@@ -122,11 +133,11 @@ pub fn dashboard(
         let pointer = ui
             .input(|i| i.pointer.interact_pos())
             .unwrap_or(drag.rect.center());
-        let target = canvas_layout::target(&frame, &d.widgets, pointer);
+        let target = canvas_layout::target(&frame, &widgets, pointer);
         let group = frame.groups.iter().find(|g| g.parent == target);
         if let Some(group) = group {
             let plan = canvas_layout::plan(
-                &d.widgets,
+                &widgets,
                 &drag.id,
                 target.as_deref(),
                 (pointer - group.origin).to_pos2(),
@@ -136,7 +147,14 @@ pub fn dashboard(
             let painter = ui
                 .ctx()
                 .layer_painter(egui::LayerId::new(egui::Order::Tooltip, drag_key));
-            let color = colors::role(ui, if plan.valid { "accent" } else { "error" });
+            let color = colors::role(
+                ui,
+                if plan.valid {
+                    Role::Accent
+                } else {
+                    Role::Error
+                },
+            );
             if let Some(line) = plan.line {
                 painter.line_segment(
                     [
@@ -163,8 +181,8 @@ pub fn dashboard(
                 );
             }
             if frame.dropped || !ui.input(|i| i.pointer.primary_down()) {
-                if !canvas_layout::commit(&mut d.widgets, &drag.id, target.as_deref(), &plan) {
-                    canvas_layout::restore(&mut d.widgets, drag);
+                if !canvas_layout::commit(&mut widgets, &drag.id, target.as_deref(), &plan) {
+                    canvas_layout::restore(&mut widgets, drag);
                 }
                 ui.ctx()
                     .data_mut(|data| data.remove::<canvas_layout::Drag>(drag_key));
@@ -174,8 +192,9 @@ pub fn dashboard(
             }
         }
     } else {
-        canvas_layout::settle(&mut d.widgets, None, None);
+        canvas_layout::settle(&mut widgets, None, None);
     }
+    profile.dashboards[pane.dashboard].widgets = widgets;
 }
 fn add_widget_menu(ui: &mut egui::Ui, widgets: &mut Vec<Widget>) {
     ui.menu_button("Add widget", |ui| {
@@ -448,14 +467,8 @@ fn render_grid(
             });
         }
         ui.ctx().data_mut(|d| d.insert_temp(config_id, open));
-        let floating = ui
-            .ctx()
-            .data_mut(|data| {
-                data.get_temp::<canvas_layout::Frame>(egui::Id::new(canvas_layout::FRAME))
-            })
-            .and_then(|frame| frame.drag)
-            .is_some_and(|drag| drag.id == w.id)
-            && ui.input(|i| i.pointer.primary_down());
+        let floating =
+            canvas_layout::is_dragging(ui.ctx(), &w.id) && ui.input(|i| i.pointer.primary_down());
         let layer = if floating {
             egui::LayerId::new(egui::Order::Tooltip, id.with("moving-preview"))
         } else {
@@ -527,7 +540,7 @@ fn render_grid(
                 ui.painter().rect_stroke(
                     rect,
                     6.,
-                    egui::Stroke::new(1_f32, colors::role(ui, "accent")),
+                    egui::Stroke::new(1_f32, colors::role(ui, Role::Accent)),
                     egui::StrokeKind::Inside,
                 );
                 let remove_rect =
@@ -554,7 +567,7 @@ fn render_grid(
                         rect.right_bottom() - egui::vec2(12., 4.),
                         rect.right_bottom() - egui::vec2(4., 12.),
                     ],
-                    egui::Stroke::new(2_f32, colors::role(ui, "accent")),
+                    egui::Stroke::new(2_f32, colors::role(ui, Role::Accent)),
                 );
             }
         }
@@ -753,19 +766,14 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
             ui.push_id(i, |ui| {
                 ui.horizontal(|ui| {
                     egui::ComboBox::from_id_salt("direction")
-                        .selected_text(&d.direction)
+                        .selected_text(format!("{} {}", d.direction.arrow(), d.direction))
                         .show_ui(ui, |ui| {
-                            for direction in [
-                                "up",
-                                "down",
-                                "left",
-                                "right",
-                                "upLeft",
-                                "upRight",
-                                "downLeft",
-                                "downRight",
-                            ] {
-                                ui.selectable_value(&mut d.direction, direction.into(), direction);
+                            for &direction in Direction::ALL {
+                                ui.selectable_value(
+                                    &mut d.direction,
+                                    direction,
+                                    format!("{} {direction}", direction.arrow()),
+                                );
                             }
                         });
                     ui.add(egui::DragValue::new(&mut d.command));
@@ -781,7 +789,7 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
         }
         if ui.button("Add direction").clicked() {
             w.directions.push(DirectionTarget {
-                direction: "up".into(),
+                direction: Direction::Up,
                 command: 0,
                 label: String::new(),
             });
@@ -859,22 +867,7 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                                 ui.selectable_value(&mut style.format, format, format.title());
                             }
                         });
-                    for rule in &mut style.thresholds {
-                        ui.horizontal(|ui| {
-                            ui.text_edit_singleline(&mut rule.op);
-                            ui.add(egui::DragValue::new(&mut rule.value));
-                            ui.text_edit_singleline(&mut rule.role);
-                            ui.text_edit_singleline(&mut rule.label);
-                        });
-                    }
-                    if ui.button("Add row condition").clicked() {
-                        style.thresholds.push(Threshold {
-                            op: ">".into(),
-                            value: 0.,
-                            role: "warn".into(),
-                            label: String::new(),
-                        });
-                    }
+                    thresholds_editor(ui, &mut style.thresholds, "Add row condition");
                 });
             });
         }
@@ -883,51 +876,62 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
         }
     }
     ui.collapsing("Thresholds / state labels", |ui| {
-        let mut remove = None;
-        for (i, t) in w.thresholds.iter_mut().enumerate() {
-            ui.push_id(i, |ui| {
-                ui.horizontal(|ui| {
-                    egui::ComboBox::from_id_salt("op")
-                        .selected_text(&t.op)
-                        .show_ui(ui, |ui| {
-                            for op in ["==", ">", ">=", "<", "<="] {
-                                ui.selectable_value(&mut t.op, op.into(), op);
-                            }
-                        });
-                    ui.add(egui::DragValue::new(&mut t.value));
-                    egui::ComboBox::from_id_salt("role")
-                        .selected_text(&t.role)
-                        .show_ui(ui, |ui| {
-                            for role in ["ok", "warn", "error", "idle"] {
-                                ui.selectable_value(&mut t.role, role.into(), role);
-                            }
-                        });
-                    if ui.small_button("×").clicked() {
-                        remove = Some(i);
-                    }
-                });
-                ui.add(egui::TextEdit::singleline(&mut t.label).hint_text("Optional state label (e.g. Over limit)"))
-                    .on_hover_text("Shown by state LEDs and alarm lists. Encoder displays use the threshold color and keep showing the numeric value.");
-            });
-        }
-        if let Some(i) = remove {
-            w.thresholds.remove(i);
-        }
-        if ui.button("Add threshold").clicked() {
-            w.thresholds.push(Threshold {
-                op: ">".into(),
-                value: 0.,
-                role: "warn".into(),
-                label: String::new(),
-            });
-        }
+        thresholds_editor(ui, &mut w.thresholds, "Add threshold");
     });
+}
+/// Edits threshold rules with constrained choices, so a rule can never hold a
+/// comparator or colour role that silently fails to apply.
+fn thresholds_editor(ui: &mut egui::Ui, thresholds: &mut Vec<Threshold>, add_label: &str) {
+    let mut remove = None;
+    for (i, t) in thresholds.iter_mut().enumerate() {
+        ui.push_id(i, |ui| {
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_id_salt("op")
+                    .width(48.)
+                    .selected_text(t.op)
+                    .show_ui(ui, |ui| {
+                        for &op in Comparator::ALL {
+                            ui.selectable_value(&mut t.op, op, op);
+                        }
+                    });
+                ui.add(egui::DragValue::new(&mut t.value));
+                egui::ComboBox::from_id_salt("role")
+                    .width(64.)
+                    .selected_text(RichText::new(t.role.as_str()).color(colors::role(ui, t.role)))
+                    .show_ui(ui, |ui| {
+                        for role in Role::THRESHOLD {
+                            ui.selectable_value(
+                                &mut t.role,
+                                role,
+                                RichText::new(role.as_str()).color(colors::role(ui, role)),
+                            );
+                        }
+                    });
+                if ui.small_button("×").on_hover_text("Remove rule").clicked() {
+                    remove = Some(i);
+                }
+            });
+            ui.add(egui::TextEdit::singleline(&mut t.label).hint_text("Optional state label (e.g. Over limit)"))
+                .on_hover_text("Shown by state LEDs and alarm lists. Encoder displays use the threshold color and keep showing the numeric value.");
+        });
+    }
+    if let Some(i) = remove {
+        thresholds.remove(i);
+    }
+    if ui.button(add_label).clicked() {
+        thresholds.push(Threshold {
+            op: Comparator::Gt,
+            value: 0.,
+            role: Role::Warn,
+            label: String::new(),
+        });
+    }
 }
 pub(super) fn review(ui: &mut egui::Ui, b: &mut Binding, profile: &Profile) -> bool {
     if b.matches(profile) {
         return true;
     }
-    ui.colored_label(colors::role(ui, "warn"), "Binding needs review");
+    ui.colored_label(colors::role(ui, Role::Warn), "Binding needs review");
     ui.label(format!("{} previously at {}", b.name, b.address));
     if let Some(e) = profile.resolve(b) {
         if ui
@@ -937,11 +941,7 @@ pub(super) fn review(ui: &mut egui::Ui, b: &mut Binding, profile: &Profile) -> b
             *b = Binding::new(b.space, &e);
         }
     }
-    if let Some(e) = profile
-        .entries(b.space)
-        .into_iter()
-        .find(|e| e.address == b.address)
-    {
+    if let Some(e) = profile.entry_at(b.space, b.address) {
         if ui
             .button(format!("Keep address: bind {}", e.name))
             .clicked()
@@ -994,11 +994,7 @@ fn render_widget(
                     return;
                 }
                 session.interest(b, profile, prefs.poll_ms);
-                let e = profile
-                    .entries(b.space)
-                    .into_iter()
-                    .find(|e| e.address == b.address)
-                    .unwrap();
+                let e = profile.entry_at(b.space, b.address).unwrap();
                 let r = session
                     .readings
                     .get(&(b.space, b.address))
@@ -1013,12 +1009,12 @@ fn render_widget(
                 if w.kind == WidgetKind::AlarmList
                     && !w.show_inactive
                     && value.is_some()
-                    && !rule.is_some_and(|r| r.role == "warn" || r.role == "error")
+                    && !rule.is_some_and(|r| r.role == Role::Warn || r.role == Role::Error)
                 {
                     return;
                 }
                 let color = rule
-                    .map(|r| colors::role(ui, &r.role))
+                    .map(|r| colors::role(ui, r.role))
                     .unwrap_or(ui.visuals().text_color());
                 ui.horizontal(|ui| {
                     let (role, label) = colors::reading(
@@ -1076,30 +1072,31 @@ fn render_widget(
         ui.horizontal_wrapped(|ui| {
             for d in &w.directions {
                 let label = if d.label.is_empty() {
-                    match d.direction.as_str() {
-                        "up" => "↑",
-                        "down" => "↓",
-                        "left" => "←",
-                        "right" => "→",
-                        "upLeft" => "↖",
-                        "upRight" => "↗",
-                        "downLeft" => "↙",
-                        _ => "↘",
-                    }
+                    d.direction.arrow()
                 } else {
                     &d.label
                 };
                 let response = ui.add_enabled(
-                    session.connected() && !editing,
+                    session.controlled() && !editing,
                     egui::Button::new(label).min_size(egui::vec2(45., 35.)),
                 );
+                // At most one jog per direction is in flight. Repeats while the
+                // button is held never pile up in the request queue, so
+                // releasing it stops the machine after at most one more step.
+                let idle = session
+                    .commands
+                    .get(&d.command)
+                    .is_none_or(|o| o.status != OutcomeStatus::Sending);
                 let id = ui.id().with(("jog", &d.direction));
                 let now = ui.input(|i| i.time);
                 let last = ui
                     .ctx()
                     .data_mut(|data| data.get_temp::<f64>(id).unwrap_or(-1.));
-                if response.clicked()
-                    || (!w.confirm && response.is_pointer_button_down_on() && now - last > 0.15)
+                if idle
+                    && (response.clicked()
+                        || (!w.confirm
+                            && response.is_pointer_button_down_on()
+                            && now - last > 0.15))
                 {
                     match w.value.parse() {
                         Ok(value) => {
@@ -1119,7 +1116,7 @@ fn render_widget(
                 session.controlled() && !editing,
                 egui::Button::new(RichText::new(&w.label).strong().color(colors::role(
                     ui,
-                    w.thresholds.first().map_or("accent", |t| t.role.as_str()),
+                    w.thresholds.first().map_or(Role::Accent, |t| t.role),
                 )))
                 .min_size(egui::vec2(ui.available_width(), 30.)),
             )
@@ -1151,11 +1148,7 @@ fn render_widget(
             prefs.poll_ms
         },
     );
-    let e = profile
-        .entries(binding.space)
-        .into_iter()
-        .find(|e| e.address == binding.address)
-        .unwrap();
+    let e = profile.entry_at(binding.space, binding.address).unwrap();
     let r = session
         .readings
         .get(&(binding.space, binding.address))
@@ -1164,7 +1157,7 @@ fn render_widget(
     let value = raw.map(|v| e.decode(v));
     let rule = value.and_then(|v| w.thresholds.iter().find(|t| t.matches(v)));
     let color = rule
-        .map(|r| colors::role(ui, &r.role))
+        .map(|r| colors::role(ui, r.role))
         .unwrap_or(ui.visuals().text_color());
     let text = raw.map(|v| w.format.format(&e, v)).unwrap_or("—".into());
     match w.kind {
@@ -1176,7 +1169,7 @@ fn render_widget(
         }
         WidgetKind::Gauge => {
             if w.max <= w.min {
-                ui.colored_label(colors::role(ui, "warn"), "Maximum must exceed minimum");
+                ui.colored_label(colors::role(ui, Role::Warn), "Maximum must exceed minimum");
                 return;
             }
             let (rect, _) = ui.allocate_exact_size(
@@ -1284,7 +1277,7 @@ fn render_widget(
                     let on = raw.is_some_and(|v| (v as u32) & (1 << bit) != 0);
                     ui.colored_label(
                         if on {
-                            colors::role(ui, "ok")
+                            colors::role(ui, Role::Ok)
                         } else {
                             Color32::GRAY
                         },
@@ -1303,7 +1296,7 @@ fn render_widget(
                     egui::Button::new(
                         RichText::new(&w.label)
                             .strong()
-                            .color(colors::role(ui, "accent")),
+                            .color(colors::role(ui, Role::Accent)),
                     )
                     .min_size(egui::vec2(ui.available_width(), 30.)),
                 )
@@ -1345,17 +1338,27 @@ fn render_widget(
                 });
         }
         WidgetKind::MiniPlot => {
+            session.want_history(binding);
             egui_plot::Plot::new("mini-plot")
                 .height((w.height - 70.).max(40.))
                 .show_axes([false, true])
+                // Dragging or scrolling inside a dashboard must move the dashboard.
+                .allow_drag(false)
+                .allow_zoom(false)
+                .allow_scroll(false)
+                .allow_boxed_zoom(false)
+                .allow_double_click_reset(false)
                 .show(ui, |plot| {
                     if let Some(h) = session.histories.get(&(binding.space, binding.address)) {
-                        let points: Vec<_> = h
-                            .iter()
-                            .copied()
-                            .filter(|v| h.back().is_some_and(|last| v[0] >= last[0] - w.time_span))
-                            .collect();
-                        plot.line(egui_plot::Line::new(points).color(color));
+                        if let Some(last) = h.back() {
+                            let points = super::panes::window(
+                                h,
+                                last[0] - w.time_span,
+                                last[0],
+                                super::panes::MAX_TRACE_POINTS,
+                            );
+                            plot.line(egui_plot::Line::new(points).color(color));
+                        }
                     }
                 });
         }
