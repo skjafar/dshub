@@ -59,15 +59,4 @@ The analysis of 2026-11-07 left five items that change architecture, need device
 
 ## 5. Removing `client/` and `src-tauri/` (report §8.12)
 
-**Why it was not done:**
-
-- The report's plan is to delete them on a tagged commit after acceptance, so history keeps them. The overnight instructions were not to commit.
-- CLAUDE.md still names both folders as migration references.
-- PROTOCOL.md and some ADRs link into them.
-
-**Steps when acceptance is done:**
-
-1. Tag the last commit that has them (`git tag tauri-reference`).
-2. `git rm -r client src-tauri`.
-3. Update CLAUDE.md, CONTEXT.md, PROTOCOL.md and `docs/adr/` links to point at the tag.
-4. Drop the workspace exclusions in `Cargo.toml`.
+**Done.** Both folders were removed after the commit tagged `tauri-reference`, which keeps them in history. CLAUDE.md, CONTEXT.md, README.md, BUILDING.md, and PROTOCOL.md now point at the native code or the tag.

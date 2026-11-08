@@ -1,4 +1,4 @@
-//! `.scratch/rust-owned-polling` issue 03: address-keyed poll subscriptions.
+//! Address-keyed poll subscriptions.
 //!
 //! A reconnect-safe poll loop for every address any widget currently polls,
 //! reference-counted by subscriber so N widgets watching one address still
@@ -7,7 +7,7 @@
 //! shape holds at the scale this needs.
 //!
 //! Split in two for testability. [`PollSubscriptions`] and [`fastest_interval`]
-//! are pure bookkeeping — no Tokio, no Tauri — so the interval-arbitration
+//! are pure bookkeeping — no Tokio — so the interval-arbitration
 //! logic the whole feature depends on is unit tested in isolation. Everything
 //! that actually spawns a task or touches `AppState` lives below it and is
 //! exercised by hand against the emulator instead, the same split issue 01's
@@ -324,7 +324,7 @@ pub async fn resume_poll_subscriptions(app: &AppHandle, tx: &mpsc::Sender<Device
     }
 }
 
-// ── Tauri commands ────────────────────────────────────────────────────────────
+// ── Commands ──────────────────────────────────────────────────────────────────
 
 pub async fn subscribe_address(
     source: DataSource,

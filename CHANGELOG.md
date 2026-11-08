@@ -3,7 +3,7 @@
 - Rebuild the application with egui/eframe and an in-process Tokio backend.
 - Port device panes, plots, dashboards, Profiles, map editing, binding review, native windows and Workspaces to Rust.
 - Add Cargo-only builds, native release archives, emulator integration and desktop smoke checks.
-- Preserve the previous implementation as a migration reference; defer the separate backend review.
+- Remove the former Tauri/React application (`client/`, `src-tauri/`); its sources are kept at the `tauri-reference` tag. Defer the separate backend review.
 - Fix discovered MAC addresses (read after the reserved field) and connect on the ports a Device reports; accept `IP:port` addresses.
 - Keep TCP response framing aligned when a request times out mid-frame.
 - Decide write outcomes from the acknowledgement status and read the value back, instead of treating the write response as a reading.

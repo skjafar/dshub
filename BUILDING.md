@@ -38,4 +38,4 @@ cargo test --locked --test emulator -- --ignored
 
 This starts and stops the bundled Python emulator. Python 3 and free local TCP port 2009 / UDP port 2011 are required. The test covers both transports, control, reads/writes, float representation, command acknowledgements, refused writes and polling.
 
-See [egui migration validation](docs/egui-migration.md) for native rendering smoke tests. The previous implementation remains in `client/` and `src-tauri/` as a reference; running commands there builds the historical app rather than the native application.
+See [egui migration validation](docs/egui-migration.md) for native rendering smoke tests. The former Tauri application's sources are kept at the `tauri-reference` tag.

@@ -77,7 +77,7 @@ An opt-in native smoke fixture exercises rendered panes, real device control and
 | `tests/emulator.rs` | Real TCP/UDP integration test |
 | `packaging/` | Linux desktop integration |
 
-`client/` and `src-tauri/` are retained as migration references on this branch. They are excluded from the native Cargo dependency graph, build scripts, packaging and release workflow. The backend's behavior is deliberately preserved for a separate backend review after the native application is accepted.
+The former Tauri/React application was removed; its sources are kept at the `tauri-reference` tag. The backend's behavior is deliberately preserved for a separate backend review after the native application is accepted.
 
 ## Distribution
 

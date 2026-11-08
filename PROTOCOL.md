@@ -2,7 +2,7 @@
 
 Protocol version **v0.2.2** (8-byte data frames, `u16` command and address fields).
 
-This document is the source of truth for the wire format spoken by DSHub, the datastream firmware library, and the Python emulator. The Rust constants live in [src-tauri/src/types.rs](src-tauri/src/types.rs#L160-L187); the Python constants live in [emulator/dshub_emulator.py](emulator/dshub_emulator.py).
+This document is the source of truth for the wire format spoken by DSHub, the datastream firmware library, and the Python emulator. The Rust constants live in [src/backend/types.rs](src/backend/types.rs); the Python constants live in [emulator/dshub_emulator.py](emulator/dshub_emulator.py).
 
 All multi-byte fields are **little-endian** unless stated otherwise.
 
@@ -203,11 +203,11 @@ DSHub runs all data I/O through a single MPSC channel per connection, guaranteei
 
 The 32-bit `Value` field carries IEEE 754 `float` values by bit-cast, not numeric conversion. A register or parameter declared `float` in a map file is read as an `i32` on the wire and re-interpreted as `float` on the host via type punning (`*reinterpret_cast<float*>(&i32)` semantics). Writing follows the inverse.
 
-The reference implementation lives in [client/src/utils/floatConversion.ts](client/src/utils/floatConversion.ts) and `struct.pack('<i', ...)` / `struct.unpack('<f', ...)` in the emulator.
+The reference implementation lives in `Entry::decode` / `Entry::encode` in [src/model.rs](src/model.rs) and `struct.pack('<i', ...)` / `struct.unpack('<f', ...)` in the emulator.
 
 ### Map Files
 
-Register and parameter *names* are defined in plain-text map files loaded at runtime — not baked into the protocol. See [client/public/maps/](client/public/maps/) for examples and the [QUICK_START.md](QUICK_START.md#map-profiles) for the grammar.
+Register and parameter *names* are defined in plain-text map files loaded at runtime — not baked into the protocol. See [assets/maps/](assets/maps/) for examples and the [QUICK_START.md](QUICK_START.md#map-profiles) for the grammar.
 
 The `READ/WRITE` boundary marker in `registers.map` partitions user registers into a read-only prefix and a read-write suffix. Writes to read-only addresses return `PERMISSION_ERROR`.
 
@@ -219,8 +219,8 @@ Every multi-byte field on the wire is **little-endian**. This includes IP addres
 
 ## Reference
 
-- Rust constants: [src-tauri/src/types.rs](src-tauri/src/types.rs#L160-L187)
+- Rust constants: [src/backend/types.rs](src/backend/types.rs)
 - Python constants + full CNC catalog: [emulator/dshub_emulator.py](emulator/dshub_emulator.py)
-- TCP/UDP communicator: [src-tauri/src/communicator.rs](src-tauri/src/communicator.rs)
-- Discovery scanner: [src-tauri/src/scanner.rs](src-tauri/src/scanner.rs)
+- TCP/UDP communicator: [src/backend/communicator.rs](src/backend/communicator.rs)
+- Discovery scanner: [src/backend/scanner.rs](src/backend/scanner.rs)
 - Emulator guide with SYS_COMMAND examples and test scenarios: [emulator/README.md](emulator/README.md)

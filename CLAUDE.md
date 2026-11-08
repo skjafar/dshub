@@ -1,6 +1,6 @@
 # Native Rust application
 
-Use the root Cargo package on this branch. The production application is egui/eframe + Tokio, implemented in Rust. `client/` and `src-tauri/` are references to the former application and are excluded from the native dependency graph.
+Use the root Cargo package on this branch. The production application is egui/eframe + Tokio, implemented in Rust. The former Tauri application was removed; its sources are kept at the `tauri-reference` tag.
 
 Read `CONTEXT.md` for architecture and `docs/egui-migration.md` for migration decisions and verification. Existing protocol details remain in `PROTOCOL.md`.
 
@@ -35,5 +35,3 @@ The emulator and rendering harness need free TCP 2009 / UDP 2011. The rendering 
 ## Design direction
 
 DSHub serves embedded engineers inspecting raw device data and operators monitoring equipment. The interface should be calm, precise and capable: dark-first, dense, readable and explicit about current device state. Use tonal hierarchy, restrained cyan accents and stable numeric alignment. Status information must remain distinguishable in both dark and light themes. Avoid decoration and animation that compete with device information.
-
-Historical architectural decisions under `docs/adr/` describe the former Tauri interface where their implementation-specific details differ. The native migration decision is recorded in `docs/adr/0006-native-egui.md`.

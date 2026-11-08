@@ -1,4 +1,4 @@
-//! Semantic palette shared with client/src/design/status.ts.
+//! Semantic status palette, distinguishable in both themes.
 use super::session::OutcomeStatus;
 use crate::model::Role;
 use crate::types::RegisterData;
