@@ -2,7 +2,7 @@
 
 How the engineering skills should consume this repo's domain documentation when exploring the codebase.
 
-**Layout: single-context.** One `CONTEXT.md` at the repo root plus `docs/adr/`. There is no `CONTEXT-MAP.md` and no per-context `CONTEXT.md`: `src/` and `emulator/` are parts of one application, not separate bounded contexts.
+**Layout: single-context.** One `CONTEXT.md` at the repo root, plus `docs/adr/` once decisions are recorded. There is no `CONTEXT-MAP.md` and no per-context `CONTEXT.md`: `src/` and `emulator/` are parts of one application, not separate bounded contexts.
 
 ## Before exploring, read these
 
@@ -16,9 +16,7 @@ If any of these files don't exist, **proceed silently**. Don't flag their absenc
 ```
 /
 ├── CONTEXT.md
-├── docs/adr/
-│   ├── 0001-response-correlation-by-address.md
-│   └── 0002-theme-invariant-status-ramp.md
+├── docs/adr/        (created when the first ADR is written)
 ├── src/
 └── emulator/
 ```

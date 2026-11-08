@@ -79,8 +79,8 @@ mod tests {
     fn bundled_fonts_cover_all_ui_symbols() {
         let ctx = egui::Context::default();
         install(&ctx);
-        let _ = ctx.run(Default::default(), |ctx| {
-            ctx.fonts(|fonts| {
+        ctx.run_ui(Default::default(), |ui| {
+            ui.ctx().fonts_mut(|fonts| {
                 for family in [
                     egui::FontFamily::Proportional,
                     egui::FontFamily::Monospace,
@@ -104,6 +104,7 @@ mod tests {
                     }
                 }
             });
-        });
+        })
+        .drop_without_applying_deltas();
     }
 }

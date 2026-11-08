@@ -9,7 +9,7 @@ const ARM_SECONDS: f64 = 4.;
 /// A destructive button that needs two clicks: the first arms it (it then reads
 /// "Confirm …?" in the error colour), the second within a few seconds performs
 /// the action. Returns true on the confirming click.
-pub fn confirm_button(ui: &mut egui::Ui, id: impl std::hash::Hash, label: &str) -> bool {
+pub fn confirm_button(ui: &mut egui::Ui, id: impl egui::AsId, label: &str) -> bool {
     let id = ui.id().with(("confirm-button", id));
     let now = ui.input(|i| i.time);
     let armed = ui

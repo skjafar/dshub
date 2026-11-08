@@ -120,10 +120,10 @@ fn parse_discovery_response(data: &[u8]) -> Option<DiscoveredDevice> {
     let tcp_port = u16::from_le_bytes([data[16], data[17]]);
     let udp_port = u16::from_le_bytes([data[18], data[19]]);
 
-    // Bytes 20–21 are reserved; the MAC address occupies 22–27 (PROTOCOL.md).
+    // The MAC address occupies 20–25; 26–27 are reserved (PROTOCOL.md).
     let mac_address = format!(
         "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-        data[22], data[23], data[24], data[25], data[26], data[27]
+        data[20], data[21], data[22], data[23], data[24], data[25]
     );
 
     // IP from little-endian uint32
@@ -164,7 +164,7 @@ fn parse_discovery_response(data: &[u8]) -> Option<DiscoveredDevice> {
 mod tests {
     use super::*;
 
-    /// The emulator's `struct.pack('<IBBHIIHHH', ...) + mac + name` layout.
+    /// The datastream library's 44-byte `ds_discovery_response_t` layout.
     fn response(mac: [u8; 6], tcp_port: u16, udp_port: u16) -> Vec<u8> {
         let mut b = vec![];
         b.extend_from_slice(&DS_DISCOVERY_MAGIC.to_le_bytes());
@@ -175,14 +175,16 @@ mod tests {
         b.extend_from_slice(&[10, 0, 0, 5]);
         b.extend_from_slice(&tcp_port.to_le_bytes());
         b.extend_from_slice(&udp_port.to_le_bytes());
-        b.extend_from_slice(&[0, 0]);
         b.extend_from_slice(&mac);
-        b.extend_from_slice(b"Board\0");
+        b.extend_from_slice(&[0, 0]);
+        let mut name = [0u8; 16];
+        name[..5].copy_from_slice(b"Board");
+        b.extend_from_slice(&name);
         b
     }
 
     #[test]
-    fn mac_address_follows_the_reserved_field() {
+    fn mac_address_precedes_the_reserved_field() {
         let d = parse_discovery_response(&response([0x02, 0, 0, 0, 0, 0x01], 2009, 2011)).unwrap();
         assert_eq!(d.mac_address, "02:00:00:00:00:01");
         assert_eq!(d.ip_address, "10.0.0.5");

@@ -19,7 +19,7 @@ There is one device connection per application. All native windows share its rea
 
 Bindings capture name, map type, array extent, address and address space. Changed bindings stop subscribing and cannot write until reviewed. Review includes stored dashboards and nested containers. Map Editor drafts update maps/metadata/commands only; they must not overwrite concurrent dashboard edits.
 
-Named Workspaces and current layouts belong to a Profile. Settings, native window geometry, dashboards and plot definitions persist through eframe storage. Live readings, sockets, pending operations and samples do not persist. Use eframe's storage codec for dock states: their uninitialized geometry may contain infinities that plain JSON cannot roundtrip.
+Named Workspaces and current layouts belong to a Profile. `src/ui/profile_store.rs` keeps each Profile (maps, metadata, commands, dashboards) in its own JSON file in the application data folder; unreadable files are renamed aside, never deleted. Settings, layouts, native window geometry and plot definitions persist through eframe storage under a versioned schema with migrations, written only after changes. Live readings, sockets, pending operations and samples do not persist. Use eframe's storage codec for dock states: their uninitialized geometry may contain infinities that plain JSON cannot roundtrip.
 
 ## Verification
 

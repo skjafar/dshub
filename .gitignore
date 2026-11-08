@@ -83,6 +83,7 @@ dmypy.json
 # Third-party Libraries (cloned manually, not submodules)
 # ============================================
 libs/
+external/
 
 # ============================================
 # AUR Package Build Artifacts

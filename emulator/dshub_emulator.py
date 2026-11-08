@@ -12,7 +12,7 @@ Emulates a DSHub board with full protocol support including:
 
 Uses only Python standard library - no external dependencies required.
 
-Protocol v0.2.2: 8-byte packets with 16-bit type/address/status fields.
+Protocol v0.2.4: 8-byte packets with 16-bit type/address/status fields.
   RX: type(u16 LE) + address(u16 LE) + value(i32 LE) = 8 bytes
   TX: status(i16 LE) + address(u16 LE) + value(i32 LE) = 8 bytes
 """
@@ -52,8 +52,12 @@ STATUS_WRITE_REGISTER_OK    = 2
 STATUS_READ_PARAMETER_OK    = 3
 STATUS_WRITE_PARAMETER_OK   = 4
 STATUS_CONTROL_OK           = 5
-STATUS_READ_SYS_REG_OK      = 6
+STATUS_SYS_COMMAND_ERROR    = -1
+STATUS_INPUT_TYPE_ERROR     = -2
+STATUS_PACKET_SIZE_ERROR    = -3
+STATUS_ADDRESS_ERROR        = -4
 STATUS_PERMISSION_ERROR     = -5
+STATUS_CONTROL_ERROR        = -6
 
 # Control Interface States
 CONTROL_UNDECIDED           = 0
@@ -609,16 +613,25 @@ class DSHubEmulator:
 
             while self.running:
                 try:
+                    # Like the library: one frame's worth of bytes per datagram;
+                    # a 5-byte datagram is a discovery request (ignored if
+                    # malformed), any other short one a packet size error.
                     data, addr = self.discovery_socket.recvfrom(1024)
-                    if len(data) >= 5:
-                        magic, command = struct.unpack('<IB', data[:5])
+                    data = data[:8]
+                    if len(data) == 5:
+                        magic, command = struct.unpack('<IB', data)
                         if magic == DS_DISCOVERY_MAGIC and command == DS_DISCOVERY_REQUEST:
                             print(f"[Discovery] Request from {addr[0]}:{addr[1]}")
                             self._send_discovery_response(addr)
-                        else:
-                            response = self._process_packet(data, 'UDP', addr)
-                            if response:
-                                self.discovery_socket.sendto(response, addr)
+                    elif len(data) == 8:
+                        response = self._process_packet(data, 'UDP', addr)
+                        if response:
+                            self.discovery_socket.sendto(response, addr)
+                    elif data:
+                        with self.lock:
+                            self.system_registers.increment_error_count()
+                        self.discovery_socket.sendto(
+                            _pack_response(STATUS_PACKET_SIZE_ERROR, 0, 0), addr)
                 except socket.timeout:
                     continue
                 except Exception as e:
@@ -646,13 +659,15 @@ class DSHubEmulator:
         ip_bytes = socket.inet_aton(self._advertised_ip(addr[0]))
         ip_uint32 = struct.unpack('<I', ip_bytes)[0]
 
-        response = struct.pack('<IBBHIIHHH',
+        # ds_discovery_response_t: 44 bytes, MAC before two reserved bytes,
+        # then a 16-byte null-terminated name.
+        response = struct.pack('<IBBHIIHH',
             DS_DISCOVERY_MAGIC, DS_DISCOVERY_RESPONSE,
             self.board_type, self.firmware_version,
             board_id, ip_uint32,
-            DEFAULT_TCP_PORT, DEFAULT_UDP_PORT, 0)
-        response += mac
-        response += self.board_name.encode('ascii')[:32] + b'\x00'
+            DEFAULT_TCP_PORT, DEFAULT_UDP_PORT)
+        response += mac + b'\x00\x00'
+        response += self.board_name.encode('ascii')[:15].ljust(16, b'\x00')
 
         self.discovery_socket.sendto(response, addr)
         print(f"[Discovery] Sent response to {addr[0]}:{addr[1]}")
@@ -723,7 +738,7 @@ class DSHubEmulator:
 
     def _process_packet_locked(self, data: bytes, interface: str,
                                addr: Tuple[str, int]) -> Optional[bytes]:
-        # Protocol v0.2.2: 8-byte packets with 16-bit type/address fields
+        # Protocol v0.2.4: 8-byte packets with 16-bit type/address fields
         if len(data) != 8:
             return None
 
@@ -740,7 +755,7 @@ class DSHubEmulator:
             if command in (CMD_SYS_COMMAND, CMD_WRITE_REGISTER, CMD_WRITE_PARAMETER) and (
                     self.system_registers.read(SYSREG_CONTROL_INTERFACE) != expected_control):
                 self.system_registers.increment_error_count()
-                return _pack_response(STATUS_PERMISSION_ERROR, address, 0)
+                return _pack_response(STATUS_CONTROL_ERROR, address, 0)
             maps = {CMD_READ_REGISTER: self.user_registers.registers,
                     CMD_READ_PARAMETER: self.parameters.parameters,
                     CMD_READ_SYSTEM_REGISTER: self.system_registers.registers}
@@ -846,28 +861,21 @@ class DSHubEmulator:
                     self.system_registers.increment_error_count()
                 else:
                     print(f"[{interface}] {ts} Write Parameter[{address}] = {value}")
-                param_value = self.parameters.read(address)
+                param_value = self.parameters.read(address) if success else 0
                 response = _pack_response(STATUS_WRITE_PARAMETER_OK if success else -4, address, param_value)
 
             elif command == CMD_TAKE_CONTROL:
-                if value not in (CONTROL_UNDECIDED, expected_control):
-                    self.system_registers.increment_error_count()
-                    return _pack_response(STATUS_PERMISSION_ERROR, address, 0)
-                self.system_registers.set_control_interface(value)
-                control_name = {
-                    CONTROL_UNDECIDED:       "UNDECIDED",
-                    CONTROL_TCP_DATASTREAM:  "TCP_DATASTREAM",
-                    CONTROL_UDP_DATASTREAM:  "UDP_DATASTREAM",
-                    CONTROL_TCP_CLI:         "TCP_CLI",
-                    CONTROL_USB:             "USB",
-                }.get(value, f"UNKNOWN({value})")
-                print(f"[{interface}] {ts} Take Control -> {control_name}")
-                response = _pack_response(STATUS_CONTROL_OK, 0, value)
+                # Like the library: Control goes to the transport the request
+                # arrived on; the value is ignored and there is no release.
+                self.system_registers.set_control_interface(expected_control)
+                print(f"[{interface}] {ts} Take Control -> {interface}_DATASTREAM")
+                response = _pack_response(STATUS_CONTROL_OK, address, 0)
 
             elif command == CMD_READ_SYSTEM_REGISTER:
                 sys_value = self.system_registers.read(address)
                 print(f"[{interface}] {ts} Read SysReg[{address}] = {sys_value}")
-                response = _pack_response(STATUS_READ_SYS_REG_OK, address, sys_value)
+                # The library answers system register reads with READ_REGISTER_OK.
+                response = _pack_response(STATUS_READ_REGISTER_OK, address, sys_value)
 
             elif command == CMD_WRITE_SYSTEM_REGISTER:
                 # System registers are always read-only from the protocol
@@ -878,7 +886,7 @@ class DSHubEmulator:
             else:
                 print(f"[{interface}] {ts} Unknown command type: {command}")
                 self.system_registers.increment_error_count()
-                return None
+                return _pack_response(STATUS_INPUT_TYPE_ERROR, address, 0)
 
             with self.lock:
                 self.total_packets_sent += 1
@@ -928,7 +936,7 @@ def main():
     print("="*60)
     print("Pure Python emulator with no external dependencies")
     print("Emulates register/parameter read/write and auto-discovery")
-    print("Protocol v0.2.2: 8-byte packets, 16-bit type/address fields")
+    print("Protocol v0.2.4: 8-byte packets, 16-bit type/address fields")
     print("="*60 + "\n")
 
     emulator = DSHubEmulator(

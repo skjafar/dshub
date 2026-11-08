@@ -153,7 +153,7 @@ pub fn apply(ctx: &egui::Context, dark: bool) {
         v.corner_radius = radius;
     }
 
-    ctx.style_mut(|style| {
+    ctx.global_style_mut(|style| {
         style.visuals = visuals;
         style.text_styles = [
             (TextStyle::Small, FontId::new(11., FontFamily::Proportional)),

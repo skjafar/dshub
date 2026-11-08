@@ -1,4 +1,4 @@
-## 0.3.0 (unreleased) - Native Rust interface
+## [0.3.0] - 2026-11-08 - Native Rust interface
 
 - Rebuild the application with egui/eframe and an in-process Tokio backend.
 - Port device panes, plots, dashboards, Profiles, map editing, binding review, native windows and Workspaces to Rust.
@@ -54,6 +54,8 @@
 - CI signs Windows builds and signs and notarizes a macOS app bundle when certificates are configured. The AUR recipe targets the native 0.3.0 release.
 - The Activity log records successful register and parameter reads and writes, polled reads with polling start and stop, and plot traces starting or stopping recording, each under its own category. Previously only failures and packet dumps appeared.
 - The emulator accepts `--host` to serve other machines; discovery reports the address that reaches the client.
+- Match the datastream library: accept `READ_REGISTER_OK` for system register reads (the heartbeat failed against real devices), read the discovery MAC at offset 20, take the control state from the requested interface, and name every library status code. The emulator answers as the library does and PROTOCOL.md was rewritten from the library sources.
+- Update to egui/eframe 0.36, egui_dock 0.21, egui_plot 0.37, egui-phosphor 0.14, rfd 0.18 and if-addrs 0.15. Rust 1.95 or newer is required.
 
 # Changelog
 

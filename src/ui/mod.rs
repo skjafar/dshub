@@ -522,7 +522,7 @@ impl Desktop {
                 .map(|(_, p)| p.clone());
             if let Some(pane) = pane {
                 if let Some(index) = self.saved.dock.find_tab(&pane) {
-                    self.saved.dock.set_active_tab(index);
+                    self.saved.dock.set_active_tab(index).ok();
                 }
                 return;
             }
@@ -534,7 +534,7 @@ impl Desktop {
                     .map(|(_, p)| p.clone());
                 if let Some(pane) = pane {
                     if let Some(index) = window.dock.find_tab(&pane) {
-                        window.dock.set_active_tab(index);
+                        window.dock.set_active_tab(index).ok();
                     }
                     ctx.send_viewport_cmd_to(
                         egui::ViewportId::from_hash_of(&window.id),
@@ -596,16 +596,16 @@ impl Desktop {
             None => {}
         }
     }
-    fn chrome(&mut self, ctx: &egui::Context) {
+    fn chrome(&mut self, ui: &mut egui::Ui) {
         let palette = theme::palette(self.saved.preferences.dark);
-        egui::TopBottomPanel::top("chrome")
+        egui::Panel::top("chrome")
             .frame(
                 egui::Frame::new()
                     .fill(palette.surface)
                     .inner_margin(egui::Margin::symmetric(10, 6))
                     .stroke(egui::Stroke::new(1_f32, palette.ghost)),
             )
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new("DSHub")
@@ -614,7 +614,8 @@ impl Desktop {
                             .color(palette.accent),
                     );
                     ui.add_space(4.);
-                    self.layout_menu(ui, ctx);
+                    let ctx = ui.ctx().clone();
+                    self.layout_menu(ui, &ctx);
                     ui.separator();
                     self.device_controls(ui);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -637,14 +638,14 @@ impl Desktop {
                     });
                 });
             });
-        egui::TopBottomPanel::bottom("status")
+        egui::Panel::bottom("status")
             .frame(
                 egui::Frame::new()
                     .fill(palette.surface)
                     .inner_margin(egui::Margin::symmetric(10, 3))
                     .stroke(egui::Stroke::new(1_f32, palette.ghost)),
             )
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let weak = |text: String| RichText::new(text).small().color(palette.text_weak);
                     ui.label(weak(format!(
@@ -667,17 +668,17 @@ impl Desktop {
             for kind in PaneKind::ALL {
                 if ui.button(kind.title()).clicked() {
                     self.open_pane(kind, ctx);
-                    ui.close_menu();
+                    ui.close();
                 }
             }
             ui.separator();
             if ui.button("Workspaces…").clicked() {
                 self.workspaces_open = true;
-                ui.close_menu();
+                ui.close();
             }
             if controls::confirm_button(ui, "reset-layout", "Reset layout") {
                 self.saved.dock = default_dock();
-                ui.close_menu();
+                ui.close();
             }
         });
     }
@@ -691,21 +692,15 @@ impl Desktop {
                     .min_size(egui::vec2(0., 24.)),
             )
             .on_hover_text(self.session.exposure().unwrap_or("Connection"));
-        if chip.clicked() {
-            ui.memory_mut(|m| m.toggle_popup(popup));
-        }
-        egui::popup_below_widget(
-            ui,
-            popup,
-            &chip,
-            egui::PopupCloseBehavior::CloseOnClickOutside,
-            |ui| {
+        egui::Popup::from_toggle_button_response(&chip)
+            .id(popup)
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .show(|ui| {
                 ui.set_width(460.);
                 if self.connection_panel(ui) {
-                    ui.memory_mut(|m| m.close_popup());
+                    egui::Popup::close_id(ui.ctx(), popup);
                 }
-            },
-        );
+            });
         if self.session.busy {
             if ui
                 .button("Cancel")
@@ -1466,7 +1461,8 @@ fn confirm_modal(ctx: &egui::Context, session: &mut Session) {
     }
 }
 impl eframe::App for Desktop {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = &ui.ctx().clone();
         self.frame_count += 1;
         if let Ok(path) = std::env::var("DSHUB_SCREENSHOT") {
             if self.frame_count > 25 && !self.screenshot_requested {
@@ -1549,7 +1545,7 @@ impl eframe::App for Desktop {
                 Err(e) => self.session.notice = e,
             }
         }
-        self.chrome(ctx);
+        self.chrome(ui);
         self.dialogs(ctx);
         self.keyboard(ctx);
         if self.active_profile != self.saved.active {
@@ -1611,7 +1607,7 @@ impl eframe::App for Desktop {
             self.session.interest(&s.binding, profile, prefs.poll_ms);
             self.session.want_history(&s.binding);
         }
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let mut viewer = panes::Viewer {
                 session: &mut self.session,
                 profile,
@@ -1652,7 +1648,8 @@ impl eframe::App for Desktop {
             if let Some(position) = window.position {
                 builder = builder.with_position(position);
             }
-            ctx.show_viewport_immediate(id, builder, |ctx, _class| {
+            ctx.show_viewport_immediate(id, builder, |viewport_ui, _class| {
+                let ctx = &viewport_ui.ctx().clone();
                 if ctx.input(|i| i.viewport().title.as_deref() != Some(title.as_str())) {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
                 }
@@ -1685,7 +1682,7 @@ impl eframe::App for Desktop {
                 if ctx.input(|i| i.viewport().close_requested()) {
                     closed.push(wi);
                 }
-                egui::CentralPanel::default().show(ctx, |ui| {
+                egui::CentralPanel::default().show(viewport_ui, |ui| {
                     let mut viewer = panes::Viewer {
                         session: &mut self.session,
                         profile,
@@ -1732,7 +1729,7 @@ impl eframe::App for Desktop {
                             }
                         }
                         if let Some(index) = self.saved.dock.find_tab(&pane) {
-                            self.saved.dock.set_active_tab(index);
+                            self.saved.dock.set_active_tab(index).ok();
                         }
                     } else {
                         let mut pane = Pane::new(PaneKind::Plot);
@@ -1844,7 +1841,7 @@ fn draw_dock(
         ui.horizontal(|ui| {
             ui.heading(pane.kind.title());
             // Esc that closes a popup or leaves a text field stays with it.
-            let idle = ui.memory(|m| m.focused().is_none() && !m.any_popup_open());
+            let idle = ui.memory(|m| m.focused().is_none()) && !ui.ctx().any_popup_open();
             if ui.button("Exit Focus · Esc").clicked()
                 || (idle && ui.input(|i| i.key_pressed(egui::Key::Escape)))
             {

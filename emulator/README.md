@@ -30,17 +30,21 @@ spindle, and parameter writes require confirmation in the dashboard.
 
 ## Wire contract
 
-Protocol v0.2.2 uses **8-byte little-endian packets**:
+Protocol v0.2.4 uses **8-byte little-endian packets**, answered as the datastream library v0.2.4.1 answers them (see [PROTOCOL.md](../PROTOCOL.md)):
 
 - Request: `type: u16`, `address: u16`, `value: i32` (`<HHi`).
 - Response: `status: i16`, `address: u16`, `value: i32` (`<hHi`).
 - Types: 0 system command, 1/2 user register read/write, 3/4 parameter read/write,
   5 take Control, 6 system register read, 7 system register write (always refused).
-- Successful statuses correspond to request types. Negative status means refusal;
-  invalid addresses return -4 and permission failures return -5.
+- Successful statuses echo the request type, except system register reads,
+  which answer 1 (`READ_REGISTER_OK`). Negative status means refusal: -1 command
+  failed or unknown, -2 unknown type, -3 wrong datagram size, -4 invalid address,
+  -5 read-only, -6 not in Control.
 - Writes and system commands require Control on the requesting transport.
-  Take Control uses value 1 for TCP, 2 for UDP, or 0 to release.
-- TCP supports fragmented and concatenated packets.
+  Take Control gives Control to the transport it arrives on; its value is
+  ignored and there is no release.
+- Discovery answers with the library's 44-byte response (MAC at offset 20).
+- TCP also accepts fragmented and concatenated packets, which the library does not.
 
 The authoritative maps are in `assets/maps/cnc_*.map`; command definitions and
 metadata are in `assets/cnc-profile-data.json`. User and system register spaces

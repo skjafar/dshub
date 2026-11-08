@@ -133,7 +133,7 @@ class CNCBehavior(unittest.TestCase):
             while len(data) < 24:
                 data += client.recv(24 - len(data))
             self.assertEqual([struct.unpack('<hHi', data[i:i+8]) for i in range(0, 24, 8)],
-                             [(5, 0, 1), (2, 10, 321), (1, 10, 321)])
+                             [(5, 0, 0), (2, 10, 321), (1, 10, 321)])
         finally:
             self.device.running = False
             client.close()
@@ -167,6 +167,10 @@ class CNCBehavior(unittest.TestCase):
                     discovery = udp.recv(1024)
                     self.assertEqual(struct.unpack('<IB', discovery[:5]), (d.DS_DISCOVERY_MAGIC, 2))
                     self.assertEqual(struct.unpack('<HH', discovery[16:20]), (tcp_port, udp_port))
+                    # 44-byte ds_discovery_response_t: MAC at 20, reserved 26-27, name at 28.
+                    self.assertEqual(len(discovery), 44)
+                    self.assertEqual(discovery[26:28], b'\x00\x00')
+                    self.assertEqual(discovery[28:44].rstrip(b'\x00'), self.device.board_name.encode()[:15])
                     for transport, owner in [(tcp, 1), (udp, 2)]:
                         def exchange(cmd, address, value=0):
                             packet = struct.pack('<HHi', cmd, address, value)
@@ -195,9 +199,12 @@ class CNCBehavior(unittest.TestCase):
                 time.sleep(.02)
 
     def test_protocol_permissions_addresses_parameters_and_both_transports(self):
-        self.assertEqual(self.packet(2, 10, 100)[0], -5)
+        # Without Control: CONTROL_INTERFACE_ERROR, as the datastream library answers.
+        self.assertEqual(self.packet(2, 10, 100)[0], -6)
+        self.assertEqual(self.packet(0, 0, 0)[0], -6)
         for interface, owner in [('TCP', 1), ('UDP', 2)]:
-            self.assertEqual(self.packet(5, 0, owner, interface)[0], 5)
+            # Control goes to the requesting transport whatever the value says.
+            self.assertEqual(self.packet(5, 0, 0, interface), (5, 0, 0))
             self.assertEqual(self.packet(2, 10, -123, interface), (2, 10, -123))
             self.assertEqual(self.packet(1, 10, 0, interface), (1, 10, -123))
             for address in range(10):
@@ -209,7 +216,8 @@ class CNCBehavior(unittest.TestCase):
             self.assertEqual(self.packet(7, 0, 1, interface)[0], -5)
             self.assertEqual(self.packet(0, 0, 0, interface)[0], 0)
             self.assertLess(self.packet(0, 999, 0, interface)[0], 0)
-            self.assertEqual(self.packet(6, 2, 0, interface)[2], owner)
+            self.assertEqual(self.packet(6, 2, 0, interface), (1, 2, owner))
+            self.assertEqual(self.packet(42, 0, 0, interface)[0], -2)
         self.assertFalse(self.p.write(6, struct.unpack('<i', struct.pack('<f', float('nan')))[0]))
         self.assertFalse(self.r.write(14, -1))
 

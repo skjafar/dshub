@@ -41,8 +41,8 @@ impl Harness {
             events,
             ..Default::default()
         };
-        self.ctx.run(input, |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        let mut output = self.ctx.run_ui(input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 let mut moved = vec![];
                 let mut added = vec![];
                 let mut viewer = panes::Viewer {
@@ -57,7 +57,10 @@ impl Harness {
                 };
                 egui_dock::TabViewer::ui(&mut viewer, ui, &mut self.pane);
             });
-        })
+        });
+        // No renderer consumes texture updates in tests.
+        output.textures_delta.clear();
+        output
     }
     fn click(&mut self, label: &str) {
         self.frame(vec![]);
@@ -180,6 +183,9 @@ fn save_and_restore_preserves_native_layout_profiles_and_windows() {
         }
         fn set_string(&mut self, key: &str, value: String) {
             self.0.insert(key.into(), value);
+        }
+        fn remove_string(&mut self, key: &str) {
+            self.0.remove(key);
         }
         fn flush(&mut self) {}
     }
@@ -572,7 +578,8 @@ fn canvas_drag_resize_and_configuration_keep_geometry_live() {
     );
     // DragValue's text entry changes the actual canvas geometry without Save/Apply.
     h.click("SIZE AND POSITION");
-    h.click(&format!("{} px", geometry.1));
+    // The value and its " px" suffix are drawn as separate text.
+    h.click(&geometry.1.to_string());
     h.frame(vec![
         egui::Event::Key {
             key: egui::Key::A,
@@ -902,13 +909,14 @@ fn autosave_ignores_hover_but_not_clicks_or_keys() {
     let ctx = egui::Context::default();
     let edited_by = |events: Vec<egui::Event>| {
         let mut result = false;
-        let _ = ctx.run(
+        ctx.run_ui(
             egui::RawInput {
                 events,
                 ..Default::default()
             },
-            |ctx| result = edited(ctx),
-        );
+            |ui| result = edited(ui.ctx()),
+        )
+        .drop_without_applying_deltas();
         result
     };
     assert!(!edited_by(vec![egui::Event::PointerMoved(egui::pos2(
@@ -965,6 +973,7 @@ fn settings_saved_before_versioning_migrate_to_the_current_schema() {
             Some("(active: \"default\")".into())
         }
         fn set_string(&mut self, _: &str, _: String) {}
+        fn remove_string(&mut self, _: &str) {}
         fn flush(&mut self) {}
     }
     let (mut saved, error, persist) = load_saved(Some(&Legacy));

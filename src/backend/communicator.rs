@@ -142,10 +142,15 @@ pub fn status_name(status: i16) -> &'static str {
         3 => "READ_PARAM_OK",
         4 => "WRITE_PARAM_OK",
         5 => "CONTROL_OK",
-        6 => "READ_SYSREG_OK",
-        -1 => "ERROR",
+        -1 => "SYS_COMMAND_ERROR",
+        -2 => "INPUT_TYPE_ERROR",
+        -3 => "PACKET_SIZE_ERROR",
         -4 => "ADDRESS_OUT_OF_RANGE",
         -5 => "PERMISSION_ERROR",
+        -6 => "CONTROL_INTERFACE_ERROR",
+        -7 => "SYNTAX_ERROR",
+        -8 => "PARAMETERS_ERROR",
+        -9 => "CRC_ERROR",
         _ => "UNKNOWN",
     }
 }
@@ -238,7 +243,7 @@ fn response_matches(req: &DeviceRequest, data: &[u8]) -> bool {
     }
     let status = i16::from_le_bytes([data[0], data[1]]);
     let known = req.command <= CMD_WRITE_SYS_REG;
-    if known && status >= 0 && status != req.command as i16 {
+    if known && status >= 0 && status != success_status(req.command) {
         return false;
     }
     match req.command {
@@ -247,6 +252,16 @@ fn response_matches(req: &DeviceRequest, data: &[u8]) -> bool {
             u16::from_le_bytes([data[2], data[3]]) == req.address
         }
         _ => true,
+    }
+}
+
+/// The status a device answers a successful request with. It echoes the
+/// operation code, except that the datastream library answers system register
+/// reads with `READ_REGISTER_OK` (1).
+fn success_status(command: u16) -> i16 {
+    match command {
+        CMD_READ_SYS_REG => CMD_READ_REGISTER as i16,
+        _ => command as i16,
     }
 }
 
@@ -312,7 +327,7 @@ fn reading(
 }
 
 fn process_response(data: &[u8; 8], req: &DeviceRequest, app: &AppHandle) {
-    // Protocol v0.2.2: 8-byte response: status(i16 LE) + address(u16 LE) + value(i32 LE)
+    // Protocol v0.2.4: 8-byte response: status(i16 LE) + address(u16 LE) + value(i32 LE)
     let status = i16::from_le_bytes([data[0], data[1]]);
     let address = u16::from_le_bytes([data[2], data[3]]);
     let value = i32::from_le_bytes([data[4], data[5], data[6], data[7]]);
@@ -352,11 +367,15 @@ fn process_response(data: &[u8; 8], req: &DeviceRequest, app: &AppHandle) {
             app.emit(write_ack(req, status, ts));
         }
         CMD_TAKE_CONTROL => {
-            // Report the new CONTROL_INTERFACE (sys reg 2) so control state updates.
+            // The library leaves the reply's value unset, so the new
+            // CONTROL_INTERFACE is the interface this request asked for (it was
+            // sent on that transport); the heartbeat confirms it.
+            let interface =
+                i32::from_le_bytes([req.packet[4], req.packet[5], req.packet[6], req.packet[7]]);
             app.emit(Event::SysRegister(RegisterData {
                 address: 2,
                 name: "CONTROL_INTERFACE".to_string(),
-                value,
+                value: interface,
                 valid: true,
                 timestamp: ts,
             }));
@@ -364,7 +383,7 @@ fn process_response(data: &[u8; 8], req: &DeviceRequest, app: &AppHandle) {
                 app,
                 LogLevel::Info,
                 LogCategory::Connection,
-                format!("Take Control acknowledged (control_state={})", value),
+                format!("Take Control acknowledged (control_state={interface})"),
             );
         }
         _ => {
@@ -678,7 +697,7 @@ mod tests {
             CMD_WRITE_SYS_REG,
         ] {
             let r = req(command, 10);
-            let status = command as i16;
+            let status = success_status(command);
             assert!(
                 response_matches(&r, &response(status, 10, 0)),
                 "cmd {command} same addr"
@@ -773,7 +792,7 @@ mod tests {
 
     #[test]
     fn sys_command_packet_puts_the_command_in_the_address_field() {
-        // Protocol v0.2.2: type = 0, address = the 65000-range system command.
+        // Protocol v0.2.4: type = 0, address = the 65000-range system command.
         let p = make_sys_cmd_packet(SYS_CMD_WRITE_FLASH, 1);
         assert_eq!(u16::from_le_bytes([p[0], p[1]]), CMD_SYS_COMMAND);
         assert_eq!(u16::from_le_bytes([p[2], p[3]]), SYS_CMD_WRITE_FLASH);

@@ -2,7 +2,7 @@
 name = "dshub"
 version = "0.3.0"
 edition = "2021"
-rust-version = "1.89"
+rust-version = "1.95"
 description = "Native Rust device monitoring and control workstation"
 license = "MIT"
 repository = "https://github.com/skjafar/dshub"
@@ -12,20 +12,20 @@ default-run = "dshub"
 native-smoke = []
 
 [dependencies]
-eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "glow", "persistence", "x11", "wayland", "accesskit"] }
-egui_dock = { version = "0.16", features = ["serde"] }
-egui_plot = "0.31"
-egui-phosphor = "0.9"
+eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "glow", "persistence", "x11", "wayland", "accesskit"] }
+egui_dock = { version = "0.21", features = ["serde"] }
+egui_plot = "0.37"
+egui-phosphor = "0.14"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "fs", "io-util"] }
 log = "0.4"
 env_logger = "0.11"
-rfd = "0.15"
-if-addrs = "0.13"
+rfd = "0.18"
+if-addrs = "0.15"
 regex = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
-egui_extras = { version = "0.31.1", default-features = false }
+egui_extras = { version = "0.36.2", default-features = false }
 jiff = "0.2.39"
 
 [profile.release]

@@ -11,7 +11,7 @@ pub fn show(ctx: &egui::Context, session: &mut Session) {
     if session.toasts.is_empty() {
         return;
     }
-    let palette = theme::palette(ctx.style().visuals.dark_mode);
+    let palette = theme::palette(ctx.global_style().visuals.dark_mode);
     let mut dismiss = None;
     let mut undo = None;
     egui::Area::new(egui::Id::new("toasts"))

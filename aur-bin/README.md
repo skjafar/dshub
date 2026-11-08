@@ -43,9 +43,8 @@ There is no service to start, no browser to open. DSHub is a self-contained desk
 ```
 /usr/bin/dshub                              # Application binary
 /usr/share/applications/dshub.desktop       # Desktop entry
-/usr/share/icons/hicolor/32x32/apps/        # Icons
-/usr/share/icons/hicolor/128x128/apps/
-/usr/share/icons/hicolor/256x256/apps/
+/usr/share/icons/hicolor/128x128/apps/dshub.png  # Icon
+/usr/share/licenses/dshub-bin/LICENSE
 ```
 
 ## Uninstallation
@@ -70,7 +69,7 @@ makepkg -si
 ### Build Requirements
 
 ```bash
-sudo pacman -S --needed webkit2gtk-4.1 libsoup3 base-devel
+sudo pacman -S --needed base-devel
 ```
 
 The PKGBUILD:
@@ -97,10 +96,9 @@ If a host firewall blocks outbound UDP broadcast, discovery will fail.
 dshub
 ```
 
-**Missing WebKit:**
-```bash
-sudo pacman -S webkit2gtk-4.1
-```
+**No window appears:** DSHub needs OpenGL. Check that a Mesa or vendor GL driver is installed (`libgl`).
+
+**File dialogs do not open:** install `xdg-desktop-portal` and a backend for your desktop (for example `xdg-desktop-portal-gtk` or `-kde`).
 
 ## Support
 

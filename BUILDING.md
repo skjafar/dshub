@@ -1,6 +1,6 @@
 # Building the native Rust application
 
-Run all commands from the repository root. Rust 1.89+ and platform C/C++ build tools are required. The reproducible dependency selection is in the root `Cargo.lock`.
+Run all commands from the repository root. Rust 1.95+ and platform C/C++ build tools are required. The reproducible dependency selection is in the root `Cargo.lock`.
 
 ```sh
 cargo run --locked                    # development
@@ -28,7 +28,7 @@ The resulting binary is `target/release/dshub` (`dshub.exe` on Windows). Maps, C
 - `./build.sh run` / `build.bat run`: run the built release executable.
 - `./build.sh pkg`: build a Debian package using `dpkg-deb` in `target/package/`.
 
-The CI workflow checks all three desktop platforms and publishes archives on version tags. Signing, notarization and Windows installers are not configured by the native workflow.
+The CI workflow checks all three desktop platforms, runs the emulator and protocol conformance tests on Linux, and publishes archives, a macOS app bundle (`packaging/macos/bundle.sh`) and the Debian package on version tags. It signs the Windows executable and signs and notarizes the macOS bundle when the certificate secrets are configured; otherwise those steps are skipped. Windows installers and RPM packages are not built.
 
 ## Device integration test
 
@@ -38,4 +38,17 @@ cargo test --locked --test emulator -- --ignored
 
 This starts and stops the bundled Python emulator. Python 3 and free local TCP port 2009 / UDP port 2011 are required. The test covers both transports, control, reads/writes, float representation, command acknowledgements, refused writes and polling.
 
-See [egui migration validation](docs/egui-migration.md) for native rendering smoke tests. The former Tauri application's sources are kept at the `tauri-reference` tag.
+```sh
+cargo test --locked --test conformance -- --ignored
+```
+
+This replays `tests/protocol-vectors.json` against the emulator so it cannot drift from [PROTOCOL.md](PROTOCOL.md).
+
+## Native rendering smoke test
+
+```sh
+bash tests/native-smoke.sh                   # all eighteen scenes
+bash tests/native-smoke.sh registers editor  # only the named scenes
+```
+
+Linux only. Screenshots go to `target/native-smoke/` unless a directory is given. See [egui migration validation](docs/egui-migration.md). The former Tauri application's sources are kept at the `tauri-reference` tag.

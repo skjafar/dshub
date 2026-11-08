@@ -6,7 +6,7 @@ use super::{
 use crate::model::Role;
 use crate::{model::*, types::*};
 use eframe::egui::{self, Color32, RichText};
-use egui_dock::{NodeIndex, SurfaceIndex, TabViewer};
+use egui_dock::{tab_viewer::OnCloseResponse, TabViewer};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
@@ -31,14 +31,14 @@ impl TabViewer for Viewer<'_> {
     fn ui(&mut self, ui: &mut egui::Ui, p: &mut Pane) {
         ui.push_id(p.id.clone(), |ui| self.content(ui, p));
     }
-    fn context_menu(&mut self, ui: &mut egui::Ui, p: &mut Pane, _s: SurfaceIndex, _n: NodeIndex) {
+    fn context_menu(&mut self, ui: &mut egui::Ui, p: &mut Pane, _path: egui_dock::NodePath) {
         if ui.button("Move to new native window").clicked() {
             self.moved.push(super::PaneMove {
                 source: self.window_id.into(),
                 target: None,
                 pane: p.clone(),
             });
-            ui.close_menu();
+            ui.close();
         }
         ui.menu_button("Move to window", |ui| {
             for (id, title) in self
@@ -52,22 +52,22 @@ impl TabViewer for Viewer<'_> {
                         target: Some(id.clone()),
                         pane: p.clone(),
                     });
-                    ui.close_menu();
+                    ui.close();
                 }
             }
         });
         if ui.button("Focus pane").clicked() {
             p.focus = true;
-            ui.close_menu();
+            ui.close();
         }
         if !p.kind.singleton() && ui.button("Duplicate pane").clicked() {
             let mut copy = p.clone();
             copy.id = unique_id();
             self.added.push(super::PaneRequest::Open(Box::new(copy)));
-            ui.close_menu();
+            ui.close();
         }
     }
-    fn on_close(&mut self, p: &mut Pane) -> bool {
+    fn on_close(&mut self, p: &mut Pane) -> OnCloseResponse {
         if p.kind == PaneKind::MapEditor
             && p.draft
                 .as_ref()
@@ -75,9 +75,9 @@ impl TabViewer for Viewer<'_> {
         {
             self.session.notice =
                 "Save or Revert the Map Editor changes before closing the pane".into();
-            false
+            OnCloseResponse::Ignore
         } else {
-            true
+            OnCloseResponse::Close
         }
     }
     fn scroll_bars(&self, _: &Pane) -> [bool; 2] {
@@ -1334,7 +1334,7 @@ impl Viewer<'_> {
             .height((ui.available_height() - 8.).max(100.))
             .x_axis_formatter(|mark, _| clock::short_time(mark.value * 1000.))
             // The crosshair read-out below lists every trace at once.
-            .label_formatter(|_, _| String::new())
+            .label_formatter(|_| None)
             .show_x(false)
             .show_y(false);
         plot = plot.allow_zoom(true).allow_drag(true);
@@ -1377,7 +1377,7 @@ impl Viewer<'_> {
                     .unwrap_or_default();
                 let time = plot_ui.pointer_coordinate().map(|pointer| pointer.x);
                 for (name, points) in traces {
-                    plot_ui.line(egui_plot::Line::new(points).name(name));
+                    plot_ui.line(egui_plot::Line::new(name, points));
                 }
                 (time, readout)
             })
@@ -1393,13 +1393,18 @@ impl Viewer<'_> {
             // Shown directly rather than as a hover tooltip, which egui hides
             // while the pointer moves.
             let time = clock::time_of_day(time * 1000.);
-            egui::show_tooltip_at_pointer(
-                ui.ctx(),
+            egui::Tooltip::always_open(
+                ui.ctx().clone(),
                 ui.layer_id(),
                 egui::Id::new((&p.id, "crosshair")),
-                |ui| {
-                    ui.label(RichText::new(time).color(theme::of(ui).text_weak));
-                    egui::Grid::new("crosshair").num_columns(2).show(ui, |ui| {
+                egui::PopupAnchor::Pointer,
+            )
+            .show(|ui| {
+                ui.label(RichText::new(time).color(theme::of(ui).text_weak));
+                egui::Grid::new("crosshair")
+                    .num_columns(2)
+                    .spacing([16., 2.])
+                    .show(ui, |ui| {
                         for (name, point) in readout {
                             ui.label(name);
                             ui.with_layout(
@@ -1411,8 +1416,7 @@ impl Viewer<'_> {
                             ui.end_row();
                         }
                     });
-                },
-            );
+            });
         }
         let png = egui::Id::new((&p.id, "png"));
         if ui.ctx().data_mut(|d| d.remove_temp::<bool>(png)).is_some() {

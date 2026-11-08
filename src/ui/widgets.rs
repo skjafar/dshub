@@ -63,7 +63,7 @@ pub fn dashboard(
                             widgets: vec![],
                         });
                         pane.dashboard = profile.dashboards.len() - 1;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("Duplicate").clicked() {
                         let mut d = profile.dashboards[pane.dashboard].clone();
@@ -71,7 +71,7 @@ pub fn dashboard(
                         d.name.push_str(" Copy");
                         profile.dashboards.push(d);
                         pane.dashboard = profile.dashboards.len() - 1;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if profile.dashboards.len() > 1
                         && super::controls::confirm_button(
@@ -82,7 +82,7 @@ pub fn dashboard(
                     {
                         profile.dashboards.remove(pane.dashboard);
                         pane.dashboard = 0;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if profile.id == "cnc_motor_controller" && ui.button("Add CNC panels").clicked()
                     {
@@ -92,7 +92,7 @@ pub fn dashboard(
                         }
                         profile.dashboards.extend(panels);
                         pane.dashboard = profile.dashboards.len() - 3;
-                        ui.close_menu();
+                        ui.close();
                     }
                 });
                 add_widget_menu(ui, &mut profile.dashboards[pane.dashboard].widgets);
@@ -117,7 +117,10 @@ pub fn dashboard(
     });
     ui.separator();
     egui::ScrollArea::both()
-        .drag_to_scroll(false)
+        .scroll_source(egui::scroll_area::ScrollSource {
+            drag: egui::scroll_area::DragScroll::Never,
+            ..Default::default()
+        })
         .show(ui, |ui| {
             ui.push_id(&dashboard_id, |ui| {
                 render_grid(
@@ -371,7 +374,7 @@ fn add_widget_menu(ui: &mut egui::Ui, widgets: &mut Vec<Widget>) {
         for kind in WidgetKind::ALL {
             if ui.button(kind.title()).clicked() {
                 widgets.push(Widget::new(kind));
-                ui.close_menu();
+                ui.close();
             }
         }
     });
@@ -686,7 +689,7 @@ fn render_grid(
                 .layout(egui::Layout::top_down(egui::Align::Min)),
         );
         child.set_clip_rect(rect.shrink(5.).intersect(if floating {
-            ui.ctx().screen_rect()
+            ui.ctx().content_rect()
         } else {
             ui.clip_rect()
         }));
@@ -719,7 +722,10 @@ fn render_grid(
         child.spacing_mut().scroll.dormant_background_opacity = 0.;
         let content = egui::ScrollArea::both()
             .id_salt(id.with("content"))
-            .drag_to_scroll(false)
+            .scroll_source(egui::scroll_area::ScrollSource {
+                drag: egui::scroll_area::DragScroll::Never,
+                ..Default::default()
+            })
             .max_height(child.available_height().max(1.))
             .max_width(child.available_width().max(1.))
             .show(&mut child, |ui| {
@@ -825,7 +831,7 @@ fn binding_picker(
         }
         if ui.selectable_label(binding.is_none(), "Unbound").clicked() {
             *binding = None;
-            ui.close_menu();
+            ui.close();
         }
         let filter = query.trim().to_lowercase();
         let entries: Vec<_> = Space::ALL
@@ -871,7 +877,7 @@ fn binding_picker(
                                 .clicked()
                             {
                                 *binding = Some(Binding::new(*space, entry));
-                                ui.close_menu();
+                                ui.close();
                             }
                         }
                     });
@@ -1892,7 +1898,7 @@ fn render_widget(
                             .clicked()
                         {
                             session.write(binding.space, &e, &o.value, meta, w.confirm);
-                            ui.close_menu();
+                            ui.close();
                         }
                     }
                 });
@@ -1918,7 +1924,7 @@ fn render_widget(
                                     last[0],
                                     super::panes::MAX_TRACE_POINTS,
                                 );
-                                plot.line(egui_plot::Line::new(points).color(color));
+                                plot.line(egui_plot::Line::new("", points).color(color));
                             }
                         }
                     })
