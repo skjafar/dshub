@@ -25,16 +25,21 @@ pub fn rgb(dark: bool, role: Role) -> Color32 {
     };
     Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
 }
-pub fn badge(ui: &mut egui::Ui, role_name: Role, text: &str) {
-    let color = role(ui, role_name);
-    egui::Frame::new()
-        .fill(color.gamma_multiply(0.10))
-        .stroke(egui::Stroke::new(1_f32, color.gamma_multiply(0.5)))
-        .corner_radius(4.)
-        .inner_margin(egui::Margin::symmetric(6, 2))
-        .show(ui, |ui| {
-            ui.colored_label(color, text);
-        });
+/// A threshold's colour: its chosen colour, else its role's.
+pub fn threshold(ui: &egui::Ui, t: &crate::model::Threshold) -> Color32 {
+    t.color
+        .map_or_else(|| role(ui, t.role), |[r, g, b]| Color32::from_rgb(r, g, b))
+}
+/// What a user calls a role's colour.
+pub fn role_name(role: Role) -> &'static str {
+    match role {
+        Role::Ok => "Green · ok",
+        Role::Warn => "Yellow · warning",
+        Role::Error => "Red · error",
+        Role::Idle => "Grey · idle",
+        Role::Info => "Blue · info",
+        Role::Accent => "Cyan · accent",
+    }
 }
 pub fn reading(
     connected: bool,
@@ -69,14 +74,13 @@ pub fn outcome_inline(ui: &mut egui::Ui, value: &super::session::WriteOutcome) {
     ui.label(egui::RichText::new(label).small().color(color))
         .on_hover_text(value.label());
 }
-pub fn outcome(ui: &mut egui::Ui, value: &super::session::WriteOutcome) {
-    let role = match value.status {
+pub fn outcome_role(value: &super::session::WriteOutcome) -> Role {
+    match value.status {
         OutcomeStatus::Sending => Role::Info,
         OutcomeStatus::Confirmed => Role::Ok,
         OutcomeStatus::Refused => Role::Error,
         OutcomeStatus::Unknown => Role::Warn,
-    };
-    badge(ui, role, value.label());
+    }
 }
 
 #[cfg(test)]

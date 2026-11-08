@@ -62,6 +62,15 @@ impl Harness {
         output.textures_delta.clear();
         output
     }
+    /// The widgets being edited: the Dashboard pane's draft.
+    fn draft(&self) -> &Vec<Widget> {
+        &self
+            .pane
+            .dashboard_draft
+            .as_ref()
+            .expect("dashboard is being edited")
+            .widgets
+    }
     fn click(&mut self, label: &str) {
         self.frame(vec![]);
         let output = self.frame(vec![]);
@@ -537,7 +546,7 @@ fn canvas_drag_resize_and_configuration_keep_geometry_live() {
     h.frame(vec![pointer_button(start, true)]);
     let end = start + egui::vec2(70., 40.);
     h.frame(vec![egui::Event::PointerMoved(end)]);
-    let moved = h.profile.dashboards[0].widgets[0].position.unwrap();
+    let moved = h.draft()[0].position.unwrap();
     assert!(
         moved[0] >= 60. && moved[1] >= 30.,
         "widget must move before pointer release: {moved:?}"
@@ -550,7 +559,7 @@ fn canvas_drag_resize_and_configuration_keep_geometry_live() {
     h.frame(vec![pointer_button(corner, true)]);
     let bigger = corner + egui::vec2(50., 35.);
     h.frame(vec![egui::Event::PointerMoved(bigger)]);
-    let widget = &h.profile.dashboards[0].widgets[0];
+    let widget = &h.draft()[0];
     assert!(
         widget.width > 340. && widget.height > 185.,
         "resize must apply while held: {} x {}",
@@ -559,9 +568,9 @@ fn canvas_drag_resize_and_configuration_keep_geometry_live() {
     );
     h.frame(vec![pointer_button(bigger, false)]);
     let geometry = (
-        h.profile.dashboards[0].widgets[0].position,
-        h.profile.dashboards[0].widgets[0].width,
-        h.profile.dashboards[0].widgets[0].height,
+        h.draft()[0].position,
+        h.draft()[0].width,
+        h.draft()[0].height,
     );
     h.frame(vec![egui::Event::PointerMoved(
         top_left + egui::vec2(20., 20.),
@@ -570,7 +579,7 @@ fn canvas_drag_resize_and_configuration_keep_geometry_live() {
     h.frame(vec![]);
     let output = h.frame(vec![]);
     text_position(&output, "Changes apply immediately");
-    let w = &h.profile.dashboards[0].widgets[0];
+    let w = &h.draft()[0];
     assert_eq!(
         (w.position, w.width, w.height),
         geometry,
@@ -602,7 +611,10 @@ fn canvas_drag_resize_and_configuration_keep_geometry_live() {
         },
     ]);
     h.frame(vec![]);
-    assert_eq!(h.profile.dashboards[0].widgets[0].width, 420.);
+    assert_eq!(h.draft()[0].width, 420.);
+    // Nothing reaches the Profile until Save.
+    assert_ne!(h.profile.dashboards[0].widgets[0].width, 420.);
+    h.click("Save");
     h.pane.editing = false;
     h.frame(vec![]);
     let w = &h.profile.dashboards[0].widgets[0];
@@ -622,6 +634,9 @@ fn buttons_and_containers_can_be_dragged_without_dispatching_commands() {
         w.label = "Drag target".into();
         if kind == WidgetKind::Button {
             w.command = Some(14);
+            // The button fills its widget and centres its label, so a short
+            // button puts the label inside the drag strip along the top.
+            w.height = 40.;
         }
         h.profile.dashboards[0].widgets = vec![w];
         h.session.connection = Some(DeviceConnection {
@@ -643,7 +658,7 @@ fn buttons_and_containers_can_be_dragged_without_dispatching_commands() {
             start + egui::vec2(40., 30.),
         )]);
         assert!(
-            h.profile.dashboards[0].widgets[0].position.unwrap()[0] > 20.,
+            h.draft()[0].position.unwrap()[0] > 20.,
             "{kind:?} must move while held"
         );
         assert!(h.session.commands.is_empty());
@@ -680,8 +695,8 @@ fn pointer_drag_reparents_widgets_and_hover_x_removes_them() {
     h.frame(vec![pointer_button(start, true)]);
     h.frame(vec![egui::Event::PointerMoved(end)]);
     h.frame(vec![pointer_button(end, false)]);
-    assert!(h.profile.dashboards[0].widgets[0].children.is_empty());
-    assert_eq!(h.profile.dashboards[0].widgets[1].children[0].id, child_id);
+    assert!(h.draft()[0].children.is_empty());
+    assert_eq!(h.draft()[1].children[0].id, child_id);
     h.frame(vec![]);
     let out = h.frame(vec![]);
     let label = text_position(&out, "Transfer me");
@@ -690,7 +705,7 @@ fn pointer_drag_reparents_widgets_and_hover_x_removes_them() {
     h.frame(vec![egui::Event::PointerMoved(x)]);
     h.frame(vec![pointer_button(x, true)]);
     h.frame(vec![pointer_button(x, false)]);
-    assert!(h.profile.dashboards[0].widgets[1].children.is_empty());
+    assert!(h.draft()[1].children.is_empty());
 }
 
 #[test]
@@ -715,9 +730,140 @@ fn binding_picker_search_selects_the_matching_register() {
         |s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().contains("MOTOR_Y_ENCODER"))
     ));
     h.click("MOTOR_X_ENCODER · Registers · 1 (int32_t)");
-    let binding = h.profile.dashboards[0].widgets[0].binding.as_ref().unwrap();
+    let binding = h.draft()[0].binding.as_ref().unwrap();
     assert_eq!(binding.name, "MOTOR_X_ENCODER");
     assert_eq!(binding.space, Space::Register);
+}
+
+#[test]
+fn button_command_is_chosen_from_the_profile_list_or_typed() {
+    let mut h = Harness::new(PaneKind::Dashboard);
+    let mut w = Widget::new(WidgetKind::Button);
+    w.label = "Command button".into();
+    w.command = Some(4321);
+    w.height = 40.;
+    h.profile.dashboards[0].widgets = vec![w];
+    h.pane.editing = true;
+    h.frame(vec![]);
+    let out = h.frame(vec![]);
+    h.frame(vec![egui::Event::PointerMoved(
+        text_position(&out, "Command button") + egui::vec2(45., 0.),
+    )]);
+    h.click("Configure");
+    h.frame(vec![]);
+    // A code outside the list is kept and labelled as custom.
+    h.click("Custom code");
+    h.click("Write Flash · 65001");
+    assert_eq!(h.draft()[0].command, Some(65001));
+    h.frame(vec![]);
+    let out = h.frame(vec![]);
+    text_position(&out, "Write Flash");
+}
+
+#[test]
+fn dashboard_edits_stay_in_a_draft_until_saved_or_reverted() {
+    let mut h = Harness::new(PaneKind::Dashboard);
+    let mut a = Widget::new(WidgetKind::ValueRead);
+    a.label = "Kept".into();
+    let b = Widget::new(WidgetKind::Gauge);
+    h.profile.dashboards[0].widgets = vec![a, b];
+    h.pane.editing = true;
+    h.frame(vec![]);
+    // Placing the unplaced widgets is not an edit.
+    assert!(!super::widgets::unsaved(&h.pane, &h.profile));
+    let saved = h.profile.dashboards[0].clone();
+    // Edit the draft: one widget changes, one is removed, one is added.
+    let draft = h.pane.dashboard_draft.as_mut().unwrap();
+    draft.widgets[0].label = "Changed".into();
+    draft.widgets.remove(1);
+    draft.widgets.push(Widget::new(WidgetKind::StateLed));
+    let changes = super::widgets::unsaved_changes(&saved, draft);
+    assert_eq!(
+        changes.modified.len(),
+        2,
+        "the changed and the added widget"
+    );
+    assert_eq!(changes.removed, 1);
+    h.frame(vec![]);
+    assert_eq!(h.profile.dashboards[0], saved, "edits wait for Save");
+    // Leaving edit mode with unsaved changes is refused.
+    h.click("Edit dashboard");
+    assert!(h.pane.editing);
+    assert!(super::widgets::unsaved(&h.pane, &h.profile));
+    h.click("Revert");
+    assert_eq!(h.pane.dashboard_draft.as_ref(), Some(&saved));
+    h.pane.dashboard_draft.as_mut().unwrap().widgets[0].label = "Saved".into();
+    h.frame(vec![]);
+    h.click("Save");
+    assert_eq!(h.profile.dashboards[0].widgets[0].label, "Saved");
+    assert!(!super::widgets::unsaved(&h.pane, &h.profile));
+    h.click("Edit dashboard");
+    h.frame(vec![]);
+    assert!(!h.pane.editing && h.pane.dashboard_draft.is_none());
+}
+
+#[test]
+fn widget_text_is_optional_and_scalable() {
+    let mut h = Harness::new(PaneKind::Dashboard);
+    let e = h.profile.entries(Space::Register)[0].clone();
+    let bound = |kind| {
+        let mut w = Widget::new(kind);
+        w.binding = Some(Binding::new(Space::Register, &e));
+        w
+    };
+    let mut readout = bound(WidgetKind::ValueRead);
+    readout.label.clear();
+    let mut led = bound(WidgetKind::StateLed);
+    led.label.clear();
+    led.thresholds = crate::model::led_states(7., "", "", &[]);
+    let mut bar = bound(WidgetKind::ProgressBar);
+    bar.label = "Quiet bar".into();
+    bar.unit = "units".into();
+    bar.show_value = false;
+    let mut big = Widget::new(WidgetKind::Label);
+    big.label = "Large heading".into();
+    big.text_size = 2.;
+    let mut small = Widget::new(WidgetKind::Label);
+    small.label = "Normal text".into();
+    h.profile.dashboards[0].widgets = vec![readout, led, bar, big, small];
+    h.session.readings.insert(
+        (Space::Register, e.address),
+        RegisterData {
+            address: e.address,
+            name: e.name.clone(),
+            value: 7,
+            valid: true,
+            timestamp: crate::communicator::now_ms(),
+        },
+    );
+    h.frame(vec![]);
+    let out = h.frame(vec![]);
+    let texts: Vec<(String, f32)> = out
+        .shapes
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Text(t) => Some((
+                t.galley.text().to_string(),
+                t.galley.rows.first().map_or(0., |r| r.height()),
+            )),
+            _ => None,
+        })
+        .collect();
+    let has = |needle: &str| texts.iter().any(|(t, _)| t == needle);
+    assert!(
+        !has("Value Readout") && !has("State LED"),
+        "empty labels add no title"
+    );
+    assert!(
+        !has("On") && !has("Off"),
+        "an LED whose states have no labels is only its lamp"
+    );
+    assert!(
+        has("Quiet bar") && !has("units"),
+        "the bar's value text is hidden"
+    );
+    let height = |needle: &str| texts.iter().find(|(t, _)| t == needle).unwrap().1;
+    assert!(height("Large heading") > height("Normal text") * 1.8);
 }
 
 #[test]
@@ -742,15 +888,9 @@ fn resizing_keeps_neighbors_fixed_until_release() {
     h.frame(vec![pointer_button(corner, true)]);
     let end = corner + egui::vec2(50., 20.);
     h.frame(vec![egui::Event::PointerMoved(end)]);
-    assert_eq!(
-        h.profile.dashboards[0].widgets[1].position,
-        Some([308., 0.])
-    );
+    assert_eq!(h.draft()[1].position, Some([308., 0.]));
     h.frame(vec![pointer_button(end, false)]);
-    assert_eq!(
-        h.profile.dashboards[0].widgets[1].position,
-        Some([358., 0.])
-    );
+    assert_eq!(h.draft()[1].position, Some([358., 0.]));
 }
 
 #[test]
@@ -963,6 +1103,83 @@ fn plot_history_changes_are_logged_when_enabled() {
             ),
         ]
     );
+}
+
+#[test]
+fn settings_saved_before_the_showcase_gain_it_once_after_profile_files_load() {
+    // Settings written before the showcase existed have no flag.
+    let mut saved: Saved = serde_json::from_str(r#"{"schema": 3}"#).unwrap();
+    assert!(!saved.showcase_added);
+    // As at startup: the Profile files (here, without the showcase) replace
+    // the inline Profiles before the showcase is added.
+    let mut default = default_profiles().remove(0);
+    default
+        .dashboards
+        .retain(|d| d.id != crate::showcase_dashboard::ID);
+    let before = default.dashboards.clone();
+    saved.profiles = vec![default];
+    saved.migrate();
+    saved.add_showcase();
+    let default = &saved.profiles[0];
+    assert_eq!(
+        default.dashboards[..before.len()],
+        before[..],
+        "existing order kept"
+    );
+    assert_eq!(
+        default.dashboards.last().unwrap().id,
+        crate::showcase_dashboard::ID
+    );
+    // Once only: a deleted showcase stays deleted.
+    saved.profiles[0].dashboards.pop();
+    saved.add_showcase();
+    assert_eq!(saved.profiles[0].dashboards, before);
+    // New settings already have it.
+    assert!(Saved::default().showcase_added);
+}
+
+#[test]
+fn stored_bundled_dashboards_gain_the_current_layout_once() {
+    let mut saved: Saved = serde_json::from_str(r#"{"schema": 2}"#).unwrap();
+    assert_eq!(saved.bundled_layouts, 0);
+    let mut cnc = default_profiles().remove(1);
+    let current = cnc.dashboards.clone();
+    // An older layout of a bundled panel, next to a dashboard of the user's.
+    cnc.dashboards[0].widgets.truncate(1);
+    cnc.dashboards.push(Dashboard {
+        id: "mine".into(),
+        name: "Mine".into(),
+        widgets: vec![Widget::new(WidgetKind::ValueRead)],
+    });
+    let mine = cnc.dashboards[3].clone();
+    // A changed map keeps the stored copies, which might no longer bind.
+    let mut changed = cnc.clone();
+    changed.id = "other".into();
+    saved.profiles = vec![cnc, changed.clone()];
+    saved.refresh_bundled();
+    // Widget ids are fresh each time the panels are built.
+    fn layout(d: &Dashboard) -> Vec<String> {
+        d.widgets
+            .iter()
+            .map(|w| {
+                format!(
+                    "{:?} {} {:?} {}×{}",
+                    w.kind, w.label, w.position, w.width, w.height
+                )
+            })
+            .collect()
+    }
+    for (stored, current) in saved.profiles[0].dashboards.iter().zip(&current) {
+        assert_eq!(stored.id, current.id);
+        assert_eq!(layout(stored), layout(current));
+    }
+    assert_eq!(saved.profiles[0].dashboards[3], mine, "own dashboards kept");
+    assert_eq!(saved.profiles[1].dashboards, changed.dashboards);
+    // Once only.
+    saved.profiles[0].dashboards[0].widgets.clear();
+    saved.refresh_bundled();
+    assert!(saved.profiles[0].dashboards[0].widgets.is_empty());
+    assert_eq!(Saved::default().bundled_layouts, super::BUNDLED_LAYOUTS);
 }
 
 #[test]

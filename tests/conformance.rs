@@ -33,7 +33,7 @@ fn emulator_conforms_to_protocol_vectors() {
     let _emulator = bench.is_none().then(|| {
         let emulator = Emulator(
             Command::new("python3")
-                .args(["-u", "emulator/dshub_emulator.py"])
+                .args(["-u", "emulator/dshub_emulator.py", "--local"])
                 .stdout(Stdio::null())
                 .stderr(Stdio::inherit())
                 .spawn()

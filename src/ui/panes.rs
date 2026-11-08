@@ -68,6 +68,11 @@ impl TabViewer for Viewer<'_> {
         }
     }
     fn on_close(&mut self, p: &mut Pane) -> OnCloseResponse {
+        if p.kind == PaneKind::Dashboard && widgets::unsaved(p, self.profile) {
+            self.session.notice =
+                "Save or Revert the dashboard changes before closing the pane".into();
+            return OnCloseResponse::Ignore;
+        }
         if p.kind == PaneKind::MapEditor
             && p.draft
                 .as_ref()

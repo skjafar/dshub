@@ -51,7 +51,7 @@ pub fn snap_widget(widgets: &mut [Widget], id: &str) {
                 w.position = Some([snap(x).max(0.), snap(y).max(0.)]);
             }
             w.width = snap(w.width).max(120.);
-            w.height = snap(w.height).max(48.);
+            w.height = snap(w.height).max(w.kind.min_height());
         }
     });
 }
@@ -154,6 +154,11 @@ pub fn step(ctx: &egui::Context, dashboard: &str, widgets: &mut Vec<Widget>, red
     *widgets = restored;
     ctx.data_mut(|d| d.insert_temp(id, history));
     true
+}
+
+/// Drops a dashboard's layout history, e.g. after its changes are reverted.
+pub fn forget(ctx: &egui::Context, dashboard: &str) {
+    ctx.data_mut(|d| d.remove::<History>(history_id(dashboard)));
 }
 
 /// Whether undo / redo have anything to apply.

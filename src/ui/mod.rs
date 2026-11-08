@@ -89,6 +89,10 @@ pub struct Pane {
     pub draft: Option<Profile>,
     #[serde(skip)]
     pub map_rows: std::collections::BTreeMap<Space, Vec<map_table::Row>>,
+    /// Dashboard working copy while editing; saved to the Profile only on
+    /// Save, and kept out of layouts like the Map Editor draft.
+    #[serde(skip)]
+    pub dashboard_draft: Option<Dashboard>,
     pub map_space: Space,
     pub focus: bool,
     #[serde(default)]
@@ -126,6 +130,7 @@ impl Pane {
             editing: false,
             draft: None,
             map_rows: Default::default(),
+            dashboard_draft: None,
             map_space: Space::Register,
             focus: false,
             format: DisplayFormat::Native,
@@ -191,6 +196,15 @@ pub struct Saved {
     pub series: Vec<PlotSeries>,
     #[serde(default)]
     pub profile_sessions: std::collections::BTreeMap<String, LayoutState>,
+    /// Whether the Default Profile has been offered the widget showcase.
+    /// False in settings saved before it existed; new settings start with
+    /// the showcase already in place.
+    #[serde(default)]
+    pub showcase_added: bool,
+    /// Revision of the bundled dashboards these settings hold; see
+    /// [`Saved::refresh_bundled`]. Zero in settings saved before it existed.
+    #[serde(default)]
+    pub bundled_layouts: u32,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct LayoutState {
@@ -201,6 +215,9 @@ pub struct LayoutState {
 
 /// The current [`Saved`] layout.
 const SCHEMA: u32 = 2;
+/// Revision of the bundled dashboards' layout. Raise it when they change so
+/// stored copies are refreshed.
+const BUNDLED_LAYOUTS: u32 = 2;
 fn legacy_schema() -> u32 {
     1
 }
@@ -210,6 +227,59 @@ impl Saved {
         // 1 → 2: Profiles moved to their own files. Inline Profiles load as
         // before and are written out as files on the first save.
         self.schema = SCHEMA;
+    }
+    /// Adds the widget showcase to the Default Profile once. Runs after the
+    /// Profile files are loaded, since those replace the inline Profiles.
+    /// Appended, so open panes keep showing the dashboard they showed; a
+    /// deleted showcase does not return.
+    fn add_showcase(&mut self) {
+        if self.showcase_added {
+            return;
+        }
+        self.showcase_added = true;
+        if let Some(p) = self.profiles.iter_mut().find(|p| p.id == "default") {
+            if crate::showcase_dashboard::fits(p)
+                && !p
+                    .dashboards
+                    .iter()
+                    .any(|d| d.id == crate::showcase_dashboard::ID)
+            {
+                let showcase = crate::showcase_dashboard::dashboard(p);
+                p.dashboards.push(showcase);
+            }
+        }
+    }
+    /// Replaces stored copies of the bundled dashboards with their current
+    /// layout once per [`BUNDLED_LAYOUTS`] revision. A Profile whose maps were
+    /// changed keeps its copies, which may no longer bind; dashboards of the
+    /// user's own are never touched.
+    fn refresh_bundled(&mut self) {
+        if self.bundled_layouts >= BUNDLED_LAYOUTS {
+            return;
+        }
+        self.bundled_layouts = BUNDLED_LAYOUTS;
+        for fresh in default_profiles() {
+            let Some(p) = self.profiles.iter_mut().find(|p| p.id == fresh.id) else {
+                continue;
+            };
+            let same_maps = p.registers_map == fresh.registers_map
+                && p.parameters_map == fresh.parameters_map
+                && p.system_registers_map == fresh.system_registers_map;
+            let showcase =
+                crate::showcase_dashboard::fits(p).then(|| crate::showcase_dashboard::dashboard(p));
+            for d in &mut p.dashboards {
+                let replacement = if d.id == crate::showcase_dashboard::ID {
+                    showcase.clone()
+                } else if same_maps {
+                    fresh.dashboards.iter().find(|n| n.id == d.id).cloned()
+                } else {
+                    None
+                };
+                if let Some(new) = replacement {
+                    *d = new;
+                }
+            }
+        }
     }
     fn leave_dashboard_edit_mode(&mut self) {
         fn reset(dock: &mut DockState<Pane>, windows: &mut [NativeWindow]) {
@@ -336,6 +406,8 @@ impl Default for Saved {
     fn default() -> Self {
         Self {
             schema: SCHEMA,
+            showcase_added: true,
+            bundled_layouts: BUNDLED_LAYOUTS,
             profiles: default_profiles(),
             profile_order: vec![],
             active: "default".into(),
@@ -391,7 +463,25 @@ impl Desktop {
                 index,
                 widget,
             } => {
-                if !widgets::restore(
+                // A widget removed while editing goes back into that draft.
+                let draft = self
+                    .saved
+                    .dock
+                    .iter_all_tabs_mut()
+                    .map(|(_, p)| p)
+                    .chain(
+                        self.saved
+                            .windows
+                            .iter_mut()
+                            .flat_map(|w| w.dock.iter_all_tabs_mut().map(|(_, p)| p)),
+                    )
+                    .filter_map(|p| p.dashboard_draft.as_mut())
+                    .find(|d| d.id == dashboard);
+                if let Some(draft) = draft {
+                    if !widgets::insert(&mut draft.widgets, parent.as_deref(), index, *widget) {
+                        self.session.notice = "The widget's container no longer exists".into();
+                    }
+                } else if !widgets::restore(
                     &mut self.saved.profiles,
                     &profile,
                     &dashboard,
@@ -433,6 +523,8 @@ impl Desktop {
                 });
             }
         }
+        saved.add_showcase();
+        saved.refresh_bundled();
         saved.leave_dashboard_edit_mode();
         // Add the revised emulator panels once, retaining existing user dashboards.
         if let Some(profile) = saved
@@ -1359,7 +1451,7 @@ fn guide(ui: &mut egui::Ui) {
         ("1", "Connect", "Open the device menu in the toolbar. Scan the network or enter an address (IP or IP:port), choose TCP or UDP and connect."),
         ("2", "Take Control", "Writes and commands need Control on this connection. The toolbar shows who holds it."),
         ("3", "Inspect", "Registers, Parameters and System Registers list every entry of the Profile's maps. Double-click a value to write it; select a row for the Inspector."),
-        ("4", "Monitor", "Plot traces from any entry, or build Dashboards. Map edits that move entries ask for binding review before widgets read or write again."),
+        ("4", "Monitor", "Plot traces from any entry, or build Dashboards; dashboard edits apply on Save, and Revert discards them. Map edits that move entries ask for binding review before widgets read or write again."),
         ("5", "Arrange", "Drag tabs to split panes. Right-click a tab to move it to its own window or focus it. Save layouts as Workspaces."),
     ] {
         ui.horizontal_top(|ui| {

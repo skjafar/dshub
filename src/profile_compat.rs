@@ -37,8 +37,9 @@ fn widget(v: &Value, p: &Profile, depth: usize) -> Option<Widget> {
         "gauge" => WidgetKind::Gauge,
         "progressBar" => WidgetKind::ProgressBar,
         "encoderDisplay" => WidgetKind::EncoderDisplay,
-        "ledIndicator" => WidgetKind::LedIndicator,
-        "stateLED" => WidgetKind::StateLed,
+        // The LED Indicator became a State LED; its on value and labels
+        // become states below.
+        "ledIndicator" | "stateLED" => WidgetKind::StateLed,
         "statusMatrix" => WidgetKind::StatusMatrix,
         "button" => WidgetKind::Button,
         "dropdown" => WidgetKind::Dropdown,
@@ -49,6 +50,7 @@ fn widget(v: &Value, p: &Profile, depth: usize) -> Option<Widget> {
         "deviceInfo" => WidgetKind::DeviceInfo,
         "container" => WidgetKind::Container,
         "miniPlot" => WidgetKind::MiniPlot,
+        "label" => WidgetKind::Label,
         _ => return None,
     };
     let mut w = Widget::new(kind);
@@ -77,9 +79,6 @@ fn widget(v: &Value, p: &Profile, depth: usize) -> Option<Widget> {
         .unwrap_or("0".into());
     w.format = serde_json::from_value(c["format"].clone()).unwrap_or_default();
     w.directions = serde_json::from_value(c["directions"].clone()).unwrap_or_default();
-    w.on_value = c["onValue"].as_f64().unwrap_or(1.);
-    w.on_label = c["onLabel"].as_str().unwrap_or("On").into();
-    w.off_label = c["offLabel"].as_str().unwrap_or("Off").into();
     w.show_inactive = c["showInactive"].as_bool().unwrap_or(true);
     w.bit_count = match c["bitCount"].as_u64() {
         Some(n @ (8 | 16)) => n as u8,
@@ -113,17 +112,15 @@ fn widget(v: &Value, p: &Profile, depth: usize) -> Option<Widget> {
             .collect();
     }
     if let Some(rules) = c["thresholds"].as_array() {
-        w.thresholds = rules
-            .iter()
-            .filter_map(|r| {
-                Some(Threshold {
-                    op: r["comparator"].as_str()?.into(),
-                    value: r["value"].as_f64()?,
-                    role: r["role"].as_str()?.into(),
-                    label: r["label"].as_str().unwrap_or_default().into(),
-                })
-            })
-            .collect();
+        w.thresholds = rules.iter().filter_map(rule).collect();
+    }
+    if v["kind"] == "ledIndicator" {
+        w.thresholds = led_states(
+            c["onValue"].as_f64().unwrap_or(1.),
+            c["onLabel"].as_str().unwrap_or("On"),
+            c["offLabel"].as_str().unwrap_or("Off"),
+            &w.thresholds,
+        );
     }
     let rows = c["rows"].as_array().or_else(|| c["alarms"].as_array());
     if let Some(rows) = rows {
@@ -135,19 +132,7 @@ fn widget(v: &Value, p: &Profile, depth: usize) -> Option<Widget> {
             if let Some(b) = binding(&row["binding"], p) {
                 let thresholds = row["thresholds"]
                     .as_array()
-                    .map(|rules| {
-                        rules
-                            .iter()
-                            .filter_map(|r| {
-                                Some(Threshold {
-                                    op: r["comparator"].as_str()?.into(),
-                                    value: r["value"].as_f64()?,
-                                    role: r["role"].as_str()?.into(),
-                                    label: r["label"].as_str().unwrap_or_default().into(),
-                                })
-                            })
-                            .collect()
-                    })
+                    .map(|rules| rules.iter().filter_map(rule).collect())
                     .unwrap_or_default();
                 w.row_styles.insert(
                     b.name.clone(),
@@ -206,13 +191,42 @@ fn export_binding(b: &Binding) -> Value {
     }
     json!({"space":b.space,"address":b.address,"snapshot":snapshot})
 }
+fn rule(r: &Value) -> Option<Threshold> {
+    let mut t = Threshold::new(
+        r["comparator"].as_str()?.into(),
+        r["value"].as_f64()?,
+        r["role"].as_str()?.into(),
+        r["label"].as_str().unwrap_or_default(),
+    );
+    t.color = r["color"].as_str().and_then(parse_color);
+    Some(t)
+}
+/// `#rrggbb` to its three channels.
+fn parse_color(text: &str) -> Option<[u8; 3]> {
+    let hex = text.strip_prefix('#').filter(|h| h.len() == 6)?;
+    let n = u32::from_str_radix(hex, 16).ok()?;
+    Some([(n >> 16) as u8, (n >> 8) as u8, n as u8])
+}
 fn export_rules(rules: &[Threshold]) -> Vec<Value> {
-    rules.iter().map(|r|json!({"id":unique_id(),"comparator":r.op,"value":r.value,"role":r.role,"label":r.label})).collect()
+    rules
+        .iter()
+        .map(|r| {
+            let mut rule = json!({"id":unique_id(),"comparator":r.op,"value":r.value,"role":r.role,"label":r.label});
+            // Readers that know only roles keep the role's colour.
+            if let Some([red, green, blue]) = r.color {
+                rule["color"] = json!(format!("#{red:02x}{green:02x}{blue:02x}"));
+            }
+            rule
+        })
+        .collect()
 }
 fn export_widgets(widgets: &[Widget]) -> Vec<Value> {
     let (mut x, mut y, mut row_height) = (0u32, 0u32, 0u32);
     widgets
         .iter()
+        // The former interface knows only the sixteen original kinds; Labels
+        // travel in the native dashboards alone.
+        .filter(|w| w.kind != WidgetKind::Label)
         .map(|w| {
             let mut v = export_widget(w);
             let width = ((w.width / 80.).ceil() as u32).clamp(1, 12);
@@ -235,8 +249,7 @@ fn export_widget(w: &Widget) -> Value {
         WidgetKind::Gauge => "gauge",
         WidgetKind::ProgressBar => "progressBar",
         WidgetKind::EncoderDisplay => "encoderDisplay",
-        WidgetKind::LedIndicator => "ledIndicator",
-        WidgetKind::StateLed => "stateLED",
+        WidgetKind::StateLed | WidgetKind::LedIndicator => "stateLED",
         WidgetKind::StatusMatrix => "statusMatrix",
         WidgetKind::Button => "button",
         WidgetKind::Dropdown => "dropdown",
@@ -247,6 +260,7 @@ fn export_widget(w: &Widget) -> Value {
         WidgetKind::DeviceInfo => "deviceInfo",
         WidgetKind::Container => "container",
         WidgetKind::MiniPlot => "miniPlot",
+        WidgetKind::Label => "label",
     };
     let thresholds = export_rules(&w.thresholds);
     let rows:Vec<_>=w.rows.iter().map(|b|{let style=w.row_styles.get(&b.name);json!({"label":style.map(|s|s.label.as_str()).unwrap_or(&b.name),"binding":export_binding(b),"format":style.map(|s|s.format).unwrap_or(w.format),"thresholds":style.map(|s|export_rules(&s.thresholds)).unwrap_or_else(||thresholds.clone())})}).collect();
@@ -259,7 +273,7 @@ fn export_widget(w: &Widget) -> Value {
     } else {
         Value::Null
     };
-    let config = json!({"label":w.label,"binding":w.binding.as_ref().map(export_binding),"format":w.format,"thresholds":thresholds,"min":w.min,"max":w.max,"unit":w.unit,"conversionFactor":w.factor,"primaryUnit":w.unit,"secondaryUnit":w.secondary_unit,"showRawValue":w.show_raw,"decimals":w.decimals,"orientation":if w.vertical{"vertical"}else{"horizontal"},"target":target,"value":w.value.parse::<f64>().unwrap_or(0.),"options":w.options.iter().map(|o|json!({"value":o.value.parse::<f64>().unwrap_or(0.),"label":o.label})).collect::<Vec<_>>(),"confirmationRequired":w.confirm,"rows":rows,"alarms":rows,"showInactive":w.show_inactive,"bitCount":w.bit_count,"onValue":w.on_value,"onLabel":w.on_label,"offLabel":w.off_label,"directions":w.directions,"layout":"8way","series":w.binding.as_ref().map(export_binding),"pollInterval":w.poll_ms,"timeSpan":w.time_span,"padding":w.padding,"spacing":w.spacing,"childWidgets":export_widgets(&w.children)});
+    let config = json!({"label":w.label,"binding":w.binding.as_ref().map(export_binding),"format":w.format,"thresholds":thresholds,"min":w.min,"max":w.max,"unit":w.unit,"conversionFactor":w.factor,"primaryUnit":w.unit,"secondaryUnit":w.secondary_unit,"showRawValue":w.show_raw,"decimals":w.decimals,"orientation":if w.vertical{"vertical"}else{"horizontal"},"target":target,"value":w.value.parse::<f64>().unwrap_or(0.),"options":w.options.iter().map(|o|json!({"value":o.value.parse::<f64>().unwrap_or(0.),"label":o.label})).collect::<Vec<_>>(),"confirmationRequired":w.confirm,"rows":rows,"alarms":rows,"showInactive":w.show_inactive,"bitCount":w.bit_count,"directions":w.directions,"layout":"8way","series":w.binding.as_ref().map(export_binding),"pollInterval":w.poll_ms,"timeSpan":w.time_span,"padding":w.padding,"spacing":w.spacing,"childWidgets":export_widgets(&w.children)});
     json!({"id":w.id,"kind":kind,"config":config,"layout":{"x":0,"y":0,"w":(w.width/80.).max(1.) as u32,"h":(w.height/60.).max(1.) as u32}})
 }
 pub fn export_dashboards(ds: &[Dashboard]) -> Value {
@@ -269,6 +283,22 @@ pub fn export_dashboards(ds: &[Dashboard]) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn labels_travel_only_in_native_dashboards() {
+        let mut p = default_profiles().remove(1);
+        let mut label = Widget::new(WidgetKind::Label);
+        label.label = "Axis notes\nSecond line".into();
+        p.dashboards[0].widgets = vec![label.clone(), Widget::new(WidgetKind::ValueRead)];
+        let exported = p.export();
+        let legacy = &exported["dashboards"]["dashboards"][0]["widgets"];
+        assert_eq!(
+            legacy.as_array().unwrap().len(),
+            1,
+            "former interface never sees a Label"
+        );
+        let back = Profile::import(&exported.to_string()).unwrap();
+        assert_eq!(back.dashboards[0].widgets[0], label);
+    }
     #[test]
     fn all_widget_kinds_roundtrip_through_the_version_one_dashboard_shape() {
         let mut p = default_profiles().remove(1);
@@ -289,9 +319,10 @@ mod tests {
         }
         let exported = export_dashboards(&p.dashboards);
         let imported = import_dashboards(&exported, &p);
-        assert_eq!(imported[0].widgets.len(), 16);
-        assert_eq!(imported[0].widgets[10].directions[0].command, 20);
-        assert!(imported[0].widgets[15]
+        // Every native kind but the Label, which the former interface lacks.
+        assert_eq!(imported[0].widgets.len(), 15);
+        assert_eq!(imported[0].widgets[9].directions[0].command, 20);
+        assert!(imported[0].widgets[14]
             .binding
             .as_ref()
             .unwrap()
@@ -306,6 +337,33 @@ mod tests {
             exported["dashboards"][0]["widgets"][0]["layout"],
             exported["dashboards"][0]["widgets"][1]["layout"]
         );
+    }
+    #[test]
+    fn led_indicators_import_as_state_leds_and_colours_travel() {
+        let p = default_profiles().remove(1);
+        let v1 = json!({"dashboards":[{"id":"d","name":"Old","widgets":[
+            {"id":"a","kind":"ledIndicator","config":{"label":"Lamp","onValue":3,
+             "onLabel":"Running","offLabel":"Stopped"}},
+            {"id":"b","kind":"stateLED","config":{"label":"State","thresholds":[
+             {"comparator":"==","value":1,"role":"ok","label":"One","color":"#ff8000"}]}}]}]});
+        let d = &import_dashboards(&v1, &p)[0];
+        assert!(d.widgets.iter().all(|w| w.kind == WidgetKind::StateLed));
+        assert_eq!(
+            d.widgets[0].thresholds,
+            vec![
+                Threshold::new(Comparator::Eq, 3., Role::Ok, "Running"),
+                Threshold::new(Comparator::Ne, 3., Role::Idle, "Stopped"),
+            ]
+        );
+        assert_eq!(d.widgets[1].thresholds[0].color, Some([0xff, 0x80, 0]));
+        let exported = export_dashboards(std::slice::from_ref(d));
+        let rules = &exported["dashboards"][0]["widgets"][1]["config"]["thresholds"];
+        assert_eq!(rules[0]["color"], "#ff8000");
+        assert_eq!(
+            rules[0]["role"], "ok",
+            "role kept for readers without colours"
+        );
+        assert_eq!(exported["dashboards"][0]["widgets"][0]["kind"], "stateLED");
     }
     #[test]
     fn an_explicitly_unknown_snapshot_is_not_implicitly_rebound() {

@@ -21,18 +21,59 @@ pub fn dashboard(
         });
     }
     pane.dashboard = pane.dashboard.min(profile.dashboards.len() - 1);
+    // Editing works on a draft; the Profile changes only on Save.
+    let mut fresh = false;
+    if pane.editing
+        && pane
+            .dashboard_draft
+            .as_ref()
+            .is_none_or(|d| d.id != profile.dashboards[pane.dashboard].id)
+    {
+        pane.dashboard_draft = Some(profile.dashboards[pane.dashboard].clone());
+        fresh = true;
+    }
+    if !pane.editing {
+        pane.dashboard_draft = None;
+    }
+    let saved = profile.dashboards[pane.dashboard].clone();
+    let changes = pane
+        .dashboard_draft
+        .as_ref()
+        .map(|d| unsaved_changes(&saved, d))
+        .unwrap_or_default();
+    let dirty = pane.dashboard_draft.as_ref().is_some_and(|d| *d != saved);
+    let unsaved_hint = "Save or Revert the dashboard changes first";
     ui.horizontal_wrapped(|ui| {
-        egui::ComboBox::from_id_salt("dashboards")
-            .selected_text(&profile.dashboards[pane.dashboard].name)
-            .show_ui(ui, |ui| {
-                for (i, d) in profile.dashboards.iter().enumerate() {
-                    ui.selectable_value(&mut pane.dashboard, i, &d.name);
-                }
-            });
+        ui.add_enabled_ui(!dirty, |ui| {
+            egui::ComboBox::from_id_salt("dashboards")
+                .selected_text(
+                    pane.dashboard_draft
+                        .as_ref()
+                        .map_or(&saved.name, |d| &d.name),
+                )
+                .show_ui(ui, |ui| {
+                    for (i, d) in profile.dashboards.iter().enumerate() {
+                        ui.selectable_value(&mut pane.dashboard, i, &d.name);
+                    }
+                })
+                .response
+                .on_disabled_hover_text(unsaved_hint);
+        });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.checkbox(&mut pane.editing, "Edit dashboard");
+            let mut editing = pane.editing;
+            let toggle = ui.checkbox(&mut editing, "Edit dashboard");
+            if editing != pane.editing {
+                if !editing && dirty {
+                    session.notice = unsaved_hint.into();
+                } else {
+                    pane.editing = editing;
+                }
+            }
+            if dirty {
+                toggle.on_hover_text(unsaved_hint);
+            }
             if pane.editing {
-                let dashboard = &profile.dashboards[pane.dashboard].id;
+                let dashboard = &saved.id;
                 let (can_undo, can_redo) = canvas_edit::available(ui.ctx(), dashboard);
                 let request = egui::Id::new(("layout-step", dashboard));
                 if ui
@@ -49,60 +90,129 @@ pub fn dashboard(
                 {
                     ui.ctx().data_mut(|d| d.insert_temp(request, false));
                 }
+                ui.separator();
+                if ui
+                    .add_enabled(dirty, egui::Button::new("Revert"))
+                    .on_hover_text("Discard the unsaved dashboard changes")
+                    .clicked()
+                {
+                    pane.dashboard_draft = Some(saved.clone());
+                    canvas_edit::forget(ui.ctx(), dashboard);
+                }
+                let save = ui.add_enabled(
+                    dirty,
+                    egui::Button::new(RichText::new("Save").color(if dirty {
+                        colors::role(ui, Role::Accent)
+                    } else {
+                        ui.visuals().weak_text_color()
+                    })),
+                );
+                if save.clicked() {
+                    if let Some(draft) = &pane.dashboard_draft {
+                        profile.dashboards[pane.dashboard] = draft.clone();
+                    }
+                }
+                if dirty {
+                    let mut summary = vec![];
+                    if !changes.modified.is_empty() {
+                        summary.push(format!("{} changed", changes.modified.len()));
+                    }
+                    if changes.removed > 0 {
+                        summary.push(format!("{} removed", changes.removed));
+                    }
+                    if changes.renamed {
+                        summary.push("renamed".to_string());
+                    }
+                    ui.label(
+                        RichText::new(format!("Unsaved · {}", summary.join(" · ")))
+                            .small()
+                            .color(colors::role(ui, Role::Warn)),
+                    );
+                }
             }
             if !pane.editing {
                 ui.weak("Enable Edit dashboard to arrange and configure widgets.");
             }
-            if pane.editing {
+            if let (true, Some(draft)) = (pane.editing, pane.dashboard_draft.as_mut()) {
                 ui.menu_button("Manage dashboard", |ui| {
-                    ui.text_edit_singleline(&mut profile.dashboards[pane.dashboard].name);
-                    if ui.button("New").clicked() {
-                        profile.dashboards.push(Dashboard {
-                            id: unique_id(),
-                            name: "Dashboard".into(),
-                            widgets: vec![],
-                        });
-                        pane.dashboard = profile.dashboards.len() - 1;
-                        ui.close();
-                    }
-                    if ui.button("Duplicate").clicked() {
-                        let mut d = profile.dashboards[pane.dashboard].clone();
-                        d.id = unique_id();
-                        d.name.push_str(" Copy");
-                        profile.dashboards.push(d);
-                        pane.dashboard = profile.dashboards.len() - 1;
-                        ui.close();
-                    }
-                    if profile.dashboards.len() > 1
-                        && super::controls::confirm_button(
-                            ui,
-                            &profile.dashboards[pane.dashboard].id,
-                            "Delete",
-                        )
-                    {
-                        profile.dashboards.remove(pane.dashboard);
-                        pane.dashboard = 0;
-                        ui.close();
-                    }
-                    if profile.id == "cnc_motor_controller" && ui.button("Add CNC panels").clicked()
-                    {
-                        let mut panels = default_profiles().remove(1).dashboards;
-                        for panel in &mut panels {
-                            panel.id = unique_id();
+                    let name = ui.text_edit_singleline(&mut draft.name);
+                    super::controls::mark_unsaved(ui, name, changes.renamed);
+                    // Adding, copying and deleting dashboards act on the saved
+                    // Profile, so they wait until this draft is saved or reverted.
+                    ui.add_enabled_ui(!dirty, |ui| {
+                        if ui
+                            .button("New")
+                            .on_disabled_hover_text(unsaved_hint)
+                            .clicked()
+                        {
+                            profile.dashboards.push(Dashboard {
+                                id: unique_id(),
+                                name: "Dashboard".into(),
+                                widgets: vec![],
+                            });
+                            pane.dashboard = profile.dashboards.len() - 1;
+                            ui.close();
                         }
-                        profile.dashboards.extend(panels);
-                        pane.dashboard = profile.dashboards.len() - 3;
-                        ui.close();
-                    }
+                        if ui
+                            .button("Duplicate")
+                            .on_disabled_hover_text(unsaved_hint)
+                            .clicked()
+                        {
+                            let mut d = saved.clone();
+                            d.id = unique_id();
+                            d.name.push_str(" Copy");
+                            profile.dashboards.push(d);
+                            pane.dashboard = profile.dashboards.len() - 1;
+                            ui.close();
+                        }
+                        if profile.dashboards.len() > 1
+                            && super::controls::confirm_button(ui, &saved.id, "Delete")
+                        {
+                            profile.dashboards.remove(pane.dashboard);
+                            pane.dashboard = 0;
+                            ui.close();
+                        }
+                        if profile.id == "cnc_motor_controller"
+                            && ui.button("Add CNC panels").clicked()
+                        {
+                            let mut panels = default_profiles().remove(1).dashboards;
+                            for panel in &mut panels {
+                                panel.id = unique_id();
+                            }
+                            profile.dashboards.extend(panels);
+                            pane.dashboard = profile.dashboards.len() - 3;
+                            ui.close();
+                        }
+                    });
                 });
-                add_widget_menu(ui, &mut profile.dashboards[pane.dashboard].widgets);
+                add_widget_menu(ui, &mut draft.widgets);
             }
         });
     });
-    // Lend the widgets out so the rest of the Profile stays readable while they
-    // are edited, instead of copying the whole Profile every frame.
+    // A structural change above may have selected another dashboard.
+    pane.dashboard = pane.dashboard.min(profile.dashboards.len() - 1);
+    if pane
+        .dashboard_draft
+        .as_ref()
+        .is_some_and(|d| d.id != profile.dashboards[pane.dashboard].id)
+    {
+        pane.dashboard_draft = Some(profile.dashboards[pane.dashboard].clone());
+        fresh = true;
+    }
+    // Lend the widgets out (from the draft while editing) so the rest of the
+    // Profile stays readable while they are edited, instead of copying the
+    // whole Profile every frame.
     let dashboard_id = profile.dashboards[pane.dashboard].id.clone();
-    let mut widgets = std::mem::take(&mut profile.dashboards[pane.dashboard].widgets);
+    let mut widgets = match pane.dashboard_draft.as_mut() {
+        Some(draft) => std::mem::take(&mut draft.widgets),
+        None => std::mem::take(&mut profile.dashboards[pane.dashboard].widgets),
+    };
+    ui.ctx().data_mut(|d| {
+        d.insert_temp(
+            egui::Id::new(UNSAVED_WIDGETS),
+            std::sync::Arc::new(changes.modified.clone()),
+        )
+    });
     // Keep canvas geometry stable when the editing controls appear or disappear.
     ui.allocate_space(egui::vec2(0., ui.spacing().interact_size.y));
     let drag_key = ui.id().with((&dashboard_id, "dashboard-drag"));
@@ -245,7 +355,78 @@ pub fn dashboard(
             keyed || super::edited(ui.ctx()),
         );
     }
-    profile.dashboards[pane.dashboard].widgets = widgets;
+    ui.ctx().data_mut(|d| {
+        d.remove::<std::sync::Arc<std::collections::HashSet<String>>>(egui::Id::new(
+            UNSAVED_WIDGETS,
+        ))
+    });
+    match pane.dashboard_draft.as_mut() {
+        Some(draft) => {
+            draft.widgets = widgets;
+            // Drawing places unplaced widgets and bounds their sizes, as it
+            // does outside edit mode; that is not an edit, so a new draft's
+            // first layout is also the saved one.
+            if fresh {
+                profile.dashboards[pane.dashboard] = draft.clone();
+            }
+        }
+        None => profile.dashboards[pane.dashboard].widgets = widgets,
+    }
+}
+/// Temp-data key: ids of the widgets that differ from the saved dashboard.
+const UNSAVED_WIDGETS: &str = "dashboard-unsaved-widgets";
+/// How a dashboard draft differs from the saved dashboard.
+#[derive(Default)]
+pub(super) struct Changes {
+    /// Widgets that are new, or whose own settings, geometry or container
+    /// differ from the saved ones.
+    pub(super) modified: std::collections::HashSet<String>,
+    /// Saved widgets missing from the draft.
+    pub(super) removed: usize,
+    pub(super) renamed: bool,
+}
+pub(super) fn unsaved_changes(saved: &Dashboard, draft: &Dashboard) -> Changes {
+    use std::collections::HashMap;
+    // Each widget compared without its children (they are compared on their
+    // own), together with the container that holds it.
+    fn index<'a>(
+        widgets: &'a [Widget],
+        parent: Option<&'a str>,
+        out: &mut HashMap<&'a str, (Option<&'a str>, &'a Widget)>,
+    ) {
+        for w in widgets {
+            out.insert(&w.id, (parent, w));
+            index(&w.children, Some(&w.id), out);
+        }
+    }
+    let (mut before, mut after) = (HashMap::new(), HashMap::new());
+    index(&saved.widgets, None, &mut before);
+    index(&draft.widgets, None, &mut after);
+    let own = |w: &Widget| {
+        let mut w = w.clone();
+        w.children.clear();
+        w
+    };
+    let modified = after
+        .iter()
+        .filter(|(id, (parent, w))| {
+            before
+                .get(*id)
+                .is_none_or(|(p, s)| p != parent || own(s) != own(w))
+        })
+        .map(|(id, _)| id.to_string())
+        .collect();
+    Changes {
+        modified,
+        removed: before.keys().filter(|id| !after.contains_key(*id)).count(),
+        renamed: saved.name != draft.name,
+    }
+}
+/// Whether a Dashboard pane holds edits that are not saved to the Profile.
+pub fn unsaved(pane: &Pane, profile: &Profile) -> bool {
+    pane.dashboard_draft
+        .as_ref()
+        .is_some_and(|d| profile.dashboards.iter().find(|s| s.id == d.id) != Some(d))
 }
 /// Keyboard editing on a dashboard: arrows nudge the selection (a grid step,
 /// or one point with Alt), Delete removes it, Esc clears it, Ctrl+Z / Ctrl+Shift+Z
@@ -341,6 +522,23 @@ pub fn restore(
     index: usize,
     widget: Widget,
 ) -> bool {
+    let Some(d) = profiles
+        .iter_mut()
+        .find(|p| p.id == profile)
+        .and_then(|p| p.dashboards.iter_mut().find(|d| d.id == dashboard))
+    else {
+        return false;
+    };
+    insert(&mut d.widgets, parent, index, widget)
+}
+/// Puts a removed widget back at `index` among `parent`'s children (or at the
+/// top level); false when that container no longer exists.
+pub fn insert(
+    widgets: &mut Vec<Widget>,
+    parent: Option<&str>,
+    index: usize,
+    widget: Widget,
+) -> bool {
     fn container<'a>(widgets: &'a mut [Widget], id: &str) -> Option<&'a mut Widget> {
         for w in widgets {
             if w.id == id {
@@ -352,16 +550,9 @@ pub fn restore(
         }
         None
     }
-    let Some(d) = profiles
-        .iter_mut()
-        .find(|p| p.id == profile)
-        .and_then(|p| p.dashboards.iter_mut().find(|d| d.id == dashboard))
-    else {
-        return false;
-    };
     let siblings = match parent {
-        None => &mut d.widgets,
-        Some(id) => match container(&mut d.widgets, id) {
+        None => widgets,
+        Some(id) => match container(widgets, id) {
             Some(w) => &mut w.children,
             None => return false,
         },
@@ -411,7 +602,7 @@ fn render_grid(
     let mut row_height = 0_f32;
     for w in widgets.iter_mut() {
         w.width = w.width.clamp(120., 1600.);
-        w.height = w.height.clamp(48., 1200.);
+        w.height = w.height.clamp(w.kind.min_height(), 1200.);
         if let Some([_, y]) = w.position {
             cursor.y = cursor.y.max(y + w.height + 8.);
             cursor.x = 0.;
@@ -427,6 +618,14 @@ fn render_grid(
             row_height = row_height.max(w.height);
         }
     }
+    let unsaved_ids = ui
+        .ctx()
+        .data(|d| {
+            d.get_temp::<std::sync::Arc<std::collections::HashSet<String>>>(egui::Id::new(
+                UNSAVED_WIDGETS,
+            ))
+        })
+        .unwrap_or_default();
     let active_id = ui.id().with(("active-widget", depth));
     let active = ui.ctx().data_mut(|d| d.get_temp::<String>(active_id));
     let mut order: Vec<_> = (0..widgets.len()).collect();
@@ -439,6 +638,7 @@ fn render_grid(
     let mut extent = egui::vec2(available, 0.);
     for index in order {
         let w = &mut widgets[index];
+        let min_height = w.kind.min_height();
         let id = ui.id().with((&w.id, "canvas"));
         let config_id = id.with("config-open");
         let mut open = editing
@@ -451,7 +651,7 @@ fn render_grid(
             egui::vec2(w.width, w.height),
         );
         if open {
-            egui::Window::new(format!("Configure {}", w.label))
+            egui::Window::new(format!("Configure {}", w.kind.title()))
                 .id(id.with("configuration"))
                 .open(&mut open)
                 .default_pos(initial.left_top() + egui::vec2(24., 24.))
@@ -476,7 +676,7 @@ fn render_grid(
         if editing {
             let title = egui::Rect::from_min_max(
                 rect.min + egui::vec2(30., 6.),
-                egui::pos2(rect.right() - 84., rect.top() + 26.),
+                egui::pos2(rect.right() - configure_width(ui) - 8., rect.top() + 26.),
             );
             let drag = ui
                 .interact(title, id.with("move"), egui::Sense::click_and_drag())
@@ -599,16 +799,16 @@ fn render_grid(
                         }
                         2 => {
                             rect.min.y = (rect.min.y + delta.y)
-                                .clamp((rect.max.y - 1200.).max(origin.y), rect.max.y - 48.)
+                                .clamp((rect.max.y - 1200.).max(origin.y), rect.max.y - min_height)
                         }
                         3 => {
-                            rect.max.y =
-                                (rect.max.y + delta.y).clamp(rect.min.y + 48., rect.min.y + 1200.)
+                            rect.max.y = (rect.max.y + delta.y)
+                                .clamp(rect.min.y + min_height, rect.min.y + 1200.)
                         }
                         _ => {
                             rect.max = rect.min
                                 + (rect.size() + delta)
-                                    .clamp(egui::vec2(120., 48.), egui::vec2(1600., 1200.));
+                                    .clamp(egui::vec2(120., min_height), egui::vec2(1600., 1200.));
                         }
                     }
                     ui.ctx().data_mut(|data| data.insert_temp(raw_id, rect));
@@ -616,7 +816,7 @@ fn render_grid(
                     let width = canvas_layout::soft_snap(size.x, targets.iter().map(|s| s.x))
                         .clamp(120., 1600.);
                     let height = canvas_layout::soft_snap(size.y, targets.iter().map(|s| s.y))
-                        .clamp(48., 1200.);
+                        .clamp(min_height, 1200.);
                     match edge {
                         0 => rect.min.x = (rect.max.x - width).max(origin.x),
                         1 => rect.max.x = rect.min.x + width,
@@ -661,9 +861,12 @@ fn render_grid(
         };
         // Top-level widgets are raised cards; nested ones are outlined regions
         // of their container, so depth reads through tone rather than boxes.
+        // A Button is its own control and needs no card around it.
         let palette = super::theme::of(ui);
         let (fill, outline) = if floating {
             (palette.surface, palette.accent)
+        } else if w.kind.frameless() {
+            (Color32::TRANSPARENT, Color32::TRANSPARENT)
         } else if depth == 0 {
             (palette.raised, palette.ghost)
         } else {
@@ -676,10 +879,22 @@ fn render_grid(
             egui::Stroke::new(1_f32, outline),
             egui::StrokeKind::Inside,
         );
-        let margin = if w.kind == WidgetKind::Container {
-            w.padding.clamp(6., 32.)
-        } else {
-            6.
+        // Not yet saved to the Profile: outlined as in the Map Editor. Edit
+        // outlines stay inside the widget, where a container's clip cannot
+        // cut them off.
+        if editing && !floating && unsaved_ids.contains(&w.id) {
+            painter.rect_stroke(
+                rect,
+                4,
+                egui::Stroke::new(1.5_f32, colors::role(ui, Role::Warn)),
+                egui::StrokeKind::Inside,
+            );
+        }
+        let margin = match w.kind {
+            WidgetKind::Container => w.padding.clamp(6., 32.),
+            // Without a card, the control or text itself spans the widget.
+            kind if kind.frameless() => 0.,
+            _ => 6.,
         };
         let mut child = ui.new_child(
             egui::UiBuilder::new()
@@ -688,13 +903,27 @@ fn render_grid(
                 .max_rect(rect.shrink(margin))
                 .layout(egui::Layout::top_down(egui::Align::Min)),
         );
-        child.set_clip_rect(rect.shrink(5.).intersect(if floating {
+        child.set_clip_rect(rect.shrink(margin.min(5.)).intersect(if floating {
             ui.ctx().content_rect()
         } else {
             ui.clip_rect()
         }));
-        if w.kind != WidgetKind::Button {
-            let status = widget_status(w, session, profile, prefs);
+        if (w.text_size - 1.).abs() > f32::EPSILON {
+            let scale = w.text_size.clamp(0.5, 4.);
+            for font in child.style_mut().text_styles.values_mut() {
+                font.size *= scale;
+            }
+        }
+        // The title row holds the label and the reading status. An empty
+        // label drops it, unless the reading needs attention.
+        let status = if matches!(w.kind, WidgetKind::Button | WidgetKind::Label) {
+            None
+        } else {
+            widget_status(w, session, profile, prefs)
+        };
+        let titled = !matches!(w.kind, WidgetKind::Button | WidgetKind::Label)
+            && (!w.label.trim().is_empty() || status.is_some_and(|(role, _)| role != Role::Ok));
+        if titled {
             child.horizontal(|ui| {
                 let title = if depth == 0 || w.kind == WidgetKind::Container {
                     RichText::new(&w.label)
@@ -720,22 +949,26 @@ fn render_grid(
         // clutter tightly sized cards.
         child.spacing_mut().scroll.dormant_handle_opacity = 0.;
         child.spacing_mut().scroll.dormant_background_opacity = 0.;
-        let content = egui::ScrollArea::both()
-            .id_salt(id.with("content"))
-            .scroll_source(egui::scroll_area::ScrollSource {
-                drag: egui::scroll_area::DragScroll::Never,
-                ..Default::default()
-            })
-            .max_height(child.available_height().max(1.))
-            .max_width(child.available_width().max(1.))
-            .show(&mut child, |ui| {
-                render_widget(ui, w, editing, session, profile, prefs, depth);
-            });
-        let header = if w.kind == WidgetKind::Button {
-            0.
+        // A Button fills exactly the widget, so it never scrolls; its fit is
+        // one line of button text.
+        let content_size = if w.kind == WidgetKind::Button {
+            render_widget(&mut child, w, editing, session, profile, prefs, depth);
+            egui::vec2(120., child.spacing().interact_size.y)
         } else {
-            24.
+            egui::ScrollArea::both()
+                .id_salt(id.with("content"))
+                .scroll_source(egui::scroll_area::ScrollSource {
+                    drag: egui::scroll_area::DragScroll::Never,
+                    ..Default::default()
+                })
+                .max_height(child.available_height().max(1.))
+                .max_width(child.available_width().max(1.))
+                .show(&mut child, |ui| {
+                    render_widget(ui, w, editing, session, profile, prefs, depth);
+                })
+                .content_size
         };
+        let header = if titled { 24. } else { 0. };
         let fit = if w.kind == WidgetKind::Container {
             w.children.iter().fold(egui::vec2(120., 48.), |size, c| {
                 let p = c.position.unwrap_or([0., 0.]);
@@ -745,7 +978,7 @@ fn render_grid(
                 ))
             })
         } else {
-            content.content_size + egui::vec2(margin * 2., margin * 2. + header)
+            content_size + egui::vec2(margin * 2., margin * 2. + header)
         };
         ui.ctx()
             .data_mut(|data| data.insert_temp(id.with("content-fit"), fit));
@@ -753,10 +986,10 @@ fn render_grid(
             let hovered = ui.rect_contains_pointer(rect);
             if canvas_edit::selection(ui.ctx()).contains(&w.id) {
                 ui.painter().rect_stroke(
-                    rect.expand(1.),
-                    6.,
+                    rect,
+                    4.,
                     egui::Stroke::new(2_f32, colors::role(ui, Role::Accent)),
-                    egui::StrokeKind::Outside,
+                    egui::StrokeKind::Inside,
                 );
             }
             if hovered || open {
@@ -775,9 +1008,10 @@ fn render_grid(
                 {
                     remove = Some(index);
                 }
+                let width = configure_width(ui);
                 let button_rect = egui::Rect::from_min_size(
-                    egui::pos2(rect.right() - 82., rect.top() + 6.),
-                    egui::vec2(76., 22.),
+                    egui::pos2(rect.right() - width - 6., rect.top() + 6.),
+                    egui::vec2(width, 22.),
                 );
                 if ui
                     .put(button_rect, egui::Button::new("Configure"))
@@ -906,6 +1140,7 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
             | WidgetKind::DirectionalControl
             | WidgetKind::DataTable
             | WidgetKind::AlarmList
+            | WidgetKind::Label
     );
     let sends = matches!(
         w.kind,
@@ -915,9 +1150,42 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
             | WidgetKind::DirectionalControl
     );
     section(ui, "General", |ui| {
-        ui.label("Label");
-        ui.add(egui::TextEdit::singleline(&mut w.label).desired_width(200.));
+        if w.kind == WidgetKind::Label {
+            ui.label("Text");
+            ui.add(
+                egui::TextEdit::multiline(&mut w.label)
+                    .desired_width(240.)
+                    .desired_rows(3),
+            );
+        } else {
+            ui.label("Label");
+            ui.add(
+                egui::TextEdit::singleline(&mut w.label)
+                    .hint_text("optional")
+                    .desired_width(200.),
+            )
+            .on_hover_text("Leave empty for no title");
+        }
         ui.end_row();
+        ui.label("Text size");
+        let mut percent = (w.text_size * 100.).round();
+        if ui
+            .add(
+                egui::DragValue::new(&mut percent)
+                    .range(50.0..=400.)
+                    .speed(1.)
+                    .suffix(" %"),
+            )
+            .changed()
+        {
+            w.text_size = percent / 100.;
+        }
+        ui.end_row();
+        if matches!(w.kind, WidgetKind::ProgressBar | WidgetKind::ValueWrite) {
+            ui.label("Value");
+            ui.checkbox(&mut w.show_value, "Show the current value");
+            ui.end_row();
+        }
         match w.kind {
             WidgetKind::ProgressBar => {
                 ui.label("Orientation");
@@ -1032,17 +1300,6 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                 });
                 ui.end_row();
             }
-            if w.kind == WidgetKind::LedIndicator {
-                ui.label("On when value is");
-                ui.add(egui::DragValue::new(&mut w.on_value));
-                ui.end_row();
-                ui.label("On label");
-                ui.add(egui::TextEdit::singleline(&mut w.on_label).desired_width(120.));
-                ui.end_row();
-                ui.label("Off label");
-                ui.add(egui::TextEdit::singleline(&mut w.off_label).desired_width(120.));
-                ui.end_row();
-            }
         });
     }
     if sends {
@@ -1062,8 +1319,8 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                 }
                 ui.end_row();
                 if let Some(code) = &mut w.command {
-                    ui.label("Command code");
-                    ui.add(egui::DragValue::new(code));
+                    ui.label("Command");
+                    ui.horizontal(|ui| command_picker(ui, code, profile));
                     ui.end_row();
                 }
             }
@@ -1100,7 +1357,7 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                                 );
                             }
                         });
-                    ui.add(egui::DragValue::new(&mut d.command).prefix("cmd "));
+                    command_picker(ui, &mut d.command, profile);
                     ui.add(
                         egui::TextEdit::singleline(&mut d.label)
                             .hint_text("label")
@@ -1217,7 +1474,10 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
             w.rows.remove(i);
         }
     }
-    if w.kind != WidgetKind::Container && w.kind != WidgetKind::DeviceInfo {
+    if !matches!(
+        w.kind,
+        WidgetKind::Container | WidgetKind::DeviceInfo | WidgetKind::Label
+    ) {
         ui.add_space(6.);
         egui::CollapsingHeader::new(super::theme::caption(ui, "Thresholds and state labels"))
             .default_open(!w.thresholds.is_empty())
@@ -1240,7 +1500,7 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                 ui.label("Height");
                 ui.add(
                     egui::DragValue::new(&mut w.height)
-                        .range(48.0..=1200.)
+                        .range(w.kind.min_height()..=1200.)
                         .suffix(" px"),
                 );
                 ui.end_row();
@@ -1278,18 +1538,7 @@ fn thresholds_editor(ui: &mut egui::Ui, thresholds: &mut Vec<Threshold>, add_lab
                         }
                     });
                 ui.add(egui::DragValue::new(&mut t.value));
-                egui::ComboBox::from_id_salt("role")
-                    .width(64.)
-                    .selected_text(RichText::new(t.role.as_str()).color(colors::role(ui, t.role)))
-                    .show_ui(ui, |ui| {
-                        for role in Role::THRESHOLD {
-                            ui.selectable_value(
-                                &mut t.role,
-                                role,
-                                RichText::new(role.as_str()).color(colors::role(ui, role)),
-                            );
-                        }
-                    });
+                colour_choice(ui, t);
                 if ui.small_button(super::icons::CLOSE).on_hover_text("Remove rule").clicked() {
                     remove = Some(i);
                 }
@@ -1302,13 +1551,87 @@ fn thresholds_editor(ui: &mut egui::Ui, thresholds: &mut Vec<Threshold>, add_lab
         thresholds.remove(i);
     }
     if ui.button(add_label).clicked() {
-        thresholds.push(Threshold {
-            op: Comparator::Gt,
-            value: 0.,
-            role: Role::Warn,
-            label: String::new(),
-        });
+        thresholds.push(Threshold::new(Comparator::Gt, 0., Role::Warn, ""));
     }
+}
+/// Extra colours offered after the status roles; fixed in both themes.
+const EXTRA_COLOURS: [(&str, [u8; 3]); 4] = [
+    ("Orange", [0xf9, 0x73, 0x16]),
+    ("Violet", [0xa7, 0x8b, 0xfa]),
+    ("Pink", [0xf4, 0x72, 0xb6]),
+    ("White", [0xe5, 0xe7, 0xeb]),
+];
+/// A swatch for one threshold's colour. It opens the status colours (which
+/// follow the theme), a few extra colours, and a picker for any colour.
+fn colour_choice(ui: &mut egui::Ui, t: &mut Threshold) {
+    let current = colors::threshold(ui, t);
+    let name = |t: &Threshold| match t.color {
+        None => colors::role_name(t.role).to_string(),
+        Some([r, g, b]) => EXTRA_COLOURS
+            .iter()
+            .find(|(_, c)| *c == [r, g, b])
+            .map_or(format!("#{r:02x}{g:02x}{b:02x}"), |(n, _)| n.to_string()),
+    };
+    let size = egui::vec2(40., ui.spacing().interact_size.y);
+    let response = swatch(ui, current, size, false).on_hover_text(name(t));
+    egui::Popup::from_toggle_button_response(&response)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(6., 6.);
+            ui.weak("Status colours follow the theme");
+            ui.horizontal(|ui| {
+                for role in Role::THRESHOLD {
+                    let chosen = t.color.is_none() && t.role == role;
+                    if swatch(ui, colors::role(ui, role), egui::vec2(28., 22.), chosen)
+                        .on_hover_text(colors::role_name(role))
+                        .clicked()
+                    {
+                        t.role = role;
+                        t.color = None;
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                for (label, rgb) in EXTRA_COLOURS {
+                    let [r, g, b] = rgb;
+                    if swatch(
+                        ui,
+                        Color32::from_rgb(r, g, b),
+                        egui::vec2(28., 22.),
+                        t.color == Some(rgb),
+                    )
+                    .on_hover_text(label)
+                    .clicked()
+                    {
+                        t.color = Some(rgb);
+                    }
+                }
+            });
+            ui.separator();
+            ui.weak("Any colour");
+            let mut picked = current;
+            if egui::color_picker::color_picker_color32(
+                ui,
+                &mut picked,
+                egui::color_picker::Alpha::Opaque,
+            ) {
+                t.color = Some([picked.r(), picked.g(), picked.b()]);
+            }
+        });
+}
+/// A clickable colour sample, outlined when `chosen`.
+fn swatch(ui: &mut egui::Ui, color: Color32, size: egui::Vec2, chosen: bool) -> egui::Response {
+    let palette = super::theme::of(ui);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    let stroke = if chosen || response.hovered() {
+        egui::Stroke::new(2_f32, palette.accent)
+    } else {
+        egui::Stroke::new(1_f32, palette.ghost)
+    };
+    ui.painter()
+        .rect(rect.shrink(2.), 3, color, stroke, egui::StrokeKind::Outside);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Colour"));
+    response
 }
 pub(super) fn review(ui: &mut egui::Ui, b: &mut Binding, profile: &Profile) -> bool {
     if b.matches(profile) {
@@ -1358,6 +1681,15 @@ fn render_widget(
     prefs: &Preferences,
     depth: usize,
 ) {
+    if w.kind == WidgetKind::Label {
+        let color = super::theme::of(ui).text;
+        ui.add(
+            egui::Label::new(RichText::new(&w.label).color(color))
+                .wrap()
+                .selectable(false),
+        );
+        return;
+    }
     if w.kind == WidgetKind::Container {
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing = egui::vec2(w.spacing, w.spacing);
@@ -1424,99 +1756,157 @@ fn render_widget(
         return;
     }
     if matches!(w.kind, WidgetKind::DataTable | WidgetKind::AlarmList) {
-        for b in &mut w.rows {
-            ui.push_id(b.name.clone(), |ui| {
-                if !review(ui, b, profile) {
-                    return;
-                }
-                session.interest(b, profile, prefs.poll_ms);
-                let e = profile.entry_at(b.space, b.address).unwrap();
-                let r = session
-                    .readings
-                    .get(&(b.space, b.address))
-                    .filter(|r| r.valid)
-                    .cloned();
-                let meta = profile.metadata(b.space, &e.name);
-                let value = r.as_ref().map(|r| e.engineering(r.value, meta));
-                let style = w.row_styles.get(&b.name);
-                let rules = style
-                    .map(|s| s.thresholds.as_slice())
-                    .unwrap_or(&w.thresholds);
-                let rule = value.and_then(|v| rules.iter().find(|t| t.matches(v)));
-                if w.kind == WidgetKind::AlarmList
-                    && !w.show_inactive
-                    && value.is_some()
-                    && !rule.is_some_and(|r| r.role == Role::Warn || r.role == Role::Error)
-                {
-                    return;
-                }
-                let color = rule
-                    .map(|r| colors::role(ui, r.role))
-                    .unwrap_or(ui.visuals().text_color());
-                ui.horizontal(|ui| {
-                    let (role, label) = colors::reading(
-                        session.connected(),
-                        session.readings.get(&(b.space, b.address)),
-                        Some(prefs.poll_ms),
-                    );
-                    colors::badge(ui, role, label);
-                    ui.colored_label(color, style.map(|s| s.label.as_str()).unwrap_or(&b.name));
-                    ui.monospace(
-                        r.as_ref()
-                            .map(|r| {
-                                shown(style.map(|s| s.format).unwrap_or(w.format), meta)
-                                    .format_with(&e, r.value, meta)
-                            })
-                            .unwrap_or("—".into()),
-                    );
-                    if w.kind == WidgetKind::DataTable
-                        && e.writable
-                        && b.space != Space::SysRegister
+        // Aligned columns: status dot, name, value, unit, and for writable
+        // table rows an input with its Write button.
+        let palette = super::theme::of(ui);
+        egui::Grid::new(ui.id().with("rows"))
+            .num_columns(6)
+            .spacing(egui::vec2(8., 4.))
+            .show(ui, |ui| {
+                for b in &mut w.rows {
                     {
-                        let id = ui.id().with("value");
-                        let mut input = ui
-                            .ctx()
-                            .data_mut(|d| d.get_temp::<String>(id).unwrap_or_default());
-                        ui.add(egui::TextEdit::singleline(&mut input).desired_width(80.));
-                        ui.ctx().data_mut(|d| d.insert_temp(id, input.clone()));
-                        if ui
-                            .add_enabled(
-                                session.controlled() && !editing,
-                                egui::Button::new("Write"),
-                            )
-                            .clicked()
+                        if !review(ui, b, profile) {
+                            continue;
+                        }
+                        session.interest(b, profile, prefs.poll_ms);
+                        let e = profile.entry_at(b.space, b.address).unwrap();
+                        let r = session
+                            .readings
+                            .get(&(b.space, b.address))
+                            .filter(|r| r.valid)
+                            .cloned();
+                        let meta = profile.metadata(b.space, &e.name);
+                        let value = r.as_ref().map(|r| e.engineering(r.value, meta));
+                        let style = w.row_styles.get(&b.name);
+                        let rules = style
+                            .map(|s| s.thresholds.as_slice())
+                            .unwrap_or(&w.thresholds);
+                        let rule = value.and_then(|v| rules.iter().find(|t| t.matches(v)));
+                        if w.kind == WidgetKind::AlarmList
+                            && !w.show_inactive
+                            && value.is_some()
+                            && !rule.is_some_and(|r| r.role == Role::Warn || r.role == Role::Error)
                         {
-                            let meta = profile.metadata(b.space, &e.name);
-                            session.write_formatted(
-                                b.space,
-                                &e,
-                                &input,
-                                shown(style.map(|s| s.format).unwrap_or(w.format), meta),
-                                meta,
-                                w.confirm,
+                            continue;
+                        }
+                        let color = rule
+                            .map(|r| colors::threshold(ui, r))
+                            .unwrap_or(palette.text);
+                        let (role, label) = colors::reading(
+                            session.connected(),
+                            session.readings.get(&(b.space, b.address)),
+                            Some(prefs.poll_ms),
+                        );
+                        // Healthy readings show only a dot; anything else says why.
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("●").small().color(colors::role(ui, role)))
+                                .on_hover_text(label);
+                            if role != Role::Ok {
+                                ui.label(
+                                    RichText::new(label).small().color(colors::role(ui, role)),
+                                );
+                            }
+                        });
+                        let name = style.map(|s| s.label.as_str()).unwrap_or(&b.name);
+                        ui.label(RichText::new(name).color(palette.text_weak));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            // An alarm's state label says more than its number.
+                            let text = match rule.filter(|r| {
+                                w.kind == WidgetKind::AlarmList && !r.label.trim().is_empty()
+                            }) {
+                                Some(r) => r.label.clone(),
+                                None => r
+                                    .as_ref()
+                                    .map(|r| {
+                                        shown(style.map(|s| s.format).unwrap_or(w.format), meta)
+                                            .format_with(&e, r.value, meta)
+                                    })
+                                    .unwrap_or("—".into()),
+                            };
+                            ui.label(RichText::new(text).monospace().color(color));
+                        });
+                        ui.label(
+                            RichText::new(meta.map(|m| m.unit.as_str()).unwrap_or_default())
+                                .small()
+                                .color(palette.text_weak),
+                        );
+                        if w.kind == WidgetKind::DataTable
+                            && e.writable
+                            && b.space != Space::SysRegister
+                        {
+                            let id = ui.id().with(("value", &b.name));
+                            let mut input = ui
+                                .ctx()
+                                .data_mut(|d| d.get_temp::<String>(id).unwrap_or_default());
+                            ui.add_sized(
+                                [80., ui.spacing().interact_size.y],
+                                egui::TextEdit::singleline(&mut input).id(id.with("edit")),
                             );
+                            ui.ctx().data_mut(|d| d.insert_temp(id, input.clone()));
+                            if ui
+                                .add_enabled(
+                                    session.controlled() && !editing,
+                                    egui::Button::new("Write"),
+                                )
+                                .clicked()
+                            {
+                                let meta = profile.metadata(b.space, &e.name);
+                                session.write_formatted(
+                                    b.space,
+                                    &e,
+                                    &input,
+                                    shown(style.map(|s| s.format).unwrap_or(w.format), meta),
+                                    meta,
+                                    w.confirm,
+                                );
+                            }
                         }
                     }
-                });
+                    ui.end_row();
+                }
             });
-        }
         return;
     }
     if w.kind == WidgetKind::DirectionalControl {
         if w.directions.is_empty() {
             ui.label("Configure direction commands");
         }
-        ui.horizontal_wrapped(|ui| {
+        // A 3×3 compass: north at the top, the centre left empty. Rows with
+        // no direction are left out, so a left/right pair is one row.
+        let rows: Vec<usize> = (0..3)
+            .filter(|r| w.directions.iter().any(|d| d.direction.cell().1 == *r))
+            .collect();
+        let gap = 6.;
+        let width = ((ui.available_width() - gap * 2.) / 3.).max(36.);
+        let height = ((ui.available_height() - gap * (rows.len().max(1) - 1) as f32)
+            / rows.len().max(1) as f32)
+            .clamp(28., 56.);
+        let (area, _) = ui.allocate_exact_size(
+            egui::vec2(
+                width * 3. + gap * 2.,
+                height * rows.len() as f32 + gap * rows.len().saturating_sub(1) as f32,
+            ),
+            egui::Sense::hover(),
+        );
+        {
             for d in &w.directions {
                 let label = if d.label.is_empty() {
                     d.direction.arrow()
                 } else {
                     &d.label
                 };
-                let response = ui.add_enabled(
-                    session.controlled() && !editing,
-                    egui::Button::new(label).min_size(egui::vec2(45., 35.)),
+                let (column, row) = d.direction.cell();
+                let row = rows.iter().position(|r| *r == row).unwrap_or(0);
+                let cell = egui::Rect::from_min_size(
+                    area.min
+                        + egui::vec2(column as f32 * (width + gap), row as f32 * (height + gap)),
+                    egui::vec2(width, height),
                 );
+                let response = ui
+                    .add_enabled_ui(session.controlled() && !editing, |ui| {
+                        ui.put(cell, egui::Button::new(label).min_size(cell.size()))
+                    })
+                    .inner;
                 // At most one jog per direction is in flight. Repeats while the
                 // button is held never pile up in the request queue, so
                 // releasing it stops the machine after at most one more step.
@@ -1545,20 +1935,22 @@ fn render_widget(
                     }
                 }
             }
-        });
+        }
         return;
     }
     if let (WidgetKind::Button, Some(command)) = (w.kind, w.command) {
-        if ui
-            .add_enabled(
-                session.controlled() && !editing,
-                egui::Button::new(RichText::new(&w.label).strong().color(colors::role(
-                    ui,
-                    w.thresholds.first().map_or(Role::Accent, |t| t.role),
-                )))
-                .min_size(egui::vec2(ui.available_width(), 30.)),
-            )
-            .clicked()
+        let text = RichText::new(&w.label).strong().color(
+            w.thresholds
+                .first()
+                .map_or(colors::role(ui, Role::Accent), |t| colors::threshold(ui, t)),
+        );
+        if filled_button(
+            ui,
+            text,
+            session.controlled() && !editing,
+            session.commands.get(&command),
+        )
+        .clicked()
         {
             match w.value.parse() {
                 Ok(v) => {
@@ -1567,9 +1959,6 @@ fn render_widget(
                 }
                 Err(_) => session.notice = "Invalid command value".into(),
             }
-        }
-        if let Some(outcome) = session.commands.get(&command) {
-            colors::outcome(ui, outcome);
         }
         return;
     }
@@ -1600,20 +1989,20 @@ fn render_widget(
     let value = raw.map(|v| e.engineering(v, meta));
     let rule = value.and_then(|v| w.thresholds.iter().find(|t| t.matches(v)));
     let color = rule
-        .map(|r| colors::role(ui, r.role))
+        .map(|r| colors::threshold(ui, r))
         .unwrap_or(ui.visuals().text_color());
     let text = raw
         .map(|v| shown(w.format, meta).format_with(&e, v, meta))
         .unwrap_or("—".into());
     match w.kind {
-        WidgetKind::ValueRead => readout(ui, &text, &w.unit, color, 40.),
+        WidgetKind::ValueRead => readout(ui, &text, &w.unit, color, 40., w.text_size),
         WidgetKind::Gauge => {
             if w.max <= w.min {
                 ui.colored_label(colors::role(ui, Role::Warn), "Maximum must exceed minimum");
                 return;
             }
             let palette = super::theme::of(ui);
-            let accent = rule.map_or(palette.accent, |r| colors::role(ui, r.role));
+            let accent = rule.map_or(palette.accent, |r| colors::threshold(ui, r));
             let width = ui.available_width().min(260.);
             let height = (width * 0.58).min(ui.available_height() - 4.).max(60.);
             let (rect, response) =
@@ -1650,7 +2039,12 @@ fn render_widget(
                 center - egui::vec2(0., radius * 0.18),
                 egui::Align2::CENTER_BOTTOM,
                 &text,
-                font(fitted_size(radius * 1.3, text.chars().count(), 12., 30.)),
+                font(fitted_size(
+                    radius * 1.3,
+                    text.chars().count(),
+                    12. * w.text_size,
+                    30. * w.text_size,
+                )),
                 if value.is_some() {
                     color
                 } else {
@@ -1689,7 +2083,7 @@ fn render_widget(
                 })
                 .unwrap_or(0.);
             let palette = super::theme::of(ui);
-            let fill = rule.map_or(palette.accent, |r| colors::role(ui, r.role));
+            let fill = rule.map_or(palette.accent, |r| colors::threshold(ui, r));
             if w.vertical {
                 ui.horizontal(|ui| {
                     let height = (ui.available_height() - 8.).clamp(40., 220.);
@@ -1702,49 +2096,43 @@ fn render_widget(
                         rect.right_bottom(),
                     );
                     ui.painter().rect_filled(level, 2, fill);
-                    ui.vertical(|ui| {
-                        ui.label(RichText::new(&text).monospace().color(color));
-                        ui.label(RichText::new(&w.unit).small().color(palette.text_weak));
-                    });
+                    if w.show_value {
+                        ui.vertical(|ui| {
+                            ui.label(RichText::new(&text).monospace().color(color));
+                            ui.label(RichText::new(&w.unit).small().color(palette.text_weak));
+                        });
+                    }
                 });
             } else {
-                level_bar(ui, ratio as f32, &text, &w.unit, fill);
+                level_bar(ui, ratio as f32, &text, w.show_value, &w.unit, fill);
             }
         }
         WidgetKind::EncoderDisplay => {
             let scaled = value
                 .map(|v| format!("{:.*}", w.decimals.min(9), v * w.factor))
                 .unwrap_or("—".into());
-            readout(ui, &scaled, &w.unit, color, 34.);
+            readout(ui, &scaled, &w.unit, color, 34., w.text_size);
             if w.show_raw {
                 ui.weak(format!("Raw: {text} {}", w.secondary_unit));
             }
         }
         WidgetKind::LedIndicator | WidgetKind::StateLed => {
-            // A State LED lights in the colour of its matching state; an LED
-            // indicator lights when the value equals its on value.
-            let on = if w.kind == WidgetKind::StateLed && rule.is_some() {
-                true
-            } else {
-                value.is_some_and(|v| v == w.on_value)
-            };
-            let lit = rule.map_or(colors::role(ui, Role::Ok), |r| colors::role(ui, r.role));
+            // Lit in the colour of the first matching state, dark when none
+            // matches. A state without a label shows only the lamp.
+            let lit = rule.map_or(colors::role(ui, Role::Ok), |r| colors::threshold(ui, r));
             ui.horizontal(|ui| {
-                lamp(ui, raw.map(|_| on), lit, 8.);
-                ui.label(
-                    rule.map(|r| r.label.clone())
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or(
-                            if raw.is_none() {
-                                "Waiting"
-                            } else if on {
-                                &w.on_label
-                            } else {
-                                &w.off_label
-                            }
-                            .into(),
-                        ),
+                lamp(
+                    ui,
+                    raw.map(|_| rule.is_some()),
+                    lit,
+                    8. * w.text_size.clamp(0.5, 4.),
                 );
+                if let Some(text) = rule
+                    .map(|r| r.label.as_str())
+                    .filter(|s| !s.trim().is_empty())
+                {
+                    ui.label(text);
+                }
             });
         }
         WidgetKind::StatusMatrix => {
@@ -1762,6 +2150,8 @@ fn render_widget(
             egui::Grid::new("bits")
                 .num_columns(columns as usize)
                 .spacing([4., 4.])
+                // Columns are exactly one cell wide, not egui's 36 px minimum.
+                .min_col_width(cell)
                 .show(ui, |ui| {
                     // Most significant bit first, as in a register diagram.
                     for bit in (0..bits).rev() {
@@ -1796,7 +2186,7 @@ fn render_widget(
                             rect.center(),
                             egui::Align2::CENTER_CENTER,
                             label,
-                            egui::FontId::monospace(10.),
+                            egui::FontId::monospace(10. * w.text_size.clamp(0.5, 4.)),
                             text,
                         );
                         let state = match on {
@@ -1824,17 +2214,16 @@ fn render_widget(
                 });
         }
         WidgetKind::Button => {
-            if ui
-                .add_enabled(
-                    session.controlled() && !editing && e.writable,
-                    egui::Button::new(
-                        RichText::new(&w.label)
-                            .strong()
-                            .color(colors::role(ui, Role::Accent)),
-                    )
-                    .min_size(egui::vec2(ui.available_width(), 30.)),
-                )
-                .clicked()
+            let text = RichText::new(&w.label)
+                .strong()
+                .color(colors::role(ui, Role::Accent));
+            if filled_button(
+                ui,
+                text,
+                session.controlled() && !editing && e.writable,
+                session.writes.get(&(binding.space, binding.address)),
+            )
+            .clicked()
             {
                 session.write_formatted(
                     binding.space,
@@ -1847,7 +2236,9 @@ fn render_widget(
             }
         }
         WidgetKind::ValueWrite => {
-            ui.label(RichText::new(&text).monospace().color(color));
+            if w.show_value {
+                ui.label(RichText::new(&text).monospace().color(color));
+            }
             ui.horizontal(|ui| {
                 let enabled = session.controlled() && !editing && e.writable;
                 let input = ui.add(
@@ -1932,9 +2323,70 @@ fn render_widget(
         }
         _ => {}
     }
-    if let Some(outcome) = session.writes.get(&(binding.space, binding.address)) {
+    if let Some(outcome) = session
+        .writes
+        .get(&(binding.space, binding.address))
+        .filter(|_| w.kind != WidgetKind::Button)
+    {
         ui.horizontal(|ui| colors::outcome_inline(ui, outcome));
     }
+}
+/// Chooses a command from the Profile's command list, or any code typed in
+/// the field beside it (0–65535).
+fn command_picker(ui: &mut egui::Ui, code: &mut u16, profile: &Profile) {
+    let commands = profile.commands();
+    let selected = commands
+        .iter()
+        .find(|c| c.code == *code)
+        .map_or_else(|| "Custom code".to_string(), |c| c.name.clone());
+    egui::ComboBox::from_id_salt("command")
+        .width(150.)
+        .selected_text(selected)
+        .show_ui(ui, |ui| {
+            for c in &commands {
+                let item = ui.selectable_value(code, c.code, format!("{} · {}", c.name, c.code));
+                if !c.description.is_empty() {
+                    item.on_hover_text(&c.description);
+                }
+            }
+        });
+    ui.add(egui::DragValue::new(code).range(0..=u16::MAX))
+        .on_hover_text("Command code; type any value to send a code not in the list");
+}
+/// Width of the edit-mode Configure button: its label on one line plus padding.
+fn configure_width(ui: &egui::Ui) -> f32 {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let text = ui
+        .painter()
+        .layout_no_wrap("Configure".into(), font, Color32::PLACEHOLDER)
+        .size()
+        .x;
+    text.ceil() + 2. * ui.spacing().button_padding.x
+}
+/// A button that fills the widget. Its last outcome is a dot at the right
+/// edge, explained on hover, so the button keeps the whole widget area.
+fn filled_button(
+    ui: &mut egui::Ui,
+    text: RichText,
+    enabled: bool,
+    outcome: Option<&super::session::WriteOutcome>,
+) -> egui::Response {
+    let size = ui.available_size();
+    // The label sits in the middle of the widget, however wide it is.
+    let response = ui
+        .with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+            ui.add_enabled(enabled, egui::Button::new(text).min_size(size))
+        })
+        .inner;
+    let Some(outcome) = outcome else {
+        return response;
+    };
+    let center = response.rect.right_center() - egui::vec2(10., 0.);
+    ui.painter()
+        .circle_filled(center, 3.5, colors::role(ui, colors::outcome_role(outcome)));
+    response
+        .on_hover_text(outcome.label())
+        .on_disabled_hover_text(outcome.label())
 }
 /// The reading status shown in a bound widget's title row.
 fn widget_status(
@@ -1970,8 +2422,10 @@ fn widget_status(
 fn fitted_size(width: f32, chars: usize, min: f32, max: f32) -> f32 {
     (width / (chars.max(1) as f32 * 0.62)).clamp(min, max)
 }
-/// A large numeric readout with its unit, sized to the space available.
-fn readout(ui: &mut egui::Ui, text: &str, unit: &str, color: Color32, max: f32) {
+/// A large numeric readout with its unit, sized to the space available and
+/// scaled by the widget's text size.
+fn readout(ui: &mut egui::Ui, text: &str, unit: &str, color: Color32, max: f32, scale: f32) {
+    let scale = scale.clamp(0.5, 4.);
     let palette = super::theme::of(ui);
     let unit_width = if unit.is_empty() {
         0.
@@ -1981,8 +2435,10 @@ fn readout(ui: &mut egui::Ui, text: &str, unit: &str, color: Color32, max: f32) 
     let size = fitted_size(
         ui.available_width() - unit_width,
         text.chars().count(),
-        14.,
-        max.min(ui.available_height() * 0.8).max(14.),
+        14. * scale,
+        (max * scale)
+            .min(ui.available_height() * 0.8)
+            .max(14. * scale),
     );
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.;
@@ -1993,14 +2449,17 @@ fn readout(ui: &mut egui::Ui, text: &str, unit: &str, color: Color32, max: f32) 
     });
 }
 /// A horizontal level bar: track, fill and the value with its unit.
-fn level_bar(ui: &mut egui::Ui, ratio: f32, text: &str, unit: &str, color: Color32) {
+/// `show` hides the value text; screen readers still get it.
+fn level_bar(ui: &mut egui::Ui, ratio: f32, text: &str, show: bool, unit: &str, color: Color32) {
     let palette = super::theme::of(ui);
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(text).monospace().color(palette.text));
-        if !unit.is_empty() {
-            ui.label(RichText::new(unit).small().color(palette.text_weak));
-        }
-    });
+    if show {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(text).monospace().color(palette.text));
+            if !unit.is_empty() {
+                ui.label(RichText::new(unit).small().color(palette.text_weak));
+            }
+        });
+    }
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), 8.), egui::Sense::hover());
     describe(&response, format!("{text} {unit}"));

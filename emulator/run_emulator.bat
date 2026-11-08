@@ -7,9 +7,9 @@ echo ======================================
 echo Starting DSHub Board Emulator
 echo ======================================
 echo.
-echo The emulator will be discoverable at 127.0.0.1
+echo Listening on this machine and the network; pass --local for this machine only.
 echo Press Ctrl+C to stop
 echo.
 
-python dshub_emulator.py
+python dshub_emulator.py %*
 pause

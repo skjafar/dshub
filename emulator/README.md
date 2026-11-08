@@ -12,10 +12,13 @@ cargo run --locked
 Select **CNC Motor Controller**, connect to `127.0.0.1` with TCP (2009) or UDP
 (2011), and take Control. UDP discovery also uses port 2011.
 
-TCP listens on loopback by default. To reach the emulator from another machine,
-start it with `--host 0.0.0.0` (or a specific local address); discovery then
-reports the address that routes to the requesting client. The protocol has no
-authentication, so only do this on a trusted network.
+The emulator listens on every interface by default, so DSHub can reach it from
+this machine (`127.0.0.1`) or from another machine on the network; it prints
+the addresses it can be reached at. Discovery reports the address that routes
+to each requesting client. Start it with `--local` to listen on `127.0.0.1`
+only, or `--host <address>` for one interface. The protocol has no
+authentication, so only run it on the network where that is acceptable. The
+launcher scripts pass their arguments through (`./run_emulator.sh --local`).
 Open the Dashboard pane and select **CNC Control**, **Monitoring**, or
 **Motion tuning**. Existing saved profiles can use **Add CNC panels** to append
 the panels while retaining their dashboards. Map changes still require binding

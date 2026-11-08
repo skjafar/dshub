@@ -47,7 +47,7 @@ async fn write_ack(app: &AppHandle, address: u16) -> WriteAck {
 async fn native_backend_tcp_udp_control_reads_writes_commands_and_subscriptions() {
     let emulator = Emulator(
         Command::new("python3")
-            .args(["-u", "emulator/dshub_emulator.py"])
+            .args(["-u", "emulator/dshub_emulator.py", "--local"])
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .spawn()
@@ -72,9 +72,10 @@ async fn native_backend_tcp_udp_control_reads_writes_commands_and_subscriptions(
         .unwrap();
         app.drain();
         commands::take_control(app.state()).await.unwrap();
+        // A heartbeat read queued before Take Control may still report 0.
         let Event::SysRegister(control) = wait(
             &app,
-            |e| matches!(e, Event::SysRegister(r) if r.address == 2),
+            |e| matches!(e, Event::SysRegister(r) if r.address == 2 && r.value != 0),
         )
         .await
         else {

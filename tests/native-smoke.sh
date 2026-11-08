@@ -25,7 +25,7 @@ scenes = scenes or SCENES
 out = out.resolve()
 out.mkdir(parents=True, exist_ok=True)
 with tempfile.TemporaryDirectory(prefix='dshub-smoke-state-') as state:
-    emulator = subprocess.Popen(['python3', '-u', 'emulator/dshub_emulator.py'], stdout=subprocess.DEVNULL)
+    emulator = subprocess.Popen(['python3', '-u', 'emulator/dshub_emulator.py', '--local'], stdout=subprocess.DEVNULL)
     try:
         time.sleep(.8)
         for scene in scenes:

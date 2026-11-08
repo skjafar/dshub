@@ -7,6 +7,8 @@ pub mod runtime;
 pub mod ui;
 
 mod cnc_dashboard;
+pub mod dashboard_kit;
+pub(crate) mod showcase_dashboard;
 
 // Backend modules stay addressable at the crate root for existing callers.
 pub use backend::{commands, communicator, poll, scanner, types};

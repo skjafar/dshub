@@ -45,8 +45,18 @@
 - Connection panel: recent devices and Connect + Take Control. The device chip warns about unauthenticated connections (UDP, or outside a private network).
 - Live tables poll only the rows in view. Ctrl+K opens a command palette; `/` focuses search.
 - Status Matrix: bit names from map metadata and 8/16/32-bit layouts. Custom-drawn widgets have accessibility labels.
-- Dashboard editing: visible grid with snapping, click and Ctrl/Shift-click selection, arrow-key nudge, Delete, and layout undo/redo.
+- Dashboard editing: visible grid with snapping, click and Ctrl/Shift-click selection, arrow-key nudge, Delete, and layout undo/redo. Edits are a draft saved with Save or discarded with Revert; changed widgets are outlined as in the Map Editor, and leaving edit mode, switching dashboards or closing the pane waits until the draft is saved or reverted.
 - Phosphor icon font replaces Unicode symbols.
+- The Default Profile has a Widget showcase dashboard with every widget kind under a caption, bound to the library's system registers so it shows live values on any device; writes go to PLACEHOLDER and ask first. Existing settings gain it once, appended to the Default Profile's dashboards. The Status Matrix no longer clips its last column at narrow widths.
+- Value Readout, State LED, Dropdown, Progress Bar, Value Write, Button and Label widgets have no card border. Any widget's label is optional (an empty label drops the title row unless the reading needs attention), a State LED whose states have no labels shows only its lamp, Progress Bar and Value Write can hide their value text, and every widget has an adjustable text size.
+- The LED Indicator is merged into the State LED, configured only by its states. Dashboards and version-one Profiles with an LED Indicator load it as a State LED: its on value becomes a state with its On label and colour, and its Off label a grey state for every other value. Exports write it as a State LED.
+- Threshold colours are chosen from swatches: grey, red, yellow and green, blue and cyan (all following the theme), four extra colours, or any colour from a picker. A chosen colour keeps the rule's role, which Profiles also export for readers without colours.
+- Redesigned bundled dashboards: CNC Operator, Trends and Tuning, and the Widget showcase, are laid out on a regular grid with titled groups of equal height, widgets sized to their content and no clipped values. The CNC Tuning panel lists every parameter in per-axis tables with readable names. Settings that hold the earlier layouts receive the new ones once; Profiles whose maps were changed, and dashboards of your own, are left as they are.
+- Data Table and Alarm List rows are aligned columns: a status dot (with text only when a reading needs attention), name, value, unit and, for writable rows, the input and Write button. Alarm rows show their state label.
+- Button labels are centred.
+- Directional Control buttons sit on a 3×3 compass grid: north at the top, diagonals in the corners, the centre empty; rows without a direction are left out. The CNC Operator dashboard has one Jog pad beside the Machine group (Y+ north, Y− south, X+ east, X− west, Z+ north-east, Z− south-west) with the jog step, instead of a jog control in each axis group.
+- Borderless widgets shrink to one line of text (24 px); State LED and Encoder Display shrink to one line inside their card.
+- Label widget: borderless text on a dashboard. It is kept in the Profile's native dashboards; the version-one dashboard section, read by the former application, leaves it out.
 - Daughter window titles name the device and Profile; windows restored onto a missing monitor move next to the main window.
 - Warnings, errors and crash reports are written to a log folder (Preferences > Logging > Open log folder).
 - Profiles are stored as separate files; saved settings carry a schema version with migrations.

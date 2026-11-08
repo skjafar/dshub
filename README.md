@@ -32,10 +32,10 @@ Windows uses the MSVC Rust toolchain and Visual Studio C++ build tools. macOS us
 
 1. **Scan** for devices, or enter an IP address and select **TCP** or **UDP**.
 2. **Connect**, then **Take Control** before sending writes or commands.
-3. Select the device's **Profile**. The bundled Default and CNC profiles include maps; CNC also includes command definitions and entry metadata.
+3. Select the device's **Profile**. The bundled Default and CNC profiles include maps; CNC also includes command definitions and entry metadata. The Default Profile's **Widget showcase** dashboard shows every widget kind with live library values.
 4. Use Registers, Parameters and System Registers to search, read, refresh and inspect values. System registers are read-only. Tables show each entry in its declared type (DEFAULT view) or in decimal, hexadecimal or binary, with engineering units when the map declares scale and offset. Double-click a writable value to edit it; Enter writes, Esc discards, and values not yet sent stay outlined.
 5. Add traces from a data pane to a Plot. Plots show a crosshair read-out of every trace, pause, export PNG or CSV, and record every reading to CSV for later replay.
-6. Configure a Dashboard with readouts, gauges, indicators, controls, tables, alarms, containers and mini-plots on a snapping grid.
+6. Configure a Dashboard with readouts, gauges, indicators, controls, tables, alarms, containers, mini-plots and plain text labels on a snapping grid. Dashboard edits are a draft: changed widgets are outlined until **Save**, and **Revert** discards them.
 
 Press **Ctrl+K** for the command palette and **/** to focus search. The Activity log can be filtered, paused and decodes the selected packet.
 
@@ -79,6 +79,8 @@ An opt-in native smoke fixture renders panes against the emulator with real devi
 | `src/backend/` | Existing Rust commands, communicator, discovery, polling and protocol types adapted to run without Tauri |
 | `src/runtime.rs` | Bounded in-process backend event bridge |
 | `src/cnc_dashboard.rs` | Bundled CNC operator dashboards |
+| `src/showcase_dashboard.rs` | Default Profile widget showcase |
+| `src/dashboard_kit.rs` | Grid layout helpers for bundled and generated dashboards |
 | `src/diagnostics.rs` | Rolling log file and crash reports |
 | `assets/` | Embedded maps, CNC metadata, fonts and application icon |
 | `emulator/` | Python CNC device emulator |

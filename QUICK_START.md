@@ -19,7 +19,7 @@ Enter `127.0.0.1`, select TCP, click Connect, then Take Control. Choose the CNC 
 - Commands: send a named command with an optional integer argument; the device's acknowledgement or refusal appears in the status and Activity Log.
 - Plot: add a trace with the Plot button in a data table. Hover for a read-out of every trace; Pause, pan/zoom, export PNG or CSV, or Record readings to CSV and replay them later.
 - Activity log: filter by level and source, Pause the view while activity is still collected, and select a packet to decode it.
-- Dashboard: enable Edit dashboard, add Widgets and configure bindings, dimensions and thresholds. Widgets snap to a grid; drag, resize, nudge with the arrow keys and undo/redo layout changes.
+- Dashboard: enable Edit dashboard, add Widgets and configure bindings, dimensions and thresholds. Widgets snap to a grid; drag, resize, nudge with the arrow keys and undo/redo layout changes. Edits stay unsaved, with changed widgets outlined, until you press Save; Revert discards them.
 - Map Editor: edit a draft and Save Profile. Changed fields stay outlined until saved. Review bindings affected by moved or changed entries.
 - Panes menu: reopen panes or reset the layout. Right-click a tab to focus it or move it into a native window.
 - Profiles: create, duplicate, rename, delete, import and export maps and dashboards.

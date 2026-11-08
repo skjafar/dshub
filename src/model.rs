@@ -84,8 +84,15 @@ text_enum!(
     }
 );
 impl Role {
-    /// Roles a user may assign to a threshold.
-    pub const THRESHOLD: [Self; 4] = [Self::Ok, Self::Warn, Self::Error, Self::Idle];
+    /// Roles a user may assign to a threshold, in the order offered.
+    pub const THRESHOLD: [Self; 6] = [
+        Self::Idle,
+        Self::Error,
+        Self::Warn,
+        Self::Ok,
+        Self::Info,
+        Self::Accent,
+    ];
 }
 text_enum!(
     /// Jog direction of a directional control button.
@@ -101,6 +108,19 @@ text_enum!(
     }
 );
 impl Direction {
+    /// Column and row on a 3×3 compass grid, north at the top.
+    pub fn cell(self) -> (usize, usize) {
+        match self {
+            Self::UpLeft => (0, 0),
+            Self::Up => (1, 0),
+            Self::UpRight => (2, 0),
+            Self::Left => (0, 1),
+            Self::Right => (2, 1),
+            Self::DownLeft => (0, 2),
+            Self::Down => (1, 2),
+            Self::DownRight => (2, 2),
+        }
+    }
     pub fn arrow(self) -> &'static str {
         match self {
             Self::Up => egui_phosphor::regular::ARROW_UP,
@@ -853,6 +873,8 @@ pub fn default_profiles() -> Vec<Profile> {
     cnc.parameters_metadata = serde_json::from_value(data["CNC_PARAMETERS_METADATA"].clone())
         .expect("bundled parameter metadata");
     cnc.dashboards = crate::cnc_dashboard::dashboards(cnc);
+    let showcase = crate::showcase_dashboard::dashboard(&profiles[0]);
+    profiles[0].dashboards.insert(0, showcase);
     profiles
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -886,6 +908,9 @@ pub enum WidgetKind {
     Gauge,
     ProgressBar,
     EncoderDisplay,
+    /// The former LED Indicator: read from older dashboards only, and turned
+    /// into a [`WidgetKind::StateLed`] as they load (see [`Dashboard`]).
+    #[doc(hidden)]
     LedIndicator,
     StateLed,
     StatusMatrix,
@@ -898,6 +923,8 @@ pub enum WidgetKind {
     DeviceInfo,
     Container,
     MiniPlot,
+    /// Plain text on the canvas: no card, title or binding.
+    Label,
 }
 impl WidgetKind {
     pub const ALL: [Self; 16] = [
@@ -905,7 +932,6 @@ impl WidgetKind {
         Self::Gauge,
         Self::ProgressBar,
         Self::EncoderDisplay,
-        Self::LedIndicator,
         Self::StateLed,
         Self::StatusMatrix,
         Self::Button,
@@ -917,15 +943,38 @@ impl WidgetKind {
         Self::DeviceInfo,
         Self::Container,
         Self::MiniPlot,
+        Self::Label,
     ];
+    /// Drawn without a card: the control or text itself is the widget.
+    pub fn frameless(self) -> bool {
+        matches!(
+            self,
+            Self::Button
+                | Self::Label
+                | Self::ValueRead
+                | Self::StateLed
+                | Self::Dropdown
+                | Self::ProgressBar
+                | Self::ValueWrite
+        )
+    }
+    /// Smallest canvas height. A widget whose content is one line (a value,
+    /// lamp, bar, menu or input) shrinks to one line of text, plus the card's
+    /// padding when it has one; the rest keep room for a title and content.
+    pub fn min_height(self) -> f32 {
+        match self {
+            kind if kind.frameless() => 24.,
+            Self::EncoderDisplay => 36.,
+            _ => 48.,
+        }
+    }
     pub fn title(self) -> &'static str {
         match self {
             Self::ValueRead => "Value Readout",
             Self::Gauge => "Gauge",
             Self::ProgressBar => "Progress Bar",
             Self::EncoderDisplay => "Encoder Display",
-            Self::LedIndicator => "LED Indicator",
-            Self::StateLed => "State LED",
+            Self::StateLed | Self::LedIndicator => "State LED",
             Self::StatusMatrix => "Status Matrix",
             Self::Button => "Button",
             Self::Dropdown => "Dropdown",
@@ -936,17 +985,31 @@ impl WidgetKind {
             Self::DeviceInfo => "Device Info",
             Self::Container => "Container",
             Self::MiniPlot => "Mini-Plot",
+            Self::Label => "Label",
         }
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Threshold {
     pub op: Comparator,
     pub value: f64,
     pub role: Role,
     pub label: String,
+    /// A chosen colour shown instead of the role's palette colour. The role
+    /// still says how serious the state is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<[u8; 3]>,
 }
 impl Threshold {
+    pub fn new(op: Comparator, value: f64, role: Role, label: impl Into<String>) -> Self {
+        Self {
+            op,
+            value,
+            role,
+            label: label.into(),
+            color: None,
+        }
+    }
     pub fn matches(&self, v: f64) -> bool {
         match self.op {
             Comparator::Gt => v > self.value,
@@ -958,7 +1021,7 @@ impl Threshold {
         }
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Widget {
     pub id: String,
@@ -987,12 +1050,14 @@ pub struct Widget {
     pub directions: Vec<DirectionTarget>,
     #[serde(default)]
     pub row_styles: BTreeMap<String, RowStyle>,
-    #[serde(default = "default_on_value")]
-    pub on_value: f64,
-    #[serde(default)]
-    pub on_label: String,
-    #[serde(default)]
-    pub off_label: String,
+    /// Settings of the former LED Indicator, read only to turn it into a
+    /// State LED's states.
+    #[serde(default = "default_on_value", skip_serializing)]
+    on_value: f64,
+    #[serde(default = "default_on_label", skip_serializing)]
+    on_label: String,
+    #[serde(default = "default_off_label", skip_serializing)]
+    off_label: String,
     #[serde(default = "default_true")]
     pub show_inactive: bool,
     /// Status Matrix width: 8, 16 or 32 bits.
@@ -1014,6 +1079,15 @@ pub struct Widget {
     pub padding: f32,
     #[serde(default = "default_padding")]
     pub spacing: f32,
+    /// Scale of the widget's text, 1 = the theme's sizes.
+    #[serde(default = "default_text_size")]
+    pub text_size: f32,
+    /// Progress Bar and Value Write: show the current value as text.
+    #[serde(default = "default_true")]
+    pub show_value: bool,
+}
+fn default_text_size() -> f32 {
+    1.
 }
 fn default_decimals() -> usize {
     3
@@ -1030,20 +1104,26 @@ fn default_padding() -> f32 {
 fn default_on_value() -> f64 {
     1.
 }
+fn default_on_label() -> String {
+    "On".into()
+}
+fn default_off_label() -> String {
+    "Off".into()
+}
 fn default_bit_count() -> u8 {
     32
 }
 fn default_true() -> bool {
     true
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DirectionTarget {
     pub direction: Direction,
     pub command: u16,
     #[serde(default)]
     pub label: String,
 }
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct RowStyle {
     pub label: String,
     pub format: DisplayFormat,
@@ -1055,7 +1135,49 @@ impl Default for Widget {
         Self::new(WidgetKind::ValueRead)
     }
 }
+/// The states of a former LED Indicator: lit in the colour of the rule that
+/// matched its on value, otherwise its off label in the idle colour.
+pub fn led_states(
+    on_value: f64,
+    on_label: &str,
+    off_label: &str,
+    colours: &[Threshold],
+) -> Vec<Threshold> {
+    let lit = colours.iter().find(|t| t.matches(on_value));
+    let mut on = Threshold::new(
+        Comparator::Eq,
+        on_value,
+        lit.map_or(Role::Ok, |t| t.role),
+        lit.map(|t| t.label.as_str())
+            .filter(|l| !l.trim().is_empty())
+            .unwrap_or(on_label),
+    );
+    on.color = lit.and_then(|t| t.color);
+    let mut states = vec![on];
+    if !off_label.trim().is_empty() {
+        states.push(Threshold::new(
+            Comparator::Ne,
+            on_value,
+            Role::Idle,
+            off_label,
+        ));
+    }
+    states
+}
 impl Widget {
+    /// Turns a former LED Indicator, here and in containers, into a State LED.
+    pub fn convert_legacy(&mut self) {
+        if self.kind == WidgetKind::LedIndicator {
+            self.kind = WidgetKind::StateLed;
+            self.thresholds = led_states(
+                self.on_value,
+                &self.on_label,
+                &self.off_label,
+                &self.thresholds,
+            );
+        }
+        self.children.iter_mut().for_each(Widget::convert_legacy);
+    }
     pub fn new(kind: WidgetKind) -> Self {
         Self {
             id: unique_id(),
@@ -1073,7 +1195,7 @@ impl Widget {
             rows: vec![],
             children: vec![],
             width: 300.,
-            height: 180.,
+            height: if kind == WidgetKind::Label { 24. } else { 180. },
             position: None,
             confirm: false,
             format: DisplayFormat::default(),
@@ -1092,14 +1214,35 @@ impl Widget {
             time_span: 60.,
             padding: 8.,
             spacing: 8.,
+            text_size: 1.,
+            show_value: true,
         }
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(from = "DashboardData")]
 pub struct Dashboard {
     pub id: String,
     pub name: String,
     pub widgets: Vec<Widget>,
+}
+/// A dashboard as stored, before older widget kinds are converted.
+#[derive(Deserialize)]
+struct DashboardData {
+    id: String,
+    name: String,
+    widgets: Vec<Widget>,
+}
+impl From<DashboardData> for Dashboard {
+    fn from(d: DashboardData) -> Self {
+        let mut widgets = d.widgets;
+        widgets.iter_mut().for_each(Widget::convert_legacy);
+        Self {
+            id: d.id,
+            name: d.name,
+            widgets,
+        }
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlotSeries {
@@ -1178,6 +1321,60 @@ impl Default for Preferences {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn former_led_indicators_load_as_state_leds() {
+        // A native dashboard saved before the LED Indicator was merged, with
+        // one inside a container.
+        let text = r#"{"id":"d","name":"Old","widgets":[
+            {"kind":"LedIndicator","on_value":2,"on_label":"Held","off_label":"Free",
+             "thresholds":[{"op":"==","value":2,"role":"warn","label":""}]},
+            {"kind":"Container","children":[{"kind":"LedIndicator","off_label":""}]}]}"#;
+        let d: Dashboard = serde_json::from_str(text).unwrap();
+        let led = &d.widgets[0];
+        assert_eq!(led.kind, WidgetKind::StateLed);
+        assert_eq!(
+            led.thresholds,
+            vec![
+                Threshold::new(Comparator::Eq, 2., Role::Warn, "Held"),
+                Threshold::new(Comparator::Ne, 2., Role::Idle, "Free"),
+            ]
+        );
+        let inner = &d.widgets[1].children[0];
+        assert_eq!(inner.kind, WidgetKind::StateLed);
+        assert_eq!(
+            inner.thresholds,
+            vec![Threshold::new(Comparator::Eq, 1., Role::Ok, "On")]
+        );
+        // Saved again, nothing of the former kind remains.
+        let saved = serde_json::to_string(&d).unwrap();
+        assert!(!saved.contains("LedIndicator") && !saved.contains("on_label"));
+    }
+    #[test]
+    fn threshold_colours_are_optional() {
+        let mut t: Threshold =
+            serde_json::from_str(r#"{"op":">","value":1,"role":"warn","label":""}"#).unwrap();
+        assert_eq!(t.color, None);
+        assert!(!serde_json::to_string(&t).unwrap().contains("color"));
+        t.color = Some([1, 2, 3]);
+        let back: Threshold = serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
+        assert_eq!(back, t);
+    }
+    #[test]
+    fn one_line_widgets_shrink_to_one_line_of_text() {
+        for kind in [
+            WidgetKind::Button,
+            WidgetKind::Label,
+            WidgetKind::ValueRead,
+            WidgetKind::StateLed,
+            WidgetKind::Dropdown,
+            WidgetKind::ProgressBar,
+            WidgetKind::ValueWrite,
+        ] {
+            assert_eq!(kind.min_height(), 24., "{kind:?}");
+        }
+        assert_eq!(WidgetKind::EncoderDisplay.min_height(), 36.);
+        assert_eq!(WidgetKind::Gauge.min_height(), 48.);
+    }
     #[test]
     fn maps_respect_boundary_and_arrays() {
         let e = parse_map("uint32_t A[2];\n// Read/Write\nfloat B;", Space::Register).unwrap();

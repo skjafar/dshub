@@ -17,7 +17,7 @@ The existing backend was ported into `src/backend/` with mechanical integration 
 | Inspector | Shared selection, raw address reads, signed/unsigned/float/hex/binary decoding, entry metadata and plot/write actions |
 | Commands | Profile and built-in commands, integer arguments, confirmation (press-and-hold for critical commands), acknowledgements/refusals, custom code entry, Ctrl+K command palette |
 | Plot | Independent trace selections per Plot pane, typed decoding, retained samples, pause, live following, zoom/pan, crosshair read-out, legend, PNG and CSV export, CSV recording with offline replay |
-| Dashboards | Named dashboards, duplicate/delete/rename, canvas positions on a snapping grid, selection, keyboard nudge, layout undo/redo, bindings, formats, thresholds, controls, nested containers and all sixteen widget kinds |
+| Dashboards | Named dashboards, duplicate/delete/rename, canvas positions on a snapping grid, selection, keyboard nudge, layout undo/redo, bindings, formats, thresholds, controls, nested containers, all sixteen portable widget kinds and native Labels |
 | Profiles | Default and CNC bundled maps, CNC commands/metadata, create/duplicate/rename/delete, one file per Profile, version-one import/export and native dashboard preservation |
 | Map Editor | Separate drafts, add/edit/import/export maps, firmware C headers, command-map import/export and command header export, board type definitions and entry metadata; unsaved fields outlined; save/revert without overwriting dashboard changes |
 | Binding review | Name/type/array-extent/address identity; stopped polling/writes on drift; explicit follow-entry or keep-address rebinding; profile-wide review including hidden/nested widgets |
@@ -63,7 +63,9 @@ The user's backend-only review has not been performed. Keep that review separate
 Widgets retain their canvas coordinates and dimensions in both viewing and editing
 modes. In **Edit dashboard**, drag the top of a widget to move it, drag any edge
 or the bottom-right corner to resize it, and hover to reveal **Configure**.
-Configuration opens in a separate floating window and applies immediately; Width,
+Configuration opens in a separate floating window and applies to the dashboard
+draft immediately; nothing reaches the Profile until **Save**, **Revert** returns
+to the saved dashboard, and changed widgets are outlined meanwhile. Width,
 Height, X, and Y are also editable numerically there. Container children use their
 own coordinates relative to their container. Overflow remains accessible through
 scrolling. Device-action buttons are disabled while editing. Positions are stored

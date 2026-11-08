@@ -25,7 +25,7 @@ import time
 import sys
 import math
 from datetime import datetime
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 # Protocol Constants
 DS_DISCOVERY_MAGIC = 0xDEADBEEF
@@ -558,7 +558,8 @@ class DSHubEmulator:
 
     def __init__(self, board_name: str = "DSHub Emulator", board_type: int = 1,
                  firmware_version: int = 0x0100, host: str = '127.0.0.1'):
-        # TCP listen address; 0.0.0.0 serves other machines on the network.
+        # Listen address for TCP and UDP: 0.0.0.0 serves this machine and the
+        # network, 127.0.0.1 this machine only.
         self.host = host
         self.board_name = board_name
         self.board_type = board_type
@@ -592,6 +593,11 @@ class DSHubEmulator:
         print(f"\nEmulator started successfully!")
         print(f"Discovery/UDP: port {DISCOVERY_PORT}")
         print(f"TCP Data:      port {DEFAULT_TCP_PORT}")
+        if self.host in ('0.0.0.0', ''):
+            print(f"Reachable at:  {', '.join(_local_addresses())} (and 127.0.0.1)")
+            print("               The protocol has no authentication; use trusted networks only.")
+        else:
+            print(f"Reachable at:  {self.host} only")
         print(f"CNC Motion:    100Hz update rate")
         print(f"\nPress Ctrl+C to stop the emulator\n")
 
@@ -607,7 +613,7 @@ class DSHubEmulator:
             self.discovery_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.discovery_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.discovery_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            self.discovery_socket.bind(('', DISCOVERY_PORT))
+            self.discovery_socket.bind(('' if self.host == '0.0.0.0' else self.host, DISCOVERY_PORT))
             self.discovery_socket.settimeout(1.0)
             print(f"[Discovery/UDP] Listening on UDP port {DISCOVERY_PORT}")
 
@@ -924,11 +930,33 @@ class DSHubEmulator:
         print("="*60 + "\n")
 
 
+def _local_addresses() -> List[str]:
+    """This machine's IPv4 addresses other machines can reach, best effort."""
+    found = []
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            found.append(info[4][0])
+    except OSError:
+        pass
+    try:
+        # Connecting a UDP socket sends nothing; it only picks the outgoing interface.
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect(('192.0.2.1', DISCOVERY_PORT))
+            found.append(probe.getsockname()[0])
+    except OSError:
+        pass
+    addresses = sorted({a for a in found if not a.startswith('127.')})
+    return addresses or ['no network address found']
+
+
 def main():
     parser = argparse.ArgumentParser(description="DSHub board emulator")
     parser.add_argument(
-        '--host', default='127.0.0.1',
-        help="TCP listen address (default 127.0.0.1; 0.0.0.0 for other machines)")
+        '--host', default='0.0.0.0',
+        help="listen address (default 0.0.0.0: this machine and the network)")
+    parser.add_argument(
+        '--local', action='store_const', const='127.0.0.1', dest='host',
+        help="listen on 127.0.0.1 only (same as --host 127.0.0.1)")
     args = parser.parse_args()
 
     print("\n" + "="*60)
