@@ -95,6 +95,6 @@ The former Tauri/React application was removed; its sources are kept at the `tau
 
 `./build.sh bin` builds the release binary; `./build.sh pkg` also creates a Debian package on Debian-compatible hosts. `build.bat bin` builds the Windows executable. The GitHub workflow builds and checks Linux, Windows and macOS; version tags publish native archives, a macOS app bundle and the Linux Debian package. Windows binaries are signed and the macOS bundle is signed and notarized when the certificates are configured as repository secrets.
 
-The AUR recipe under `aur-bin/` is prepared for 0.3.0. Its checksums are filled in with `updpkgsums` once the `v0.3.0` release is published; the AUR currently carries 0.2.4.
+The AUR recipe under `aur-bin/` is published as [`dshub-bin`](https://aur.archlinux.org/packages/dshub-bin). For a new release, bump `pkgver`, run `updpkgsums` once the GitHub release exists, regenerate `.SRCINFO` with `makepkg --printsrcinfo`, and push both files to the AUR repository.
 
 MIT license. See [LICENSE](LICENSE).

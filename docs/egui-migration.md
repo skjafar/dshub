@@ -54,7 +54,7 @@ The `native-smoke` feature is opt-in and is not part of the release build. The n
 
 Linux compilation, automated UI/device checks and rendered layout inspection do not establish complete workflow parity on every platform. Before the first native release, exercise the engineer/operator workflows on Windows and macOS, native dialogs, multi-monitor window movement/restoration, prolonged reconnect/polling load and physical hardware. The CI matrix is configured for those platforms but has not run from this local checkout.
 
-Native release packaging supplies archives, a macOS app bundle (signed and notarized when certificates are configured) and a Debian package. Windows installers and RPM packaging are not built. The AUR recipe is prepared for 0.3.0 and needs checksums once the `v0.3.0` release is published.
+Native release packaging supplies archives, a macOS app bundle (signed and notarized when certificates are configured) and a Debian package. Windows installers and RPM packaging are not built. The `dshub-bin` AUR package installs the 0.3.0 Linux release.
 
 The user's backend-only review has not been performed. Keep that review separate from native interface acceptance.
 
