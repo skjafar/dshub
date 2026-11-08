@@ -32,8 +32,8 @@ pub fn show(ctx: &egui::Context, session: &mut Session) {
                         ui.horizontal(|ui| {
                             let marker = match toast.role {
                                 Role::Error => "●",
-                                Role::Warn => "▲",
-                                Role::Ok => "✓",
+                                Role::Warn => super::icons::WARNING,
+                                Role::Ok => super::icons::CHECK,
                                 _ => "●",
                             };
                             ui.label(RichText::new(marker).color(accent));
@@ -45,7 +45,11 @@ pub fn show(ctx: &egui::Context, session: &mut Session) {
                             ui.add(
                                 egui::Label::new(RichText::new(text).color(palette.text)).wrap(),
                             );
-                            if ui.small_button("×").on_hover_text("Dismiss").clicked() {
+                            if ui
+                                .small_button(super::icons::CLOSE)
+                                .on_hover_text("Dismiss")
+                                .clicked()
+                            {
                                 dismiss = Some(i);
                             }
                             if toast.undo.is_some() && ui.small_button("Undo").clicked() {

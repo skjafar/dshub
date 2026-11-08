@@ -1,4 +1,4 @@
-use super::{canvas_layout, colors};
+use super::{canvas_edit, canvas_layout, colors};
 use super::{
     session::{OutcomeStatus, Session, Undo},
     Pane,
@@ -31,6 +31,25 @@ pub fn dashboard(
             });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.checkbox(&mut pane.editing, "Edit dashboard");
+            if pane.editing {
+                let dashboard = &profile.dashboards[pane.dashboard].id;
+                let (can_undo, can_redo) = canvas_edit::available(ui.ctx(), dashboard);
+                let request = egui::Id::new(("layout-step", dashboard));
+                if ui
+                    .add_enabled(can_redo, egui::Button::new("Redo"))
+                    .on_hover_text("Ctrl+Shift+Z")
+                    .clicked()
+                {
+                    ui.ctx().data_mut(|d| d.insert_temp(request, true));
+                }
+                if ui
+                    .add_enabled(can_undo, egui::Button::new("Undo"))
+                    .on_hover_text("Ctrl+Z")
+                    .clicked()
+                {
+                    ui.ctx().data_mut(|d| d.insert_temp(request, false));
+                }
+            }
             if !pane.editing {
                 ui.weak("Enable Edit dashboard to arrange and configure widgets.");
             }
@@ -144,6 +163,7 @@ pub fn dashboard(
                     group.width,
                     *before,
                 );
+                canvas_edit::snap_widget(&mut widgets, id);
             }
         }
     } else if let Some(drag) = &frame.drag {
@@ -198,7 +218,9 @@ pub fn dashboard(
                 );
             }
             if frame.dropped || !ui.input(|i| i.pointer.primary_down()) {
-                if !canvas_layout::commit(&mut widgets, &drag.id, target.as_deref(), &plan) {
+                if canvas_layout::commit(&mut widgets, &drag.id, target.as_deref(), &plan) {
+                    canvas_edit::snap_widget(&mut widgets, &drag.id);
+                } else {
                     canvas_layout::restore(&mut widgets, drag);
                 }
                 ui.ctx()
@@ -211,7 +233,100 @@ pub fn dashboard(
     } else {
         canvas_layout::settle(&mut widgets, None, None);
     }
+    if pane.editing {
+        let keyed = edit_keys(ui, session, &dashboard_id, &mut widgets);
+        canvas_edit::track(
+            ui.ctx(),
+            &dashboard_id,
+            &widgets,
+            keyed || super::edited(ui.ctx()),
+        );
+    }
     profile.dashboards[pane.dashboard].widgets = widgets;
+}
+/// Keyboard editing on a dashboard: arrows nudge the selection (a grid step,
+/// or one point with Alt), Delete removes it, Esc clears it, Ctrl+Z / Ctrl+Shift+Z
+/// (or Ctrl+Y) undo and redo layout changes. Returns whether the layout changed.
+fn edit_keys(
+    ui: &mut egui::Ui,
+    session: &mut Session,
+    dashboard: &str,
+    widgets: &mut Vec<Widget>,
+) -> bool {
+    let ctx = ui.ctx().clone();
+    let request = egui::Id::new(("layout-step", dashboard));
+    if let Some(redo) = ctx.data_mut(|d| d.remove_temp::<bool>(request)) {
+        return canvas_edit::step(&ctx, dashboard, widgets, redo);
+    }
+    if ctx.memory(|m| m.focused().is_some()) {
+        return false;
+    }
+    let (undo, redo) = ctx.input_mut(|i| {
+        let redo = i.consume_key(
+            egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+            egui::Key::Z,
+        ) || i.consume_key(egui::Modifiers::COMMAND, egui::Key::Y);
+        (i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z), redo)
+    });
+    if undo || redo {
+        return canvas_edit::step(&ctx, dashboard, widgets, redo);
+    }
+    let selected = canvas_edit::selection(&ctx);
+    if selected.is_empty() {
+        return false;
+    }
+    let fine = ctx.input(|i| i.modifiers.alt);
+    let step = if fine { 1. } else { canvas_edit::GRID };
+    let mut delta = egui::Vec2::ZERO;
+    let mut delete = false;
+    let mut clear = false;
+    ctx.input_mut(|i| {
+        for (key, d) in [
+            (egui::Key::ArrowLeft, egui::vec2(-step, 0.)),
+            (egui::Key::ArrowRight, egui::vec2(step, 0.)),
+            (egui::Key::ArrowUp, egui::vec2(0., -step)),
+            (egui::Key::ArrowDown, egui::vec2(0., step)),
+        ] {
+            let modifiers = if fine {
+                egui::Modifiers::ALT
+            } else {
+                egui::Modifiers::NONE
+            };
+            if i.consume_key(modifiers, key) {
+                delta += d;
+            }
+        }
+        delete = i.consume_key(egui::Modifiers::NONE, egui::Key::Delete)
+            || i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace);
+        clear = i.consume_key(egui::Modifiers::NONE, egui::Key::Escape);
+    });
+    if clear {
+        canvas_edit::set_selection(&ctx, Default::default());
+        return false;
+    }
+    if delete {
+        let removed = canvas_edit::remove(widgets, &selected);
+        canvas_edit::set_selection(&ctx, Default::default());
+        if removed > 0 {
+            session.toast(
+                Role::Info,
+                format!(
+                    "Removed {removed} widget{}. Ctrl+Z restores.",
+                    if removed == 1 { "" } else { "s" }
+                ),
+            );
+        }
+        return removed > 0;
+    }
+    delta != egui::Vec2::ZERO && canvas_edit::nudge(widgets, &selected, delta)
+}
+/// A widget's Decimal format shows engineering values for scaled entries.
+fn shown(format: DisplayFormat, meta: Option<&Metadata>) -> DisplayFormat {
+    if format == DisplayFormat::Decimal && meta.and_then(Metadata::scaling).is_some() {
+        DisplayFormat::Native
+    } else {
+        format
+    }
 }
 /// Puts a removed widget back into its container, if the dashboard and
 /// container still exist.
@@ -277,6 +392,9 @@ fn render_grid(
         return;
     }
     let origin = ui.cursor().min;
+    if editing && depth == 0 {
+        canvas_edit::draw_grid(ui, origin);
+    }
     canvas_layout::with_frame(ui.ctx(), |frame| {
         frame.groups.push(canvas_layout::Group {
             parent: parent.map(str::to_string),
@@ -358,8 +476,12 @@ fn render_grid(
                 egui::pos2(rect.right() - 84., rect.top() + 26.),
             );
             let drag = ui
-                .interact(title, id.with("move"), egui::Sense::drag())
-                .on_hover_cursor(egui::CursorIcon::Grab);
+                .interact(title, id.with("move"), egui::Sense::click_and_drag())
+                .on_hover_cursor(egui::CursorIcon::Grab)
+                .on_hover_text("Drag to move · click to select (Ctrl/Shift for several)");
+            if drag.clicked() {
+                canvas_edit::click(ui.ctx(), &w.id);
+            }
             if drag.dragged() {
                 ui.ctx()
                     .data_mut(|d| d.insert_temp(active_id, w.id.clone()));
@@ -623,6 +745,14 @@ fn render_grid(
             .data_mut(|data| data.insert_temp(id.with("content-fit"), fit));
         if editing {
             let hovered = ui.rect_contains_pointer(rect);
+            if canvas_edit::selection(ui.ctx()).contains(&w.id) {
+                ui.painter().rect_stroke(
+                    rect.expand(1.),
+                    6.,
+                    egui::Stroke::new(2_f32, colors::role(ui, Role::Accent)),
+                    egui::StrokeKind::Outside,
+                );
+            }
             if hovered || open {
                 ui.painter().rect_stroke(
                     rect,
@@ -633,7 +763,7 @@ fn render_grid(
                 let remove_rect =
                     egui::Rect::from_min_size(rect.min + egui::vec2(6., 6.), egui::vec2(20., 22.));
                 if ui
-                    .put(remove_rect, egui::Button::new("×"))
+                    .put(remove_rect, egui::Button::new(super::icons::CLOSE))
                     .on_hover_text("Remove widget")
                     .clicked()
                 {
@@ -860,6 +990,15 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
             ui.label("Unit");
             ui.add(egui::TextEdit::singleline(&mut w.unit).desired_width(120.));
             ui.end_row();
+            if w.kind == WidgetKind::StatusMatrix {
+                ui.label("Bits");
+                super::controls::segmented(
+                    ui,
+                    &mut w.bit_count,
+                    &[(8, "8"), (16, "16"), (32, "32")],
+                );
+                ui.end_row();
+            }
             if matches!(w.kind, WidgetKind::Gauge | WidgetKind::ProgressBar) {
                 ui.label("Range");
                 ui.horizontal(|ui| {
@@ -961,7 +1100,11 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                             .hint_text("label")
                             .desired_width(80.),
                     );
-                    if ui.small_button("×").on_hover_text("Remove").clicked() {
+                    if ui
+                        .small_button(super::icons::CLOSE)
+                        .on_hover_text("Remove")
+                        .clicked()
+                    {
                         remove = Some(i);
                     }
                 });
@@ -996,7 +1139,11 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                             .hint_text("label")
                             .desired_width(140.),
                     );
-                    if ui.small_button("×").on_hover_text("Remove").clicked() {
+                    if ui
+                        .small_button(super::icons::CLOSE)
+                        .on_hover_text("Remove")
+                        .clicked()
+                    {
                         remove = Some(i);
                     }
                 });
@@ -1036,7 +1183,7 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
             ui.push_id(i, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(&b.name);
-                    if ui.small_button("×").clicked() {
+                    if ui.small_button(super::icons::CLOSE).clicked() {
                         remove = Some(i);
                     }
                 });
@@ -1137,7 +1284,7 @@ fn thresholds_editor(ui: &mut egui::Ui, thresholds: &mut Vec<Threshold>, add_lab
                             );
                         }
                     });
-                if ui.small_button("×").on_hover_text("Remove rule").clicked() {
+                if ui.small_button(super::icons::CLOSE).on_hover_text("Remove rule").clicked() {
                     remove = Some(i);
                 }
             });
@@ -1283,7 +1430,8 @@ fn render_widget(
                     .get(&(b.space, b.address))
                     .filter(|r| r.valid)
                     .cloned();
-                let value = r.as_ref().map(|r| e.decode(r.value));
+                let meta = profile.metadata(b.space, &e.name);
+                let value = r.as_ref().map(|r| e.engineering(r.value, meta));
                 let style = w.row_styles.get(&b.name);
                 let rules = style
                     .map(|s| s.thresholds.as_slice())
@@ -1310,10 +1458,8 @@ fn render_widget(
                     ui.monospace(
                         r.as_ref()
                             .map(|r| {
-                                style
-                                    .map(|s| s.format)
-                                    .unwrap_or(w.format)
-                                    .format(&e, r.value)
+                                shown(style.map(|s| s.format).unwrap_or(w.format), meta)
+                                    .format_with(&e, r.value, meta)
                             })
                             .unwrap_or("—".into()),
                     );
@@ -1334,11 +1480,13 @@ fn render_widget(
                             )
                             .clicked()
                         {
+                            let meta = profile.metadata(b.space, &e.name);
                             session.write_formatted(
                                 b.space,
                                 &e,
                                 &input,
-                                style.map(|s| s.format).unwrap_or(w.format),
+                                shown(style.map(|s| s.format).unwrap_or(w.format), meta),
+                                meta,
                                 w.confirm,
                             );
                         }
@@ -1383,7 +1531,8 @@ fn render_widget(
                 {
                     match w.value.parse() {
                         Ok(value) => {
-                            session.command(d.command, value, w.confirm);
+                            let info = profile.command(d.command);
+                            session.command(d.command, value, info.as_ref(), w.confirm);
                             ui.ctx().data_mut(|data| data.insert_temp(id, now));
                         }
                         Err(_) => session.notice = "Invalid jog command argument".into(),
@@ -1406,7 +1555,10 @@ fn render_widget(
             .clicked()
         {
             match w.value.parse() {
-                Ok(v) => session.command(command, v, w.confirm),
+                Ok(v) => {
+                    let info = profile.command(command);
+                    session.command(command, v, info.as_ref(), w.confirm)
+                }
                 Err(_) => session.notice = "Invalid command value".into(),
             }
         }
@@ -1437,12 +1589,16 @@ fn render_widget(
         .get(&(binding.space, binding.address))
         .filter(|r| r.valid);
     let raw = r.map(|r| r.value);
-    let value = raw.map(|v| e.decode(v));
+    let meta = profile.metadata(binding.space, &e.name);
+    // Engineering units (map metadata scale and offset) for every read-out.
+    let value = raw.map(|v| e.engineering(v, meta));
     let rule = value.and_then(|v| w.thresholds.iter().find(|t| t.matches(v)));
     let color = rule
         .map(|r| colors::role(ui, r.role))
         .unwrap_or(ui.visuals().text_color());
-    let text = raw.map(|v| w.format.format(&e, v)).unwrap_or("—".into());
+    let text = raw
+        .map(|v| shown(w.format, meta).format_with(&e, v, meta))
+        .unwrap_or("—".into());
     match w.kind {
         WidgetKind::ValueRead => readout(ui, &text, &w.unit, color, 40.),
         WidgetKind::Gauge => {
@@ -1454,7 +1610,9 @@ fn render_widget(
             let accent = rule.map_or(palette.accent, |r| colors::role(ui, r.role));
             let width = ui.available_width().min(260.);
             let height = (width * 0.58).min(ui.available_height() - 4.).max(60.);
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+            describe(&response, format!("{}: {text} {}", w.label, w.unit));
             let radius = (rect.width() / 2. - 10.).min(rect.height() - 26.).max(18.);
             let center = egui::pos2(rect.center().x, rect.top() + radius + 6.);
             let fraction = value
@@ -1529,8 +1687,9 @@ fn render_widget(
             if w.vertical {
                 ui.horizontal(|ui| {
                     let height = (ui.available_height() - 8.).clamp(40., 220.);
-                    let (rect, _) =
+                    let (rect, response) =
                         ui.allocate_exact_size(egui::vec2(14., height), egui::Sense::hover());
+                    describe(&response, format!("{}: {text} {}", w.label, w.unit));
                     ui.painter().rect_filled(rect, 2, palette.well);
                     let level = egui::Rect::from_min_max(
                         egui::pos2(rect.left(), rect.bottom() - rect.height() * ratio as f32),
@@ -1585,14 +1744,23 @@ fn render_widget(
         WidgetKind::StatusMatrix => {
             let palette = super::theme::of(ui);
             let lit = colors::role(ui, Role::Ok);
-            let cell = ((ui.available_width() - 7. * 4.) / 8.).clamp(16., 34.);
+            let bits = match w.bit_count {
+                8 | 16 => w.bit_count,
+                _ => 32,
+            };
+            // Named bits get wider cells so their names fit.
+            let named = meta.is_some_and(|m| !m.bits.is_empty());
+            let columns = if named { 4. } else { 8. };
+            let cell = ((ui.available_width() - (columns - 1.) * 4.) / columns)
+                .clamp(16., if named { 120. } else { 34. });
             egui::Grid::new("bits")
-                .num_columns(8)
+                .num_columns(columns as usize)
                 .spacing([4., 4.])
                 .show(ui, |ui| {
                     // Most significant bit first, as in a register diagram.
-                    for bit in (0..32).rev() {
+                    for bit in (0..bits).rev() {
                         let on = raw.map(|v| (v as u32) & (1 << bit) != 0);
+                        let name = meta.and_then(|m| m.bit_name(bit));
                         let (rect, response) =
                             ui.allocate_exact_size(egui::vec2(cell, 18.), egui::Sense::hover());
                         let (fill, text) = match on {
@@ -1607,23 +1775,43 @@ fn render_widget(
                             egui::Stroke::new(1_f32, palette.ghost),
                             egui::StrokeKind::Inside,
                         );
+                        let label = match name {
+                            Some(name) if named => {
+                                let fit = ((cell - 6.) / 6.).max(3.) as usize;
+                                if name.chars().count() > fit {
+                                    format!("{}…", name.chars().take(fit - 1).collect::<String>())
+                                } else {
+                                    name.to_string()
+                                }
+                            }
+                            _ => bit.to_string(),
+                        };
                         ui.painter().text(
                             rect.center(),
                             egui::Align2::CENTER_CENTER,
-                            bit.to_string(),
+                            label,
                             egui::FontId::monospace(10.),
                             text,
                         );
+                        let state = match on {
+                            Some(true) => "set",
+                            Some(false) => "clear",
+                            None => "unknown",
+                        };
+                        response.widget_info(|| {
+                            egui::WidgetInfo::labeled(
+                                egui::WidgetType::Label,
+                                true,
+                                format!("Bit {bit} {}: {state}", name.unwrap_or_default()),
+                            )
+                        });
                         response.on_hover_text(format!(
-                            "Bit {bit} (0x{:08X}): {}",
+                            "Bit {bit}{} (0x{:08X}): {}",
+                            name.map(|n| format!(" {n}")).unwrap_or_default(),
                             1u32 << bit,
-                            match on {
-                                Some(true) => "set",
-                                Some(false) => "clear",
-                                None => "unknown",
-                            }
+                            state
                         ));
-                        if bit % 8 == 0 {
+                        if bit % columns as u8 == 0 {
                             ui.end_row();
                         }
                     }
@@ -1642,7 +1830,14 @@ fn render_widget(
                 )
                 .clicked()
             {
-                session.write_formatted(binding.space, &e, &w.value, w.format, w.confirm);
+                session.write_formatted(
+                    binding.space,
+                    &e,
+                    &w.value,
+                    shown(w.format, meta),
+                    meta,
+                    w.confirm,
+                );
             }
         }
         WidgetKind::ValueWrite => {
@@ -1661,12 +1856,20 @@ fn render_widget(
                     || submit)
                     && enabled
                 {
-                    session.write_formatted(binding.space, &e, &w.value, w.format, w.confirm);
+                    session.write_formatted(
+                        binding.space,
+                        &e,
+                        &w.value,
+                        shown(w.format, meta),
+                        meta,
+                        w.confirm,
+                    );
                 }
             });
         }
         WidgetKind::Dropdown => {
-            let current = value.and_then(|v| {
+            // Options name raw device values, not engineering values.
+            let current = raw.map(|v| e.decode(v)).and_then(|v| {
                 w.options
                     .iter()
                     .find(|o| o.value.trim().parse::<f64>().ok() == Some(v))
@@ -1688,7 +1891,7 @@ fn render_widget(
                             )
                             .clicked()
                         {
-                            session.write(binding.space, &e, &o.value, w.confirm);
+                            session.write(binding.space, &e, &o.value, meta, w.confirm);
                             ui.close_menu();
                         }
                     }
@@ -1792,8 +1995,9 @@ fn level_bar(ui: &mut egui::Ui, ratio: f32, text: &str, unit: &str, color: Color
             ui.label(RichText::new(unit).small().color(palette.text_weak));
         }
     });
-    let (rect, _) =
+    let (rect, response) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), 8.), egui::Sense::hover());
+    describe(&response, format!("{text} {unit}"));
     ui.painter().rect_filled(rect, 2, palette.well);
     if ratio > 0. {
         let fill =
@@ -1801,11 +2005,24 @@ fn level_bar(ui: &mut egui::Ui, ratio: f32, text: &str, unit: &str, color: Color
         ui.painter().rect_filled(fill, 2, color);
     }
 }
+/// Gives a custom-painted read-out an accessible label for screen readers.
+fn describe(response: &egui::Response, label: impl Into<String>) {
+    let label = label.into();
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, label.trim()));
+}
 /// An indicator lamp: filled when on, a ring when off, dashed when unknown.
 fn lamp(ui: &mut egui::Ui, state: Option<bool>, color: Color32, radius: f32) {
     let palette = super::theme::of(ui);
-    let (rect, _) =
+    let (rect, response) =
         ui.allocate_exact_size(egui::Vec2::splat(radius * 2. + 2.), egui::Sense::hover());
+    describe(
+        &response,
+        match state {
+            Some(true) => "Indicator on",
+            Some(false) => "Indicator off",
+            None => "Indicator unknown",
+        },
+    );
     let center = rect.center();
     match state {
         Some(true) => {

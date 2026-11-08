@@ -1,0 +1,17 @@
+{
+  "about": "Protocol v0.2.2 conformance vectors (PROTOCOL.md). Each request is an 8-byte frame <HHi (type, address, value); each response is <hHi (status, address, value). A response value of null means any value is acceptable. Vectors run in order on one TCP connection to a freshly started device with the CNC profile, and leave its state as they found it.",
+  "vectors": [
+    { "name": "Take Control over TCP", "request": [5, 0, 1], "response": [5, 0, 1] },
+    { "name": "CONTROL_INTERFACE reports TCP_DATASTREAM", "request": [6, 2, 0], "response": [6, 2, 1] },
+    { "name": "System registers are read-only", "request": [7, 0, 5], "response": [-5, 0, null] },
+    { "name": "A successful write echoes the written value", "request": [2, 14, 250], "response": [2, 14, 250] },
+    { "name": "A read returns the value written", "request": [1, 14, 0], "response": [1, 14, 250] },
+    { "name": "Restore JOG_DISTANCE", "request": [2, 14, 100], "response": [2, 14, 100] },
+    { "name": "Writing a read-only register is refused", "request": [2, 0, 3], "response": [-5, 0, null] },
+    { "name": "Reading past the register map is out of range", "request": [1, 9999, 0], "response": [-4, 9999, null] },
+    { "name": "Reading a parameter", "request": [3, 0, 0], "response": [3, 0, null] },
+    { "name": "Writing past the parameter map is out of range", "request": [4, 9999, 1], "response": [-4, 9999, null] },
+    { "name": "Reading past the system registers is out of range", "request": [6, 999, 0], "response": [-4, 999, null] },
+    { "name": "An application command is acknowledged with SYS_COMMAND_OK", "request": [0, 16, 0], "response": [0, 16, null] }
+  ]
+}

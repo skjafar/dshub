@@ -40,6 +40,7 @@ pub enum ImportTarget {
     Profile,
     CommandMap { pane: String },
     Map { pane: String, space: Space },
+    Recording { pane: String },
 }
 type Imports = Arc<Mutex<Vec<(ImportTarget, Result<String, String>)>>>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,6 +133,12 @@ pub struct Session {
     history_keys: BTreeMap<(Space, u16), String>,
     pub command_responses: BTreeMap<u16, CommandResponse>,
     pub confirm: Option<(String, Action)>,
+    /// The pending confirmation is for a critical command: it needs a hold.
+    pub confirm_hold: bool,
+    /// Every reading is appended to this file while set.
+    pub recording: Option<super::recording::Recorder>,
+    /// Take Control as soon as the pending connection succeeds.
+    control_after_connect: bool,
     pub writes: BTreeMap<(Space, u16), WriteOutcome>,
     pub commands: BTreeMap<u16, WriteOutcome>,
 }
@@ -223,6 +230,9 @@ impl Session {
             history_keys: BTreeMap::new(),
             command_responses: BTreeMap::new(),
             confirm: None,
+            confirm_hold: false,
+            recording: None,
+            control_after_connect: false,
             writes: BTreeMap::new(),
             commands: BTreeMap::new(),
         }
@@ -263,6 +273,26 @@ impl Session {
             DEFAULT_TCP_PORT
         };
         Ok((address.to_string(), reported.unwrap_or(default)))
+    }
+    /// Connects, then takes Control once the connection is up.
+    pub fn connect_and_control(&mut self, address: &str, udp: bool) {
+        self.control_after_connect = true;
+        self.connect_to(address, udp);
+    }
+    /// Sends the Take Control a [`Self::connect_and_control`] asked for, once
+    /// connected; forgets it if the attempt ended without a connection.
+    fn control_when_connected(&mut self) {
+        if !self.control_after_connect {
+            return;
+        }
+        if self.connected() {
+            self.control_after_connect = false;
+            if !self.controlled() {
+                self.send(Action::Control);
+            }
+        } else if self.connection.is_none() && !self.busy {
+            self.control_after_connect = false;
+        }
     }
     pub fn connect_to(&mut self, address: &str, udp: bool) {
         match self.endpoint(address, udp) {
@@ -338,6 +368,31 @@ impl Session {
             .chain(self.commands.values())
             .any(|o| o.status == OutcomeStatus::Sending)
     }
+    /// Why the current connection deserves a warning: the protocol has no
+    /// authentication, so any host that can reach the device can command it.
+    /// `None` for TCP inside a private or loopback network.
+    pub fn exposure(&self) -> Option<&'static str> {
+        let c = self.connection.as_ref().filter(|_| self.connected())?;
+        let private = match c.ip.parse::<std::net::IpAddr>() {
+            Ok(std::net::IpAddr::V4(ip)) => {
+                ip.is_private() || ip.is_loopback() || ip.is_link_local()
+            }
+            Ok(std::net::IpAddr::V6(ip)) => {
+                ip.is_loopback()
+                    || (ip.segments()[0] & 0xfe00) == 0xfc00
+                    || (ip.segments()[0] & 0xffc0) == 0xfe80
+            }
+            // A host name: where it resolves is not shown, so warn.
+            Err(_) => false,
+        };
+        if !private {
+            Some("This device is outside a private network. DSHub's protocol has no authentication: any host that can reach it can read, write and take Control.")
+        } else if c.interface_type == InterfaceType::Udp {
+            Some("UDP replies are not authenticated and are easy to spoof on a shared network. Prefer TCP where possible.")
+        } else {
+            None
+        }
+    }
     pub fn connected(&self) -> bool {
         self.connection
             .as_ref()
@@ -363,6 +418,11 @@ impl Session {
     /// Shows a message over the workspace and records it in the Activity log.
     pub fn toast(&mut self, role: Role, text: impl Into<String>) {
         let text = text.into();
+        match role {
+            Role::Error => log::error!("{text}"),
+            Role::Warn => log::warn!("{text}"),
+            _ => log::info!("{text}"),
+        }
         let now = crate::communicator::now_ms();
         self.logs.push_back(LogEntry {
             level: match role {
@@ -481,7 +541,14 @@ impl Session {
     pub fn read(&mut self, s: Space, e: &Entry) {
         self.send(Action::Read(s, e.address, e.name.clone()));
     }
-    pub fn write(&mut self, s: Space, e: &Entry, text: &str, confirm: bool) {
+    pub fn write(
+        &mut self,
+        s: Space,
+        e: &Entry,
+        text: &str,
+        meta: Option<&Metadata>,
+        confirm: bool,
+    ) {
         if !self.connected() {
             self.notice = "Connect to a device first".into();
             return;
@@ -491,50 +558,121 @@ impl Session {
             return;
         }
         match e.encode(text) {
-            Ok(value) => self.write_raw(s, e, value, text, confirm),
+            Ok(value) => {
+                self.write_raw(s, e, value, text, meta, confirm);
+            }
             Err(e) => self.notice = e,
         }
     }
-    pub fn write_raw(&mut self, s: Space, e: &Entry, value: i32, text: &str, confirm: bool) {
+    /// Writes `value`, or asks for confirmation first. Returns whether the
+    /// write was submitted (or is awaiting confirmation), not refused.
+    pub fn write_raw(
+        &mut self,
+        s: Space,
+        e: &Entry,
+        value: i32,
+        text: &str,
+        meta: Option<&Metadata>,
+        confirm: bool,
+    ) -> bool {
         if !e.writable || s == Space::SysRegister || !self.connected() {
             self.notice = "Entry cannot be written in the current state".into();
-            return;
+            return false;
+        }
+        if let Some(Err(error)) = meta.map(|m| m.check(e, value)) {
+            self.notice = error;
+            return false;
         }
         let action = Action::Write(s, e.address, value);
         if confirm {
-            self.confirm = Some((format!("Write {text} to {}?", e.name), action));
+            let unit = meta
+                .map(|m| m.unit.as_str())
+                .filter(|u| !u.is_empty())
+                .map(|u| format!(" {u}"))
+                .unwrap_or_default();
+            let current = self
+                .readings
+                .get(&(s, e.address))
+                .filter(|r| r.valid)
+                .map(|r| DisplayFormat::Native.format_with(e, r.value, meta))
+                .unwrap_or_else(|| "not read yet".into());
+            let proposed = DisplayFormat::Native.format_with(e, value, meta);
+            self.confirm = Some((
+                format!(
+                    "Write {} to {}?\nDevice value: {current}{unit}\nNew value: {proposed}{unit}",
+                    text.trim(),
+                    e.name
+                ),
+                action,
+            ));
+            self.confirm_hold = false;
+            true
         } else {
+            let controlled = self.controlled();
             self.send(action);
+            controlled
         }
     }
+    /// Like [`Self::write_raw`], from text in `format`.
     pub fn write_formatted(
         &mut self,
         s: Space,
         e: &Entry,
         text: &str,
         format: DisplayFormat,
+        meta: Option<&Metadata>,
         confirm: bool,
-    ) {
-        match format.encode(e, text) {
-            Ok(raw) => self.write_raw(s, e, raw, text, confirm),
-            Err(error) => self.notice = error,
+    ) -> bool {
+        match format.encode_with(e, text, meta) {
+            Ok(raw) => self.write_raw(s, e, raw, text, meta, confirm),
+            Err(error) => {
+                self.notice = error;
+                false
+            }
         }
     }
 
-    pub fn command(&mut self, code: u16, value: i32, confirm: bool) {
+    /// Sends a command; `info` is its catalogue entry, when it has one.
+    /// Critical commands are always confirmed, with a press-and-hold.
+    pub fn command(&mut self, code: u16, value: i32, info: Option<&SysCommand>, confirm: bool) {
         if !self.controlled() {
             self.notice = "Take Control before sending commands".into();
             return;
         }
         let a = Action::Command(code, value);
-        if confirm {
-            self.confirm = Some((format!("Send command {code} with value {value}?"), a));
+        let critical = info.is_some_and(|c| c.critical);
+        if confirm || critical {
+            let device = self
+                .connection
+                .as_ref()
+                .map(|c| {
+                    c.device_name
+                        .clone()
+                        .unwrap_or_else(|| format!("{}:{}", c.ip, c.port))
+                })
+                .unwrap_or_default();
+            let message = match info {
+                Some(c) if c.description.is_empty() => {
+                    format!(
+                        "Send {} (command {code}, value {value}) to {device}?",
+                        c.name
+                    )
+                }
+                Some(c) => format!(
+                    "Send {} (command {code}, value {value}) to {device}?\n{}",
+                    c.name, c.description
+                ),
+                None => format!("Send command {code} with value {value} to {device}?"),
+            };
+            self.confirm = Some((message, a));
+            self.confirm_hold = critical;
         } else {
             self.send(a);
         }
     }
     pub fn drain(&mut self, p: &Profile, prefs: &Preferences) {
         self.flush_notice();
+        self.control_when_connected();
         for event in self.app.drain() {
             match event {
                 Event::DeviceDiscovered(d) => {
@@ -569,7 +707,15 @@ impl Session {
                     self.busy = false;
                     self.toast(Role::Error, error);
                 }
-                Event::Log(l) => self.logs.push_back(l),
+                Event::Log(l) => {
+                    // Problems also reach the log file for field reports.
+                    match l.level {
+                        LogLevel::Error => log::error!("{}", l.message),
+                        LogLevel::Warning => log::warn!("{}", l.message),
+                        _ => {}
+                    }
+                    self.logs.push_back(l)
+                }
                 Event::CommandResponse(response) => {
                     if response.valid {
                         self.toast(
@@ -636,7 +782,54 @@ impl Session {
         let mut imports = self.imports.lock().unwrap_or_else(|e| e.into_inner());
         self.received_imports.append(&mut imports);
     }
+    /// Starts or stops recording readings to a file.
+    pub fn toggle_recording(&mut self) {
+        match self.recording.take() {
+            Some(recorder) => {
+                let samples = recorder.samples;
+                match recorder.finish() {
+                    Ok(path) => self.toast(
+                        Role::Ok,
+                        format!("Recorded {samples} samples to {}", path.display()),
+                    ),
+                    Err(e) => self.toast(Role::Error, format!("Recording failed: {e}")),
+                }
+            }
+            None => match super::recording::Recorder::start() {
+                Ok(recorder) => self.recording = Some(recorder),
+                Err(e) => self.toast(Role::Error, format!("Cannot record: {e}")),
+            },
+        }
+    }
+    /// Loads a recording's samples as plot histories; returns its tracks'
+    /// addresses and names for the caller to plot.
+    pub fn replay(&mut self, text: &str, prefs: &Preferences) -> Vec<(Space, u16, String)> {
+        let tracks = match super::recording::parse(text) {
+            Ok(tracks) => tracks,
+            Err(e) => {
+                self.toast(Role::Error, e);
+                return vec![];
+            }
+        };
+        let mut plotted = vec![];
+        for mut track in tracks {
+            while track.points.len() > prefs.max_points {
+                track.points.pop_front();
+            }
+            let key = (track.space, track.address);
+            // Kept through this frame's sync, before any pane plots it.
+            self.history_wanted.insert(key, track.name.clone());
+            self.histories.insert(key, track.points);
+            plotted.push((track.space, track.address, track.name));
+        }
+        plotted
+    }
     fn reading(&mut self, s: Space, r: RegisterData, p: &Profile, prefs: &Preferences) {
+        if r.valid {
+            if let Some(recorder) = &mut self.recording {
+                recorder.write(s, &r, p.entry_at(s, r.address).as_ref());
+            }
+        }
         if s == Space::SysRegister && r.address == CONTROL_INTERFACE && r.valid {
             let held = self.controlled();
             if let Some(c) = &mut self.connection {
@@ -695,7 +888,8 @@ impl Session {
             }
         });
     }
-    pub fn export(&self, content: String, name: &str, ext: &str) {
+    pub fn export(&self, content: impl Into<Vec<u8>>, name: &str, ext: &str) {
+        let content = content.into();
         // The async dialog runs on the platform's required thread (the main
         // thread on macOS) without blocking the interface.
         let dialog = rfd::AsyncFileDialog::new()

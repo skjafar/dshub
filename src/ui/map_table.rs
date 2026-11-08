@@ -1,5 +1,6 @@
 use super::{
     colors,
+    controls::{self, mark_unsaved},
     session::{ImportTarget, Session},
 };
 use crate::model::*;
@@ -55,7 +56,22 @@ pub fn show(
     space: Space,
     session: &mut Session,
     pane: &str,
+    saved: &Profile,
 ) {
+    // The saved rows, by name, with their addresses: fields that differ from
+    // them are outlined until the Profile is saved.
+    let mut saved_rows = std::collections::HashMap::new();
+    let mut saved_address = 0usize;
+    for row in self::rows(saved.map(space), space).unwrap_or_default() {
+        let size = if row.array { row.count } else { 1 };
+        saved_rows.insert(row.name.clone(), (saved_address, row));
+        saved_address += size;
+    }
+    let saved_meta = match space {
+        Space::Register => Some(&saved.registers_metadata),
+        Space::Parameter => Some(&saved.parameters_metadata),
+        Space::SysRegister => None,
+    };
     let target = ImportTarget::Map {
         pane: pane.to_string(),
         space,
@@ -134,29 +150,59 @@ pub fn show(
                         ui.label(super::theme::caption(ui, label));
                     }
                     ui.end_row();
+                    let palette = super::theme::of(ui);
+                    let mut previous_writable = None;
                     for (index, row) in rows.iter_mut().enumerate() {
                         let row_top = ui.cursor().top();
-                        ui.dnd_drag_source(ui.id().with(("map-row", index)), index, |ui| {
-                            ui.monospace(format!("≡ {address}"));
-                        });
+                        if space == Space::Register
+                            && previous_writable == Some(false)
+                            && row.writable
+                        {
+                            // Halfway into the grid's row spacing, across the
+                            // rows laid out so far.
+                            let rect = ui.min_rect();
+                            controls::access_boundary(
+                                ui.painter(),
+                                &palette,
+                                rect.x_range(),
+                                row_top - 3.,
+                            );
+                        }
+                        previous_writable = Some(row.writable);
+                        let before = saved_rows.get(&row.name);
+                        let differs = |f: &dyn Fn(&Row) -> bool| before.is_none_or(|(_, r)| f(r));
+                        let moved = before.is_none_or(|(a, _)| *a != address);
+                        let handle = ui
+                            .dnd_drag_source(ui.id().with(("map-row", index)), index, |ui| {
+                                ui.monospace(format!("{} {address}", super::icons::DRAG));
+                            })
+                            .response;
+                        mark_unsaved(ui, handle, moved);
                         address += if row.array { row.count } else { 1 };
                         let old_name = row.name.clone();
-                        ui.add_sized([220., 22.], egui::TextEdit::singleline(&mut row.name));
-                        egui::ComboBox::from_id_salt(("type", index))
+                        let name =
+                            ui.add_sized([220., 22.], egui::TextEdit::singleline(&mut row.name));
+                        mark_unsaved(ui, name, before.is_none());
+                        let ty = egui::ComboBox::from_id_salt(("type", index))
                             .width(90.)
                             .selected_text(row.data_type)
                             .show_ui(ui, |ui| {
                                 for ty in DataType::DECLARABLE {
                                     ui.selectable_value(&mut row.data_type, ty, ty);
                                 }
-                            });
-                        ui.checkbox(&mut row.array, "");
-                        ui.add_enabled(
+                            })
+                            .response;
+                        mark_unsaved(ui, ty, differs(&|r| r.data_type != row.data_type));
+                        let array = ui.checkbox(&mut row.array, "");
+                        mark_unsaved(ui, array, differs(&|r| r.array != row.array));
+                        let count = ui.add_enabled(
                             row.array,
                             egui::DragValue::new(&mut row.count).range(1..=65536),
                         );
+                        mark_unsaved(ui, count, row.array && differs(&|r| r.count != row.count));
                         if space == Space::Register {
-                            egui::ComboBox::from_id_salt(("access", index))
+                            let writable = row.writable;
+                            let access = egui::ComboBox::from_id_salt(("access", index))
                                 .width(100.)
                                 .selected_text(if row.writable {
                                     "Read/write"
@@ -166,7 +212,9 @@ pub fn show(
                                 .show_ui(ui, |ui| {
                                     ui.selectable_value(&mut row.writable, false, "Read-only");
                                     ui.selectable_value(&mut row.writable, true, "Read/write");
-                                });
+                                })
+                                .response;
+                            mark_unsaved(ui, access, differs(&|r| r.writable != writable));
                         } else {
                             ui.label(if space == Space::Parameter {
                                 "Read/write"
@@ -185,8 +233,15 @@ pub fn show(
                                     metadata.insert(row.name.clone(), value);
                                 }
                             }
+                            // Opening Details adds an empty entry; that is no change.
+                            let set = |m: &std::collections::BTreeMap<String, Metadata>| {
+                                m.get(&row.name)
+                                    .filter(|m| **m != Metadata::default())
+                                    .cloned()
+                            };
+                            let meta_changed = saved_meta.is_some_and(|m| set(m) != set(metadata));
                             ui.push_id(("details", index), |ui| {
-                                ui.menu_button("Details…", |ui| {
+                                let details = ui.menu_button("Details…", |ui| {
                                     let meta = metadata.entry(row.name.clone()).or_default();
                                     ui.label("Unit");
                                     ui.text_edit_singleline(&mut meta.unit);
@@ -205,7 +260,7 @@ pub fn show(
                                                     .desired_width(140.)
                                                     .hint_text("Label"),
                                             );
-                                            if ui.small_button("×").clicked() {
+                                            if ui.small_button(super::icons::CLOSE).clicked() {
                                                 delete = Some(i);
                                             }
                                         });
@@ -220,6 +275,7 @@ pub fn show(
                                         });
                                     }
                                 });
+                                mark_unsaved(ui, details.response, meta_changed);
                             });
                         } else {
                             ui.weak("Protocol");

@@ -27,7 +27,7 @@
 - Visual redesign: tonal dark and light themes with a restrained cyan accent; bundled Inter (tabular figures) and JetBrains Mono.
 - One-row toolbar with a device chip that shows connection, transport and Control, and opens a connection panel listing discovered devices.
 - Messages appear as toasts by severity and are kept in the Activity log.
-- Registers, Parameters and System Registers are tables with headers, resizable columns, units, status and in-place editing (double-click or Edit, Enter to write, Esc to cancel).
+- Registers, Parameters and System Registers are tables with headers, resizable columns, units, status and in-place editing (double-click or Edit, Enter to write, Esc to discard). Values not yet sent stay outlined until written or discarded.
 - Activity log is a filterable table with local times; plots use clock-time axes, read-outs on hover and an empty state.
 - Dashboard widgets: cards by depth, fitted read-outs, arc gauge with limits, level bars, lamps, bit grid, inline value writes, dropdowns that show the current option, and a quiet status dot.
 - Widget configuration is grouped into labelled sections. Overview, Inspector, Commands, Profiles, Preferences, Workspaces and Guide are redesigned.
@@ -35,6 +35,23 @@
 - Settings are written only after input, window moves or imports, instead of serialised every 5 s while idle. The Map Editor no longer regenerates its map every frame, and imported rows reach the draft immediately.
 - Removing a dashboard widget or a plot trace shows a toast with Undo.
 - Register and Parameter panes add a DEFAULT view, now the default for new panes: each entry is shown in its declared type (integers in decimal, floats as floats, hex entries in hexadecimal).
+- Engineering units: map metadata can declare scale, offset and write limits. Tables (DEFAULT view), the Inspector, plots and widgets show scaled values; writes outside the limits are refused, and confirmations show the device value next to the new one.
+- Critical commands (Write Flash, Reset Firmware, or any Profile command marked critical) always ask, with a press-and-hold confirm. Confirmations name the command and device.
+- Plots: crosshair read-out of every trace at the pointer, PNG export, and recording every reading to CSV with offline replay.
+- Map Editor outlines every field that differs from the saved Profile until it is saved.
+- Window titles, the main window's included, name the device and Profile. A daughter window closes when its last pane is closed or moved away.
+- Manage Profiles can create empty Profiles, rename any Profile and delete any Profile but the last.
+- Activity log: source filter, a Pause that holds the entries shown while new activity is still collected, and a packet inspector that decodes the selected frame.
+- Connection panel: recent devices and Connect + Take Control. The device chip warns about unauthenticated connections (UDP, or outside a private network).
+- Live tables poll only the rows in view. Ctrl+K opens a command palette; `/` focuses search.
+- Status Matrix: bit names from map metadata and 8/16/32-bit layouts. Custom-drawn widgets have accessibility labels.
+- Dashboard editing: visible grid with snapping, click and Ctrl/Shift-click selection, arrow-key nudge, Delete, and layout undo/redo.
+- Phosphor icon font replaces Unicode symbols.
+- Daughter window titles name the device and Profile; windows restored onto a missing monitor move next to the main window.
+- Warnings, errors and crash reports are written to a log folder (Preferences > Logging > Open log folder).
+- Profiles are stored as separate files; saved settings carry a schema version with migrations.
+- Protocol conformance vectors (`tests/protocol-vectors.json`) run against the emulator in CI. PROTOCOL.md lists every status code.
+- CI signs Windows builds and signs and notarizes a macOS app bundle when certificates are configured. The AUR recipe targets the native 0.3.0 release.
 - The Activity log records successful register and parameter reads and writes, polled reads with polling start and stop, and plot traces starting or stopping recording, each under its own category. Previously only failures and packet dumps appeared.
 - The emulator accepts `--host` to serve other machines; discovery reports the address that reaches the client.
 

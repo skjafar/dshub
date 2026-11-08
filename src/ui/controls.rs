@@ -79,6 +79,36 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut egui::Ui, value: &mut T, options:
     });
 }
 
+/// A button that fires only after being held for `seconds`; the fill shows
+/// progress, and releasing early cancels.
+pub fn hold_button(ui: &mut egui::Ui, label: &str, seconds: f64) -> bool {
+    let warn = colors::role(ui, Role::Warn);
+    let response = ui.add(
+        egui::Button::new(egui::RichText::new(label).color(warn)).min_size(egui::vec2(140., 0.)),
+    );
+    let id = response.id.with("hold");
+    let now = ui.input(|i| i.time);
+    if !response.is_pointer_button_down_on() {
+        ui.data_mut(|d| d.remove_temp::<f64>(id));
+        return false;
+    }
+    let start = ui.data_mut(|d| *d.get_temp_mut_or_insert_with(id, || now));
+    let progress = ((now - start) / seconds).clamp(0., 1.) as f32;
+    let mut fill = response.rect;
+    fill.set_width(fill.width() * progress);
+    ui.painter().rect_filled(
+        fill,
+        ui.visuals().widgets.active.corner_radius,
+        warn.gamma_multiply(0.3),
+    );
+    if progress >= 1. {
+        ui.data_mut(|d| d.remove_temp::<f64>(id));
+        return true;
+    }
+    ui.ctx().request_repaint();
+    false
+}
+
 /// The toolbar's connection summary: status dot, device and transport, and
 /// whether this session holds Control.
 pub fn device_chip(ui: &egui::Ui, session: &super::session::Session) -> egui::text::LayoutJob {
@@ -120,9 +150,49 @@ pub fn device_chip(ui: &egui::Ui, session: &super::session::Session) -> egui::te
             } else {
                 (Role::Warn, "  NO CONTROL")
             };
-            job.append(label, 0., TextFormat::simple(small, colors::role(ui, role)));
+            job.append(
+                label,
+                0.,
+                TextFormat::simple(small.clone(), colors::role(ui, role)),
+            );
+            if session.exposure().is_some() {
+                job.append(
+                    "  UNSECURED",
+                    0.,
+                    TextFormat::simple(small, colors::role(ui, Role::Warn)),
+                );
+            }
         }
         None => job.append(state, 0., TextFormat::simple(body, palette.text)),
     }
     job
+}
+
+/// Outlines a field whose value is changed but not yet saved or sent;
+/// `changed` false leaves it unmarked. Returns the response for chaining.
+pub fn mark_unsaved(ui: &egui::Ui, response: egui::Response, changed: bool) -> egui::Response {
+    if changed {
+        ui.painter().rect_stroke(
+            response.rect.expand(1.),
+            3.,
+            egui::Stroke::new(1.5_f32, colors::role(ui, Role::Warn)),
+            egui::StrokeKind::Outside,
+        );
+    }
+    response
+}
+
+/// The line between read-only and read/write registers: subtle, but visible
+/// in both themes.
+pub fn access_boundary(
+    painter: &egui::Painter,
+    palette: &super::theme::Palette,
+    x: egui::Rangef,
+    y: f32,
+) {
+    painter.hline(
+        x,
+        y,
+        egui::Stroke::new(1_f32, palette.text_weak.gamma_multiply(0.45)),
+    );
 }

@@ -23,4 +23,4 @@ Named Workspaces and current layouts belong to a Profile. Settings, native windo
 
 ## Verification
 
-`cargo test --locked` covers domain behavior and headless egui interactions. `cargo test --locked --test emulator -- --ignored` launches the real Python emulator for TCP/UDP integration. `bash tests/native-smoke.sh` exercises eighteen native rendering scenes against the emulator with isolated Linux storage and saves screenshots. See `docs/egui-migration.md` for evidence and the remaining platform/hardware acceptance work.
+`cargo test --locked` covers domain behavior and headless egui interactions. `cargo test --locked --test emulator -- --ignored` launches the real Python emulator for TCP/UDP integration. `bash tests/native-smoke.sh` exercises eighteen native rendering scenes against the emulator with isolated Linux storage and saves screenshots; name scenes (`bash tests/native-smoke.sh registers editor`) to render only those. See `docs/egui-migration.md` for evidence and the remaining platform/hardware acceptance work.

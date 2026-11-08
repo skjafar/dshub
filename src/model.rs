@@ -103,14 +103,14 @@ text_enum!(
 impl Direction {
     pub fn arrow(self) -> &'static str {
         match self {
-            Self::Up => "↑",
-            Self::Down => "↓",
-            Self::Left => "←",
-            Self::Right => "→",
-            Self::UpLeft => "↖",
-            Self::UpRight => "↗",
-            Self::DownLeft => "↙",
-            Self::DownRight => "↘",
+            Self::Up => egui_phosphor::regular::ARROW_UP,
+            Self::Down => egui_phosphor::regular::ARROW_DOWN,
+            Self::Left => egui_phosphor::regular::ARROW_LEFT,
+            Self::Right => egui_phosphor::regular::ARROW_RIGHT,
+            Self::UpLeft => egui_phosphor::regular::ARROW_UP_LEFT,
+            Self::UpRight => egui_phosphor::regular::ARROW_UP_RIGHT,
+            Self::DownLeft => egui_phosphor::regular::ARROW_DOWN_LEFT,
+            Self::DownRight => egui_phosphor::regular::ARROW_DOWN_RIGHT,
         }
     }
 }
@@ -160,6 +160,32 @@ impl DisplayFormat {
             Self::Decimal => "Decimal",
             Self::Hexadecimal => "Hexadecimal",
             Self::Binary => "Binary",
+        }
+    }
+    /// Like [`Self::format`], but the Default view shows engineering values
+    /// for entries that declare scaling.
+    pub fn format_with(self, e: &Entry, raw: i32, meta: Option<&Metadata>) -> String {
+        match (self, meta.and_then(Metadata::scaling)) {
+            (Self::Native, Some(_)) => format_number(e.engineering(raw, meta)),
+            _ => self.format(e, raw),
+        }
+    }
+    /// The inverse of [`Self::format_with`].
+    pub fn encode_with(
+        self,
+        e: &Entry,
+        text: &str,
+        meta: Option<&Metadata>,
+    ) -> Result<i32, String> {
+        match (self, meta.and_then(Metadata::scaling)) {
+            (Self::Native, Some(_)) => {
+                let value = text
+                    .trim()
+                    .parse::<f64>()
+                    .map_err(|_| "Expected a number".to_string())?;
+                e.from_engineering(value, meta)
+            }
+            _ => self.encode(e, text),
         }
     }
     pub fn format(self, e: &Entry, raw: i32) -> String {
@@ -214,6 +240,44 @@ impl Entry {
             DataType::Float => f32::from_bits(value as u32) as f64,
             DataType::Uint32 | DataType::Hex => value as u32 as f64,
             _ => value as f64,
+        }
+    }
+    /// The decoded value with the entry's engineering scaling applied.
+    pub fn engineering(&self, raw: i32, meta: Option<&Metadata>) -> f64 {
+        let decoded = self.decode(raw);
+        match meta.and_then(Metadata::scaling) {
+            Some((scale, offset)) => decoded * scale + offset,
+            None => decoded,
+        }
+    }
+    /// The raw value for an engineering value: the inverse of [`Self::engineering`].
+    pub fn from_engineering(&self, value: f64, meta: Option<&Metadata>) -> Result<i32, String> {
+        let (scale, offset) = meta.and_then(Metadata::scaling).unwrap_or((1., 0.));
+        if scale == 0. {
+            return Err(format!("{} has a scale of zero", self.name));
+        }
+        let decoded = (value - offset) / scale;
+        if !decoded.is_finite() {
+            return Err("Expected a finite number".into());
+        }
+        match self.data_type {
+            DataType::Float => Ok((decoded as f32).to_bits() as i32),
+            DataType::Uint32 | DataType::Hex => {
+                let v = decoded.round();
+                if (0.0..=u32::MAX as f64).contains(&v) {
+                    Ok(v as u32 as i32)
+                } else {
+                    Err("Out of range for an unsigned 32-bit value".into())
+                }
+            }
+            _ => {
+                let v = decoded.round();
+                if (i32::MIN as f64..=i32::MAX as f64).contains(&v) {
+                    Ok(v as i32)
+                } else {
+                    Err("Out of range for a signed 32-bit value".into())
+                }
+            }
         }
     }
     pub fn format(&self, value: i32) -> String {
@@ -436,6 +500,9 @@ pub struct SysCommand {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    /// Always confirmed, with a press-and-hold, wherever it is sent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub critical: bool,
 }
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -446,6 +513,80 @@ pub struct Metadata {
     pub unit: String,
     #[serde(default)]
     pub value_list: Vec<ValueLabel>,
+    /// Engineering value = decoded value × scale + offset. Shared by tables,
+    /// the Inspector, plots and widgets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset: Option<f64>,
+    /// Write limits in engineering units, checked before a write is sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
+    /// Names of individual bits, for status words.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bits: Vec<BitLabel>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BitLabel {
+    pub bit: u8,
+    pub label: String,
+}
+impl Metadata {
+    pub fn bit_name(&self, bit: u8) -> Option<&str> {
+        self.bits
+            .iter()
+            .find(|b| b.bit == bit)
+            .map(|b| b.label.as_str())
+            .filter(|l| !l.is_empty())
+    }
+    /// (scale, offset) when the entry declares engineering scaling.
+    pub fn scaling(&self) -> Option<(f64, f64)> {
+        (self.scale.is_some() || self.offset.is_some())
+            .then(|| (self.scale.unwrap_or(1.), self.offset.unwrap_or(0.)))
+    }
+    /// Refuses a raw value whose engineering value is outside min/max.
+    pub fn check(&self, e: &Entry, raw: i32) -> Result<(), String> {
+        let value = e.engineering(raw, Some(self));
+        let unit = if self.unit.is_empty() {
+            String::new()
+        } else {
+            format!(" {}", self.unit)
+        };
+        if let Some(min) = self.min.filter(|min| value < *min) {
+            return Err(format!(
+                "{} is below the minimum {}{unit} for {}",
+                format_number(value),
+                format_number(min),
+                e.name
+            ));
+        }
+        if let Some(max) = self.max.filter(|max| value > *max) {
+            return Err(format!(
+                "{} is above the maximum {}{unit} for {}",
+                format_number(value),
+                format_number(max),
+                e.name
+            ));
+        }
+        Ok(())
+    }
+}
+/// Shortest text for an engineering value.
+pub fn format_number(v: f64) -> String {
+    let magnitude = v.abs();
+    if v == 0. || !v.is_finite() || (1e-4..1e12).contains(&magnitude) {
+        let text = format!("{v:.9}");
+        let text = text.trim_end_matches('0').trim_end_matches('.');
+        if text == "-0" {
+            "0".into()
+        } else {
+            text.into()
+        }
+    } else {
+        format!("{v:e}")
+    }
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValueLabel {
@@ -484,6 +625,10 @@ impl Profile {
                 .cloned(),
         );
         commands
+    }
+    /// The catalogued command for `code`, library commands included.
+    pub fn command(&self, code: u16) -> Option<SysCommand> {
+        self.commands().into_iter().find(|c| c.code == code)
     }
     pub fn board_type_name(&self, id: u8) -> String {
         static PATTERN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
@@ -611,7 +756,7 @@ impl Profile {
 impl Profile {
     /// A blank, non-default Profile carrying the protocol's system registers,
     /// board types and library commands.
-    fn template() -> Self {
+    pub fn template() -> Self {
         Profile {
             id: unique_id(),
             name: String::new(),
@@ -633,16 +778,19 @@ fn library_commands() -> Vec<SysCommand> {
             code: 65000,
             name: "Read Flash".into(),
             description: "Load parameters from flash".into(),
+            critical: false,
         },
         SysCommand {
             code: 65001,
             name: "Write Flash".into(),
             description: "Persist parameters to flash".into(),
+            critical: true,
         },
         SysCommand {
             code: 65002,
             name: "Reset Firmware".into(),
             description: "Restart the device".into(),
+            critical: true,
         },
     ]
 }
@@ -847,6 +995,9 @@ pub struct Widget {
     pub off_label: String,
     #[serde(default = "default_true")]
     pub show_inactive: bool,
+    /// Status Matrix width: 8, 16 or 32 bits.
+    #[serde(default = "default_bit_count")]
+    pub bit_count: u8,
     #[serde(default = "default_decimals")]
     pub decimals: usize,
     #[serde(default)]
@@ -878,6 +1029,9 @@ fn default_padding() -> f32 {
 }
 fn default_on_value() -> f64 {
     1.
+}
+fn default_bit_count() -> u8 {
+    32
 }
 fn default_true() -> bool {
     true
@@ -929,6 +1083,7 @@ impl Widget {
             on_label: "On".into(),
             off_label: "Off".into(),
             show_inactive: true,
+            bit_count: 32,
             decimals: 3,
             show_raw: false,
             secondary_unit: String::new(),
@@ -968,6 +1123,32 @@ pub struct Preferences {
     pub time_span: f64,
     pub max_points: usize,
     pub log_settings: crate::types::LogSettings,
+    /// Devices connected to most recently, newest first.
+    pub recent: Vec<RecentDevice>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecentDevice {
+    /// `ip:port` as connected.
+    pub address: String,
+    pub udp: bool,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+impl Preferences {
+    /// How many recent devices are remembered.
+    pub const RECENT: usize = 6;
+    /// Moves a successful connection to the front of the recent list;
+    /// returns whether the list changed.
+    pub fn remember(&mut self, device: RecentDevice) -> bool {
+        if self.recent.first() == Some(&device) {
+            return false;
+        }
+        self.recent
+            .retain(|d| !(d.address == device.address && d.udp == device.udp));
+        self.recent.insert(0, device);
+        self.recent.truncate(Self::RECENT);
+        true
+    }
 }
 fn default_retries() -> u32 {
     3
@@ -989,6 +1170,7 @@ impl Default for Preferences {
             time_span: 60.,
             max_points: 20000,
             log_settings: Default::default(),
+            recent: vec![],
         }
     }
 }
@@ -1059,6 +1241,61 @@ mod tests {
 #[cfg(test)]
 mod parse_tests {
     use super::*;
+
+    #[test]
+    fn recent_devices_are_unique_newest_first_and_bounded() {
+        let mut prefs = Preferences::default();
+        let device = |n: usize, udp| RecentDevice {
+            address: format!("10.0.0.{n}:2009"),
+            udp,
+            name: None,
+        };
+        for n in 0..8 {
+            assert!(prefs.remember(device(n, false)));
+        }
+        assert!(!prefs.remember(device(7, false)));
+        assert!(prefs.remember(device(3, false)));
+        assert!(prefs.remember(device(3, true)));
+        let order: Vec<_> = prefs
+            .recent
+            .iter()
+            .map(|d| (d.address.clone(), d.udp))
+            .collect();
+        assert_eq!(prefs.recent.len(), Preferences::RECENT);
+        assert_eq!(order[0], ("10.0.0.3:2009".into(), true));
+        assert_eq!(order[1], ("10.0.0.3:2009".into(), false));
+        assert_eq!(order[2], ("10.0.0.7:2009".into(), false));
+    }
+
+    #[test]
+    fn engineering_scaling_round_trips_and_limits_are_checked() {
+        let e = &parse_map("int32_t T;", Space::Register).unwrap()[0];
+        let meta = Metadata {
+            unit: "°C".into(),
+            scale: Some(0.1),
+            offset: Some(-40.),
+            min: Some(-20.),
+            max: Some(85.),
+            ..Default::default()
+        };
+        let native = DisplayFormat::Native;
+        assert_eq!(native.format_with(e, 650, Some(&meta)), "25");
+        assert_eq!(native.encode_with(e, "25", Some(&meta)), Ok(650));
+        assert_eq!(
+            DisplayFormat::Decimal.format_with(e, 650, Some(&meta)),
+            "650"
+        );
+        assert!(meta.check(e, 650).is_ok());
+        assert_eq!(
+            meta.check(e, 100).unwrap_err(),
+            "-30 is below the minimum -20 °C for T"
+        );
+        assert!(meta
+            .check(e, 1300)
+            .unwrap_err()
+            .contains("above the maximum 85"));
+        assert!(Metadata::default().scaling().is_none());
+    }
 
     #[test]
     fn default_format_shows_each_entry_in_its_declared_type() {

@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() -> eframe::Result<()> {
-    env_logger::init();
+    dshub::diagnostics::init();
     eframe::run_native(
         "DSHub",
         eframe::NativeOptions {

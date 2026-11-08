@@ -1,19 +1,34 @@
 #!/usr/bin/env bash
+# Renders native scenes against the emulator and saves screenshots.
+# Usage: tests/native-smoke.sh [OUTPUT_DIR] [SCENE...]
+# With no scenes, all of them run. OUTPUT_DIR (default target/native-smoke)
+# is recognised by containing a slash.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cargo build --locked --features native-smoke --target-dir target/native-smoke-build
-python3 - "${1:-target/native-smoke}" <<'PY'
+python3 - "$@" <<'PY'
 import os, subprocess, sys, tempfile, time
 from pathlib import Path
 if sys.platform != 'linux':
     raise SystemExit('This rendering harness currently isolates application storage on Linux only.')
-out = Path(sys.argv[1]).resolve()
+SCENES = ['registers', 'parameters', 'system', 'commands', 'inspector', 'log', 'plot', 'editor', 'dashboard', 'cnc', 'cnc-edit', 'review', 'native-window', 'workspace', 'profiles', 'preferences', 'guide', 'light']
+out = Path('target/native-smoke')
+scenes = []
+for arg in sys.argv[1:]:
+    if '/' in arg:
+        out = Path(arg)
+    elif arg in SCENES:
+        scenes.append(arg)
+    else:
+        raise SystemExit(f'Unknown scene {arg!r}. Scenes: {" ".join(SCENES)}')
+scenes = scenes or SCENES
+out = out.resolve()
 out.mkdir(parents=True, exist_ok=True)
 with tempfile.TemporaryDirectory(prefix='dshub-smoke-state-') as state:
     emulator = subprocess.Popen(['python3', '-u', 'emulator/dshub_emulator.py'], stdout=subprocess.DEVNULL)
     try:
         time.sleep(.8)
-        for scene in ['registers', 'parameters', 'system', 'commands', 'inspector', 'log', 'plot', 'editor', 'dashboard', 'cnc', 'cnc-edit', 'review', 'native-window', 'workspace', 'profiles', 'preferences', 'guide', 'light']:
+        for scene in scenes:
             (out / f'{scene}.png').unlink(missing_ok=True)
             env = os.environ.copy()
             env.update(DSHUB_SCREENSHOT=str(out / f'{scene}.png'), DSHUB_SMOKE_SCENE=scene, XDG_DATA_HOME=state, XDG_CONFIG_HOME=state)

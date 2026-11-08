@@ -100,7 +100,11 @@ Positive values echo the successful operation code; negative values are errors.
 |  4 | `WRITE_PARAMETER_OK` |
 |  5 | `CONTROL_OK` |
 |  6 | `READ_SYS_REG_OK` |
+| -1 | `ERROR` — unspecified failure |
+| -4 | `ADDRESS_OUT_OF_RANGE` — the address is past the end of the addressed map |
 | -5 | `PERMISSION_ERROR` — e.g. writing to a read-only register or `WRITE_SYSTEM_REGISTER` |
+
+`tests/protocol-vectors.json` lists request and response frames that every device must produce; `cargo test --test conformance -- --ignored` replays them against the emulator, or against a device on a bench with `DSHUB_CONFORMANCE_ADDR=ip:port`.
 
 ---
 

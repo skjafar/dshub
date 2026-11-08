@@ -103,6 +103,7 @@ pub fn parse_commands(text: &str) -> Result<Vec<SysCommand>, String> {
             name: name.into(),
             description: serde_json::from_str::<String>(description)
                 .unwrap_or_else(|_| description.trim().into()),
+            critical: false,
         });
     }
     Ok(commands)
@@ -125,6 +126,7 @@ mod tests {
             code: 0,
             name: "ENABLE".into(),
             description: "Enable all motors".into(),
+            critical: false,
         }];
         let parsed = parse_commands(&commands_map(&c)).unwrap();
         assert_eq!(parsed[0].code, 0);

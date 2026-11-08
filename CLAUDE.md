@@ -14,6 +14,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo build --locked --release
 cargo test --locked --test emulator -- --ignored
 bash tests/native-smoke.sh
+bash tests/native-smoke.sh registers editor   # only the named scenes
 ```
 
 The emulator and rendering harness need free TCP 2009 / UDP 2011. The rendering harness is Linux-only and isolates application settings. Do not run smoke fixtures against physical devices.

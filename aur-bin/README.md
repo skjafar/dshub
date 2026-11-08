@@ -9,7 +9,7 @@ Arch Linux package for DSHub, a native desktop application for monitoring and co
 | Package name | `dshub-bin` |
 | Architecture | `x86_64` |
 | License | MIT |
-| Runtime deps | `webkit2gtk-4.1`, `gtk3`, `libsoup3`, `openssl`, `xdg-utils` |
+| Runtime deps | `libgl`, `libxkbcommon`, `wayland`, X11 client libraries, `xdg-utils` (optional: `xdg-desktop-portal`) |
 
 ## Installation
 

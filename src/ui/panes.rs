@@ -7,6 +7,8 @@ use crate::model::Role;
 use crate::{model::*, types::*};
 use eframe::egui::{self, Color32, RichText};
 use egui_dock::{NodeIndex, SurfaceIndex, TabViewer};
+use std::collections::{BTreeMap, VecDeque};
+use std::sync::Arc;
 
 pub struct Viewer<'a> {
     pub session: &'a mut Session,
@@ -245,14 +247,15 @@ impl Viewer<'_> {
             })
             .collect();
         ui.horizontal(|ui| {
-            ui.add(
+            let field = ui.add(
                 egui::TextEdit::singleline(&mut p.search)
-                    .hint_text("Filter by name or address")
+                    .hint_text("Filter by name or address  /")
                     .desired_width(200.),
             );
+            take_search_focus(&field);
             ui.separator();
             ui.checkbox(&mut p.auto, "Live")
-                .on_hover_text("Poll every listed entry at this interval");
+                .on_hover_text("Poll the entries in view at this interval");
             ui.add_enabled(
                 p.auto,
                 egui::DragValue::new(&mut p.interval)
@@ -302,12 +305,6 @@ impl Viewer<'_> {
                 );
             });
         });
-        if p.auto {
-            for e in &entries {
-                self.session
-                    .interest(&Binding::new(s, e), self.profile, p.interval);
-            }
-        }
         ui.add_space(4.);
         if entries.is_empty() {
             ui.label(
@@ -321,14 +318,22 @@ impl Viewer<'_> {
             return;
         }
 
-        // In-place editing: the row being edited and its text, per pane.
+        // In-place editing, per pane: values typed but not yet sent, by
+        // address, and the field to focus this frame. A value stays pending
+        // (outlined) when its field loses focus, until it is sent or discarded.
         let edit_id = ui.id().with((&p.id, "editing"));
-        let mut editing: Option<(u16, String)> = ui.ctx().data_mut(|d| d.get_temp(edit_id));
+        let (mut pending, mut focus): (BTreeMap<u16, String>, Option<u16>) = ui
+            .ctx()
+            .data_mut(|d| d.get_temp(edit_id))
+            .unwrap_or_default();
         let controlled = self.session.connected() && self.session.controlled();
         let connected = self.session.connected();
         let row_height = 24.;
         let mut clicked = None;
         let mut actions: Vec<RowAction> = vec![];
+        // Live polls only the rows in view, so a long map costs no more
+        // device traffic than a short one.
+        let mut visible = vec![];
         egui_extras::TableBuilder::new(ui)
             .id_salt((&p.id, "entries"))
             .striped(true)
@@ -369,6 +374,7 @@ impl Viewer<'_> {
             })
             .body(|body| {
                 body.rows(row_height, entries.len(), |mut row| {
+                    visible.push(row.index());
                     let e = entries[row.index()];
                     let selected = self
                         .session
@@ -378,7 +384,7 @@ impl Viewer<'_> {
                     row.set_selected(selected);
                     let reading = self.session.readings.get(&(s, e.address));
                     let writable = e.writable && s != Space::SysRegister;
-                    let is_editing = editing.as_ref().is_some_and(|(a, _)| *a == e.address);
+                    let is_editing = pending.contains_key(&e.address);
                     row.col(|ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(
@@ -400,28 +406,35 @@ impl Viewer<'_> {
                     });
                     row.col(|ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if let Some((_, text)) = editing.as_mut().filter(|_| is_editing) {
+                            if let Some(text) = pending.get_mut(&e.address) {
                                 let edit = ui.add(
                                     egui::TextEdit::singleline(text)
                                         .font(egui::TextStyle::Monospace)
                                         .horizontal_align(egui::Align::Max)
                                         .desired_width(f32::INFINITY),
                                 );
-                                if !edit.has_focus() && !edit.lost_focus() {
+                                if focus == Some(e.address) {
                                     edit.request_focus();
+                                    focus = None;
                                 }
-                                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                                    actions.push(RowAction::Cancel);
-                                } else if edit.lost_focus() {
-                                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                        actions.push(RowAction::Write(e.clone(), text.clone()));
-                                    } else {
-                                        actions.push(RowAction::Cancel);
-                                    }
+                                let typing = edit.has_focus() || edit.lost_focus();
+                                if typing && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                    actions.push(RowAction::Cancel(e.address));
+                                } else if edit.lost_focus()
+                                    && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                                {
+                                    actions.push(RowAction::Write(e.clone(), text.clone()));
                                 }
+                                controls::mark_unsaved(ui, edit, true).on_hover_text(
+                                    "Not sent. Enter or Write sends it; Esc discards it.",
+                                );
                             } else {
                                 let text = match reading {
-                                    Some(r) if r.valid => p.format.format(e, r.value),
+                                    Some(r) if r.valid => p.format.format_with(
+                                        e,
+                                        r.value,
+                                        self.profile.metadata(s, &e.name),
+                                    ),
                                     Some(_) => "error".into(),
                                     None => "—".into(),
                                 };
@@ -439,7 +452,13 @@ impl Viewer<'_> {
                                         e.address,
                                         reading
                                             .filter(|r| r.valid)
-                                            .map(|r| p.format.format(e, r.value))
+                                            .map(|r| {
+                                                p.format.format_with(
+                                                    e,
+                                                    r.value,
+                                                    self.profile.metadata(s, &e.name),
+                                                )
+                                            })
                                             .unwrap_or_default(),
                                     ));
                                 }
@@ -467,14 +486,16 @@ impl Viewer<'_> {
                         if !(hovered || selected || is_editing) {
                             return;
                         }
-                        if is_editing {
-                            if let Some((_, text)) = &editing {
-                                if ui.add(controls::primary(ui, "Write")).clicked() {
-                                    actions.push(RowAction::Write(e.clone(), text.clone()));
-                                }
+                        if let Some(text) = pending.get(&e.address) {
+                            if ui
+                                .add_enabled(controlled, controls::primary(ui, "Write"))
+                                .on_disabled_hover_text("Take Control to write")
+                                .clicked()
+                            {
+                                actions.push(RowAction::Write(e.clone(), text.clone()));
                             }
-                            if ui.small_button("Cancel").clicked() {
-                                actions.push(RowAction::Cancel);
+                            if ui.small_button("Discard").clicked() {
+                                actions.push(RowAction::Cancel(e.address));
                             }
                             return;
                         }
@@ -498,25 +519,59 @@ impl Viewer<'_> {
                                 e.address,
                                 reading
                                     .filter(|r| r.valid)
-                                    .map(|r| p.format.format(e, r.value))
+                                    .map(|r| {
+                                        p.format.format_with(
+                                            e,
+                                            r.value,
+                                            self.profile.metadata(s, &e.name),
+                                        )
+                                    })
                                     .unwrap_or_default(),
                             ));
                         }
                     });
-                    if row.response().clicked() {
+                    let response = row.response();
+                    let i = row.index();
+                    if s == Space::Register && i > 0 && e.writable && !entries[i - 1].writable {
+                        let rect = response.rect;
+                        let painter = egui::Painter::new(
+                            response.ctx.clone(),
+                            response.layer_id,
+                            rect.expand(1.),
+                        );
+                        controls::access_boundary(&painter, &palette, rect.x_range(), rect.top());
+                    }
+                    if response.clicked() {
                         clicked = Some(e.clone());
                     }
                 });
             });
+        if p.auto {
+            for i in visible {
+                self.session
+                    .interest(&Binding::new(s, entries[i]), self.profile, p.interval);
+            }
+        }
         for action in actions {
             match action {
                 RowAction::Read(e) => self.session.read(s, &e),
                 RowAction::Plot(e) => self.add_series(s, &e),
-                RowAction::Edit(address, text) => editing = Some((address, text)),
-                RowAction::Cancel => editing = None,
+                RowAction::Edit(address, text) => {
+                    pending.insert(address, text);
+                    focus = Some(address);
+                }
+                RowAction::Cancel(address) => {
+                    pending.remove(&address);
+                }
                 RowAction::Write(e, text) => {
-                    self.session.write_formatted(s, &e, &text, p.format, false);
-                    editing = None;
+                    let meta = self.profile.metadata(s, &e.name);
+                    // A refused value stays pending, with the reason shown.
+                    if self
+                        .session
+                        .write_formatted(s, &e, &text, p.format, meta, false)
+                    {
+                        pending.remove(&e.address);
+                    }
                 }
             }
         }
@@ -524,10 +579,59 @@ impl Viewer<'_> {
             self.session.read(s, &e);
             self.session.selection = Some((s, e));
         }
-        ui.ctx().data_mut(|d| match editing {
-            Some(editing) => d.insert_temp(edit_id, editing),
-            None => d.remove::<(u16, String)>(edit_id),
+        ui.ctx().data_mut(|d| {
+            if pending.is_empty() {
+                d.remove::<(BTreeMap<u16, String>, Option<u16>)>(edit_id);
+            } else {
+                d.insert_temp(edit_id, (pending, focus));
+            }
         });
+    }
+    /// Plots a recording: its samples become histories, each track becomes a
+    /// trace in this pane, and the view freezes at the recording's end.
+    fn replay(&mut self, p: &mut Pane, text: &str) {
+        let tracks = self.session.replay(text, self.prefs);
+        let mut end = f64::NEG_INFINITY;
+        for (s, address, name) in tracks {
+            let parsed = self.profile.parsed(s);
+            let entry = parsed
+                .named(&name)
+                .or_else(|| parsed.at(address))
+                .filter(|e| e.address == address)
+                .cloned();
+            let Some(e) = entry else {
+                self.session.notice = format!("{name} is not in this Profile's maps; not plotted");
+                continue;
+            };
+            if let Some(last) = self
+                .session
+                .histories
+                .get(&(s, address))
+                .and_then(|h| h.back())
+            {
+                end = end.max(last[0]);
+            }
+            let binding = Binding::new(s, &e);
+            let id = match self.series.iter().find(|series| series.binding == binding) {
+                Some(series) => series.id.clone(),
+                None => {
+                    let id = unique_id();
+                    self.series.push(PlotSeries {
+                        id: id.clone(),
+                        binding,
+                        enabled: true,
+                    });
+                    id
+                }
+            };
+            if !p.plot_series.contains(&id) {
+                p.plot_series.push(id);
+            }
+        }
+        if end.is_finite() {
+            p.frozen = Some(end);
+            p.auto = false;
+        }
     }
     fn add_series(&mut self, s: Space, e: &Entry) {
         let binding = Binding::new(s, e);
@@ -571,7 +675,8 @@ impl Viewer<'_> {
                         self.session.notice =
                             "Codes 65000 and above are library commands; use the list".into();
                     } else if let Ok(value) = p.input.trim().parse() {
-                        self.session.command(p.address, value, true);
+                        let info = self.profile.command(p.address);
+                        self.session.command(p.address, value, info.as_ref(), true);
                     } else {
                         self.session.notice = "The argument must be a signed 32-bit integer".into();
                     }
@@ -650,7 +755,10 @@ impl Viewer<'_> {
             });
         if let Some(code) = send {
             match p.input.trim().parse::<i32>() {
-                Ok(v) => self.session.command(code, v, true),
+                Ok(v) => {
+                    let info = self.profile.command(code);
+                    self.session.command(code, v, info.as_ref(), true)
+                }
                 Err(_) => {
                     self.session.notice = "The argument must be a signed 32-bit integer".into()
                 }
@@ -737,7 +845,9 @@ impl Viewer<'_> {
             let text = reading
                 .as_ref()
                 .filter(|r| r.valid)
-                .map_or("—".into(), |r| e.format(r.value));
+                .map_or("—".into(), |r| {
+                    DisplayFormat::Native.format_with(e, r.value, self.profile.metadata(s, &e.name))
+                });
             ui.label(RichText::new(text).monospace().size(26.));
             if !unit.is_empty() {
                 ui.label(RichText::new(&unit).color(palette.text_weak));
@@ -773,6 +883,19 @@ impl Viewer<'_> {
                 .num_columns(2)
                 .spacing([16., 4.])
                 .show(ui, |ui| {
+                    let meta = self.profile.metadata(s, &e.name);
+                    if let Some((scale, offset)) = meta.and_then(Metadata::scaling) {
+                        key(ui, "Raw");
+                        ui.monospace(e.format(r.value));
+                        ui.end_row();
+                        key(ui, "Scaling");
+                        ui.monospace(format!(
+                            "× {} + {}",
+                            format_number(scale),
+                            format_number(offset)
+                        ));
+                        ui.end_row();
+                    }
                     for (name, value) in [
                         ("Signed", r.value.to_string()),
                         ("Unsigned", (r.value as u32).to_string()),
@@ -834,7 +957,8 @@ impl Viewer<'_> {
                     .clicked()
                     || (submit && controlled)
                 {
-                    self.session.write(s, e, &p.input, false);
+                    let meta = self.profile.metadata(s, &e.name);
+                    self.session.write(s, e, &p.input, meta, false);
                 }
                 if let Some(outcome) = self.session.writes.get(&(s, e.address)) {
                     colors::outcome_inline(ui, outcome);
@@ -844,17 +968,65 @@ impl Viewer<'_> {
     }
     fn logs(&mut self, ui: &mut egui::Ui, p: &mut Pane) {
         let palette = theme::of(ui);
+        let frozen_id = egui::Id::new((&p.id, "log-frozen"));
+        let frozen = ui.data(|d| d.get_temp::<Arc<VecDeque<LogEntry>>>(frozen_id));
         ui.horizontal(|ui| {
-            ui.add(
+            let field = ui.add(
                 egui::TextEdit::singleline(&mut p.search)
-                    .hint_text("Filter messages")
+                    .hint_text("Filter messages  /")
                     .desired_width(220.),
             );
+            take_search_focus(&field);
             controls::segmented(
                 ui,
                 &mut p.min_level,
                 &[(0, "All"), (1, "Warnings"), (2, "Errors")],
             );
+            egui::ComboBox::from_id_salt((&p.id, "source"))
+                .width(110.)
+                .selected_text(match p.log_source {
+                    0 => "All sources",
+                    n => LOG_SOURCES
+                        .get(n as usize - 1)
+                        .map_or("All sources", |(_, name)| *name),
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut p.log_source, 0, "All sources");
+                    for (i, (_, name)) in LOG_SOURCES.iter().enumerate() {
+                        ui.selectable_value(&mut p.log_source, i as u8 + 1, *name);
+                    }
+                });
+            // Pausing keeps the entries shown at that moment; new activity is
+            // still collected and appears when the pause is released.
+            let mut paused = frozen.is_some();
+            if ui
+                .toggle_value(&mut paused, "Pause")
+                .on_hover_text("Stop adding new entries to this view")
+                .changed()
+            {
+                ui.data_mut(|d| {
+                    if paused {
+                        d.insert_temp(frozen_id, Arc::new(self.session.logs.clone()));
+                    } else {
+                        d.remove_temp::<Arc<VecDeque<LogEntry>>>(frozen_id);
+                    }
+                });
+            }
+            if let Some(frozen) = &frozen {
+                let since = frozen.back().map_or(f64::NEG_INFINITY, |l| l.timestamp);
+                let new = self
+                    .session
+                    .logs
+                    .iter()
+                    .rev()
+                    .take_while(|l| l.timestamp > since)
+                    .count();
+                ui.label(
+                    RichText::new(format!("Paused · {new} new"))
+                        .small()
+                        .color(colors::role(ui, Role::Warn)),
+                );
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Export").clicked() {
                     let text = self
@@ -891,11 +1063,11 @@ impl Viewer<'_> {
             _ => 0,
         };
         let query = p.search.trim().to_lowercase();
-        let rows: Vec<&LogEntry> = self
-            .session
-            .logs
+        let shown = frozen.as_deref().unwrap_or(&self.session.logs);
+        let rows: Vec<&LogEntry> = shown
             .iter()
             .filter(|l| severity(&l.level) >= p.min_level)
+            .filter(|l| p.log_source == 0 || source_index(&l.category) + 1 == p.log_source as usize)
             .filter(|l| {
                 query.is_empty()
                     || contains_ignore_case(&l.message, &query)
@@ -908,13 +1080,28 @@ impl Viewer<'_> {
             ui.label(RichText::new("No activity to show.").color(palette.text_weak));
             return;
         }
+        // A selected packet opens the inspector: bytes and decoded fields.
+        let selected_id = egui::Id::new((&p.id, "log-selected"));
+        let selected = ui.data(|d| d.get_temp::<(f64, String)>(selected_id));
+        if let Some(packet) = selected.as_ref().and_then(|(time, message)| {
+            rows.iter()
+                .find(|l| l.timestamp == *time && &l.message == message)
+                .and_then(|l| l.packet_data.as_ref())
+        }) {
+            if packet_inspector(ui, packet) {
+                ui.data_mut(|d| d.remove_temp::<(f64, String)>(selected_id));
+            }
+            ui.add_space(6.);
+        }
         // One line per entry so only visible rows are laid out, however long
         // the log grows; packet details stay on the same line.
         let dark = ui.visuals().dark_mode;
+        let mut clicked = None;
         egui_extras::TableBuilder::new(ui)
             .id_salt((&p.id, "log"))
             .striped(true)
-            .stick_to_bottom(true)
+            .sense(egui::Sense::click())
+            .stick_to_bottom(frozen.is_none())
             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
             .column(egui_extras::Column::exact(96.))
             .column(egui_extras::Column::exact(78.))
@@ -931,6 +1118,11 @@ impl Viewer<'_> {
                 body.rows(22., rows.len(), |mut row| {
                     let l = rows[row.index()];
                     let color = log_color(dark, &l.level);
+                    row.set_selected(
+                        selected
+                            .as_ref()
+                            .is_some_and(|(t, m)| *t == l.timestamp && m == &l.message),
+                    );
                     row.col(|ui| {
                         ui.label(
                             RichText::new(clock::time_of_day(l.timestamp))
@@ -964,8 +1156,14 @@ impl Viewer<'_> {
                             );
                         }
                     });
+                    if row.response().clicked() && l.packet_data.is_some() {
+                        clicked = Some((l.timestamp, l.message.clone()));
+                    }
                 });
             });
+        if let Some(selection) = clicked {
+            ui.data_mut(|d| d.insert_temp(selected_id, selection));
+        }
     }
     fn plot(&mut self, ui: &mut egui::Ui, p: &mut Pane) {
         ui.horizontal(|ui| {
@@ -981,6 +1179,53 @@ impl Viewer<'_> {
             }
             if ui.button("Clear data").clicked() {
                 self.session.histories.clear();
+            }
+            ui.separator();
+            let recording = self.session.recording.as_ref().map(|r| {
+                let seconds = (crate::communicator::now_ms() - r.started) / 1000.;
+                format!("Stop · {} samples · {:.0} s", r.samples, seconds)
+            });
+            let record = match &recording {
+                Some(text) => ui.add(
+                    egui::Button::new(
+                        RichText::new(format!("● {text}")).color(colors::role(ui, Role::Error)),
+                    )
+                    .selected(true),
+                ),
+                None => ui.button("● Record"),
+            };
+            if record
+                .on_hover_text("Record every reading to a CSV file for later replay")
+                .clicked()
+            {
+                self.session.toggle_recording();
+            }
+            if recording.is_some() {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_secs(1));
+            }
+            let replay = ImportTarget::Recording { pane: p.id.clone() };
+            if ui
+                .button("Replay…")
+                .on_hover_text("Load a recording into this plot")
+                .clicked()
+            {
+                self.session
+                    .pick_file(replay.clone(), "DSHub recording", &["csv"]);
+            }
+            if let Some(import) = self.session.take_import(&replay) {
+                match import {
+                    Ok(text) => self.replay(p, &text),
+                    Err(e) => self.session.notice = e,
+                }
+            }
+            if ui
+                .button("Export PNG")
+                .on_hover_text("Save an image of this plot")
+                .clicked()
+            {
+                ui.ctx()
+                    .data_mut(|d| d.insert_temp(egui::Id::new((&p.id, "png")), true));
             }
             if ui.button("Export CSV").clicked() {
                 let mut csv = "series,time,value\n".to_string();
@@ -1021,7 +1266,7 @@ impl Viewer<'_> {
                     }
                 }
                 if ui
-                    .small_button("×")
+                    .small_button(super::icons::CLOSE)
                     .on_hover_text("Delete this trace from every Plot")
                     .clicked()
                 {
@@ -1050,10 +1295,18 @@ impl Viewer<'_> {
                     .histories
                     .get(&(s.binding.space, s.binding.address))?;
                 let end = p.frozen.or_else(|| h.back().map(|last| last[0]))?;
-                Some((
-                    s.binding.name.clone(),
-                    window(h, end - span, end, MAX_TRACE_POINTS),
-                ))
+                let mut points = window(h, end - span, end, MAX_TRACE_POINTS);
+                // Plot in engineering units, as tables and widgets show them.
+                if let Some((scale, offset)) = self
+                    .profile
+                    .metadata(s.binding.space, &s.binding.name)
+                    .and_then(Metadata::scaling)
+                {
+                    for point in &mut points {
+                        point[1] = point[1] * scale + offset;
+                    }
+                }
+                Some((s.binding.name.clone(), points))
             })
             .collect();
         if traces.iter().all(|(_, points)| points.is_empty()) {
@@ -1080,16 +1333,13 @@ impl Viewer<'_> {
             .legend(egui_plot::Legend::default())
             .height((ui.available_height() - 8.).max(100.))
             .x_axis_formatter(|mark, _| clock::short_time(mark.value * 1000.))
-            .label_formatter(|name, point| {
-                let time = clock::time_of_day(point.x * 1000.);
-                if name.is_empty() {
-                    format!("{time}\n{:.6}", point.y)
-                } else {
-                    format!("{name}\n{time}\n{:.6}", point.y)
-                }
-            });
+            // The crosshair read-out below lists every trace at once.
+            .label_formatter(|_, _| String::new())
+            .show_x(false)
+            .show_y(false);
         plot = plot.allow_zoom(true).allow_drag(true);
-        theme::plot_tone(ui, |ui| {
+        let crosshair = theme::of(ui).text_weak.gamma_multiply(0.6);
+        let response = theme::plot_tone(ui, |ui| {
             plot.show(ui, |plot_ui| {
                 if p.auto && newest.is_finite() {
                     // Follow the newest sample and fit Y to what is visible.
@@ -1111,11 +1361,66 @@ impl Viewer<'_> {
                         [newest, high + pad],
                     ));
                 }
+                // Crosshair: each trace's sample nearest the pointer's time.
+                // It is painted over the plot afterwards, not added as a plot
+                // item, so it never takes part in automatic bounds.
+                let readout: Vec<(String, [f64; 2])> = plot_ui
+                    .pointer_coordinate()
+                    .map(|pointer| {
+                        traces
+                            .iter()
+                            .filter_map(|(name, points)| {
+                                nearest(points, pointer.x).map(|point| (name.clone(), point))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let time = plot_ui.pointer_coordinate().map(|pointer| pointer.x);
                 for (name, points) in traces {
                     plot_ui.line(egui_plot::Line::new(points).name(name));
                 }
+                (time, readout)
             })
         });
+        let rect = response.response.rect;
+        let pointer = ui
+            .ctx()
+            .pointer_hover_pos()
+            .filter(|pos| rect.contains(*pos));
+        if let (Some(pos), (Some(time), readout)) = (pointer, &response.inner) {
+            ui.painter_at(rect)
+                .vline(pos.x, rect.y_range(), egui::Stroke::new(1_f32, crosshair));
+            // Shown directly rather than as a hover tooltip, which egui hides
+            // while the pointer moves.
+            let time = clock::time_of_day(time * 1000.);
+            egui::show_tooltip_at_pointer(
+                ui.ctx(),
+                ui.layer_id(),
+                egui::Id::new((&p.id, "crosshair")),
+                |ui| {
+                    ui.label(RichText::new(time).color(theme::of(ui).text_weak));
+                    egui::Grid::new("crosshair").num_columns(2).show(ui, |ui| {
+                        for (name, point) in readout {
+                            ui.label(name);
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.monospace(format_float(point[1] as f32));
+                                },
+                            );
+                            ui.end_row();
+                        }
+                    });
+                },
+            );
+        }
+        let png = egui::Id::new((&p.id, "png"));
+        if ui.ctx().data_mut(|d| d.remove_temp::<bool>(png)).is_some() {
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::new(
+                    PlotShot(response.response.rect),
+                )));
+        }
     }
     fn editor(&mut self, ui: &mut egui::Ui, p: &mut Pane) {
         if p.draft.as_ref().is_none_or(|d| d.id != self.profile.id) {
@@ -1201,15 +1506,20 @@ impl Viewer<'_> {
                 });
             return;
         }
+        // Fields that differ from the saved Profile are outlined until saved.
+        let saved = &*self.profile;
         if p.editing {
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.collapsing("Board type definitions", |ui| {
-                    ui.add(
+                let boards_changed = draft.board_types_map != saved.board_types_map;
+                let boards = ui.collapsing("Board type definitions", |ui| {
+                    let field = ui.add(
                         egui::TextEdit::multiline(&mut draft.board_types_map)
                             .code_editor()
                             .desired_rows(8),
                     );
+                    controls::mark_unsaved(ui, field, boards_changed);
                 });
+                controls::mark_unsaved(ui, boards.header_response, boards_changed);
                 ui.label("Profile commands");
                 let target = ImportTarget::CommandMap { pane: p.id.clone() };
                 if let Some(import) = self.session.take_import(&target) {
@@ -1254,11 +1564,28 @@ impl Viewer<'_> {
                     .enumerate()
                     .filter(|(_, c)| !(65000..=65002).contains(&c.code))
                 {
+                    let before = saved.sys_commands.iter().find(|s| s.code == c.code);
+                    let differs = |f: &dyn Fn(&SysCommand) -> bool| before.is_none_or(f);
                     ui.horizontal(|ui| {
-                        ui.add(egui::DragValue::new(&mut c.code));
-                        ui.text_edit_singleline(&mut c.name);
-                        ui.text_edit_singleline(&mut c.description);
-                        if ui.small_button("×").clicked() {
+                        let code = ui.add(egui::DragValue::new(&mut c.code));
+                        controls::mark_unsaved(ui, code, before.is_none());
+                        let name = ui.text_edit_singleline(&mut c.name);
+                        controls::mark_unsaved(ui, name, differs(&|s| s.name != c.name));
+                        let description = ui.text_edit_singleline(&mut c.description);
+                        controls::mark_unsaved(
+                            ui,
+                            description,
+                            differs(&|s| s.description != c.description),
+                        );
+                        let critical = ui.checkbox(&mut c.critical, "Critical").on_hover_text(
+                            "Always confirm, with a press-and-hold, wherever this command is sent",
+                        );
+                        controls::mark_unsaved(
+                            ui,
+                            critical,
+                            differs(&|s| s.critical != c.critical),
+                        );
+                        if ui.small_button(super::icons::CLOSE).clicked() {
                             remove = Some(i);
                         }
                     });
@@ -1271,14 +1598,17 @@ impl Viewer<'_> {
                         code: 100,
                         name: "NEW_COMMAND".into(),
                         description: String::new(),
+                        critical: false,
                     });
                 }
                 ui.separator();
                 ui.label("Entry metadata");
                 let entries = draft.entries(p.map_space);
-                let meta = match p.map_space {
-                    Space::Register => &mut draft.registers_metadata,
-                    Space::Parameter => &mut draft.parameters_metadata,
+                let (meta, saved_meta) = match p.map_space {
+                    Space::Register => (&mut draft.registers_metadata, &saved.registers_metadata),
+                    Space::Parameter => {
+                        (&mut draft.parameters_metadata, &saved.parameters_metadata)
+                    }
                     Space::SysRegister => {
                         ui.label("System metadata is defined by the protocol.");
                         return;
@@ -1289,21 +1619,75 @@ impl Viewer<'_> {
                     .filter(|e| !e.name.contains('[') || e.name.ends_with("[0]"))
                 {
                     let name = e.name.split('[').next().unwrap_or(&e.name).to_string();
-                    ui.collapsing(&name, |ui| {
+                    let before = saved_meta.get(&name).cloned().unwrap_or_default();
+                    let section_changed = meta.get(&name).cloned().unwrap_or_default() != before;
+                    let section = ui.collapsing(&name, |ui| {
                         // Edit a copy: expanding a section must not create an
                         // empty entry, which would mark the draft as changed.
                         let mut edited = meta.get(&name).cloned().unwrap_or_default();
                         let m = &mut edited;
                         ui.label("Description");
-                        ui.text_edit_multiline(&mut m.description);
+                        let description = ui.text_edit_multiline(&mut m.description);
+                        controls::mark_unsaved(
+                            ui,
+                            description,
+                            m.description != before.description,
+                        );
                         ui.label("Unit");
-                        ui.text_edit_singleline(&mut m.unit);
+                        let unit = ui.text_edit_singleline(&mut m.unit);
+                        controls::mark_unsaved(ui, unit, m.unit != before.unit);
+                        egui::Grid::new("engineering")
+                            .num_columns(2)
+                            .show(ui, |ui| {
+                                for (label, hint, field, was) in [
+                                    (
+                                        "Scale",
+                                        "Engineering value = value × scale + offset",
+                                        &mut m.scale,
+                                        before.scale,
+                                    ),
+                                    (
+                                        "Offset",
+                                        "Added after scaling",
+                                        &mut m.offset,
+                                        before.offset,
+                                    ),
+                                    (
+                                        "Minimum",
+                                        "Writes below this engineering value are refused",
+                                        &mut m.min,
+                                        before.min,
+                                    ),
+                                    (
+                                        "Maximum",
+                                        "Writes above this engineering value are refused",
+                                        &mut m.max,
+                                        before.max,
+                                    ),
+                                ] {
+                                    ui.label(label).on_hover_text(hint);
+                                    let response = optional_number(ui, label, field);
+                                    controls::mark_unsaved(ui, response, *field != was);
+                                    ui.end_row();
+                                }
+                            });
                         let mut remove = None;
                         for (i, v) in m.value_list.iter_mut().enumerate() {
+                            let was = before.value_list.get(i);
                             ui.horizontal(|ui| {
-                                ui.text_edit_singleline(&mut v.value);
-                                ui.text_edit_singleline(&mut v.label);
-                                if ui.small_button("×").clicked() {
+                                let value = ui.text_edit_singleline(&mut v.value);
+                                controls::mark_unsaved(
+                                    ui,
+                                    value,
+                                    was.is_none_or(|w| w.value != v.value),
+                                );
+                                let label = ui.text_edit_singleline(&mut v.label);
+                                controls::mark_unsaved(
+                                    ui,
+                                    label,
+                                    was.is_none_or(|w| w.label != v.label),
+                                );
+                                if ui.small_button(super::icons::CLOSE).clicked() {
                                     remove = Some(i);
                                 }
                             });
@@ -1317,12 +1701,47 @@ impl Viewer<'_> {
                                 label: "State".into(),
                             });
                         }
+                        // Bit names label Status Matrix cells.
+                        let mut remove = None;
+                        for (i, b) in m.bits.iter_mut().enumerate() {
+                            let was = before.bits.get(i);
+                            ui.horizontal(|ui| {
+                                let bit = ui.add(
+                                    egui::DragValue::new(&mut b.bit)
+                                        .range(0..=31)
+                                        .prefix("bit "),
+                                );
+                                controls::mark_unsaved(ui, bit, was.is_none_or(|w| w.bit != b.bit));
+                                let label = ui.text_edit_singleline(&mut b.label);
+                                controls::mark_unsaved(
+                                    ui,
+                                    label,
+                                    was.is_none_or(|w| w.label != b.label),
+                                );
+                                if ui.small_button(super::icons::CLOSE).clicked() {
+                                    remove = Some(i);
+                                }
+                            });
+                        }
+                        if let Some(i) = remove {
+                            m.bits.remove(i);
+                        }
+                        if ui.button("Add bit name").clicked() {
+                            let bit = (0..32)
+                                .find(|n| !m.bits.iter().any(|b| b.bit == *n))
+                                .unwrap_or(0);
+                            m.bits.push(BitLabel {
+                                bit,
+                                label: format!("BIT_{bit}"),
+                            });
+                        }
                         if edited == Metadata::default() {
                             meta.remove(&name);
                         } else if meta.get(&name) != Some(&edited) {
                             meta.insert(name.clone(), edited);
                         }
                     });
+                    controls::mark_unsaved(ui, section.header_response, section_changed);
                 }
             });
             return;
@@ -1347,6 +1766,7 @@ impl Viewer<'_> {
             p.map_space,
             self.session,
             &p.id,
+            self.profile,
         );
     }
 }
@@ -1366,6 +1786,84 @@ fn contains_ignore_case(haystack: &str, needle: &str) -> bool {
 }
 
 /// Upper bound on points drawn per trace; more cannot be told apart on screen.
+/// A number field that may be left empty (`None`).
+fn optional_number(ui: &mut egui::Ui, salt: &str, value: &mut Option<f64>) -> egui::Response {
+    let id = ui.id().with(salt);
+    let mut text = ui
+        .data(|d| d.get_temp::<String>(id))
+        .unwrap_or_else(|| value.map(format_number).unwrap_or_default());
+    let response = ui.add(
+        egui::TextEdit::singleline(&mut text)
+            .hint_text("none")
+            .desired_width(120.),
+    );
+    if response.changed() {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            *value = None;
+        } else if let Ok(v) = trimmed.parse::<f64>() {
+            *value = v.is_finite().then_some(v);
+        }
+    }
+    if response.has_focus() {
+        ui.data_mut(|d| d.insert_temp(id, text));
+    } else {
+        ui.data_mut(|d| d.remove_temp::<String>(id));
+    }
+    response
+}
+
+/// The screen area of a plot whose image was requested with Export PNG.
+#[derive(Clone, Copy)]
+struct PlotShot(egui::Rect);
+
+/// Saves the plot images requested in this viewport once its screenshot
+/// arrives. Call once per frame in every viewport.
+pub fn save_plot_shots(ctx: &egui::Context, session: &Session) {
+    let shots: Vec<_> = ctx.input(|i| {
+        i.events
+            .iter()
+            .filter_map(|e| match e {
+                egui::Event::Screenshot {
+                    image, user_data, ..
+                } => user_data
+                    .data
+                    .as_ref()
+                    .and_then(|d| d.downcast_ref::<PlotShot>())
+                    .map(|shot| (shot.0, image.clone(), i.pixels_per_point)),
+                _ => None,
+            })
+            .collect()
+    });
+    for (rect, image, scale) in shots {
+        let region = image.region(&rect, Some(scale));
+        let bytes: Vec<u8> = region.pixels.iter().flat_map(|p| p.to_array()).collect();
+        let mut png = vec![];
+        let encoded = image::codecs::png::PngEncoder::new(&mut png);
+        if image::ImageEncoder::write_image(
+            encoded,
+            &bytes,
+            region.width() as u32,
+            region.height() as u32,
+            image::ExtendedColorType::Rgba8,
+        )
+        .is_ok()
+        {
+            session.export(png, "plot.png", "png");
+        }
+    }
+}
+
+/// The sample nearest `x` in a time-sorted trace.
+fn nearest(points: &[[f64; 2]], x: f64) -> Option<[f64; 2]> {
+    let i = points.partition_point(|p| p[0] < x);
+    [i.checked_sub(1), Some(i)]
+        .into_iter()
+        .flatten()
+        .filter_map(|i| points.get(i).copied())
+        .min_by(|a, b| (a[0] - x).abs().total_cmp(&(b[0] - x).abs()))
+}
+
 pub(super) const MAX_TRACE_POINTS: usize = 2000;
 
 /// The samples of a time-sorted history within `from..=to`, thinned to at most
@@ -1414,10 +1912,130 @@ enum RowAction {
     Read(Entry),
     Plot(Entry),
     Edit(u16, String),
-    Cancel,
+    Cancel(u16),
     Write(Entry, String),
 }
 
+/// Focuses `field` if `/` was pressed this frame and no other field took it.
+fn take_search_focus(field: &egui::Response) {
+    let key = egui::Id::new(super::FOCUS_SEARCH);
+    if field.ctx.data_mut(|d| d.remove_temp::<bool>(key)).is_some() {
+        field.request_focus();
+    }
+}
+/// Activity log sources, in filter order.
+pub const LOG_SOURCES: [(LogCategory, &str); 6] = [
+    (LogCategory::Connection, "Connection"),
+    (LogCategory::Register, "Register"),
+    (LogCategory::Parameter, "Parameter"),
+    (LogCategory::AutoRefresh, "Polling"),
+    (LogCategory::Plotting, "Plot"),
+    (LogCategory::Packet, "Packet"),
+];
+fn source_index(category: &LogCategory) -> usize {
+    LOG_SOURCES
+        .iter()
+        .position(|(c, _)| std::mem::discriminant(c) == std::mem::discriminant(category))
+        .unwrap_or(0)
+}
+/// The fields of an 8-byte frame (PROTOCOL.md): requests carry type,
+/// address and value; responses carry status, address and value.
+pub fn packet_fields(bytes: &[u8], request: bool) -> Vec<(&'static str, String, String)> {
+    if bytes.len() != 8 {
+        return vec![];
+    }
+    let hex = |range: std::ops::Range<usize>| {
+        bytes[range]
+            .iter()
+            .map(|b| format!("{b:02X}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let u16_at = |i: usize| u16::from_le_bytes([bytes[i], bytes[i + 1]]);
+    let value = i32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+    let first = if request {
+        ("Type", hex(0..2), u16_at(0).to_string())
+    } else {
+        let status = u16_at(0) as i16;
+        (
+            "Status",
+            hex(0..2),
+            format!("{status} ({})", crate::communicator::status_name(status)),
+        )
+    };
+    vec![
+        first,
+        ("Address", hex(2..4), u16_at(2).to_string()),
+        (
+            "Value",
+            hex(4..8),
+            format!(
+                "{value} · 0x{:08X} · {}",
+                value as u32,
+                format_float(f32::from_bits(value as u32))
+            ),
+        ),
+    ]
+}
+/// The packet inspector; returns true when closed.
+fn packet_inspector(ui: &mut egui::Ui, packet: &crate::types::PacketInfo) -> bool {
+    let palette = theme::of(ui);
+    let bytes: Vec<u8> = packet
+        .hex_data
+        .split_whitespace()
+        .filter_map(|b| u8::from_str_radix(b, 16).ok())
+        .collect();
+    let mut close = false;
+    egui::Frame::new()
+        .fill(palette.raised)
+        .corner_radius(3)
+        .inner_margin(egui::Margin::same(8))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(theme::caption(ui, &format!("{} packet", packet.direction)));
+                ui.label(
+                    RichText::new(format!(
+                        "{} → {}{}",
+                        packet.interface,
+                        packet.destination,
+                        packet
+                            .response_time
+                            .map(|t| format!(" · {t} ms"))
+                            .unwrap_or_default()
+                    ))
+                    .small()
+                    .color(palette.text_weak),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    close = ui
+                        .small_button(super::icons::CLOSE)
+                        .on_hover_text("Close inspector")
+                        .clicked();
+                });
+            });
+            egui::Grid::new("packet-fields")
+                .num_columns(3)
+                .spacing([16., 4.])
+                .show(ui, |ui| {
+                    for (name, hex, decoded) in packet_fields(&bytes, packet.direction == "TX") {
+                        key(ui, name);
+                        ui.monospace(hex);
+                        ui.add(
+                            egui::Label::new(RichText::new(decoded).monospace()).selectable(true),
+                        );
+                        ui.end_row();
+                    }
+                });
+            if !packet.analysis.is_empty() {
+                ui.label(
+                    RichText::new(&packet.analysis)
+                        .small()
+                        .color(palette.text_weak),
+                );
+            }
+        });
+    close
+}
 fn log_level_name(level: &LogLevel) -> &'static str {
     match level {
         LogLevel::Error => "Error",
@@ -1448,4 +2066,36 @@ pub fn log_color(dark: bool, l: &LogLevel) -> Color32 {
             _ => Role::Idle,
         },
     )
+}
+
+#[cfg(test)]
+mod crosshair_tests {
+    use super::nearest;
+
+    #[test]
+    fn crosshair_picks_the_sample_closest_in_time() {
+        let points = [[1., 10.], [2., 20.], [4., 40.]];
+        assert_eq!(nearest(&points, 2.9), Some([2., 20.]));
+        assert_eq!(nearest(&points, 3.1), Some([4., 40.]));
+        assert_eq!(nearest(&points, 0.), Some([1., 10.]));
+        assert_eq!(nearest(&points, 9.), Some([4., 40.]));
+        assert_eq!(nearest(&[], 1.), None);
+    }
+}
+
+#[cfg(test)]
+mod packet_tests {
+    #[test]
+    fn packet_fields_decode_requests_and_responses() {
+        let request = [0x02, 0x00, 0x05, 0x00, 0x2A, 0x00, 0x00, 0x00];
+        let fields = super::packet_fields(&request, true);
+        assert_eq!(fields[0], ("Type", "02 00".into(), "2".into()));
+        assert_eq!(fields[1].2, "5");
+        assert!(fields[2].2.starts_with("42 · 0x0000002A"));
+        let refused = [0xFE, 0xFF, 0x05, 0x00, 0, 0, 0, 0];
+        assert!(super::packet_fields(&refused, false)[0]
+            .2
+            .starts_with("-2 ("));
+        assert!(super::packet_fields(&request[..4], true).is_empty());
+    }
 }

@@ -1,10 +1,15 @@
+mod canvas_edit;
 mod canvas_layout;
 mod clock;
 mod colors;
 mod controls;
 mod fonts;
+mod icons;
 mod map_table;
+mod palette;
 mod panes;
+mod profile_store;
+mod recording;
 mod review;
 mod session;
 #[cfg(feature = "native-smoke")]
@@ -93,6 +98,10 @@ pub struct Pane {
     /// Activity log: the least severe level shown (0 all, 1 warnings, 2 errors).
     #[serde(default)]
     pub min_level: u8,
+    /// Activity log: the source shown (0 all, otherwise a category's position
+    /// in `panes::LOG_SOURCES` plus one).
+    #[serde(default)]
+    pub log_source: u8,
     /// Plot panes: the time (Unix seconds) the view is frozen at, if paused.
     #[serde(skip)]
     pub frozen: Option<f64>,
@@ -122,6 +131,7 @@ impl Pane {
             format: DisplayFormat::Native,
             plot_series: vec![],
             min_level: 0,
+            log_source: 0,
             frozen: None,
         }
     }
@@ -164,7 +174,15 @@ pub struct Workspace {
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 pub struct Saved {
+    /// Layout of this structure; see [`Saved::migrate`]. Data saved before
+    /// versioning reads as 1.
+    #[serde(default = "legacy_schema")]
+    pub schema: u32,
+    /// Kept in their own files by [`profile_store`] when a data folder exists;
+    /// inline otherwise, and in data saved before schema 2.
     pub profiles: Vec<Profile>,
+    /// Profile ids in display order, for Profiles stored as files.
+    pub profile_order: Vec<String>,
     pub active: String,
     pub preferences: Preferences,
     pub dock: DockState<Pane>,
@@ -181,7 +199,18 @@ pub struct LayoutState {
     pub series: Vec<PlotSeries>,
 }
 
+/// The current [`Saved`] layout.
+const SCHEMA: u32 = 2;
+fn legacy_schema() -> u32 {
+    1
+}
 impl Saved {
+    /// Brings data saved by an older version up to [`SCHEMA`].
+    fn migrate(&mut self) {
+        // 1 → 2: Profiles moved to their own files. Inline Profiles load as
+        // before and are written out as files on the first save.
+        self.schema = SCHEMA;
+    }
     fn leave_dashboard_edit_mode(&mut self) {
         fn reset(dock: &mut DockState<Pane>, windows: &mut [NativeWindow]) {
             for (_, pane) in dock.iter_all_tabs_mut() {
@@ -217,11 +246,9 @@ fn unique_name(base: &str, profiles: &[Profile]) -> String {
         .expect("an unused name")
 }
 
-/// Loads saved state. Unreadable state is never silently replaced: the raw text
-/// is backed up first, and if that fails, saving stays disabled for this run.
 /// Whether this frame's input in the current viewport may have changed saved
 /// state. Hover movement alone cannot; presses, keys, text and scrolling can.
-fn edited(ctx: &egui::Context) -> bool {
+pub(super) fn edited(ctx: &egui::Context) -> bool {
     ctx.input(|i| {
         i.events.iter().any(|e| {
             !matches!(
@@ -236,6 +263,8 @@ fn edited(ctx: &egui::Context) -> bool {
     })
 }
 
+/// Loads saved state. Unreadable state is never silently replaced: the raw text
+/// is backed up first, and if that fails, saving stays disabled for this run.
 fn load_saved(storage: Option<&dyn eframe::Storage>) -> (Saved, Option<String>, bool) {
     let Some(storage) = storage else {
         return (Saved::default(), None, true);
@@ -306,7 +335,9 @@ fn default_dock() -> DockState<Pane> {
 impl Default for Saved {
     fn default() -> Self {
         Self {
+            schema: SCHEMA,
             profiles: default_profiles(),
+            profile_order: vec![],
             active: "default".into(),
             preferences: Preferences::default(),
             dock: default_dock(),
@@ -324,6 +355,10 @@ pub struct Desktop {
     settings_open: bool,
     workspaces_open: bool,
     guide_open: bool,
+    /// The command palette (Ctrl+K): open, its query and highlighted row.
+    palette_open: bool,
+    palette_query: String,
+    palette_selected: usize,
     review_open: bool,
     name: String,
     frame_count: usize,
@@ -339,6 +374,8 @@ pub struct Desktop {
     /// False when unreadable settings could not be backed up: saving would
     /// overwrite the user's only copy.
     persist: bool,
+    /// Profile files; `None` without a data folder (Profiles stay inline).
+    profile_files: Option<profile_store::ProfileStore>,
     /// Set by user input, window moves and imports; autosave serialises
     /// `saved` only when this is set, so an idle application writes nothing.
     touched: bool,
@@ -374,7 +411,28 @@ impl Desktop {
     }
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         fonts::install(&cc.egui_ctx);
-        let (mut saved, load_error, persist) = load_saved(cc.storage);
+        let (mut saved, mut load_error, persist) = load_saved(cc.storage);
+        saved.migrate();
+        let mut profile_files = cc
+            .storage
+            .filter(|_| persist)
+            .and_then(|_| profile_store::ProfileStore::open());
+        if let Some(store) = &mut profile_files {
+            let loaded = store.load(&saved.profile_order);
+            if !loaded.profiles.is_empty() {
+                saved.profiles = loaded.profiles;
+            }
+            if !loaded.problems.is_empty() {
+                let text = format!(
+                    "Some Profile files could not be read and were set aside:\n{}",
+                    loaded.problems.join("\n")
+                );
+                load_error = Some(match load_error {
+                    Some(previous) => format!("{previous}\n\n{text}"),
+                    None => text,
+                });
+            }
+        }
         saved.leave_dashboard_edit_mode();
         // Add the revised emulator panels once, retaining existing user dashboards.
         if let Some(profile) = saved
@@ -399,6 +457,9 @@ impl Desktop {
             settings_open: false,
             workspaces_open: false,
             guide_open: false,
+            palette_open: false,
+            palette_query: String::new(),
+            palette_selected: 0,
             review_open: false,
             name: String::new(),
             frame_count: 0,
@@ -409,6 +470,7 @@ impl Desktop {
             pending_connect: None,
             applied_dark: None,
             persist,
+            profile_files,
             touched: true,
         };
         if app.saved.profiles.is_empty() {
@@ -484,6 +546,56 @@ impl Desktop {
         }
         self.saved.dock.push_to_focused_leaf(Pane::new(kind));
     }
+    /// Ctrl+K opens the command palette; `/` focuses the first search field.
+    fn keyboard(&mut self, ctx: &egui::Context) {
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::K)) {
+            self.palette_open = !self.palette_open;
+            self.palette_query.clear();
+            self.palette_selected = 0;
+        }
+        let idle = ctx.memory(|m| m.focused().is_none());
+        if idle
+            && !self.palette_open
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Slash))
+        {
+            ctx.data_mut(|d| d.insert_temp(egui::Id::new(FOCUS_SEARCH), true));
+        }
+        if !self.palette_open {
+            return;
+        }
+        let profile = &self.saved.profiles[self.profile_index()];
+        let (choice, close) = palette::show(
+            ctx,
+            &mut self.palette_query,
+            &mut self.palette_selected,
+            profile,
+        );
+        if close {
+            self.palette_open = false;
+        }
+        match choice {
+            Some(palette::Choice::Pane(kind)) => self.open_pane(kind, ctx),
+            Some(palette::Choice::Entry(s, e)) => {
+                self.session.selection = Some((s, e));
+                self.open_pane(PaneKind::Inspector, ctx);
+            }
+            Some(palette::Choice::Command(c)) => {
+                // No argument field here: the confirmation names the value.
+                self.session.command(c.code, 0, Some(&c), true);
+            }
+            Some(palette::Choice::Window(window)) => match window {
+                "preferences" => self.settings_open = true,
+                "profiles" => self.profiles_open = true,
+                "workspaces" => self.workspaces_open = true,
+                _ => self.guide_open = true,
+            },
+            Some(palette::Choice::Theme) => {
+                self.saved.preferences.dark = !self.saved.preferences.dark;
+                self.touched = true;
+            }
+            None => {}
+        }
+    }
     fn chrome(&mut self, ctx: &egui::Context) {
         let palette = theme::palette(self.saved.preferences.dark);
         egui::TopBottomPanel::top("chrome")
@@ -506,10 +618,18 @@ impl Desktop {
                     ui.separator();
                     self.device_controls(ui);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("?").on_hover_text("Guide and licences").clicked() {
+                        if ui
+                            .button(icons::QUESTION)
+                            .on_hover_text("Guide and licences")
+                            .clicked()
+                        {
                             self.guide_open = true;
                         }
-                        if ui.button("⚙").on_hover_text("Preferences").clicked() {
+                        if ui
+                            .button(icons::GEAR)
+                            .on_hover_text("Preferences")
+                            .clicked()
+                        {
                             self.settings_open = true;
                         }
                         ui.separator();
@@ -570,7 +690,7 @@ impl Desktop {
                 egui::Button::new(controls::device_chip(ui, &self.session))
                     .min_size(egui::vec2(0., 24.)),
             )
-            .on_hover_text("Connection");
+            .on_hover_text(self.session.exposure().unwrap_or("Connection"));
         if chip.clicked() {
             ui.memory_mut(|m| m.toggle_popup(popup));
         }
@@ -637,6 +757,16 @@ impl Desktop {
                     .connect_to(&address, self.saved.preferences.udp);
                 close = true;
             }
+            if ui
+                .add_enabled(!self.session.busy, egui::Button::new("+ Control"))
+                .on_hover_text("Connect, then take Control")
+                .clicked()
+            {
+                let address = self.saved.preferences.last_ip.clone();
+                self.session
+                    .connect_and_control(&address, self.saved.preferences.udp);
+                close = true;
+            }
         });
         if let Some(summary) = self
             .session
@@ -651,6 +781,49 @@ impl Desktop {
                     close = true;
                 }
             });
+        }
+        if !self.saved.preferences.recent.is_empty() {
+            ui.add_space(6.);
+            ui.label(theme::caption(ui, "Recent"));
+            let mut chosen = None;
+            for device in &self.saved.preferences.recent {
+                ui.horizontal(|ui| {
+                    let label = match &device.name {
+                        Some(name) => format!("{name}  {}", device.address),
+                        None => device.address.clone(),
+                    };
+                    if ui
+                        .add_enabled(!self.session.busy, egui::Button::new(label).frame(false))
+                        .on_hover_text("Connect")
+                        .clicked()
+                    {
+                        chosen = Some((device.clone(), false));
+                    }
+                    ui.label(
+                        RichText::new(if device.udp { "UDP" } else { "TCP" })
+                            .small()
+                            .color(palette.text_weak),
+                    );
+                    if ui
+                        .add_enabled(!self.session.busy, egui::Button::new("+ Control").small())
+                        .on_hover_text("Connect, then take Control")
+                        .clicked()
+                    {
+                        chosen = Some((device.clone(), true));
+                    }
+                });
+            }
+            if let Some((device, control)) = chosen {
+                self.saved.preferences.last_ip = device.address.clone();
+                self.saved.preferences.udp = device.udp;
+                if control {
+                    self.session
+                        .connect_and_control(&device.address, device.udp);
+                } else {
+                    self.session.connect_to(&device.address, device.udp);
+                }
+                close = true;
+            }
         }
         ui.add_space(6.);
         ui.horizontal(|ui| {
@@ -757,7 +930,7 @@ impl Desktop {
             && ui
                 .add(
                     egui::Button::new(
-                        RichText::new(format!("⚠ {review_count} to review"))
+                        RichText::new(format!("{} {review_count} to review", icons::WARNING))
                             .color(colors::role(ui, Role::Warn)),
                     )
                     .stroke(egui::Stroke::new(
@@ -775,6 +948,7 @@ impl Desktop {
         let palette = theme::of(ui);
         let mut remove = None;
         let mut duplicate = None;
+        let mut create = false;
         ui.horizontal_top(|ui| {
             ui.vertical(|ui| {
                 ui.set_width(220.);
@@ -812,22 +986,35 @@ impl Desktop {
                         });
                     });
                 ui.add_space(6.);
-                if ui.button("Import…").clicked() {
-                    self.session.pick_file(
-                        ImportTarget::Profile,
-                        "DSHub Profile",
-                        &["dshub-profile", "json"],
-                    );
-                }
+                ui.horizontal(|ui| {
+                    if ui
+                        .button("New")
+                        .on_hover_text(
+                            "Create an empty Profile with the protocol's system registers",
+                        )
+                        .clicked()
+                    {
+                        create = true;
+                    }
+                    if ui.button("Import…").clicked() {
+                        self.session.pick_file(
+                            ImportTarget::Profile,
+                            "DSHub Profile",
+                            &["dshub-profile", "json"],
+                        );
+                    }
+                });
             });
             ui.add_space(16.);
             ui.vertical(|ui| {
                 let i = self.profile_index();
-                ui.label(theme::caption(ui, "Active Profile"));
+                ui.label(theme::caption(ui, "Name"));
                 ui.add(
                     egui::TextEdit::singleline(&mut self.saved.profiles[i].name)
+                        .hint_text("Profile name")
                         .desired_width(260.),
-                );
+                )
+                .on_hover_text("Rename the selected Profile");
                 let name = self.saved.profiles[i].name.trim().to_string();
                 if name.is_empty() {
                     ui.colored_label(colors::role(ui, Role::Warn), "A Profile needs a name.");
@@ -882,8 +1069,14 @@ impl Desktop {
                             "dshub-profile",
                         );
                     }
-                    if !p.is_default && controls::confirm_button(ui, &p.id, "Delete") {
-                        remove = Some(i);
+                    // Any Profile may be deleted except the last one.
+                    if self.saved.profiles.len() > 1 {
+                        if controls::confirm_button(ui, &p.id, "Delete") {
+                            remove = Some(i);
+                        }
+                    } else {
+                        ui.add_enabled(false, egui::Button::new("Delete"))
+                            .on_disabled_hover_text("The last Profile cannot be deleted");
                     }
                 });
             });
@@ -896,8 +1089,15 @@ impl Desktop {
             self.saved.active = p.id.clone();
             self.saved.profiles.push(p);
         }
+        if create {
+            let mut p = Profile::template();
+            p.name = unique_name("New Profile", &self.saved.profiles);
+            self.saved.active = p.id.clone();
+            self.saved.profiles.push(p);
+        }
         if let Some(i) = remove {
-            self.saved.profiles.remove(i);
+            let removed = self.saved.profiles.remove(i);
+            self.saved.profile_sessions.remove(&removed.id);
             if !self
                 .saved
                 .profiles
@@ -1004,6 +1204,19 @@ impl Desktop {
                         .range(100..=10000)
                         .suffix(" entries"),
                 );
+                ui.end_row();
+                ui.label("Diagnostics");
+                if ui
+                    .button("Open log folder")
+                    .on_hover_text(
+                        "Warnings, errors and crash reports are kept here for support requests",
+                    )
+                    .clicked()
+                {
+                    if let Err(e) = crate::diagnostics::open_log_dir() {
+                        log::warn!("{e}");
+                    }
+                }
                 ui.end_row();
             }),
         }
@@ -1163,6 +1376,34 @@ fn guide(ui: &mut egui::Ui) {
         });
         ui.add_space(4.);
     }
+    ui.label(theme::caption(ui, "Keyboard"));
+    egui::Grid::new("guide-keys").num_columns(2).show(ui, |ui| {
+        for (keys, action) in [
+            (
+                "Ctrl+K",
+                "Command palette: panes, entries, commands, windows",
+            ),
+            ("/", "Focus the search field"),
+            (
+                "Double-click, Enter",
+                "Edit a value in a table; Enter writes, Esc discards. Unsent values stay outlined",
+            ),
+            ("Esc", "Leave Focus mode"),
+            (
+                "Arrows, Alt+Arrows",
+                "Dashboard editing: move the selection by a grid step or a point",
+            ),
+            ("Delete", "Dashboard editing: remove the selected widgets"),
+            (
+                "Ctrl+Z, Ctrl+Shift+Z",
+                "Dashboard editing: undo and redo layout changes",
+            ),
+        ] {
+            ui.label(RichText::new(keys).monospace().color(palette.accent));
+            ui.label(RichText::new(action).color(palette.text_weak));
+            ui.end_row();
+        }
+    });
     ui.separator();
     ui.label(
         RichText::new(format!(
@@ -1180,6 +1421,10 @@ fn guide(ui: &mut egui::Ui) {
             });
     });
 }
+/// Temp-data key set by `/`; the first search field drawn takes focus.
+pub(crate) const FOCUS_SEARCH: &str = "focus-search";
+/// How long a critical command's Confirm button must be held.
+const HOLD_SECONDS: f64 = 1.5;
 /// The pending device-action confirmation, shown modally in every viewport so it
 /// appears wherever the operator is working and blocks other input until answered.
 fn confirm_modal(ctx: &egui::Context, session: &mut Session) {
@@ -1188,7 +1433,11 @@ fn confirm_modal(ctx: &egui::Context, session: &mut Session) {
     };
     let response = egui::Modal::new(egui::Id::new("confirm-device-action")).show(ctx, |ui| {
         ui.set_max_width(420.);
-        ui.heading("Confirm device action");
+        ui.heading(if session.confirm_hold {
+            "Confirm critical command"
+        } else {
+            "Confirm device action"
+        });
         ui.label(message);
         ui.add_space(8.);
         ui.horizontal(|ui| {
@@ -1199,10 +1448,13 @@ fn confirm_modal(ctx: &egui::Context, session: &mut Session) {
             if cancel.clicked() {
                 session.confirm = None;
             }
-            if ui
-                .button(RichText::new("Confirm").color(colors::role(ui, Role::Warn)))
-                .clicked()
-            {
+            let confirmed = if session.confirm_hold {
+                controls::hold_button(ui, "Hold to confirm", HOLD_SECONDS)
+            } else {
+                ui.button(RichText::new("Confirm").color(colors::role(ui, Role::Warn)))
+                    .clicked()
+            };
+            if confirmed {
                 session.send(action);
                 session.confirm = None;
             }
@@ -1258,6 +1510,24 @@ impl eframe::App for Desktop {
             }
         }
         self.touched |= edited(ctx);
+        panes::save_plot_shots(ctx, &self.session);
+        if let Some(c) = self
+            .session
+            .connection
+            .as_ref()
+            .filter(|_| self.session.connected())
+        {
+            let address = if c.ip.contains(':') {
+                format!("[{}]:{}", c.ip, c.port)
+            } else {
+                format!("{}:{}", c.ip, c.port)
+            };
+            self.touched |= self.saved.preferences.remember(RecentDevice {
+                address,
+                udp: c.interface_type == crate::types::InterfaceType::Udp,
+                name: c.device_name.clone(),
+            });
+        }
         let i = self.profile_index();
         self.session
             .drain(&self.saved.profiles[i], &self.saved.preferences);
@@ -1281,6 +1551,7 @@ impl eframe::App for Desktop {
         }
         self.chrome(ctx);
         self.dialogs(ctx);
+        self.keyboard(ctx);
         if self.active_profile != self.saved.active {
             self.saved.profile_sessions.insert(
                 self.active_profile.clone(),
@@ -1356,15 +1627,51 @@ impl eframe::App for Desktop {
         confirm_modal(ctx, &mut self.session);
         let mut closed = vec![];
         let mut touched = false;
+        // Window titles name the device and Profile, so several windows
+        // stay identifiable in the task switcher.
+        let context = match &self.session.connection {
+            Some(c) => format!(
+                "{} · {}",
+                c.device_name.clone().unwrap_or_else(|| c.ip.clone()),
+                profile.name
+            ),
+            None => profile.name.clone(),
+        };
+        let main_title = format!("DSHub — {context}");
+        if ctx.input(|i| i.viewport().title.as_deref() != Some(main_title.as_str())) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(main_title));
+        }
+        let root = ctx.input(|i| i.viewport().outer_rect);
+        let root_monitor = ctx.input(|i| i.viewport().monitor_size.is_some());
         for (wi, window) in self.saved.windows.iter_mut().enumerate() {
             let id = egui::ViewportId::from_hash_of(&window.id);
+            let title = format!("DSHub · {} — {context}", window.title);
             let mut builder = egui::ViewportBuilder::default()
-                .with_title(format!("DSHub · {}", window.title))
+                .with_title(title.clone())
                 .with_inner_size(window.size);
             if let Some(position) = window.position {
                 builder = builder.with_position(position);
             }
             ctx.show_viewport_immediate(id, builder, |ctx, _class| {
+                if ctx.input(|i| i.viewport().title.as_deref() != Some(title.as_str())) {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+                }
+                // A window restored onto a monitor that is gone reports no
+                // current monitor; bring it next to the main window. Checked
+                // once per window, and only where the platform reports
+                // monitors at all (the main window has one).
+                let checked = egui::Id::new(("monitor-checked", &window.id));
+                let placed = ctx.input(|i| i.viewport().outer_rect.is_some());
+                if placed && !ctx.data(|d| d.get_temp::<bool>(checked).unwrap_or(false)) {
+                    ctx.data_mut(|d| d.insert_temp(checked, true));
+                    let lost = ctx.input(|i| i.viewport().monitor_size.is_none());
+                    if let Some(root) = root.filter(|_| lost && root_monitor) {
+                        let position = root.min + egui::vec2(40., 40.);
+                        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(position));
+                        window.position = Some([position.x, position.y]);
+                    }
+                }
+                panes::save_plot_shots(ctx, &self.session);
                 let geometry = (window.size, window.position);
                 ctx.input(|i| {
                     if let Some(rect) = i.viewport().inner_rect {
@@ -1395,6 +1702,8 @@ impl eframe::App for Desktop {
             });
         }
         self.touched |= touched || !closed.is_empty();
+        // `/` with no search field in view does nothing.
+        ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::new(FOCUS_SEARCH)));
         for i in closed.into_iter().rev() {
             let window = self.saved.windows.remove(i);
             for (_, p) in window.dock.iter_all_tabs() {
@@ -1468,6 +1777,12 @@ impl eframe::App for Desktop {
                 }),
             }
         }
+        // A daughter whose last pane was closed or moved away closes itself.
+        let before = self.saved.windows.len();
+        self.saved
+            .windows
+            .retain(|w| w.dock.iter_all_tabs().next().is_some());
+        self.touched |= self.saved.windows.len() != before;
         self.session.sync();
         // After sync, so notices raised anywhere this frame show immediately.
         toasts::show(ctx, &mut self.session);
@@ -1481,10 +1796,32 @@ impl eframe::App for Desktop {
         }
     }
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        if self.persist && self.touched {
-            eframe::set_value(storage, STORAGE_KEY, &self.saved);
-            self.touched = false;
+        if !(self.persist && self.touched) {
+            return;
         }
+        self.saved.profile_order = self.saved.profiles.iter().map(|p| p.id.clone()).collect();
+        // Profiles go to their own files; if that fails they stay inline so
+        // nothing is lost.
+        let in_files = match &mut self.profile_files {
+            Some(store) => match store.save(&self.saved.profiles) {
+                Ok(()) => true,
+                Err(e) => {
+                    log::error!("Could not save Profile files: {e}");
+                    false
+                }
+            },
+            None => false,
+        };
+        let profiles = if in_files {
+            std::mem::take(&mut self.saved.profiles)
+        } else {
+            vec![]
+        };
+        eframe::set_value(storage, STORAGE_KEY, &self.saved);
+        if in_files {
+            self.saved.profiles = profiles;
+        }
+        self.touched = false;
     }
     fn auto_save_interval(&self) -> std::time::Duration {
         std::time::Duration::from_secs(5)

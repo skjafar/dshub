@@ -7,6 +7,7 @@ pub const LICENSE: &str = concat!(
     include_str!("../../assets/fonts/LICENSE-JetBrainsMono.txt"),
     "\n\nDejaVu\n\n",
     include_str!("../../assets/fonts/LICENSE-DejaVu.txt"),
+    "\n\nPhosphor Icons\n\nMIT License. Copyright (c) 2023 Phosphor Icons.\n",
 );
 
 /// Headings and emphasis; egui has no font weights of its own.
@@ -36,7 +37,12 @@ pub fn install(ctx: &egui::Context) {
             .font_data
             .insert(name.into(), egui::FontData::from_static(bytes).into());
     }
-    // Bundled faces first; egui's defaults and DejaVu cover remaining symbols.
+    fonts.font_data.insert(
+        "phosphor".into(),
+        egui_phosphor::Variant::Regular.font_data().into(),
+    );
+    // Bundled faces first, then the icon font (private-use code points only);
+    // egui's defaults and DejaVu cover remaining symbols.
     let defaults =
         |family: egui::FontFamily| fonts.families.get(&family).cloned().unwrap_or_default();
     let proportional = defaults(egui::FontFamily::Proportional);
@@ -45,6 +51,7 @@ pub fn install(ctx: &egui::Context) {
         first
             .iter()
             .map(|s| s.to_string())
+            .chain(std::iter::once("phosphor".to_string()))
             .chain(rest.iter().cloned())
             .chain(std::iter::once("dshub-symbols".to_string()))
             .collect::<Vec<_>>()
@@ -80,7 +87,15 @@ mod tests {
                     egui::FontFamily::Name(SEMIBOLD.into()),
                 ] {
                     let id = egui::FontId::new(16., family);
-                    for symbol in "●○≡←→↑↓↖↗↙↘⚠×−—…·".chars() {
+                    let icons = [
+                        super::super::icons::CLOSE,
+                        super::super::icons::WARNING,
+                        super::super::icons::DRAG,
+                        super::super::icons::GEAR,
+                        egui_phosphor::regular::ARROW_UP_LEFT,
+                    ]
+                    .concat();
+                    for symbol in "●○×−—…·".chars().chain(icons.chars()) {
                         assert!(
                             fonts.has_glyph(&id, symbol),
                             "Missing glyph: {symbol} in {:?}",

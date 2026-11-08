@@ -777,7 +777,7 @@ fn refinement_map_rows_drag_within_access_sections() {
         "uint32_t FIRST;\nuint32_t SECOND;\n// Read/Write\nuint32_t OUTPUT;".into();
     h.frame(vec![]);
     let out = h.frame(vec![]);
-    let start = text_position(&out, "≡ 0") + egui::vec2(8., 6.);
+    let start = text_position(&out, &format!("{} 0", icons::DRAG)) + egui::vec2(8., 6.);
     let end = text_position(&out, "SECOND") + egui::vec2(30., 6.);
     h.frame(vec![egui::Event::PointerMoved(start)]);
     h.frame(vec![pointer_button(start, true)]);
@@ -955,4 +955,22 @@ fn plot_history_changes_are_logged_when_enabled() {
             ),
         ]
     );
+}
+
+#[test]
+fn settings_saved_before_versioning_migrate_to_the_current_schema() {
+    struct Legacy;
+    impl eframe::Storage for Legacy {
+        fn get_string(&self, _: &str) -> Option<String> {
+            Some("(active: \"default\")".into())
+        }
+        fn set_string(&mut self, _: &str, _: String) {}
+        fn flush(&mut self) {}
+    }
+    let (mut saved, error, persist) = load_saved(Some(&Legacy));
+    assert!(error.is_none() && persist);
+    assert_eq!(saved.schema, 1);
+    assert!(!saved.profiles.is_empty());
+    saved.migrate();
+    assert_eq!(saved.schema, SCHEMA);
 }

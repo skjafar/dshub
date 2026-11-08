@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod diagnostics;
 pub mod map_files;
 pub mod model;
 pub mod profile_compat;

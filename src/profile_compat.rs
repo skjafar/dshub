@@ -81,6 +81,10 @@ fn widget(v: &Value, p: &Profile, depth: usize) -> Option<Widget> {
     w.on_label = c["onLabel"].as_str().unwrap_or("On").into();
     w.off_label = c["offLabel"].as_str().unwrap_or("Off").into();
     w.show_inactive = c["showInactive"].as_bool().unwrap_or(true);
+    w.bit_count = match c["bitCount"].as_u64() {
+        Some(n @ (8 | 16)) => n as u8,
+        _ => 32,
+    };
     w.confirm = c["confirmationRequired"].as_bool().unwrap_or(false);
     w.decimals = c["decimals"].as_u64().unwrap_or(3).min(9) as usize;
     w.show_raw = c["showRawValue"].as_bool().unwrap_or(false);
@@ -255,7 +259,7 @@ fn export_widget(w: &Widget) -> Value {
     } else {
         Value::Null
     };
-    let config = json!({"label":w.label,"binding":w.binding.as_ref().map(export_binding),"format":w.format,"thresholds":thresholds,"min":w.min,"max":w.max,"unit":w.unit,"conversionFactor":w.factor,"primaryUnit":w.unit,"secondaryUnit":w.secondary_unit,"showRawValue":w.show_raw,"decimals":w.decimals,"orientation":if w.vertical{"vertical"}else{"horizontal"},"target":target,"value":w.value.parse::<f64>().unwrap_or(0.),"options":w.options.iter().map(|o|json!({"value":o.value.parse::<f64>().unwrap_or(0.),"label":o.label})).collect::<Vec<_>>(),"confirmationRequired":w.confirm,"rows":rows,"alarms":rows,"showInactive":w.show_inactive,"onValue":w.on_value,"onLabel":w.on_label,"offLabel":w.off_label,"directions":w.directions,"layout":"8way","series":w.binding.as_ref().map(export_binding),"pollInterval":w.poll_ms,"timeSpan":w.time_span,"padding":w.padding,"spacing":w.spacing,"childWidgets":export_widgets(&w.children)});
+    let config = json!({"label":w.label,"binding":w.binding.as_ref().map(export_binding),"format":w.format,"thresholds":thresholds,"min":w.min,"max":w.max,"unit":w.unit,"conversionFactor":w.factor,"primaryUnit":w.unit,"secondaryUnit":w.secondary_unit,"showRawValue":w.show_raw,"decimals":w.decimals,"orientation":if w.vertical{"vertical"}else{"horizontal"},"target":target,"value":w.value.parse::<f64>().unwrap_or(0.),"options":w.options.iter().map(|o|json!({"value":o.value.parse::<f64>().unwrap_or(0.),"label":o.label})).collect::<Vec<_>>(),"confirmationRequired":w.confirm,"rows":rows,"alarms":rows,"showInactive":w.show_inactive,"bitCount":w.bit_count,"onValue":w.on_value,"onLabel":w.on_label,"offLabel":w.off_label,"directions":w.directions,"layout":"8way","series":w.binding.as_ref().map(export_binding),"pollInterval":w.poll_ms,"timeSpan":w.time_span,"padding":w.padding,"spacing":w.spacing,"childWidgets":export_widgets(&w.children)});
     json!({"id":w.id,"kind":kind,"config":config,"layout":{"x":0,"y":0,"w":(w.width/80.).max(1.) as u32,"h":(w.height/60.).max(1.) as u32}})
 }
 pub fn export_dashboards(ds: &[Dashboard]) -> Value {
