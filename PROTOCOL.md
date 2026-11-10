@@ -251,7 +251,7 @@ Every multi-byte field is little-endian, except the discovery IP address, which 
 
 ## Compatibility notes
 
-DSHub v0.3.0 and the bundled emulator follow this document. Remaining limits and firmware requirements:
+DSHub v0.3.1 and the bundled emulator follow this document. Remaining limits and firmware requirements:
 
 | Area | Library | DSHub | Effect |
 |------|---------|-------|--------|
