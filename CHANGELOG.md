@@ -1,4 +1,4 @@
-## Unreleased
+## [0.3.2] - 2026-11-12 - Consistent widgets
 
 - A new connection reads the rows in view once, so tables no longer show "Unread" until Live or Read all is used.
 - Commands pane: the Profile's commands come first and library commands below; critical commands are marked, and Send shows the argument it will use.
