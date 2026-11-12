@@ -24,6 +24,7 @@ import struct
 import time
 import sys
 import math
+import random
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -557,10 +558,18 @@ class DSHubEmulator:
     """Main emulator class"""
 
     def __init__(self, board_name: str = "DSHub Emulator", board_type: int = 1,
-                 firmware_version: int = 0x0100, host: str = '127.0.0.1'):
+                 firmware_version: int = 0x0100, host: str = '127.0.0.1',
+                 latency_ms: float = 0.0, drop_rate: float = 0.0,
+                 seed: Optional[int] = None):
         # Listen address for TCP and UDP: 0.0.0.0 serves this machine and the
         # network, 127.0.0.1 this machine only.
         self.host = host
+        # Fault injection for testing a host application: a delay before every
+        # reply, and a chance of not replying at all (UDP only; over TCP a
+        # missing reply is a stall, which the delay already models).
+        self.latency = max(latency_ms, 0.0) / 1000.0
+        self.drop_rate = min(max(drop_rate, 0.0), 1.0)
+        self.random = random.Random(seed)
         self.board_name = board_name
         self.board_type = board_type
         self.firmware_version = firmware_version
@@ -631,7 +640,9 @@ class DSHubEmulator:
                             self._send_discovery_response(addr)
                     elif len(data) == 8:
                         response = self._process_packet(data, 'UDP', addr)
-                        if response:
+                        if response and self.random.random() >= self.drop_rate:
+                            if self.latency:
+                                time.sleep(self.latency)
                             self.discovery_socket.sendto(response, addr)
                     elif data:
                         with self.lock:
@@ -715,6 +726,8 @@ class DSHubEmulator:
                         packet, pending = pending[:8], pending[8:]
                         response = self._process_packet(packet, 'TCP', addr)
                         if response:
+                            if self.latency:
+                                time.sleep(self.latency)
                             client.sendall(response)
                 except socket.timeout:
                     continue
@@ -957,6 +970,15 @@ def main():
     parser.add_argument(
         '--local', action='store_const', const='127.0.0.1', dest='host',
         help="listen on 127.0.0.1 only (same as --host 127.0.0.1)")
+    parser.add_argument(
+        '--latency-ms', type=float, default=0.0,
+        help="delay every reply by this many milliseconds (default 0)")
+    parser.add_argument(
+        '--drop-rate', type=float, default=0.0,
+        help="probability of not answering a UDP request, 0 to 1 (default 0)")
+    parser.add_argument(
+        '--seed', type=int, default=None,
+        help="seed for --drop-rate, for repeatable runs")
     args = parser.parse_args()
 
     print("\n" + "="*60)
@@ -972,7 +994,13 @@ def main():
         board_type=1,
         firmware_version=0x0200,
         host=args.host,
+        latency_ms=args.latency_ms,
+        drop_rate=args.drop_rate,
+        seed=args.seed,
     )
+    if args.latency_ms or args.drop_rate:
+        print(f"Fault injection: {args.latency_ms:g} ms latency, "
+              f"{args.drop_rate:.0%} of UDP replies dropped")
 
     try:
         emulator.start()

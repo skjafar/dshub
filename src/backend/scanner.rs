@@ -76,8 +76,8 @@ pub async fn scan_devices(app: AppHandle) {
         }
 
         match tokio::time::timeout(remaining, socket.recv_from(&mut buf)).await {
-            Ok(Ok((n, _src))) => {
-                if let Some(device) = parse_discovery_response(&buf[..n]) {
+            Ok(Ok((n, source))) => {
+                if let Some(device) = parse_discovery_response(&buf[..n], source.ip()) {
                     log::info!(
                         "Device discovered: {} at {}",
                         device.board_name,
@@ -101,7 +101,10 @@ pub async fn scan_devices(app: AppHandle) {
     app.emit(Event::ScanComplete);
 }
 
-fn parse_discovery_response(data: &[u8]) -> Option<DiscoveredDevice> {
+/// Parses a discovery reply received from `source`. The Device is reached at
+/// the address the reply came from; the address inside the reply is only a
+/// claim, kept when it differs so the interface can say so.
+fn parse_discovery_response(data: &[u8], source: std::net::IpAddr) -> Option<DiscoveredDevice> {
     if data.len() < 32 {
         return None;
     }
@@ -148,8 +151,11 @@ fn parse_discovery_response(data: &[u8]) -> Option<DiscoveredDevice> {
         board_name
     };
 
+    let source = source.to_string();
+    let claimed_ip = (ip_address != source).then_some(ip_address);
     Some(DiscoveredDevice {
-        ip_address,
+        ip_address: source,
+        claimed_ip,
         board_name,
         mac_address,
         device_id,
@@ -183,17 +189,30 @@ mod tests {
         b
     }
 
+    fn from(last: u8) -> std::net::IpAddr {
+        std::net::IpAddr::V4(Ipv4Addr::new(10, 0, 0, last))
+    }
+
+    #[test]
+    fn a_reply_is_reached_at_its_source_not_the_address_it_claims() {
+        let d = parse_discovery_response(&response([0; 6], 2009, 2011), from(66)).unwrap();
+        assert_eq!(d.ip_address, "10.0.0.66");
+        assert_eq!(d.claimed_ip.as_deref(), Some("10.0.0.5"));
+    }
+
     #[test]
     fn mac_address_precedes_the_reserved_field() {
-        let d = parse_discovery_response(&response([0x02, 0, 0, 0, 0, 0x01], 2009, 2011)).unwrap();
+        let d = parse_discovery_response(&response([0x02, 0, 0, 0, 0, 0x01], 2009, 2011), from(5))
+            .unwrap();
         assert_eq!(d.mac_address, "02:00:00:00:00:01");
         assert_eq!(d.ip_address, "10.0.0.5");
+        assert_eq!(d.claimed_ip, None);
         assert_eq!(d.board_name, "Board");
     }
 
     #[test]
     fn reported_ports_are_preserved() {
-        let d = parse_discovery_response(&response([0; 6], 3009, 3011)).unwrap();
+        let d = parse_discovery_response(&response([0; 6], 3009, 3011), from(5)).unwrap();
         assert_eq!((d.tcp_port, d.udp_port), (3009, 3011));
     }
 }

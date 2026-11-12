@@ -1,3 +1,4 @@
+use super::theme::{RADIUS_CARD, RADIUS_CELL, WIDGET_INSET};
 use super::{canvas_edit, canvas_layout, colors};
 use super::{
     session::{OutcomeStatus, Session, Undo},
@@ -21,6 +22,11 @@ pub fn dashboard(
         });
     }
     pane.dashboard = pane.dashboard.min(profile.dashboards.len() - 1);
+    // Built-in dashboards are read-only; they are changed on a copy.
+    let bundled = profile.dashboards[pane.dashboard].bundled();
+    if bundled {
+        pane.editing = false;
+    }
     // Editing works on a draft; the Profile changes only on Save.
     let mut fresh = false;
     if pane.editing
@@ -60,17 +66,37 @@ pub fn dashboard(
                 .on_disabled_hover_text(unsaved_hint);
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let mut editing = pane.editing;
-            let toggle = ui.checkbox(&mut editing, "Edit dashboard");
-            if editing != pane.editing {
-                if !editing && dirty {
-                    session.notice = unsaved_hint.into();
-                } else {
-                    pane.editing = editing;
+            if bundled {
+                if ui
+                    .button("Duplicate to edit")
+                    .on_hover_text(
+                        "Built-in dashboards are updated with DSHub. Make your own copy to change it.",
+                    )
+                    .clicked()
+                {
+                    profile.dashboards.push(saved.duplicate());
+                    pane.dashboard = profile.dashboards.len() - 1;
+                    pane.editing = true;
                 }
-            }
-            if dirty {
-                toggle.on_hover_text(unsaved_hint);
+                if profile.dashboards.len() > 1
+                    && super::controls::confirm_button(ui, &saved.id, "Remove")
+                {
+                    profile.dashboards.remove(pane.dashboard);
+                    pane.dashboard = 0;
+                }
+            } else {
+                let mut editing = pane.editing;
+                let toggle = ui.checkbox(&mut editing, "Edit dashboard");
+                if editing != pane.editing {
+                    if !editing && dirty {
+                        session.notice = unsaved_hint.into();
+                    } else {
+                        pane.editing = editing;
+                    }
+                }
+                if dirty {
+                    toggle.on_hover_text(unsaved_hint);
+                }
             }
             if pane.editing {
                 let dashboard = &saved.id;
@@ -107,7 +133,7 @@ pub fn dashboard(
                         ui.visuals().weak_text_color()
                     })),
                 );
-                if save.clicked() {
+                if save.clicked() || (dirty && super::save_requested(ui.ctx())) {
                     if let Some(draft) = &pane.dashboard_draft {
                         profile.dashboards[pane.dashboard] = draft.clone();
                     }
@@ -131,6 +157,14 @@ pub fn dashboard(
                 }
             }
             if !pane.editing {
+                ui.checkbox(&mut pane.fit_width, "Fit width").on_hover_text(
+                    "Stretch the dashboard across the pane. Text keeps its size; \
+                     editing always uses the saved layout.",
+                );
+            }
+            if bundled {
+                ui.weak("Built-in dashboard");
+            } else if !pane.editing {
                 ui.weak("Enable Edit dashboard to arrange and configure widgets.");
             }
             if let (true, Some(draft)) = (pane.editing, pane.dashboard_draft.as_mut()) {
@@ -158,10 +192,7 @@ pub fn dashboard(
                             .on_disabled_hover_text(unsaved_hint)
                             .clicked()
                         {
-                            let mut d = saved.clone();
-                            d.id = unique_id();
-                            d.name.push_str(" Copy");
-                            profile.dashboards.push(d);
+                            profile.dashboards.push(saved.duplicate());
                             pane.dashboard = profile.dashboards.len() - 1;
                             ui.close();
                         }
@@ -233,6 +264,14 @@ pub fn dashboard(
         })
         .show(ui, |ui| {
             ui.push_id(&dashboard_id, |ui| {
+                // Fit width: draw a horizontally stretched layout, then put
+                // the saved geometry back exactly, so nothing drifts.
+                let mut saved_geometry = vec![];
+                if pane.fit_width && !pane.editing {
+                    if let Some(factor) = fit_factor(&widgets, ui.available_width()) {
+                        stretch(&mut widgets, factor, &mut saved_geometry);
+                    }
+                }
                 render_grid(
                     ui,
                     &mut widgets,
@@ -243,6 +282,9 @@ pub fn dashboard(
                     0,
                     None,
                 );
+                if !saved_geometry.is_empty() {
+                    unstretch(&mut widgets, &mut saved_geometry.into_iter());
+                }
             });
         });
     if let Some((parent, index, widget)) = session.removed_widget.take() {
@@ -570,6 +612,67 @@ fn add_widget_menu(ui: &mut egui::Ui, widgets: &mut Vec<Widget>) {
         }
     });
 }
+/// A widget's saved horizontal geometry: position and width.
+type Geometry = (Option<[f32; 2]>, f32);
+
+/// How much to stretch placed widgets so they span `available`; `None` when
+/// the layout already fits or has nothing placed. Never shrinks a widget
+/// below the canvas minimum width.
+fn fit_factor(widgets: &[Widget], available: f32) -> Option<f32> {
+    fn narrowest(widgets: &[Widget]) -> f32 {
+        widgets.iter().fold(f32::INFINITY, |least, w| {
+            least.min(w.width).min(narrowest(&w.children))
+        })
+    }
+    let content = widgets
+        .iter()
+        .filter_map(|w| w.position.map(|p| p[0] + w.width))
+        .fold(0_f32, f32::max);
+    if content <= 0. {
+        return None;
+    }
+    let least = (120. / narrowest(widgets)).min(1.);
+    let factor = ((available - 2.) / content).clamp(least, 3.);
+    ((factor - 1.).abs() > 0.01).then_some(factor)
+}
+/// Scales positions and widths by `factor`, recording the originals in
+/// traversal order. A container's children scale to its new inner width.
+fn stretch(widgets: &mut [Widget], factor: f32, saved: &mut Vec<Geometry>) {
+    for w in widgets {
+        saved.push((w.position, w.width));
+        let old = w.width;
+        if let Some(position) = &mut w.position {
+            position[0] *= factor;
+        }
+        w.width = old * factor;
+        if !w.children.is_empty() {
+            let padding = w.padding.clamp(6., 32.) * 2.;
+            let inner = if old > padding + 1. {
+                (w.width - padding) / (old - padding)
+            } else {
+                factor
+            };
+            stretch(&mut w.children, inner, saved);
+        }
+    }
+}
+/// Restores the geometry [`stretch`] recorded.
+fn unstretch(widgets: &mut [Widget], saved: &mut impl Iterator<Item = Geometry>) {
+    for w in widgets {
+        if let Some((position, width)) = saved.next() {
+            // The stretched frame may have placed an unplaced widget; keep
+            // its row, and its saved horizontal place.
+            w.position = match (position, w.position) {
+                (Some(old), Some(now)) => Some([old[0], now[1]]),
+                (None, _) => None,
+                (old, None) => old,
+            };
+            w.width = width;
+        }
+        unstretch(&mut w.children, saved);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_grid(
     ui: &mut egui::Ui,
@@ -859,22 +962,20 @@ fn render_grid(
         } else {
             ui.painter().clone()
         };
-        // Top-level widgets are raised cards; nested ones are outlined regions
-        // of their container, so depth reads through tone rather than boxes.
-        // A Button is its own control and needs no card around it.
+        // Top-level widgets are raised cards. Inside a container the group
+        // is the frame, so nested widgets draw no box of their own. A
+        // frameless widget's control or text is its own boundary.
         let palette = super::theme::of(ui);
         let (fill, outline) = if floating {
             (palette.surface, palette.accent)
-        } else if w.kind.frameless() {
+        } else if w.kind.frameless() || depth > 0 {
             (Color32::TRANSPARENT, Color32::TRANSPARENT)
-        } else if depth == 0 {
-            (palette.raised, palette.ghost)
         } else {
-            (Color32::TRANSPARENT, palette.ghost)
+            (palette.raised, palette.ghost)
         };
         painter.rect(
             rect,
-            4,
+            RADIUS_CARD,
             fill,
             egui::Stroke::new(1_f32, outline),
             egui::StrokeKind::Inside,
@@ -885,29 +986,35 @@ fn render_grid(
         if editing && !floating && unsaved_ids.contains(&w.id) {
             painter.rect_stroke(
                 rect,
-                4,
+                RADIUS_CARD,
                 egui::Stroke::new(1.5_f32, colors::role(ui, Role::Warn)),
                 egui::StrokeKind::Inside,
             );
         }
+        // Every widget's content starts the same distance from its left and
+        // right edges, card or not, so stacked widgets line up. Borderless
+        // widgets have no vertical margin and shrink to one line; a Button
+        // or Label fills its box.
         let margin = match w.kind {
-            WidgetKind::Container => w.padding.clamp(6., 32.),
-            // Without a card, the control or text itself spans the widget.
-            kind if kind.frameless() => 0.,
-            _ => 6.,
+            WidgetKind::Container => egui::Vec2::splat(w.padding.clamp(6., 32.)),
+            WidgetKind::Button | WidgetKind::Label => egui::Vec2::ZERO,
+            kind if kind.frameless() => egui::vec2(WIDGET_INSET, 0.),
+            _ => egui::Vec2::splat(WIDGET_INSET),
         };
         let mut child = ui.new_child(
             egui::UiBuilder::new()
                 .id_salt(id)
                 .layer_id(layer)
-                .max_rect(rect.shrink(margin))
+                .max_rect(rect.shrink2(margin))
                 .layout(egui::Layout::top_down(egui::Align::Min)),
         );
-        child.set_clip_rect(rect.shrink(margin.min(5.)).intersect(if floating {
-            ui.ctx().content_rect()
-        } else {
-            ui.clip_rect()
-        }));
+        child.set_clip_rect(rect.shrink2(margin.min(egui::Vec2::splat(5.))).intersect(
+            if floating {
+                ui.ctx().content_rect()
+            } else {
+                ui.clip_rect()
+            },
+        ));
         if (w.text_size - 1.).abs() > f32::EPSILON {
             let scale = w.text_size.clamp(0.5, 4.);
             for font in child.style_mut().text_styles.values_mut() {
@@ -923,36 +1030,80 @@ fn render_grid(
         };
         let titled = !matches!(w.kind, WidgetKind::Button | WidgetKind::Label)
             && (!w.label.trim().is_empty() || status.is_some_and(|(role, _)| role != Role::Ok));
+        let title_top = child.cursor().top();
         if titled {
+            let aside = status
+                .is_some_and(|(role, _)| role == Role::Ok)
+                .then(|| title_aside(w, session, profile, prefs))
+                .flatten();
             child.horizontal(|ui| {
-                let title = if depth == 0 || w.kind == WidgetKind::Container {
+                // Group titles are semibold; a widget's own title is a quiet
+                // caption at any depth.
+                let title = if w.kind == WidgetKind::Container {
                     RichText::new(&w.label)
                         .family(egui::FontFamily::Name(super::fonts::SEMIBOLD.into()))
                         .color(palette.text)
                 } else {
                     RichText::new(&w.label).small().color(palette.text_weak)
                 };
-                ui.add(egui::Label::new(title).selectable(false).truncate());
-                if let Some((role, label)) = status {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // Healthy readings show only a dot; anything else says why.
-                        if role != Role::Ok {
-                            ui.label(RichText::new(label).small().color(colors::role(ui, role)));
-                        }
-                        ui.label(RichText::new("●").small().color(colors::role(ui, role)))
-                            .on_hover_text(label);
-                    });
+                let caption = |ui: &mut egui::Ui| {
+                    let response = ui.add(egui::Label::new(title).selectable(false).truncate());
+                    if let Some((_, label)) = status {
+                        response.on_hover_text(label);
+                    }
+                };
+                let attention = status.is_some_and(|(role, _)| role != Role::Ok);
+                if !attention && aside.is_none() {
+                    // An empty right-to-left area would stretch the row.
+                    caption(ui);
+                    return;
                 }
+                // The status takes its place at the right first; the title
+                // has what is left and shortens rather than run under it.
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    match status {
+                        // A healthy reading needs no mark; anything else says why.
+                        Some((role, label)) if role != Role::Ok => {
+                            // A narrow widget keeps its title and shows the
+                            // mark alone; the reason is in the hover text.
+                            if ui.available_width() >= 160. {
+                                ui.label(
+                                    RichText::new(label).small().color(colors::role(ui, role)),
+                                );
+                            }
+                            ui.label(
+                                RichText::new(colors::mark(role))
+                                    .small()
+                                    .color(colors::role(ui, role)),
+                            )
+                            .on_hover_text(label);
+                        }
+                        _ => {
+                            if let Some(text) = &aside {
+                                ui.label(
+                                    RichText::new(text)
+                                        .small()
+                                        .monospace()
+                                        .color(palette.text_weak),
+                                );
+                            }
+                        }
+                    }
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), caption);
+                });
             });
         }
+        // The title row as drawn, so the fit records what the box must hold.
+        let header = child.cursor().top() - title_top;
         // Overflow stays reachable by scrolling, but idle scroll bars would
         // clutter tightly sized cards.
         child.spacing_mut().scroll.dormant_handle_opacity = 0.;
         child.spacing_mut().scroll.dormant_background_opacity = 0.;
         // A Button fills exactly the widget, so it never scrolls; its fit is
         // one line of button text.
+        let room = child.available_size();
         let content_size = if w.kind == WidgetKind::Button {
-            render_widget(&mut child, w, editing, session, profile, prefs, depth);
+            render_widget(&mut child, w, editing, session, profile, prefs, depth, room);
             egui::vec2(120., child.spacing().interact_size.y)
         } else {
             egui::ScrollArea::both()
@@ -964,24 +1115,25 @@ fn render_grid(
                 .max_height(child.available_height().max(1.))
                 .max_width(child.available_width().max(1.))
                 .show(&mut child, |ui| {
-                    render_widget(ui, w, editing, session, profile, prefs, depth);
+                    render_widget(ui, w, editing, session, profile, prefs, depth, room);
                 })
                 .content_size
         };
-        let header = if titled { 24. } else { 0. };
         let fit = if w.kind == WidgetKind::Container {
             w.children.iter().fold(egui::vec2(120., 48.), |size, c| {
                 let p = c.position.unwrap_or([0., 0.]);
                 size.max(egui::vec2(
-                    p[0] + c.width + margin * 2.,
-                    p[1] + c.height + margin * 2. + header,
+                    p[0] + c.width + margin.x * 2.,
+                    p[1] + c.height + margin.y * 2. + header,
                 ))
             })
         } else {
-            content_size + egui::vec2(margin * 2., margin * 2. + header)
+            content_size + margin * 2. + egui::vec2(0., header)
         };
         ui.ctx()
             .data_mut(|data| data.insert_temp(id.with("content-fit"), fit));
+        #[cfg(test)]
+        fits::record(w, fit);
         if editing {
             let hovered = ui.rect_contains_pointer(rect);
             if canvas_edit::selection(ui.ctx()).contains(&w.id) {
@@ -1122,6 +1274,20 @@ fn binding_picker(
         d.insert_temp(open_id, menu.inner.is_some());
     });
 }
+/// The unit the map gives a bound entry, if any.
+fn map_unit(binding: Option<&Binding>, profile: &Profile) -> Option<String> {
+    let b = binding?;
+    let e = profile.resolve(b)?;
+    profile
+        .metadata(b.space, &e.name)
+        .map(|m| m.unit.trim().to_string())
+        .filter(|u| !u.is_empty())
+}
+/// Fills the Unit from the map when the entry changes, or empties it when
+/// the map gives none. The user may edit it afterwards.
+pub(super) fn fill_unit(w: &mut Widget, profile: &Profile) {
+    w.unit = map_unit(w.binding.as_ref(), profile).unwrap_or_default();
+}
 /// A titled group of labelled settings in two aligned columns.
 fn section(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
     ui.add_space(6.);
@@ -1156,6 +1322,31 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                 egui::TextEdit::multiline(&mut w.label)
                     .desired_width(240.)
                     .desired_rows(3),
+            );
+            ui.end_row();
+            ui.label("Alignment");
+            super::controls::segmented(
+                ui,
+                &mut w.align,
+                &[
+                    (TextAlign::Left, "Left"),
+                    (TextAlign::Center, "Centre"),
+                    (TextAlign::Right, "Right"),
+                ],
+            );
+            ui.end_row();
+            ui.label("Weight");
+            super::controls::segmented(ui, &mut w.bold, &[(false, "Regular"), (true, "Semibold")]);
+            ui.end_row();
+            ui.label("Tone");
+            super::controls::segmented(
+                ui,
+                &mut w.tone,
+                &[
+                    (TextTone::Normal, "Normal"),
+                    (TextTone::Weak, "Weak"),
+                    (TextTone::Accent, "Accent"),
+                ],
             );
         } else {
             ui.label("Label");
@@ -1194,6 +1385,9 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                     &mut w.vertical,
                     &[(false, "Horizontal"), (true, "Vertical")],
                 );
+                ui.end_row();
+                ui.label("Limits");
+                ui.checkbox(&mut w.show_limits, "Show minimum and maximum");
                 ui.end_row();
             }
             WidgetKind::MiniPlot => {
@@ -1235,6 +1429,14 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                 ui.label("Clear alarms");
                 ui.checkbox(&mut w.show_inactive, "Show");
                 ui.end_row();
+                ui.label("Header");
+                ui.checkbox(&mut w.show_header, "Name the columns");
+                ui.end_row();
+            }
+            WidgetKind::DataTable => {
+                ui.label("Header");
+                ui.checkbox(&mut w.show_header, "Name the columns");
+                ui.end_row();
             }
             _ => {}
         }
@@ -1242,6 +1444,7 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
     if bound {
         section(ui, "Value", |ui| {
             ui.label("Entry");
+            let before = w.binding.clone();
             binding_picker(
                 ui,
                 &mut w.binding,
@@ -1251,6 +1454,9 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                     WidgetKind::Button | WidgetKind::Dropdown | WidgetKind::ValueWrite
                 ),
             );
+            if w.binding != before {
+                fill_unit(w, profile);
+            }
             ui.end_row();
             ui.label("Display");
             egui::ComboBox::from_id_salt("format")
@@ -1261,9 +1467,22 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                     }
                 });
             ui.end_row();
-            ui.label("Unit");
-            ui.add(egui::TextEdit::singleline(&mut w.unit).desired_width(120.));
-            ui.end_row();
+            if w.kind != WidgetKind::Dropdown {
+                ui.label("Unit");
+                let from_map = map_unit(w.binding.as_ref(), profile);
+                let field = ui.add(
+                    egui::TextEdit::singleline(&mut w.unit)
+                        .hint_text("none")
+                        .desired_width(120.),
+                );
+                match from_map {
+                    Some(unit) => field.on_hover_text(format!(
+                        "Filled from the map ({unit}) when the entry is chosen; edit it freely"
+                    )),
+                    None => field.on_hover_text("The map gives no unit for this entry"),
+                };
+                ui.end_row();
+            }
             if w.kind == WidgetKind::StatusMatrix {
                 ui.label("Bits");
                 super::controls::segmented(
@@ -1272,18 +1491,37 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                     &[(8, "8"), (16, "16"), (32, "32")],
                 );
                 ui.end_row();
+                ui.label("A set bit is");
+                super::controls::segmented(
+                    ui,
+                    &mut w.set_role,
+                    &[
+                        (Role::Ok, "OK"),
+                        (Role::Warn, "Warning"),
+                        (Role::Error, "Error"),
+                    ],
+                );
+                ui.end_row();
             }
             if matches!(w.kind, WidgetKind::Gauge | WidgetKind::ProgressBar) {
                 ui.label("Range");
                 ui.horizontal(|ui| {
-                    ui.add(egui::DragValue::new(&mut w.min).prefix("min "));
-                    ui.add(egui::DragValue::new(&mut w.max).prefix("max "));
+                    ui.add(typed(egui::DragValue::new(&mut w.min)).prefix("min "));
+                    ui.add(typed(egui::DragValue::new(&mut w.max)).prefix("max "));
                 });
                 ui.end_row();
             }
-            if w.kind == WidgetKind::EncoderDisplay {
+            if w.kind == WidgetKind::ValueRead {
+                ui.label("Scaling");
+                ui.checkbox(&mut w.scaled, "Multiply by a factor")
+                    .on_hover_text(
+                        "Show value × factor with fixed decimals, e.g. encoder counts as mm",
+                    );
+                ui.end_row();
+            }
+            if w.kind == WidgetKind::ValueRead && w.scaled {
                 ui.label("Scale factor");
-                ui.add(egui::DragValue::new(&mut w.factor).speed(0.01));
+                ui.add(typed(egui::DragValue::new(&mut w.factor)));
                 ui.end_row();
                 ui.label("Decimals");
                 ui.add(egui::DragValue::new(&mut w.decimals).range(0..=9));
@@ -1305,6 +1543,17 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
     if sends {
         section(ui, "Action", |ui| {
             if w.kind == WidgetKind::Button {
+                ui.label("Style");
+                super::controls::segmented(
+                    ui,
+                    &mut w.style,
+                    &[
+                        (ButtonStyle::Action, "Action"),
+                        (ButtonStyle::Neutral, "Neutral"),
+                        (ButtonStyle::Danger, "Danger"),
+                    ],
+                );
+                ui.end_row();
                 ui.label("Sends");
                 let mut command = w.command.is_some();
                 super::controls::segmented(
@@ -1476,7 +1725,7 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
     }
     if !matches!(
         w.kind,
-        WidgetKind::Container | WidgetKind::DeviceInfo | WidgetKind::Label
+        WidgetKind::Container | WidgetKind::DeviceInfo | WidgetKind::Label | WidgetKind::Button
     ) {
         ui.add_space(6.);
         egui::CollapsingHeader::new(super::theme::caption(ui, "Thresholds and state labels"))
@@ -1537,14 +1786,14 @@ fn thresholds_editor(ui: &mut egui::Ui, thresholds: &mut Vec<Threshold>, add_lab
                             ui.selectable_value(&mut t.op, op, op);
                         }
                     });
-                ui.add(egui::DragValue::new(&mut t.value));
+                ui.add(typed(egui::DragValue::new(&mut t.value)));
                 colour_choice(ui, t);
                 if ui.small_button(super::icons::CLOSE).on_hover_text("Remove rule").clicked() {
                     remove = Some(i);
                 }
             });
             ui.add(egui::TextEdit::singleline(&mut t.label).hint_text("Optional state label (e.g. Over limit)"))
-                .on_hover_text("Shown by state LEDs and alarm lists. Encoder displays use the threshold color and keep showing the numeric value.");
+                .on_hover_text("Shown by state LEDs and alarm lists. Numeric widgets take the colour and keep showing the number.");
         });
     }
     if let Some(i) = remove {
@@ -1554,23 +1803,16 @@ fn thresholds_editor(ui: &mut egui::Ui, thresholds: &mut Vec<Threshold>, add_lab
         thresholds.push(Threshold::new(Comparator::Gt, 0., Role::Warn, ""));
     }
 }
-/// Extra colours offered after the status roles; fixed in both themes.
-const EXTRA_COLOURS: [(&str, [u8; 3]); 4] = [
-    ("Orange", [0xf9, 0x73, 0x16]),
-    ("Violet", [0xa7, 0x8b, 0xfa]),
-    ("Pink", [0xf4, 0x72, 0xb6]),
-    ("White", [0xe5, 0xe7, 0xeb]),
-];
 /// A swatch for one threshold's colour. It opens the status colours (which
 /// follow the theme), a few extra colours, and a picker for any colour.
 fn colour_choice(ui: &mut egui::Ui, t: &mut Threshold) {
     let current = colors::threshold(ui, t);
     let name = |t: &Threshold| match t.color {
         None => colors::role_name(t.role).to_string(),
-        Some([r, g, b]) => EXTRA_COLOURS
+        Some([r, g, b]) => colors::EXTRA
             .iter()
-            .find(|(_, c)| *c == [r, g, b])
-            .map_or(format!("#{r:02x}{g:02x}{b:02x}"), |(n, _)| n.to_string()),
+            .find(|(_, c, _)| *c == [r, g, b])
+            .map_or(format!("#{r:02x}{g:02x}{b:02x}"), |(n, _, _)| n.to_string()),
     };
     let size = egui::vec2(40., ui.spacing().interact_size.y);
     let response = swatch(ui, current, size, false).on_hover_text(name(t));
@@ -1592,11 +1834,10 @@ fn colour_choice(ui: &mut egui::Ui, t: &mut Threshold) {
                 }
             });
             ui.horizontal(|ui| {
-                for (label, rgb) in EXTRA_COLOURS {
-                    let [r, g, b] = rgb;
+                for (label, rgb, _) in colors::EXTRA {
                     if swatch(
                         ui,
-                        Color32::from_rgb(r, g, b),
+                        colors::themed(ui.visuals().dark_mode, rgb),
                         egui::vec2(28., 22.),
                         t.color == Some(rgb),
                     )
@@ -1632,6 +1873,11 @@ fn swatch(ui: &mut egui::Ui, color: Color32, size: egui::Vec2, chosen: bool) -> 
         .rect(rect.shrink(2.), 3, color, stroke, egui::StrokeKind::Outside);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Colour"));
     response
+}
+/// A number that changes only by typing: thresholds, limits and command
+/// codes must not move with an accidental drag.
+pub(super) fn typed(value: egui::DragValue<'_>) -> egui::DragValue<'_> {
+    value.speed(0.)
 }
 pub(super) fn review(ui: &mut egui::Ui, b: &mut Binding, profile: &Profile) -> bool {
     if b.matches(profile) {
@@ -1672,6 +1918,8 @@ pub(super) fn review(ui: &mut egui::Ui, b: &mut Binding, profile: &Profile) -> b
     });
     false
 }
+/// `room` is the space the widget's box offers its content.
+#[allow(clippy::too_many_arguments)]
 fn render_widget(
     ui: &mut egui::Ui,
     w: &mut Widget,
@@ -1680,13 +1928,35 @@ fn render_widget(
     profile: &Profile,
     prefs: &Preferences,
     depth: usize,
+    room: egui::Vec2,
 ) {
+    let scale = w.text_size.clamp(0.5, 4.);
     if w.kind == WidgetKind::Label {
-        let color = super::theme::of(ui).text;
-        ui.add(
-            egui::Label::new(RichText::new(&w.label).color(color))
-                .wrap()
-                .selectable(false),
+        let palette = super::theme::of(ui);
+        let color = match w.tone {
+            TextTone::Normal => palette.text,
+            TextTone::Weak => palette.text_weak,
+            TextTone::Accent => palette.accent,
+        };
+        let mut text = RichText::new(&w.label).color(color);
+        if w.bold {
+            text = text.family(egui::FontFamily::Name(super::fonts::SEMIBOLD.into()));
+        }
+        let align = match w.align {
+            TextAlign::Left => egui::Align::Min,
+            TextAlign::Center => egui::Align::Center,
+            TextAlign::Right => egui::Align::Max,
+        };
+        ui.with_layout(
+            egui::Layout::top_down(align).with_cross_justify(false),
+            |ui| {
+                ui.add(
+                    egui::Label::new(text)
+                        .wrap()
+                        .halign(align)
+                        .selectable(false),
+                );
+            },
         );
         return;
     }
@@ -1728,7 +1998,7 @@ fn render_widget(
                 };
                 key(ui, "State");
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("●").color(colors::role(ui, role)));
+                    ui.label(RichText::new(colors::mark(role)).color(colors::role(ui, role)));
                     ui.label(state);
                 });
                 ui.end_row();
@@ -1756,13 +2026,33 @@ fn render_widget(
         return;
     }
     if matches!(w.kind, WidgetKind::DataTable | WidgetKind::AlarmList) {
-        // Aligned columns: status dot, name, value, unit, and for writable
-        // table rows an input with its Write button.
+        // Aligned columns: status mark, name, value, unit, and for writable
+        // table rows an input with its Write button and outcome.
         let palette = super::theme::of(ui);
+        // When every row shares one status, the title says it once and the
+        // rows carry only the mark.
+        let shared = table_status(w, session, profile, prefs);
+        let blocked_reason = blocked(session, editing, true);
+        // With every row healthy there is nothing to mark: the column goes.
+        let marks = shared.is_none_or(|(role, _)| role != Role::Ok);
         egui::Grid::new(ui.id().with("rows"))
-            .num_columns(6)
-            .spacing(egui::vec2(8., 4.))
+            .num_columns(if marks { 6 } else { 5 })
+            .spacing(egui::vec2(6., 4.))
             .show(ui, |ui| {
+                if w.show_header {
+                    let caption = |ui: &mut egui::Ui, text: &str| {
+                        ui.label(RichText::new(text).small().color(palette.text_weak));
+                    };
+                    if marks {
+                        caption(ui, "");
+                    }
+                    caption(ui, "Name");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        caption(ui, "Value")
+                    });
+                    caption(ui, "Unit");
+                    ui.end_row();
+                }
                 for b in &mut w.rows {
                     {
                         if !review(ui, b, profile) {
@@ -1797,18 +2087,30 @@ fn render_widget(
                             session.readings.get(&(b.space, b.address)),
                             Some(prefs.poll_ms),
                         );
-                        // Healthy readings show only a dot; anything else says why.
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new("●").small().color(colors::role(ui, role)))
-                                .on_hover_text(label);
-                            if role != Role::Ok {
-                                ui.label(
-                                    RichText::new(label).small().color(colors::role(ui, role)),
-                                );
-                            }
-                        });
+                        // A healthy row needs no mark; anything else is marked,
+                        // and says why unless the title already did.
+                        if marks {
+                            ui.horizontal(|ui| {
+                                if role != Role::Ok {
+                                    ui.label(
+                                        RichText::new(colors::mark(role))
+                                            .small()
+                                            .color(colors::role(ui, role)),
+                                    )
+                                    .on_hover_text(label);
+                                    if shared.is_none() {
+                                        ui.label(
+                                            RichText::new(label)
+                                                .small()
+                                                .color(colors::role(ui, role)),
+                                        );
+                                    }
+                                }
+                            });
+                        }
                         let name = style.map(|s| s.label.as_str()).unwrap_or(&b.name);
                         ui.label(RichText::new(name).color(palette.text_weak));
+                        let format = shown(style.map(|s| s.format).unwrap_or(w.format), meta);
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             // An alarm's state label says more than its number.
                             let text = match rule.filter(|r| {
@@ -1818,8 +2120,7 @@ fn render_widget(
                                 None => r
                                     .as_ref()
                                     .map(|r| {
-                                        shown(style.map(|s| s.format).unwrap_or(w.format), meta)
-                                            .format_with(&e, r.value, meta)
+                                        group(prefs, format, format.format_with(&e, r.value, meta))
                                     })
                                     .unwrap_or("—".into()),
                             };
@@ -1835,31 +2136,74 @@ fn render_widget(
                             && b.space != Space::SysRegister
                         {
                             let id = ui.id().with(("value", &b.name));
+                            let edit_id = id.with("edit");
                             let mut input = ui
                                 .ctx()
                                 .data_mut(|d| d.get_temp::<String>(id).unwrap_or_default());
-                            ui.add_sized(
-                                [80., ui.spacing().interact_size.y],
-                                egui::TextEdit::singleline(&mut input).id(id.with("edit")),
-                            );
-                            ui.ctx().data_mut(|d| d.insert_temp(id, input.clone()));
-                            if ui
-                                .add_enabled(
-                                    session.controlled() && !editing,
-                                    egui::Button::new("Write"),
-                                )
-                                .clicked()
-                            {
-                                let meta = profile.metadata(b.space, &e.name);
-                                session.write_formatted(
-                                    b.space,
-                                    &e,
-                                    &input,
-                                    shown(style.map(|s| s.format).unwrap_or(w.format), meta),
-                                    meta,
-                                    w.confirm,
+                            // The input and Write button appear on the hovered
+                            // row, or while a value is being entered; their
+                            // cells stay allocated so the columns hold still.
+                            let size = egui::vec2(64., ui.spacing().interact_size.y);
+                            let row_hovered = ui
+                                .ctx()
+                                .data_mut(|d| d.get_temp::<bool>(id.with("hovered")))
+                                .unwrap_or(false);
+                            let focused = ui.memory(|m| m.has_focus(edit_id));
+                            let outcome = session.writes.get(&(b.space, b.address)).cloned();
+                            let active = row_hovered || focused || !input.is_empty();
+                            let mut hovered = false;
+                            if active {
+                                let edit = ui.add_sized(
+                                    size,
+                                    egui::TextEdit::singleline(&mut input)
+                                        .font(egui::TextStyle::Monospace)
+                                        .id(edit_id),
                                 );
+                                hovered |= edit.hovered();
+                                let submit = edit.lost_focus()
+                                    && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                                let button = ui
+                                    .horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 4.;
+                                        let button = ui
+                                            .add_enabled(
+                                                blocked_reason.is_none(),
+                                                styled(ui, "Write", ButtonStyle::Action, false),
+                                            )
+                                            .on_disabled_hover_text(
+                                                blocked_reason.unwrap_or_default(),
+                                            );
+                                        outcome_mark(ui, outcome.as_ref());
+                                        button
+                                    })
+                                    .inner;
+                                hovered |= button.hovered();
+                                if (button.clicked() || submit) && blocked_reason.is_none() {
+                                    session.write_formatted(
+                                        b.space, &e, &input, format, meta, w.confirm,
+                                    );
+                                }
+                            } else {
+                                let (cell, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 4.;
+                                    let write = egui::vec2(48., size.y);
+                                    ui.allocate_exact_size(write, egui::Sense::hover());
+                                    outcome_mark(ui, outcome.as_ref());
+                                });
+                                hovered |= ui.rect_contains_pointer(cell);
                             }
+                            ui.ctx().data_mut(|d| d.insert_temp(id, input.clone()));
+                            let row_rect = ui.min_rect();
+                            let pointer_on_row =
+                                ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| {
+                                    p.y >= ui.cursor().top()
+                                        && p.y <= ui.cursor().top() + size.y
+                                        && row_rect.x_range().contains(p.x)
+                                });
+                            ui.ctx().data_mut(|d| {
+                                d.insert_temp(id.with("hovered"), hovered || pointer_on_row)
+                            });
                         }
                     }
                     ui.end_row();
@@ -1878,9 +2222,10 @@ fn render_widget(
             .collect();
         let gap = 6.;
         let width = ((ui.available_width() - gap * 2.) / 3.).max(36.);
-        let height = ((ui.available_height() - gap * (rows.len().max(1) - 1) as f32)
-            / rows.len().max(1) as f32)
-            .clamp(28., 56.);
+        // A fixed row height: the content scrolls, so the space on offer
+        // says nothing about the widget's box.
+        let height = (ui.spacing().interact_size.y + 12.) * scale;
+        let blocked_reason = blocked(session, editing, true);
         let (area, _) = ui.allocate_exact_size(
             egui::vec2(
                 width * 3. + gap * 2.,
@@ -1902,11 +2247,17 @@ fn render_widget(
                         + egui::vec2(column as f32 * (width + gap), row as f32 * (height + gap)),
                     egui::vec2(width, height),
                 );
-                let response = ui
-                    .add_enabled_ui(session.controlled() && !editing, |ui| {
-                        ui.put(cell, egui::Button::new(label).min_size(cell.size()))
-                    })
-                    .inner;
+                // A child placed on the cell: nothing more is allocated in
+                // the widget, which `add_enabled_ui` around `put` would do.
+                let mut cell_ui = ui.new_child(egui::UiBuilder::new().max_rect(cell).layout(
+                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                ));
+                let response = cell_ui
+                    .add_enabled(
+                        blocked_reason.is_none(),
+                        styled(&cell_ui, label, ButtonStyle::Neutral, false),
+                    )
+                    .on_disabled_hover_text(blocked_reason.unwrap_or_default());
                 // At most one jog per direction is in flight. Repeats while the
                 // button is held never pile up in the request queue, so
                 // releasing it stops the machine after at most one more step.
@@ -1935,20 +2286,34 @@ fn render_widget(
                     }
                 }
             }
+            // The last jog's outcome sits in the empty centre of the compass.
+            let last = w
+                .directions
+                .iter()
+                .filter_map(|d| session.commands.get(&d.command))
+                .max_by(|a, b| a.sent_at.total_cmp(&b.sent_at))
+                .cloned();
+            if let Some(centre) = rows.iter().position(|r| *r == 1) {
+                let cell = egui::Rect::from_min_size(
+                    area.min + egui::vec2(width + gap, centre as f32 * (height + gap)),
+                    egui::vec2(width, height),
+                );
+                let mut cell_ui = ui.new_child(egui::UiBuilder::new().max_rect(cell).layout(
+                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                ));
+                outcome_mark(&mut cell_ui, last.as_ref());
+            }
         }
         return;
     }
     if let (WidgetKind::Button, Some(command)) = (w.kind, w.command) {
-        let text = RichText::new(&w.label).strong().color(
-            w.thresholds
-                .first()
-                .map_or(colors::role(ui, Role::Accent), |t| colors::threshold(ui, t)),
-        );
+        let button = styled(ui, &w.label, w.style, true);
+        let outcome = session.commands.get(&command).cloned();
         if filled_button(
             ui,
-            text,
-            session.controlled() && !editing,
-            session.commands.get(&command),
+            button,
+            blocked(session, editing, true),
+            outcome.as_ref(),
         )
         .clicked()
         {
@@ -1991,11 +2356,42 @@ fn render_widget(
     let color = rule
         .map(|r| colors::threshold(ui, r))
         .unwrap_or(ui.visuals().text_color());
-    let text = raw
-        .map(|v| shown(w.format, meta).format_with(&e, v, meta))
+    let format = shown(w.format, meta);
+    // Inputs and the write path see ungrouped text; read-outs may group.
+    let plain = raw
+        .map(|v| format.format_with(&e, v, meta))
         .unwrap_or("—".into());
+    let text = group(prefs, format, plain.clone());
+    let unit = w.unit.trim();
+    let blocked_reason = blocked(session, editing, e.writable);
+    let outcome = session
+        .writes
+        .get(&(binding.space, binding.address))
+        .cloned();
     match w.kind {
-        WidgetKind::ValueRead => readout(ui, &text, &w.unit, color, 40., w.text_size),
+        WidgetKind::ValueRead if w.scaled => {
+            // value × factor at fixed decimals, with the raw value under it.
+            let scaled = value
+                .map(|v| {
+                    group(
+                        prefs,
+                        DisplayFormat::Decimal,
+                        format!("{:.*}", w.decimals.min(9), v * w.factor),
+                    )
+                })
+                .unwrap_or("—".into());
+            readout(ui, &scaled, unit, color, 40., w.text_size);
+            if w.show_raw {
+                let palette = super::theme::of(ui);
+                ui.label(
+                    RichText::new(format!("Raw {text} {}", w.secondary_unit).trim_end())
+                        .small()
+                        .monospace()
+                        .color(palette.text_weak),
+                );
+            }
+        }
+        WidgetKind::ValueRead => readout(ui, &text, unit, color, 40., w.text_size),
         WidgetKind::Gauge => {
             if w.max <= w.min {
                 ui.colored_label(colors::role(ui, Role::Warn), "Maximum must exceed minimum");
@@ -2003,36 +2399,68 @@ fn render_widget(
             }
             let palette = super::theme::of(ui);
             let accent = rule.map_or(palette.accent, |r| colors::threshold(ui, r));
-            let width = ui.available_width().min(260.);
-            let height = (width * 0.58).min(ui.available_height() - 4.).max(60.);
+            // The arc is capped in width and centred in the widget.
+            let full = ui.available_width();
+            let width = full.min(260. * scale);
+            let height = (width * 0.58).min(room.y - 4.).max(60.);
             let (rect, response) =
-                ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
-            describe(&response, format!("{}: {text} {}", w.label, w.unit));
-            let radius = (rect.width() / 2. - 10.).min(rect.height() - 26.).max(18.);
+                ui.allocate_exact_size(egui::vec2(full, height), egui::Sense::hover());
+            describe(&response, format!("{}: {text} {unit}", w.label));
+            let rect = egui::Rect::from_center_size(rect.center(), egui::vec2(width, height));
+            let radius = (rect.width() / 2. - 10.)
+                .min(rect.height() - 26. * scale)
+                .max(18.);
             let center = egui::pos2(rect.center().x, rect.top() + radius + 6.);
-            let fraction = value
-                .map(|v| ((v - w.min) / (w.max - w.min)).clamp(0., 1.))
-                .unwrap_or(0.) as f32;
-            let arc = |from: f32, to: f32| -> Vec<egui::Pos2> {
+            let span = w.max - w.min;
+            let fraction_of = |v: f64| ((v - w.min) / span).clamp(0., 1.) as f32;
+            let fraction = value.map(fraction_of).unwrap_or(0.);
+            let point = |t: f32, r: f32| {
+                let angle = std::f32::consts::PI * (1. + t);
+                center + egui::vec2(angle.cos(), angle.sin()) * r
+            };
+            let arc = |from: f32, to: f32, r: f32| -> Vec<egui::Pos2> {
                 let steps = ((to - from) * 48.).ceil().max(1.) as usize;
                 (0..=steps)
-                    .map(|i| {
-                        let t = from + (to - from) * i as f32 / steps as f32;
-                        let angle = std::f32::consts::PI * (1. + t);
-                        center + egui::vec2(angle.cos(), angle.sin()) * radius
-                    })
+                    .map(|i| point(from + (to - from) * i as f32 / steps as f32, r))
                     .collect()
             };
             let thickness = (radius * 0.16).clamp(6., 14.);
             ui.painter().add(egui::Shape::line(
-                arc(0., 1.),
-                egui::Stroke::new(thickness, palette.well),
+                arc(0., 1., radius),
+                egui::Stroke::new(thickness, palette.track),
             ));
             if value.is_some() && fraction > 0. {
                 ui.painter().add(egui::Shape::line(
-                    arc(0., fraction),
+                    arc(0., fraction, radius),
                     egui::Stroke::new(thickness, accent),
                 ));
+            }
+            // Threshold zones: a thin band outside the arc over each range a
+            // comparison covers, and a tick at each threshold value.
+            let outer = radius + thickness / 2. + 3.;
+            for t in &w.thresholds {
+                let at = fraction_of(t.value);
+                let zone = match t.op {
+                    Comparator::Gt | Comparator::Ge => Some((at, 1.)),
+                    Comparator::Lt | Comparator::Le => Some((0., at)),
+                    _ => None,
+                };
+                let tone = colors::threshold(ui, t);
+                if let Some((from, to)) = zone.filter(|(a, b)| b > a) {
+                    ui.painter().add(egui::Shape::line(
+                        arc(from, to, outer),
+                        egui::Stroke::new(2. * scale, tone.gamma_multiply(0.7)),
+                    ));
+                }
+                if t.value > w.min && t.value < w.max {
+                    ui.painter().line_segment(
+                        [
+                            point(at, radius - thickness / 2.),
+                            point(at, outer + 2. * scale),
+                        ],
+                        egui::Stroke::new(1.5, tone),
+                    );
+                }
             }
             let font = |size: f32| egui::FontId::monospace(size);
             ui.painter().text(
@@ -2042,8 +2470,8 @@ fn render_widget(
                 font(fitted_size(
                     radius * 1.3,
                     text.chars().count(),
-                    12. * w.text_size,
-                    30. * w.text_size,
+                    12. * scale,
+                    30. * scale,
                 )),
                 if value.is_some() {
                     color
@@ -2051,21 +2479,21 @@ fn render_widget(
                     palette.text_weak
                 },
             );
-            if !w.unit.is_empty() {
+            if !unit.is_empty() {
                 ui.painter().text(
                     center - egui::vec2(0., radius * 0.18 - 4.),
                     egui::Align2::CENTER_TOP,
-                    &w.unit,
-                    egui::FontId::proportional(11.),
+                    unit,
+                    egui::FontId::proportional(11. * scale),
                     palette.text_weak,
                 );
             }
             let limit = |x: f32, v: f64, align| {
                 ui.painter().text(
-                    egui::pos2(x, center.y + 4.),
+                    egui::pos2(x, center.y + 4. * scale),
                     align,
-                    format!("{v}"),
-                    egui::FontId::monospace(10.5),
+                    format_number(v),
+                    egui::FontId::monospace(10.5 * scale),
                     palette.text_weak,
                 );
             };
@@ -2081,39 +2509,77 @@ fn render_widget(
                         0.
                     }
                 })
-                .unwrap_or(0.);
+                .unwrap_or(0.) as f32;
             let palette = super::theme::of(ui);
             let fill = rule.map_or(palette.accent, |r| colors::threshold(ui, r));
+            // Where each threshold value falls along the bar, 0 to 1.
+            let notches: Vec<(f32, Color32)> = w
+                .thresholds
+                .iter()
+                .filter(|t| w.max > w.min && t.value > w.min && t.value < w.max)
+                .map(|t| {
+                    (
+                        ((t.value - w.min) / (w.max - w.min)) as f32,
+                        colors::threshold(ui, t),
+                    )
+                })
+                .collect();
+            let thickness = 12. * scale;
             if w.vertical {
                 ui.horizontal(|ui| {
-                    let height = (ui.available_height() - 8.).clamp(40., 220.);
+                    let height = (room.y - 8.).clamp(40., 220.);
                     let (rect, response) =
-                        ui.allocate_exact_size(egui::vec2(14., height), egui::Sense::hover());
-                    describe(&response, format!("{}: {text} {}", w.label, w.unit));
-                    ui.painter().rect_filled(rect, 2, palette.well);
+                        ui.allocate_exact_size(egui::vec2(thickness, height), egui::Sense::hover());
+                    describe(&response, format!("{}: {text} {unit}", w.label));
+                    ui.painter().rect_filled(rect, RADIUS_CELL, palette.track);
                     let level = egui::Rect::from_min_max(
-                        egui::pos2(rect.left(), rect.bottom() - rect.height() * ratio as f32),
+                        egui::pos2(rect.left(), rect.bottom() - rect.height() * ratio),
                         rect.right_bottom(),
                     );
-                    ui.painter().rect_filled(level, 2, fill);
-                    if w.show_value {
-                        ui.vertical(|ui| {
-                            ui.label(RichText::new(&text).monospace().color(color));
-                            ui.label(RichText::new(&w.unit).small().color(palette.text_weak));
-                        });
+                    ui.painter().rect_filled(level, RADIUS_CELL, fill);
+                    for (at, tone) in &notches {
+                        let y = rect.bottom() - rect.height() * at;
+                        ui.painter().line_segment(
+                            [
+                                egui::pos2(rect.left() - 2., y),
+                                egui::pos2(rect.right() + 2., y),
+                            ],
+                            egui::Stroke::new(2., *tone),
+                        );
                     }
+                    ui.vertical(|ui| {
+                        if w.show_limits {
+                            limit_text(ui, w.max);
+                        }
+                        if w.show_value {
+                            ui.label(RichText::new(&text).monospace().color(color));
+                            ui.label(RichText::new(unit).small().color(palette.text_weak));
+                        }
+                        if w.show_limits {
+                            ui.add_space((ui.available_height() - 18.).max(0.));
+                            limit_text(ui, w.min);
+                        }
+                    });
                 });
             } else {
-                level_bar(ui, ratio as f32, &text, w.show_value, &w.unit, fill);
-            }
-        }
-        WidgetKind::EncoderDisplay => {
-            let scaled = value
-                .map(|v| format!("{:.*}", w.decimals.min(9), v * w.factor))
-                .unwrap_or("—".into());
-            readout(ui, &scaled, &w.unit, color, 34., w.text_size);
-            if w.show_raw {
-                ui.weak(format!("Raw: {text} {}", w.secondary_unit));
+                level_bar(
+                    ui,
+                    ratio,
+                    &text,
+                    w.show_value,
+                    unit,
+                    fill,
+                    thickness,
+                    &notches,
+                );
+                if w.show_limits {
+                    ui.horizontal(|ui| {
+                        limit_text(ui, w.min);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            limit_text(ui, w.max)
+                        });
+                    });
+                }
             }
         }
         WidgetKind::LedIndicator | WidgetKind::StateLed => {
@@ -2126,6 +2592,7 @@ fn render_widget(
                     raw.map(|_| rule.is_some()),
                     lit,
                     8. * w.text_size.clamp(0.5, 4.),
+                    rule.and_then(|r| colors::role_glyph(r.role)),
                 );
                 if let Some(text) = rule
                     .map(|r| r.label.as_str())
@@ -2137,7 +2604,10 @@ fn render_widget(
         }
         WidgetKind::StatusMatrix => {
             let palette = super::theme::of(ui);
-            let lit = colors::role(ui, Role::Ok);
+            // What a set bit means: lit in that status's colour, with its
+            // glyph where the cell is wide enough to carry it.
+            let lit = colors::role(ui, w.set_role);
+            let glyph = colors::role_glyph(w.set_role);
             let bits = match w.bit_count {
                 8 | 16 => w.bit_count,
                 _ => 32,
@@ -2157,16 +2627,18 @@ fn render_widget(
                     for bit in (0..bits).rev() {
                         let on = raw.map(|v| (v as u32) & (1 << bit) != 0);
                         let name = meta.and_then(|m| m.bit_name(bit));
-                        let (rect, response) =
-                            ui.allocate_exact_size(egui::vec2(cell, 18.), egui::Sense::hover());
+                        let (rect, response) = ui.allocate_exact_size(
+                            egui::vec2(cell, 18. * scale),
+                            egui::Sense::hover(),
+                        );
                         let (fill, text) = match on {
                             Some(true) => (lit.gamma_multiply(0.85), palette.well),
-                            Some(false) => (palette.well, palette.text_weak),
+                            Some(false) => (palette.track.gamma_multiply(0.6), palette.text_weak),
                             None => (Color32::TRANSPARENT, palette.text_weak),
                         };
                         ui.painter().rect(
                             rect,
-                            2,
+                            RADIUS_CELL,
                             fill,
                             egui::Stroke::new(1_f32, palette.ghost),
                             egui::StrokeKind::Inside,
@@ -2180,13 +2652,17 @@ fn render_widget(
                                     name.to_string()
                                 }
                             }
-                            _ => bit.to_string(),
+                            // A wide unnamed cell also carries the status glyph.
+                            _ => match glyph.filter(|_| on == Some(true) && cell >= 30.) {
+                                Some(g) => format!("{g}{bit}"),
+                                None => bit.to_string(),
+                            },
                         };
                         ui.painter().text(
                             rect.center(),
                             egui::Align2::CENTER_CENTER,
                             label,
-                            egui::FontId::monospace(10. * w.text_size.clamp(0.5, 4.)),
+                            egui::FontId::monospace(10. * scale),
                             text,
                         );
                         let state = match on {
@@ -2214,17 +2690,8 @@ fn render_widget(
                 });
         }
         WidgetKind::Button => {
-            let text = RichText::new(&w.label)
-                .strong()
-                .color(colors::role(ui, Role::Accent));
-            if filled_button(
-                ui,
-                text,
-                session.controlled() && !editing && e.writable,
-                session.writes.get(&(binding.space, binding.address)),
-            )
-            .clicked()
-            {
+            let button = styled(ui, &w.label, w.style, true);
+            if filled_button(ui, button, blocked_reason, outcome.as_ref()).clicked() {
                 session.write_formatted(
                     binding.space,
                     &e,
@@ -2236,31 +2703,36 @@ fn render_widget(
             }
         }
         WidgetKind::ValueWrite => {
+            let palette = super::theme::of(ui);
             if w.show_value {
-                ui.label(RichText::new(&text).monospace().color(color));
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(&text).monospace().color(color));
+                    if !unit.is_empty() {
+                        ui.label(RichText::new(unit).small().color(palette.text_weak));
+                    }
+                });
             }
-            ui.horizontal(|ui| {
-                let enabled = session.controlled() && !editing && e.writable;
+            // Right to left: the Write button and outcome keep their size and
+            // the input takes what is left, so the row never overflows.
+            control_row(ui, |ui| {
+                let write = ui
+                    .add_enabled(
+                        blocked_reason.is_none(),
+                        styled(ui, "Write", ButtonStyle::Action, false),
+                    )
+                    .on_disabled_hover_text(blocked_reason.unwrap_or_default());
+                outcome_mark(ui, outcome.as_ref());
+                if !unit.is_empty() {
+                    ui.label(RichText::new(unit).small().color(palette.text_weak));
+                }
                 let input = ui.add(
                     egui::TextEdit::singleline(&mut w.value)
                         .font(egui::TextStyle::Monospace)
-                        .desired_width((ui.available_width() - 60.).max(40.)),
+                        .desired_width(ui.available_width().max(24.)),
                 );
                 let submit = input.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if (ui
-                    .add_enabled(enabled, egui::Button::new("Write"))
-                    .clicked()
-                    || submit)
-                    && enabled
-                {
-                    session.write_formatted(
-                        binding.space,
-                        &e,
-                        &w.value,
-                        shown(w.format, meta),
-                        meta,
-                        w.confirm,
-                    );
+                if (write.clicked() || submit) && blocked_reason.is_none() {
+                    session.write_formatted(binding.space, &e, &w.value, format, meta, w.confirm);
                 }
             });
         }
@@ -2271,34 +2743,49 @@ fn render_widget(
                     .iter()
                     .find(|o| o.value.trim().parse::<f64>().ok() == Some(v))
             });
-            egui::ComboBox::from_id_salt("options")
-                .width(ui.available_width().min(220.))
-                .selected_text(match current {
-                    Some(o) => RichText::new(&o.label).color(color),
-                    None if raw.is_some() => RichText::new(&text).monospace(),
-                    None => RichText::new("—").color(super::theme::of(ui).text_weak),
-                })
-                .show_ui(ui, |ui| {
-                    for o in &w.options {
-                        let chosen = current.is_some_and(|c| std::ptr::eq(c, o));
-                        if ui
-                            .add_enabled(
-                                session.controlled() && !editing && e.writable,
-                                egui::Button::new(&o.label).selected(chosen),
-                            )
-                            .clicked()
-                        {
-                            session.write(binding.space, &e, &o.value, meta, w.confirm);
-                            ui.close();
+            control_row(ui, |ui| {
+                outcome_mark(ui, outcome.as_ref());
+                egui::ComboBox::from_id_salt("options")
+                    .width(ui.available_width())
+                    .selected_text(match current {
+                        Some(o) => RichText::new(&o.label).color(color),
+                        None if raw.is_some() => RichText::new(&plain).monospace(),
+                        None => RichText::new("—").color(super::theme::of(ui).text_weak),
+                    })
+                    .show_ui(ui, |ui| {
+                        if let Some(reason) = blocked_reason {
+                            ui.label(
+                                RichText::new(reason)
+                                    .small()
+                                    .color(super::theme::of(ui).text_weak),
+                            );
                         }
-                    }
-                });
+                        for o in &w.options {
+                            let chosen = current.is_some_and(|c| std::ptr::eq(c, o));
+                            if ui
+                                .add_enabled(
+                                    blocked_reason.is_none(),
+                                    egui::Button::new(&o.label).selected(chosen),
+                                )
+                                .on_disabled_hover_text(blocked_reason.unwrap_or_default())
+                                .clicked()
+                            {
+                                session.write(binding.space, &e, &o.value, meta, w.confirm);
+                                ui.close();
+                            }
+                        }
+                    });
+            });
         }
         WidgetKind::MiniPlot => {
             session.want_history(binding);
+            let line = rule.map_or_else(
+                || super::theme::trace(ui.visuals().dark_mode, 0).0,
+                |r| colors::threshold(ui, r),
+            );
             super::theme::plot_tone(ui, |ui| {
                 egui_plot::Plot::new("mini-plot")
-                    .height((w.height - 70.).max(40.))
+                    .height((room.y - 4.).max(40.))
                     .show_axes([false, true])
                     // Dragging or scrolling inside a dashboard must move the dashboard.
                     .allow_drag(false)
@@ -2315,7 +2802,7 @@ fn render_widget(
                                     last[0],
                                     super::panes::MAX_TRACE_POINTS,
                                 );
-                                plot.line(egui_plot::Line::new("", points).color(color));
+                                plot.line(egui_plot::Line::new("", points).color(line));
                             }
                         }
                     })
@@ -2323,13 +2810,122 @@ fn render_widget(
         }
         _ => {}
     }
-    if let Some(outcome) = session
-        .writes
-        .get(&(binding.space, binding.address))
-        .filter(|_| w.kind != WidgetKind::Button)
-    {
-        ui.horizontal(|ui| colors::outcome_inline(ui, outcome));
+}
+/// A dashboard button in one of the three styles. Action: accent text;
+/// Neutral: normal text; Danger: error text and outline, never a red fill.
+fn styled(ui: &egui::Ui, label: &str, style: ButtonStyle, strong: bool) -> egui::Button<'static> {
+    let colour = match style {
+        ButtonStyle::Action => colors::role(ui, Role::Accent),
+        ButtonStyle::Neutral => super::theme::of(ui).text,
+        ButtonStyle::Danger => colors::role(ui, Role::Error),
+    };
+    let mut text = RichText::new(label.to_string()).color(colour);
+    if strong {
+        text = text.strong();
     }
+    let button = egui::Button::new(text);
+    if style == ButtonStyle::Danger {
+        button.stroke(egui::Stroke::new(1.5, colour))
+    } else {
+        button
+    }
+}
+/// One row of controls laid out from the right, one control high and as
+/// wide as the widget: what is added first keeps its size at the right end.
+fn control_row(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+    let size = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+    ui.allocate_ui_with_layout(size, egui::Layout::right_to_left(egui::Align::Center), add);
+}
+/// Why a write or command control cannot be used now, if it cannot.
+pub(super) fn blocked(session: &Session, editing: bool, writable: bool) -> Option<&'static str> {
+    if editing {
+        Some("Leave Edit dashboard to use this control")
+    } else if !session.connected() {
+        Some("Connect to a device first")
+    } else if !session.controlled() {
+        Some("Take Control to write or send commands")
+    } else if !writable {
+        Some("This entry is read-only")
+    } else {
+        None
+    }
+}
+/// The last write or command outcome as one status glyph in its colour,
+/// explained on hover. Nothing is drawn before the first send, and the mark
+/// keeps one size, so widgets do not grow while a write is pending.
+fn outcome_mark(ui: &mut egui::Ui, outcome: Option<&super::session::WriteOutcome>) {
+    let Some(outcome) = outcome else {
+        return;
+    };
+    let role = colors::outcome_role(outcome);
+    ui.add(
+        egui::Label::new(
+            RichText::new(colors::role_glyph(role).unwrap_or(colors::mark(role)))
+                .color(colors::role(ui, role)),
+        )
+        .selectable(false),
+    )
+    .on_hover_text(outcome.label());
+}
+/// A dashboard number with digits grouped in threes, when the preference is
+/// on and the view is decimal.
+fn group(prefs: &Preferences, format: DisplayFormat, text: String) -> String {
+    if prefs.group_digits && matches!(format, DisplayFormat::Native | DisplayFormat::Decimal) {
+        grouped(&text)
+    } else {
+        text
+    }
+}
+/// A limit value under a bar: small, weak and monospaced.
+fn limit_text(ui: &mut egui::Ui, v: f64) {
+    ui.label(
+        RichText::new(format_number(v))
+            .small()
+            .monospace()
+            .color(super::theme::of(ui).text_weak),
+    );
+}
+/// The status of a table's rows when they all share one, for the title.
+fn table_status(
+    w: &Widget,
+    session: &Session,
+    profile: &Profile,
+    prefs: &Preferences,
+) -> Option<(Role, &'static str)> {
+    let mut statuses = w.rows.iter().filter(|b| b.matches(profile)).map(|b| {
+        colors::reading(
+            session.connected(),
+            session.readings.get(&(b.space, b.address)),
+            Some(prefs.poll_ms),
+        )
+    });
+    let first = statuses.next()?;
+    statuses.all(|s| s == first).then_some(first)
+}
+/// Text at the right of a healthy widget's title: a Mini-Plot's latest value.
+fn title_aside(
+    w: &Widget,
+    session: &Session,
+    profile: &Profile,
+    prefs: &Preferences,
+) -> Option<String> {
+    if w.kind != WidgetKind::MiniPlot {
+        return None;
+    }
+    let b = w.binding.as_ref().filter(|b| b.matches(profile))?;
+    let e = profile.entry_at(b.space, b.address)?;
+    let r = session
+        .readings
+        .get(&(b.space, b.address))
+        .filter(|r| r.valid)?;
+    let meta = profile.metadata(b.space, &e.name);
+    let format = shown(w.format, meta);
+    let text = group(prefs, format, format.format_with(&e, r.value, meta));
+    Some(if w.unit.trim().is_empty() {
+        text
+    } else {
+        format!("{text} {}", w.unit.trim())
+    })
 }
 /// Chooses a command from the Profile's command list, or any code typed in
 /// the field beside it (0–65535).
@@ -2350,7 +2946,7 @@ fn command_picker(ui: &mut egui::Ui, code: &mut u16, profile: &Profile) {
                 }
             }
         });
-    ui.add(egui::DragValue::new(code).range(0..=u16::MAX))
+    ui.add(typed(egui::DragValue::new(code)).range(0..=u16::MAX))
         .on_hover_text("Command code; type any value to send a code not in the list");
 }
 /// Width of the edit-mode Configure button: its label on one line plus padding.
@@ -2367,26 +2963,39 @@ fn configure_width(ui: &egui::Ui) -> f32 {
 /// edge, explained on hover, so the button keeps the whole widget area.
 fn filled_button(
     ui: &mut egui::Ui,
-    text: RichText,
-    enabled: bool,
+    button: egui::Button<'_>,
+    blocked: Option<&'static str>,
     outcome: Option<&super::session::WriteOutcome>,
 ) -> egui::Response {
     let size = ui.available_size();
     // The label sits in the middle of the widget, however wide it is.
     let response = ui
         .with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-            ui.add_enabled(enabled, egui::Button::new(text).min_size(size))
+            ui.add_enabled(blocked.is_none(), button.min_size(size))
         })
         .inner;
     let Some(outcome) = outcome else {
-        return response;
+        return match blocked {
+            Some(reason) => response.on_disabled_hover_text(reason),
+            None => response,
+        };
     };
     let center = response.rect.right_center() - egui::vec2(10., 0.);
-    ui.painter()
-        .circle_filled(center, 3.5, colors::role(ui, colors::outcome_role(outcome)));
+    let role = colors::outcome_role(outcome);
+    ui.painter().text(
+        center,
+        egui::Align2::CENTER_CENTER,
+        colors::role_glyph(role).unwrap_or("●"),
+        egui::FontId::proportional(11.),
+        colors::role(ui, role),
+    );
+    let disabled = match blocked {
+        Some(reason) => format!("{reason}\nLast: {}", outcome.label()),
+        None => outcome.label().to_string(),
+    };
     response
         .on_hover_text(outcome.label())
-        .on_disabled_hover_text(outcome.label())
+        .on_disabled_hover_text(disabled)
 }
 /// The reading status shown in a bound widget's title row.
 fn widget_status(
@@ -2397,13 +3006,13 @@ fn widget_status(
 ) -> Option<(Role, &'static str)> {
     if matches!(
         w.kind,
-        WidgetKind::Container
-            | WidgetKind::DeviceInfo
-            | WidgetKind::DirectionalControl
-            | WidgetKind::DataTable
-            | WidgetKind::AlarmList
+        WidgetKind::Container | WidgetKind::DeviceInfo | WidgetKind::DirectionalControl
     ) {
         return None;
+    }
+    // A table's rows share the title only when they all have one status.
+    if matches!(w.kind, WidgetKind::DataTable | WidgetKind::AlarmList) {
+        return table_status(w, session, profile, prefs);
     }
     let b = w.binding.as_ref().filter(|b| b.matches(profile))?;
     let interval = if w.kind == WidgetKind::MiniPlot {
@@ -2448,9 +3057,20 @@ fn readout(ui: &mut egui::Ui, text: &str, unit: &str, color: Color32, max: f32, 
         }
     });
 }
-/// A horizontal level bar: track, fill and the value with its unit.
-/// `show` hides the value text; screen readers still get it.
-fn level_bar(ui: &mut egui::Ui, ratio: f32, text: &str, show: bool, unit: &str, color: Color32) {
+/// A horizontal level bar: track, fill, threshold notches (position 0–1
+/// and colour) and the value with its unit. `show` hides the value text;
+/// screen readers still get it.
+#[allow(clippy::too_many_arguments)]
+fn level_bar(
+    ui: &mut egui::Ui,
+    ratio: f32,
+    text: &str,
+    show: bool,
+    unit: &str,
+    color: Color32,
+    thickness: f32,
+    notches: &[(f32, Color32)],
+) {
     let palette = super::theme::of(ui);
     if show {
         ui.horizontal(|ui| {
@@ -2460,14 +3080,26 @@ fn level_bar(ui: &mut egui::Ui, ratio: f32, text: &str, show: bool, unit: &str, 
             }
         });
     }
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 8.), egui::Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), thickness),
+        egui::Sense::hover(),
+    );
     describe(&response, format!("{text} {unit}"));
-    ui.painter().rect_filled(rect, 2, palette.well);
+    ui.painter().rect_filled(rect, RADIUS_CELL, palette.track);
     if ratio > 0. {
         let fill =
             egui::Rect::from_min_size(rect.min, egui::vec2(rect.width() * ratio, rect.height()));
-        ui.painter().rect_filled(fill, 2, color);
+        ui.painter().rect_filled(fill, RADIUS_CELL, color);
+    }
+    for (at, tone) in notches {
+        let x = rect.left() + rect.width() * at;
+        ui.painter().line_segment(
+            [
+                egui::pos2(x, rect.top() - 2.),
+                egui::pos2(x, rect.bottom() + 2.),
+            ],
+            egui::Stroke::new(2., *tone),
+        );
     }
 }
 /// Gives a custom-painted read-out an accessible label for screen readers.
@@ -2476,7 +3108,15 @@ fn describe(response: &egui::Response, label: impl Into<String>) {
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, label.trim()));
 }
 /// An indicator lamp: filled when on, a ring when off, dashed when unknown.
-fn lamp(ui: &mut egui::Ui, state: Option<bool>, color: Color32, radius: f32) {
+/// A round lamp. A lit lamp carries its state's `glyph` when it is large
+/// enough, so the state does not rest on colour alone.
+fn lamp(
+    ui: &mut egui::Ui,
+    state: Option<bool>,
+    color: Color32,
+    radius: f32,
+    glyph: Option<&'static str>,
+) {
     let palette = super::theme::of(ui);
     let (rect, response) =
         ui.allocate_exact_size(egui::Vec2::splat(radius * 2. + 2.), egui::Sense::hover());
@@ -2492,12 +3132,21 @@ fn lamp(ui: &mut egui::Ui, state: Option<bool>, color: Color32, radius: f32) {
     match state {
         Some(true) => {
             ui.painter().circle_filled(center, radius, color);
+            if let Some(glyph) = glyph.filter(|_| radius >= 7.) {
+                ui.painter().text(
+                    center,
+                    egui::Align2::CENTER_CENTER,
+                    glyph,
+                    egui::FontId::proportional(radius * 1.25),
+                    palette.well,
+                );
+            }
         }
         Some(false) => {
             ui.painter().circle(
                 center,
                 radius,
-                palette.well,
+                palette.track,
                 egui::Stroke::new(1.5_f32, palette.text_weak),
             );
         }
@@ -2508,5 +3157,27 @@ fn lamp(ui: &mut egui::Ui, state: Option<bool>, color: Color32, radius: f32) {
                 egui::Stroke::new(1_f32, palette.ghost_strong),
             );
         }
+    }
+}
+
+/// What each drawn widget's content measured, for layout tests.
+#[cfg(test)]
+pub(super) mod fits {
+    use super::Widget;
+    use eframe::egui;
+    use std::cell::RefCell;
+    thread_local! {
+        static FITS: RefCell<Vec<(String, egui::Vec2, egui::Vec2)>> = const { RefCell::new(vec![]) };
+    }
+    pub fn record(w: &Widget, fit: egui::Vec2) {
+        let name = format!("{:?} \"{}\"", w.kind, w.label);
+        FITS.with(|f| {
+            f.borrow_mut()
+                .push((name, fit, egui::vec2(w.width, w.height)))
+        });
+    }
+    /// Takes the (widget, content size, box size) records since the last call.
+    pub fn take() -> Vec<(String, egui::Vec2, egui::Vec2)> {
+        FITS.with(|f| std::mem::take(&mut *f.borrow_mut()))
     }
 }

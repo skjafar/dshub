@@ -236,7 +236,9 @@
     },
     "SPINDLE_SPEED_SETPOINT": {
       "unit": "RPM",
-      "description": "Commanded spindle speed. Takes effect immediately when the spindle is enabled. Clamped to SPINDLE_MAX_RPM by firmware."
+      "description": "Commanded spindle speed. Takes effect immediately when the spindle is enabled. Clamped to SPINDLE_MAX_RPM by firmware. The dashboard limit of 24000 RPM is the default SPINDLE_MAX_RPM.",
+      "min": 0,
+      "max": 24000
     },
     "JOG_DISTANCE": {
       "unit": "counts",
@@ -261,89 +263,116 @@
         {
           "value": "500",
           "label": "Coarse jog (500 counts)"
+        },
+        {
+          "value": "1000",
+          "label": "Large jog (1000 counts)"
         }
-      ]
+      ],
+      "min": 0
     }
   },
   "CNC_PARAMETERS_METADATA": {
     "MOTOR_X_MAX_VEL": {
       "unit": "counts/s",
-      "description": "Maximum allowed velocity for the X-axis motor. The firmware clamps all X motion profiles to this speed."
+      "description": "Maximum allowed velocity for the X-axis motor. The firmware clamps all X motion profiles to this speed.",
+      "min": 0
     },
     "MOTOR_Y_MAX_VEL": {
       "unit": "counts/s",
-      "description": "Maximum allowed velocity for the Y-axis motor. The firmware clamps all Y motion profiles to this speed."
+      "description": "Maximum allowed velocity for the Y-axis motor. The firmware clamps all Y motion profiles to this speed.",
+      "min": 0
     },
     "MOTOR_Z_MAX_VEL": {
       "unit": "counts/s",
-      "description": "Maximum allowed velocity for the Z-axis motor. The firmware clamps all Z motion profiles to this speed."
+      "description": "Maximum allowed velocity for the Z-axis motor. The firmware clamps all Z motion profiles to this speed.",
+      "min": 0
     },
     "MOTOR_X_MAX_ACCEL": {
       "unit": "counts/s²",
-      "description": "Maximum acceleration ramp rate for the X-axis. Higher values give faster response but may cause missed steps or mechanical shock."
+      "description": "Maximum acceleration ramp rate for the X-axis. Higher values give faster response but may cause missed steps or mechanical shock.",
+      "min": 0
     },
     "MOTOR_Y_MAX_ACCEL": {
       "unit": "counts/s²",
-      "description": "Maximum acceleration ramp rate for the Y-axis. Higher values give faster response but may cause missed steps or mechanical shock."
+      "description": "Maximum acceleration ramp rate for the Y-axis. Higher values give faster response but may cause missed steps or mechanical shock.",
+      "min": 0
     },
     "MOTOR_Z_MAX_ACCEL": {
       "unit": "counts/s²",
-      "description": "Maximum acceleration ramp rate for the Z-axis. Higher values give faster response but may cause missed steps or mechanical shock."
+      "description": "Maximum acceleration ramp rate for the Z-axis. Higher values give faster response but may cause missed steps or mechanical shock.",
+      "min": 0
     },
     "MOTOR_X_KP": {
-      "description": "Proportional gain for the X-axis PID position controller. Increase to improve stiffness; too high causes oscillation."
+      "description": "Proportional gain for the X-axis PID position controller. Increase to improve stiffness; too high causes oscillation.",
+      "min": 0
     },
     "MOTOR_X_KI": {
-      "description": "Integral gain for the X-axis PID position controller. Eliminates steady-state position error; too high causes windup and instability."
+      "description": "Integral gain for the X-axis PID position controller. Eliminates steady-state position error; too high causes windup and instability.",
+      "min": 0
     },
     "MOTOR_X_KD": {
-      "description": "Derivative gain for the X-axis PID position controller. Dampens overshoot; too high amplifies noise."
+      "description": "Derivative gain for the X-axis PID position controller. Dampens overshoot; too high amplifies noise.",
+      "min": 0
     },
     "MOTOR_Y_KP": {
-      "description": "Proportional gain for the Y-axis PID position controller. Increase to improve stiffness; too high causes oscillation."
+      "description": "Proportional gain for the Y-axis PID position controller. Increase to improve stiffness; too high causes oscillation.",
+      "min": 0
     },
     "MOTOR_Y_KI": {
-      "description": "Integral gain for the Y-axis PID position controller. Eliminates steady-state position error; too high causes windup and instability."
+      "description": "Integral gain for the Y-axis PID position controller. Eliminates steady-state position error; too high causes windup and instability.",
+      "min": 0
     },
     "MOTOR_Y_KD": {
-      "description": "Derivative gain for the Y-axis PID position controller. Dampens overshoot; too high amplifies noise."
+      "description": "Derivative gain for the Y-axis PID position controller. Dampens overshoot; too high amplifies noise.",
+      "min": 0
     },
     "MOTOR_Z_KP": {
-      "description": "Proportional gain for the Z-axis PID position controller. Increase to improve stiffness; too high causes oscillation."
+      "description": "Proportional gain for the Z-axis PID position controller. Increase to improve stiffness; too high causes oscillation.",
+      "min": 0
     },
     "MOTOR_Z_KI": {
-      "description": "Integral gain for the Z-axis PID position controller. Eliminates steady-state position error; too high causes windup and instability."
+      "description": "Integral gain for the Z-axis PID position controller. Eliminates steady-state position error; too high causes windup and instability.",
+      "min": 0
     },
     "MOTOR_Z_KD": {
-      "description": "Derivative gain for the Z-axis PID position controller. Dampens overshoot; too high amplifies noise."
+      "description": "Derivative gain for the Z-axis PID position controller. Dampens overshoot; too high amplifies noise.",
+      "min": 0
     },
     "MOTOR_X_STEPS_PER_MM": {
       "unit": "counts/mm",
-      "description": "Encoder counts per millimeter of linear travel on the X-axis. Used to convert between encoder counts and physical position in mm. Determined by leadscrew pitch × encoder resolution."
+      "description": "Encoder counts per millimeter of linear travel on the X-axis. Used to convert between encoder counts and physical position in mm. Determined by leadscrew pitch × encoder resolution.",
+      "min": 0
     },
     "MOTOR_Y_STEPS_PER_MM": {
       "unit": "counts/mm",
-      "description": "Encoder counts per millimeter of linear travel on the Y-axis. Used to convert between encoder counts and physical position in mm. Determined by leadscrew pitch × encoder resolution."
+      "description": "Encoder counts per millimeter of linear travel on the Y-axis. Used to convert between encoder counts and physical position in mm. Determined by leadscrew pitch × encoder resolution.",
+      "min": 0
     },
     "MOTOR_Z_STEPS_PER_MM": {
       "unit": "counts/mm",
-      "description": "Encoder counts per millimeter of linear travel on the Z-axis. Used to convert between encoder counts and physical position in mm. Determined by leadscrew pitch × encoder resolution."
+      "description": "Encoder counts per millimeter of linear travel on the Z-axis. Used to convert between encoder counts and physical position in mm. Determined by leadscrew pitch × encoder resolution.",
+      "min": 0
     },
     "SPINDLE_MAX_RPM": {
       "unit": "RPM",
-      "description": "Maximum rated spindle speed. The firmware clamps SPINDLE_SPEED_SETPOINT to this value to protect the spindle motor."
+      "description": "Maximum rated spindle speed. The firmware clamps SPINDLE_SPEED_SETPOINT to this value to protect the spindle motor.",
+      "min": 0
     },
     "SPINDLE_ACCEL_RPM_PER_SEC": {
       "unit": "RPM/s",
-      "description": "Spindle speed ramp rate on enable or setpoint change. Higher values reach target RPM faster but increase mechanical stress on the spindle drive."
+      "description": "Spindle speed ramp rate on enable or setpoint change. Higher values reach target RPM faster but increase mechanical stress on the spindle drive.",
+      "min": 0
     },
     "E_STOP_DECEL": {
       "unit": "counts/s²",
-      "description": "Deceleration rate applied to all axes during an emergency stop. High values stop faster but may cause position loss on open-loop sections. Set lower than MOTOR_*_MAX_ACCEL for a controlled stop."
+      "description": "Deceleration rate applied to all axes during an emergency stop. High values stop faster but may cause position loss on open-loop sections. Set lower than MOTOR_*_MAX_ACCEL for a controlled stop.",
+      "min": 0
     },
     "HOMING_SPEED": {
       "unit": "counts/s",
-      "description": "Motor velocity used during the homing sequence for all axes. Lower values improve repeatability and reduce impact force on endstops."
+      "description": "Motor velocity used during the homing sequence for all axes. Lower values improve repeatability and reduce impact force on endstops.",
+      "min": 0
     },
     "HOME_X_POSITION": {
       "unit": "counts",

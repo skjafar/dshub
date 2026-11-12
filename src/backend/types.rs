@@ -13,6 +13,10 @@ pub struct DiscoveredDevice {
     pub firmware_version: u16,
     pub tcp_port: u16,
     pub udp_port: u16,
+    /// The address the reply itself reports, when it differs from the
+    /// address the reply came from (`ip_address`).
+    #[serde(default)]
+    pub claimed_ip: Option<String>,
 }
 
 // ── Connection types ─────────────────────────────────────────────────────────

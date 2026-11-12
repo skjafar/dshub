@@ -93,6 +93,23 @@ fn widget(v: &Value, p: &Profile, depth: usize) -> Option<Widget> {
     w.time_span = c["timeSpan"].as_f64().unwrap_or(60.).clamp(1., 3600.);
     w.padding = c["padding"].as_f64().unwrap_or(8.) as f32;
     w.spacing = c["spacing"].as_f64().unwrap_or(8.) as f32;
+    // Display options added after the former application; it ignores them.
+    w.text_size = c["textSize"].as_f64().unwrap_or(1.).clamp(0.5, 4.) as f32;
+    w.show_value = c["showValue"].as_bool().unwrap_or(true);
+    w.set_role = c["setRole"].as_str().map_or(Role::Ok, Role::from);
+    w.show_limits = c["showLimits"].as_bool().unwrap_or(false);
+    w.show_header = c["showHeader"].as_bool().unwrap_or(false);
+    w.align = c["textAlign"]
+        .as_str()
+        .map(TextAlign::from)
+        .unwrap_or_default();
+    w.bold = c["bold"].as_bool().unwrap_or(false);
+    w.tone = c["tone"].as_str().map(TextTone::from).unwrap_or_default();
+    w.style = c["style"]
+        .as_str()
+        .map(ButtonStyle::from)
+        .unwrap_or_default();
+    w.scaled = c["scaled"].as_bool().unwrap_or(false);
     if c["target"]["kind"] == "command" {
         w.command = c["target"]["code"]
             .as_u64()
@@ -159,6 +176,8 @@ fn widget(v: &Value, p: &Profile, depth: usize) -> Option<Widget> {
     }
     w.width = (v["layout"]["w"].as_f64().unwrap_or(3.) * 80.) as f32;
     w.height = (v["layout"]["h"].as_f64().unwrap_or(2.) * 60.) as f32;
+    // Former kinds and button looks become today's, as in stored dashboards.
+    w.convert_legacy();
     Some(w)
 }
 pub fn import_dashboards(value: &Value, p: &Profile) -> Vec<Dashboard> {
@@ -245,6 +264,9 @@ fn export_widgets(widgets: &[Widget]) -> Vec<Value> {
 }
 fn export_widget(w: &Widget) -> Value {
     let kind = match w.kind {
+        // A scaled readout is what the former application calls an encoder
+        // display, so it keeps showing it.
+        WidgetKind::ValueRead if w.scaled => "encoderDisplay",
         WidgetKind::ValueRead => "valueRead",
         WidgetKind::Gauge => "gauge",
         WidgetKind::ProgressBar => "progressBar",
@@ -262,7 +284,18 @@ fn export_widget(w: &Widget) -> Value {
         WidgetKind::MiniPlot => "miniPlot",
         WidgetKind::Label => "label",
     };
-    let thresholds = export_rules(&w.thresholds);
+    let mut thresholds = export_rules(&w.thresholds);
+    // The former application colours a button by its first threshold.
+    if w.kind == WidgetKind::Button {
+        let role = match w.style {
+            ButtonStyle::Danger => Some(Role::Error),
+            ButtonStyle::Neutral => Some(Role::Idle),
+            ButtonStyle::Action => None,
+        };
+        if let Some(role) = role {
+            thresholds = export_rules(&[Threshold::new(Comparator::Ne, f64::MAX, role, "")]);
+        }
+    }
     let rows:Vec<_>=w.rows.iter().map(|b|{let style=w.row_styles.get(&b.name);json!({"label":style.map(|s|s.label.as_str()).unwrap_or(&b.name),"binding":export_binding(b),"format":style.map(|s|s.format).unwrap_or(w.format),"thresholds":style.map(|s|export_rules(&s.thresholds)).unwrap_or_else(||thresholds.clone())})}).collect();
     let target = if let Some(code) = w.command {
         json!({"kind":"command","code":code})
@@ -273,7 +306,7 @@ fn export_widget(w: &Widget) -> Value {
     } else {
         Value::Null
     };
-    let config = json!({"label":w.label,"binding":w.binding.as_ref().map(export_binding),"format":w.format,"thresholds":thresholds,"min":w.min,"max":w.max,"unit":w.unit,"conversionFactor":w.factor,"primaryUnit":w.unit,"secondaryUnit":w.secondary_unit,"showRawValue":w.show_raw,"decimals":w.decimals,"orientation":if w.vertical{"vertical"}else{"horizontal"},"target":target,"value":w.value.parse::<f64>().unwrap_or(0.),"options":w.options.iter().map(|o|json!({"value":o.value.parse::<f64>().unwrap_or(0.),"label":o.label})).collect::<Vec<_>>(),"confirmationRequired":w.confirm,"rows":rows,"alarms":rows,"showInactive":w.show_inactive,"bitCount":w.bit_count,"directions":w.directions,"layout":"8way","series":w.binding.as_ref().map(export_binding),"pollInterval":w.poll_ms,"timeSpan":w.time_span,"padding":w.padding,"spacing":w.spacing,"childWidgets":export_widgets(&w.children)});
+    let config = json!({"label":w.label,"binding":w.binding.as_ref().map(export_binding),"format":w.format,"thresholds":thresholds,"min":w.min,"max":w.max,"unit":w.unit,"conversionFactor":w.factor,"primaryUnit":w.unit,"secondaryUnit":w.secondary_unit,"showRawValue":w.show_raw,"decimals":w.decimals,"orientation":if w.vertical{"vertical"}else{"horizontal"},"target":target,"value":w.value.parse::<f64>().unwrap_or(0.),"options":w.options.iter().map(|o|json!({"value":o.value.parse::<f64>().unwrap_or(0.),"label":o.label})).collect::<Vec<_>>(),"confirmationRequired":w.confirm,"rows":rows,"alarms":rows,"showInactive":w.show_inactive,"bitCount":w.bit_count,"directions":w.directions,"layout":"8way","series":w.binding.as_ref().map(export_binding),"pollInterval":w.poll_ms,"timeSpan":w.time_span,"padding":w.padding,"spacing":w.spacing,"textSize":w.text_size,"showValue":w.show_value,"setRole":w.set_role,"showLimits":w.show_limits,"showHeader":w.show_header,"textAlign":w.align,"bold":w.bold,"tone":w.tone,"style":w.style,"scaled":w.scaled,"childWidgets":export_widgets(&w.children)});
     json!({"id":w.id,"kind":kind,"config":config,"layout":{"x":0,"y":0,"w":(w.width/80.).max(1.) as u32,"h":(w.height/60.).max(1.) as u32}})
 }
 pub fn export_dashboards(ds: &[Dashboard]) -> Value {
@@ -300,6 +333,31 @@ mod tests {
         assert_eq!(back.dashboards[0].widgets[0], label);
     }
     #[test]
+    fn scaled_readouts_and_button_styles_survive_the_former_format() {
+        let mut p = default_profiles().remove(1);
+        let mut readout = Widget::new(WidgetKind::ValueRead);
+        readout.scaled = true;
+        readout.factor = 0.5;
+        let mut stop = Widget::new(WidgetKind::Button);
+        stop.style = ButtonStyle::Danger;
+        p.dashboards[0].widgets = vec![readout, stop];
+        let exported = p.export();
+        let legacy = &exported["dashboards"]["dashboards"][0]["widgets"];
+        assert_eq!(legacy[0]["kind"], "encoderDisplay");
+        assert_eq!(legacy[1]["config"]["thresholds"][0]["role"], "error");
+        let back = Profile::import(&exported.to_string()).unwrap();
+        let widgets = &back.dashboards[0].widgets;
+        assert_eq!(widgets[0].kind, WidgetKind::ValueRead);
+        assert!(widgets[0].scaled && widgets[0].factor == 0.5);
+        assert_eq!(widgets[1].style, ButtonStyle::Danger);
+        assert!(widgets[1].thresholds.is_empty());
+        // Without the style key, as the former application writes it.
+        let mut old = legacy[1].clone();
+        old["config"].as_object_mut().unwrap().remove("style");
+        let w = widget(&old, &p, 0).unwrap();
+        assert_eq!(w.style, ButtonStyle::Danger);
+    }
+    #[test]
     fn all_widget_kinds_roundtrip_through_the_version_one_dashboard_shape() {
         let mut p = default_profiles().remove(1);
         p.dashboards[0].widgets.clear();
@@ -320,9 +378,9 @@ mod tests {
         let exported = export_dashboards(&p.dashboards);
         let imported = import_dashboards(&exported, &p);
         // Every native kind but the Label, which the former interface lacks.
-        assert_eq!(imported[0].widgets.len(), 15);
-        assert_eq!(imported[0].widgets[9].directions[0].command, 20);
-        assert!(imported[0].widgets[14]
+        assert_eq!(imported[0].widgets.len(), WidgetKind::ALL.len() - 1);
+        assert_eq!(imported[0].widgets[8].directions[0].command, 20);
+        assert!(imported[0].widgets[13]
             .binding
             .as_ref()
             .unwrap()

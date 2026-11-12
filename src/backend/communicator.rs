@@ -16,6 +16,17 @@ pub struct DeviceRequest {
     pub address: u16,
     pub name: Option<String>,
     pub origin: Origin,
+    /// Set by a poll task so it never has two reads of one address waiting.
+    pub in_flight: Option<InFlight>,
+}
+
+/// Marks a poll's read as outstanding until the request is dropped: after it
+/// is answered or times out, or when it is discarded with its connection.
+pub struct InFlight(pub std::sync::Arc<std::sync::atomic::AtomicBool>);
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::Release);
+    }
 }
 
 /// Who asked for a request; decides which log category records its outcome.
@@ -307,13 +318,17 @@ fn write_ack(req: &DeviceRequest, status: i16, timestamp: f64) -> Event {
     })
 }
 
+/// A read's answer. A refused read (negative status) is not a value: it is
+/// reported invalid so nothing shows, plots or records the reply's filler.
 fn reading(
     req: &DeviceRequest,
-    address: u16,
+    status: i16,
     value: i32,
     timestamp: f64,
     prefix: &str,
 ) -> RegisterData {
+    // A refusal may not echo the address; the request's own is authoritative.
+    let address = req.address;
     RegisterData {
         address,
         name: req
@@ -321,7 +336,7 @@ fn reading(
             .clone()
             .unwrap_or_else(|| format!("{prefix}_{address}")),
         value,
-        valid: true,
+        valid: status_ok(status),
         timestamp,
     }
 }
@@ -346,11 +361,38 @@ fn process_response(data: &[u8; 8], req: &DeviceRequest, app: &AppHandle) {
     };
 
     log_success(app, req, status, address, value);
+    // A refused poll would repeat many times a second, and errors bypass the
+    // log filter, so only an operator's own read is logged; the reading's
+    // status shows the rest.
+    if !status_ok(status)
+        && req.origin == Origin::Manual
+        && matches!(
+            req.command,
+            CMD_READ_REGISTER | CMD_READ_PARAMETER | CMD_READ_SYS_REG
+        )
+    {
+        let (category, space) = match req.command {
+            CMD_READ_PARAMETER => (LogCategory::Parameter, "parameter"),
+            CMD_READ_SYS_REG => (LogCategory::Register, "system register"),
+            _ => (LogCategory::Register, "register"),
+        };
+        emit_log(
+            app,
+            LogLevel::Warning,
+            category,
+            format!(
+                "Read of {space} {} refused by the device: status={} ({})",
+                req.address,
+                status,
+                status_name(status)
+            ),
+        );
+    }
     match req.command {
-        CMD_READ_REGISTER => app.emit(Event::Register(reading(req, address, value, ts, "addr"))),
-        CMD_READ_PARAMETER => app.emit(Event::Parameter(reading(req, address, value, ts, "param"))),
+        CMD_READ_REGISTER => app.emit(Event::Register(reading(req, status, value, ts, "addr"))),
+        CMD_READ_PARAMETER => app.emit(Event::Parameter(reading(req, status, value, ts, "param"))),
         CMD_READ_SYS_REG => app.emit(Event::SysRegister(reading(
-            req, address, value, ts, "sysreg",
+            req, status, value, ts, "sysreg",
         ))),
         CMD_WRITE_REGISTER | CMD_WRITE_PARAMETER | CMD_WRITE_SYS_REG => {
             if !status_ok(status) {
@@ -458,6 +500,14 @@ fn settle(
     match outcome {
         ResponseOutcome::Received(buf) => {
             *consecutive_timeouts = 0;
+            let metrics = &app.state().metrics;
+            metrics.round_trip_us.store(
+                send_time.elapsed().as_micros() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            metrics
+                .answered
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let response_time = send_time.elapsed().as_millis() as u64;
             emit_packet_log(app, "RX", &buf, interface, destination, Some(response_time));
             process_response(&buf, req, app);
@@ -469,6 +519,10 @@ fn settle(
         }
         ResponseOutcome::Timeout => {
             *consecutive_timeouts += 1;
+            app.state()
+                .metrics
+                .timeouts
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             emit_log(
                 app,
                 LogLevel::Error,
@@ -659,6 +713,7 @@ mod tests {
             address,
             name: None,
             origin: Origin::Manual,
+            in_flight: None,
         }
     }
 
@@ -669,6 +724,36 @@ mod tests {
         b[2..4].copy_from_slice(&address.to_le_bytes());
         b[4..8].copy_from_slice(&value.to_le_bytes());
         b
+    }
+
+    #[test]
+    fn a_refused_read_is_not_a_valid_reading() {
+        for command in [CMD_READ_REGISTER, CMD_READ_PARAMETER, CMD_READ_SYS_REG] {
+            let app = AppHandle::new();
+            process_response(&response(-4, 7, 0), &req(command, 7), &app);
+            let readings: Vec<_> = app
+                .drain()
+                .into_iter()
+                .filter_map(|e| match e {
+                    Event::Register(r) | Event::Parameter(r) | Event::SysRegister(r) => Some(r),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(readings.len(), 1, "cmd {command}");
+            assert!(!readings[0].valid, "cmd {command}");
+            assert_eq!(readings[0].address, 7);
+
+            process_response(
+                &response(success_status(command), 7, 42),
+                &req(command, 7),
+                &app,
+            );
+            assert!(app.drain().into_iter().any(|e| matches!(
+                e,
+                Event::Register(r) | Event::Parameter(r) | Event::SysRegister(r)
+                    if r.valid && r.value == 42
+            )));
+        }
     }
 
     #[test]

@@ -92,10 +92,12 @@ mod tests {
                         super::super::icons::WARNING,
                         super::super::icons::DRAG,
                         super::super::icons::GEAR,
+                        super::super::icons::CHECK,
+                        super::super::icons::INFO,
                         egui_phosphor::regular::ARROW_UP_LEFT,
                     ]
                     .concat();
-                    for symbol in "●○×−—…·".chars().chain(icons.chars()) {
+                    for symbol in "●○×−—…·\u{2009}".chars().chain(icons.chars()) {
                         assert!(
                             fonts.has_glyph(&id, symbol),
                             "Missing glyph: {symbol} in {:?}",

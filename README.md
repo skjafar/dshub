@@ -35,9 +35,13 @@ Windows uses the MSVC Rust toolchain and Visual Studio C++ build tools. macOS us
 3. Select the device's **Profile**. The bundled Default and CNC profiles include maps; CNC also includes command definitions and entry metadata. The Default Profile's **Widget showcase** dashboard shows every widget kind with live library values.
 4. Use Registers, Parameters and System Registers to search, read, refresh and inspect values. System registers are read-only. Tables show each entry in its declared type (DEFAULT view) or in decimal, hexadecimal or binary, with engineering units when the map declares scale and offset. Double-click a writable value to edit it; Enter writes, Esc discards, and values not yet sent stay outlined.
 5. Add traces from a data pane to a Plot. Plots show a crosshair read-out of every trace, pause, export PNG or CSV, and record every reading to CSV for later replay.
-6. Configure a Dashboard with readouts, gauges, indicators, controls, tables, alarms, containers, mini-plots and plain text labels on a snapping grid. Dashboard edits are a draft: changed widgets are outlined until **Save**, and **Revert** discards them.
+6. Configure a Dashboard with readouts, gauges, indicators, controls, tables, alarms, containers, mini-plots and plain text labels on a snapping grid. Dashboard edits are a draft: changed widgets are outlined until **Save** (or **Ctrl+S**), and **Revert** discards them. Built-in dashboards are read-only and updated with DSHub; **Duplicate to edit** makes your own copy. **Fit width** stretches a dashboard across its pane.
 
-Press **Ctrl+K** for the command palette and **/** to focus search. The Activity log can be filtered, paused and decodes the selected packet.
+Press **Ctrl+K** for the command palette, **/** to focus search and **Ctrl +** / **Ctrl −** to scale the interface (also in Preferences). The status bar shows the round-trip time, requests per second, and a warning when polling asks for more than the device answers.
+
+A Profile can name the board types it is written for; DSHub warns when the connected device reports another board. Switching Profile while connected asks first. A Profile imported from a file has every widget that writes or sends a command set to ask before acting.
+
+**Network security.** The datastream protocol has no authentication or encryption: any host that can reach a device can read it, write it and take Control. Keep devices on an isolated network or VLAN that only trusted hosts can reach. DSHub marks UDP connections and devices outside a private network as unsecured, and connects to the address a discovery reply came from, flagging replies that claim another. The Activity log can be filtered, paused and decodes the selected packet.
 
 The Main Window owns one device session. Every pane and native daughter window shares that session. Drag tabs to arrange docked panes. Right-click a tab to focus it, duplicate it or move it to a native window. Window titles name the device and Profile. Closing a daughter window returns its panes to the Main Window, and a daughter window closes itself once its last pane is gone. Closing the Main Window exits the app.
 

@@ -45,7 +45,9 @@ type Notifier = Arc<dyn Fn() + Send + Sync>;
 #[derive(Clone)]
 pub struct AppHandle {
     state: Arc<AppState>,
-    events: Arc<Mutex<VecDeque<Event>>>,
+    /// The queue, and an index before which no event is droppable, so
+    /// shedding from a full queue does not rescan it from the start.
+    events: Arc<Mutex<(VecDeque<Event>, usize)>>,
     notifier: Arc<Mutex<Option<Notifier>>>,
     /// Set from the first event after a drain until the next drain, so a burst
     /// of events wakes the interface once.
@@ -60,7 +62,7 @@ impl AppHandle {
     pub fn new() -> Self {
         Self {
             state: Arc::new(AppState::new()),
-            events: Arc::new(Mutex::new(VecDeque::new())),
+            events: Arc::new(Mutex::new((VecDeque::new(), 0))),
             notifier: Arc::new(Mutex::new(None)),
             notified: Arc::new(AtomicBool::new(false)),
         }
@@ -86,14 +88,21 @@ impl AppHandle {
     }
     pub fn emit(&self, event: Event) {
         {
-            let mut events = self.events.lock().unwrap_or_else(|e| e.into_inner());
+            let mut guard = self.events.lock().unwrap_or_else(|e| e.into_inner());
+            let (events, hint) = &mut *guard;
             // Bound memory even when the window is minimized or rendering is stalled.
             // Only telemetry is shed: connection, acknowledgement and error events are
             // state transitions the interface cannot recover if they go missing, so
             // they stay queued in order however much telemetry arrives around them.
             if events.len() >= MAX_QUEUED_EVENTS {
-                if let Some(i) = events.iter().position(Event::droppable) {
-                    events.remove(i);
+                // Everything before `hint` was already found undroppable.
+                let start = (*hint).min(events.len());
+                match events.iter().skip(start).position(Event::droppable) {
+                    Some(offset) => {
+                        events.remove(start + offset);
+                        *hint = start + offset;
+                    }
+                    None => *hint = events.len(),
                 }
             }
             events.push_back(event);
@@ -104,11 +113,9 @@ impl AppHandle {
     }
     pub fn drain(&self) -> Vec<Event> {
         self.notified.store(false, Ordering::Release);
-        self.events
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .drain(..)
-            .collect()
+        let mut guard = self.events.lock().unwrap_or_else(|e| e.into_inner());
+        guard.1 = 0;
+        guard.0.drain(..).collect()
     }
 }
 

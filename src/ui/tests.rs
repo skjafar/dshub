@@ -16,6 +16,8 @@ impl Harness {
         let mut profile = default_profiles().remove(1);
         profile.dashboards.truncate(1);
         profile.dashboards[0].widgets.clear();
+        // Built-in dashboards are read-only; tests edit one of their own.
+        profile.dashboards[0].id = "test-dashboard".into();
         // Same fonts and theme as the application.
         let ctx = egui::Context::default();
         fonts::install(&ctx);
@@ -359,6 +361,7 @@ fn connection_endpoints_prefer_explicit_then_reported_ports() {
         firmware_version: 1,
         tcp_port: 3009,
         udp_port: 3011,
+        claimed_ip: None,
     });
     assert_eq!(h.session.endpoint("10.0.0.5", false).unwrap().1, 3009);
     assert_eq!(h.session.endpoint("10.0.0.5", true).unwrap().1, 3011);
@@ -1199,4 +1202,292 @@ fn settings_saved_before_versioning_migrate_to_the_current_schema() {
     assert!(!saved.profiles.is_empty());
     saved.migrate();
     assert_eq!(saved.schema, SCHEMA);
+}
+
+#[test]
+fn built_in_dashboards_are_changed_on_a_copy() {
+    let mut h = Harness::new(PaneKind::Dashboard);
+    h.profile = default_profiles().remove(1);
+    let count = h.profile.dashboards.len();
+    assert!(h.profile.dashboards[0].bundled());
+    // Edit mode cannot be entered on a built-in, even from saved state.
+    h.pane.editing = true;
+    h.frame(vec![]);
+    assert!(!h.pane.editing);
+    h.frame(vec![]);
+    h.click("Duplicate to edit");
+    h.frame(vec![]);
+    assert_eq!(h.profile.dashboards.len(), count + 1);
+    let copy = h.profile.dashboards.last().unwrap();
+    assert!(!copy.bundled());
+    assert_eq!(copy.name, "CNC · Operator (copy)");
+    assert_eq!(h.pane.dashboard, count);
+    assert!(h.pane.editing, "the copy opens for editing");
+}
+
+#[test]
+fn an_edited_built_in_is_kept_beside_its_replacement_once() {
+    let mut saved: Saved = serde_json::from_str(r#"{"schema": 2}"#).unwrap();
+    let mut cnc = default_profiles().remove(1);
+    let untouched = cnc.dashboards[1].name.clone();
+    cnc.dashboards[0].widgets.truncate(1);
+    saved.profiles = vec![cnc];
+    saved.refresh_bundled();
+    let names: Vec<_> = saved.profiles[0]
+        .dashboards
+        .iter()
+        .map(|d| d.name.clone())
+        .collect();
+    assert!(names.contains(&"CNC · Operator (previous)".to_string()));
+    assert!(
+        !names.contains(&format!("{untouched} (previous)")),
+        "an unchanged built-in is simply replaced"
+    );
+    let kept = saved.profiles[0].dashboards.last().unwrap();
+    assert!(!kept.bundled() && kept.widgets.len() == 1);
+}
+
+#[test]
+fn fit_width_stretches_for_drawing_and_restores_the_saved_layout() {
+    let mut h = Harness::new(PaneKind::Dashboard);
+    let mut group = Widget::new(WidgetKind::Container);
+    group.position = Some([0., 0.]);
+    group.width = 400.;
+    group.height = 200.;
+    let mut child = Widget::new(WidgetKind::Label);
+    child.position = Some([10.5, 4.]);
+    child.width = 133.3;
+    group.children.push(child);
+    let mut right = Widget::new(WidgetKind::Label);
+    right.position = Some([416., 0.]);
+    right.width = 184.;
+    h.profile.dashboards[0].widgets = vec![group, right];
+    let before = h.profile.dashboards[0].clone();
+    h.pane.fit_width = true;
+    h.frame(vec![]);
+    h.frame(vec![]);
+    assert_eq!(
+        h.profile.dashboards[0], before,
+        "the saved layout is untouched, to the last bit"
+    );
+}
+
+#[test]
+fn profiles_name_their_boards_and_the_session_knows_the_connected_one() {
+    use crate::types::DiscoveredDevice;
+    let mut p = default_profiles().remove(1);
+    assert!(p.suits_board(9), "no board types: any board");
+    p.board_types = vec![2];
+    assert!(p.suits_board(2) && !p.suits_board(9));
+    let back = Profile::import(&p.export().to_string()).unwrap();
+    assert_eq!(back.board_types, vec![2]);
+
+    let mut h = Harness::new(PaneKind::Registers);
+    assert_eq!(h.session.board_type(), None);
+    h.session.devices.push(DiscoveredDevice {
+        ip_address: "10.0.0.5".into(),
+        board_name: "Board".into(),
+        mac_address: String::new(),
+        device_id: 1,
+        board_type: 7,
+        firmware_version: 1,
+        tcp_port: 2009,
+        udp_port: 2011,
+        claimed_ip: None,
+    });
+    h.session.connection = Some(DeviceConnection {
+        ip: "10.0.0.5".into(),
+        port: 2009,
+        interface_type: InterfaceType::Tcp,
+        connected: true,
+        reconnecting: false,
+        control_state: 0,
+        device_name: None,
+    });
+    assert_eq!(h.session.board_type(), Some(7));
+}
+
+#[test]
+fn cleared_plot_samples_come_back_ahead_of_newer_ones() {
+    let mut h = Harness::new(PaneKind::Plot);
+    let key = (Space::Register, 3);
+    h.session
+        .histories
+        .insert(key, [[1., 10.], [2., 20.]].into_iter().collect());
+    h.session.clear_histories();
+    assert!(h.session.histories.is_empty());
+    let Some(super::session::Undo::Histories(cleared)) =
+        h.session.toasts.last().and_then(|t| t.undo.clone())
+    else {
+        panic!("Clear data offers Undo");
+    };
+    h.session
+        .histories
+        .insert(key, [[3., 30.]].into_iter().collect());
+    h.session.restore_histories(cleared);
+    let points: Vec<_> = h.session.histories[&key].iter().map(|p| p[0]).collect();
+    assert_eq!(points, vec![1., 2., 3.]);
+}
+
+#[test]
+fn built_in_dashboard_widgets_fit_their_boxes() {
+    // The layout helper estimates heights the renderer decides; this keeps
+    // the two from drifting apart.
+    let mut overflowing = vec![];
+    for (profile_index, connected) in [(0, true), (1, true), (1, false)] {
+        let mut h = Harness::new(PaneKind::Dashboard);
+        h.profile = default_profiles().remove(profile_index);
+        if connected {
+            h.session.connection = Some(DeviceConnection {
+                ip: "127.0.0.1".into(),
+                port: 2009,
+                interface_type: InterfaceType::Tcp,
+                connected: true,
+                reconnecting: false,
+                control_state: 1,
+                device_name: None,
+            });
+        }
+        for index in 0..h.profile.dashboards.len() {
+            if !h.profile.dashboards[index].bundled() {
+                continue;
+            }
+            h.pane.dashboard = index;
+            h.frame(vec![]);
+            super::widgets::fits::take();
+            h.frame(vec![]);
+            for (name, fit, size) in super::widgets::fits::take() {
+                if fit.y > size.y + 2. {
+                    overflowing.push(format!(
+                        "{name} in {}: content needs {:.0} px of height, box is {:.0}",
+                        h.profile.dashboards[index].name, fit.y, size.y
+                    ));
+                }
+                if fit.x > size.x + 2. {
+                    overflowing.push(format!(
+                        "{name} in {}: content needs {:.0} px of width, box is {:.0}",
+                        h.profile.dashboards[index].name, fit.x, size.x
+                    ));
+                }
+            }
+        }
+    }
+    overflowing.sort();
+    overflowing.dedup();
+    assert!(overflowing.is_empty(), "{}", overflowing.join("\n"));
+}
+
+fn connect(h: &mut Harness, control: bool) {
+    h.session.connection = Some(DeviceConnection {
+        ip: "127.0.0.1".into(),
+        port: 2009,
+        interface_type: InterfaceType::Tcp,
+        connected: true,
+        reconnecting: false,
+        control_state: if control { 1 } else { 0 },
+        device_name: None,
+    });
+}
+
+#[test]
+fn disabled_controls_say_why() {
+    let mut h = Harness::new(PaneKind::Dashboard);
+    let reason =
+        |h: &Harness, editing, writable| super::widgets::blocked(&h.session, editing, writable);
+    assert!(reason(&h, false, true).unwrap().contains("Connect"));
+    connect(&mut h, false);
+    assert!(reason(&h, false, true).unwrap().contains("Take Control"));
+    connect(&mut h, true);
+    assert!(reason(&h, true, true).unwrap().contains("Leave Edit"));
+    assert!(reason(&h, false, false).unwrap().contains("read-only"));
+    assert_eq!(reason(&h, false, true), None);
+}
+
+#[test]
+fn choosing_an_entry_fills_the_unit_from_the_map() {
+    let h = Harness::new(PaneKind::Dashboard);
+    let space = Space::Register;
+    let entries = h.profile.entries(space);
+    let with_unit = entries.iter().find(|e| {
+        h.profile
+            .metadata(space, &e.name)
+            .is_some_and(|m| !m.unit.trim().is_empty())
+    });
+    let without = entries
+        .iter()
+        .find(|e| {
+            h.profile
+                .metadata(space, &e.name)
+                .is_none_or(|m| m.unit.trim().is_empty())
+        })
+        .unwrap();
+    let mut w = Widget::new(WidgetKind::ValueRead);
+    w.unit = "typed".into();
+    w.binding = Some(Binding::new(space, without));
+    super::widgets::fill_unit(&mut w, &h.profile);
+    assert_eq!(w.unit, "", "no unit in the map leaves the field empty");
+    if let Some(e) = with_unit {
+        w.binding = Some(Binding::new(space, e));
+        super::widgets::fill_unit(&mut w, &h.profile);
+        assert_eq!(
+            w.unit,
+            h.profile.metadata(space, &e.name).unwrap().unit.trim()
+        );
+    }
+}
+
+#[test]
+fn widgets_keep_their_size_and_width_while_writing() {
+    use session::{OutcomeStatus, WriteOutcome};
+    let mut h = Harness::new(PaneKind::Dashboard);
+    connect(&mut h, true);
+    let e = h
+        .profile
+        .entries(Space::Register)
+        .into_iter()
+        .find(|e| e.writable)
+        .unwrap();
+    let mut write = Widget::new(WidgetKind::ValueWrite);
+    write.binding = Some(Binding::new(Space::Register, &e));
+    write.width = 120.;
+    write.height = 80.;
+    write.position = Some([0., 0.]);
+    let mut matrix = Widget::new(WidgetKind::StatusMatrix);
+    matrix.binding = Some(Binding::new(Space::Register, &e));
+    matrix.bit_count = 16;
+    matrix.position = Some([0., 100.]);
+    let mut large = matrix.clone();
+    large.id = "large".into();
+    large.text_size = 2.;
+    large.position = Some([320., 100.]);
+    h.profile.dashboards[0].widgets = vec![write, matrix, large];
+    let measure = |h: &mut Harness| {
+        h.frame(vec![]);
+        super::widgets::fits::take();
+        h.frame(vec![]);
+        super::widgets::fits::take()
+    };
+    let before = measure(&mut h);
+    assert!(
+        before[0].1.x <= 120. + 1.,
+        "Value Write fits 120 px: {:?}",
+        before[0]
+    );
+    let (normal, double) = (before[1].1.y, before[2].1.y);
+    assert!(
+        double > normal * 1.3,
+        "a Status Matrix at 200 % is much taller: {normal} {double}"
+    );
+    h.session.writes.insert(
+        (Space::Register, e.address),
+        WriteOutcome {
+            sent_at: 0.,
+            status: OutcomeStatus::Sending,
+        },
+    );
+    let after = measure(&mut h);
+    assert_eq!(
+        before[0].1, after[0].1,
+        "a pending write does not resize the widget"
+    );
 }

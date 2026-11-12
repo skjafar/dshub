@@ -13,6 +13,8 @@ pub struct Recorder {
     pub path: PathBuf,
     pub samples: usize,
     pub started: f64,
+    /// The first write failure; the session stops the recording and reports it.
+    pub error: Option<String>,
 }
 
 /// Where recordings are written.
@@ -37,12 +39,13 @@ impl Recorder {
             path,
             samples: 0,
             started: crate::communicator::now_ms(),
+            error: None,
         })
     }
     pub fn write(&mut self, s: Space, r: &RegisterData, entry: Option<&Entry>) {
         let name = entry.map_or(r.name.as_str(), |e| e.name.as_str());
         let value = entry.map_or(r.value as f64, |e| e.decode(r.value));
-        if writeln!(
+        let written = writeln!(
             self.writer,
             "{:.3},{},{},{},{},{}",
             r.timestamp,
@@ -51,10 +54,12 @@ impl Recorder {
             name.replace(',', " "),
             r.value,
             value
-        )
-        .is_ok()
-        {
-            self.samples += 1;
+        );
+        match written {
+            Ok(()) => self.samples += 1,
+            Err(e) => {
+                self.error.get_or_insert(e.to_string());
+            }
         }
     }
     /// Flushes the file; returns its path.

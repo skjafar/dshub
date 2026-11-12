@@ -19,10 +19,12 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::commands::AppState;
-use crate::communicator::{emit_log, make_read_packet, DeviceRequest, Origin};
+use crate::communicator::{emit_log, make_read_packet, DeviceRequest, InFlight, Origin};
 use crate::types::{
     LogCategory, LogLevel, CMD_READ_PARAMETER, CMD_READ_REGISTER, CMD_READ_SYS_REG,
 };
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// Matches `pollRegistry.ts`'s existing `MIN_INTERVAL_MS` floor.
 pub const MIN_INTERVAL_MS: u64 = 50;
@@ -191,8 +193,17 @@ fn spawn_address_poll_task(
         // tick fires at once rather than after one period, so no separate
         // "read now" call is needed here.
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // At most one read of this address waits at a time. When the device
+        // answers slower than the interval asks, ticks are skipped instead of
+        // filling the shared queue, so the queue never holds more than one
+        // read per polled address and operator requests are not buried.
+        let outstanding = Arc::new(AtomicBool::new(false));
         loop {
             ticker.tick().await;
+            if outstanding.swap(true, Ordering::AcqRel) {
+                continue;
+            }
+            let in_flight = InFlight(outstanding.clone());
 
             let state = app.state();
             state
@@ -206,6 +217,7 @@ fn spawn_address_poll_task(
                 address,
                 name: Some(name.clone()),
                 origin: Origin::Poll,
+                in_flight: Some(in_flight),
             };
             if tx.send(req).await.is_err() {
                 break; // communicator gone — exit silently
@@ -361,6 +373,21 @@ mod tests {
             source: DataSource::Register,
             address,
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_unanswered_poll_is_not_queued_again() {
+        let (tx, mut rx) = mpsc::channel::<DeviceRequest>(100);
+        let task = spawn_address_poll_task(AppHandle::new(), tx, register(4), "A".into(), 50);
+        // Nobody answers for a long time: still exactly one read waiting.
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        let first = rx.try_recv().expect("the first read");
+        assert!(rx.try_recv().is_err(), "ticks were skipped, not queued");
+        // Once that read is settled (dropped), the next tick polls again.
+        drop(first);
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+        assert!(rx.try_recv().is_ok());
+        task.abort();
     }
 
     #[test]

@@ -95,6 +95,49 @@ impl Role {
     ];
 }
 text_enum!(
+    /// How a dashboard Button looks: an ordinary action, a quiet neutral
+    /// control, or a dangerous one (red text and outline, never a red fill).
+    ButtonStyle, fallback Action, {
+        Action => "action",
+        Neutral => "neutral",
+        Danger => "danger",
+    }
+);
+#[allow(clippy::derivable_impls)]
+impl Default for ButtonStyle {
+    fn default() -> Self {
+        Self::Action
+    }
+}
+text_enum!(
+    /// Horizontal placement of a Label's text.
+    TextAlign, fallback Left, {
+        Left => "left",
+        Center => "center",
+        Right => "right",
+    }
+);
+#[allow(clippy::derivable_impls)]
+impl Default for TextAlign {
+    fn default() -> Self {
+        Self::Left
+    }
+}
+text_enum!(
+    /// Colour of a Label's text.
+    TextTone, fallback Normal, {
+        Normal => "normal",
+        Weak => "weak",
+        Accent => "accent",
+    }
+);
+#[allow(clippy::derivable_impls)]
+impl Default for TextTone {
+    fn default() -> Self {
+        Self::Normal
+    }
+}
+text_enum!(
     /// Jog direction of a directional control button.
     Direction, fallback Up, {
         Up => "up",
@@ -594,6 +637,37 @@ impl Metadata {
     }
 }
 /// Shortest text for an engineering value.
+/// A decimal number with a thin space (U+2009) between groups of three
+/// integer digits: `-1234567.5` becomes `-1 234 567.5`. Hexadecimal and
+/// other text is returned unchanged; callers leave binary views ungrouped.
+pub fn grouped(text: &str) -> String {
+    let body = text.strip_prefix('-').unwrap_or(text);
+    let (int, frac) = body
+        .split_once('.')
+        .map_or((body, None), |(i, f)| (i, Some(f)));
+    let decimal = !int.is_empty()
+        && int.bytes().all(|b| b.is_ascii_digit())
+        && frac.is_none_or(|f| f.bytes().all(|b| b.is_ascii_digit()));
+    if !decimal || int.len() < 5 {
+        // Four digits read well without a separator.
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len() + int.len() / 3 * 3);
+    if text.starts_with('-') {
+        out.push('-');
+    }
+    for (i, c) in int.chars().enumerate() {
+        if i > 0 && (int.len() - i) % 3 == 0 {
+            out.push('\u{2009}');
+        }
+        out.push(c);
+    }
+    if let Some(f) = frac {
+        out.push('.');
+        out.push_str(f);
+    }
+    out
+}
 pub fn format_number(v: f64) -> String {
     let magnitude = v.abs();
     if v == 0. || !v.is_finite() || (1e-4..1e12).contains(&magnitude) {
@@ -626,6 +700,9 @@ pub struct Profile {
     pub system_registers_map: String,
     #[serde(default)]
     pub board_types_map: String,
+    /// Board types this Profile is written for; empty means any board.
+    #[serde(default)]
+    pub board_types: Vec<u8>,
     #[serde(default)]
     pub sys_commands: Vec<SysCommand>,
     #[serde(default)]
@@ -650,21 +727,35 @@ impl Profile {
     pub fn command(&self, code: u16) -> Option<SysCommand> {
         self.commands().into_iter().find(|c| c.code == code)
     }
-    pub fn board_type_name(&self, id: u8) -> String {
+    /// The board types the board-types map defines, with display names.
+    pub fn board_type_list(&self) -> Vec<(u8, String)> {
         static PATTERN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
         let pattern = PATTERN.get_or_init(|| {
             regex::Regex::new(r#"^\s*(\w+)\s*=\s*(\d+)(?:\s*,\s*"([^"]+)")?"#).unwrap()
         });
-        for line in self.board_types_map.lines() {
-            if let Some(c) = pattern.captures(line) {
-                if c[2].parse::<u8>().ok() == Some(id) {
-                    return c.get(3).map(|s| s.as_str().to_string()).unwrap_or_else(|| {
-                        c[1].trim_start_matches("BOARD_TYPE_").replace('_', " ")
-                    });
-                }
-            }
-        }
-        format!("Board type {id}")
+        self.board_types_map
+            .lines()
+            .filter_map(|line| {
+                let c = pattern.captures(line)?;
+                let id = c[2].parse::<u8>().ok()?;
+                let name = c
+                    .get(3)
+                    .map(|s| s.as_str().to_string())
+                    .unwrap_or_else(|| c[1].trim_start_matches("BOARD_TYPE_").replace('_', " "));
+                Some((id, name))
+            })
+            .collect()
+    }
+    pub fn board_type_name(&self, id: u8) -> String {
+        self.board_type_list()
+            .into_iter()
+            .find(|(board, _)| *board == id)
+            .map_or_else(|| format!("Board type {id}"), |(_, name)| name)
+    }
+    /// Whether this Profile is written for `board`; one that names no board
+    /// types suits any.
+    pub fn suits_board(&self, board: u8) -> bool {
+        self.board_types.is_empty() || self.board_types.contains(&board)
     }
     pub fn apply_map_draft(&mut self, draft: &Profile) {
         self.registers_map = draft.registers_map.clone();
@@ -731,9 +822,30 @@ impl Profile {
         }
     }
     pub fn export(&self) -> serde_json::Value {
-        serde_json::json!({"dshub_profile":1,"name":self.name,"maps":{"registers":self.registers_map,"parameters":self.parameters_map,"systemRegisters":self.system_registers_map,"boardTypes":self.board_types_map,"sysCommands":self.sys_commands.iter().filter(|c|!(65000..=65002).contains(&c.code)).collect::<Vec<_>>()},"metadata":{"registers":self.registers_metadata,"parameters":self.parameters_metadata},"nativeDashboards":self.dashboards,"dashboards":crate::profile_compat::export_dashboards(&self.dashboards)})
+        serde_json::json!({"dshub_profile":1,"name":self.name,"maps":{"registers":self.registers_map,"parameters":self.parameters_map,"systemRegisters":self.system_registers_map,"boardTypes":self.board_types_map,"forBoardTypes":self.board_types,"sysCommands":self.sys_commands.iter().filter(|c|!(65000..=65002).contains(&c.code)).collect::<Vec<_>>()},"metadata":{"registers":self.registers_metadata,"parameters":self.parameters_metadata},"nativeDashboards":self.dashboards,"dashboards":crate::profile_compat::export_dashboards(&self.dashboards)})
     }
     pub fn import(text: &str) -> Result<Self, String> {
+        Self::import_with_notes(text).map(|(profile, _)| profile)
+    }
+    /// Imports a Profile and says which optional sections could not be read
+    /// and were left out, instead of dropping them silently.
+    pub fn import_with_notes(text: &str) -> Result<(Self, Vec<String>), String> {
+        let mut notes = vec![];
+        // A section that is present but malformed is reported; an absent one
+        // is simply empty.
+        fn section<T: serde::de::DeserializeOwned + Default>(
+            value: &serde_json::Value,
+            what: &str,
+            notes: &mut Vec<String>,
+        ) -> T {
+            if value.is_null() {
+                return T::default();
+            }
+            serde_json::from_value(value.clone()).unwrap_or_else(|_| {
+                notes.push(format!("{what} could not be read and were left out"));
+                T::default()
+            })
+        }
         let v: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
         if v["dshub_profile"] != 1 {
             return Err("Unsupported or missing dshub_profile version".into());
@@ -759,18 +871,60 @@ impl Profile {
             .unwrap_or_default()
             .into();
         p.board_types_map = v["maps"]["boardTypes"].as_str().unwrap_or_default().into();
-        p.sys_commands =
-            serde_json::from_value(v["maps"]["sysCommands"].clone()).unwrap_or_default();
-        p.registers_metadata =
-            serde_json::from_value(v["metadata"]["registers"].clone()).unwrap_or_default();
-        p.parameters_metadata =
-            serde_json::from_value(v["metadata"]["parameters"].clone()).unwrap_or_default();
-        p.dashboards = serde_json::from_value(v["nativeDashboards"].clone())
-            .unwrap_or_else(|_| crate::profile_compat::import_dashboards(&v["dashboards"], &p));
+        p.board_types = section(&v["maps"]["forBoardTypes"], "Board types", &mut notes);
+        p.sys_commands = section(&v["maps"]["sysCommands"], "Commands", &mut notes);
+        p.registers_metadata = section(&v["metadata"]["registers"], "Register details", &mut notes);
+        p.parameters_metadata = section(
+            &v["metadata"]["parameters"],
+            "Parameter details",
+            &mut notes,
+        );
+        // Native dashboards when present and readable; otherwise the
+        // version-one dashboard section.
+        p.dashboards = match serde_json::from_value(v["nativeDashboards"].clone()) {
+            Ok(dashboards) => dashboards,
+            Err(_) => {
+                if !v["nativeDashboards"].is_null() {
+                    notes.push(
+                        "Native dashboards could not be read; the version-one dashboards were used"
+                            .into(),
+                    );
+                }
+                crate::profile_compat::import_dashboards(&v["dashboards"], &p)
+            }
+        };
         for s in Space::ALL {
             parse_map(p.map(s), s).map_err(|e| e.join("\n"))?;
         }
-        Ok(p)
+        Ok((p, notes))
+    }
+    /// Makes every widget that writes or sends a command ask first, in all
+    /// dashboards. Used for Profiles from a file: a button's label is free
+    /// text, so the confirmation is what shows what it really sends. Returns
+    /// how many widgets were changed.
+    pub fn require_confirmation(&mut self) -> usize {
+        fn walk(widgets: &mut [Widget]) -> usize {
+            widgets
+                .iter_mut()
+                .map(|w| {
+                    let acts = matches!(
+                        w.kind,
+                        WidgetKind::Button
+                            | WidgetKind::Dropdown
+                            | WidgetKind::ValueWrite
+                            | WidgetKind::DirectionalControl
+                            | WidgetKind::DataTable
+                    );
+                    let changed = usize::from(acts && !w.confirm);
+                    w.confirm |= acts;
+                    changed + walk(&mut w.children)
+                })
+                .sum()
+        }
+        self.dashboards
+            .iter_mut()
+            .map(|d| walk(&mut d.widgets))
+            .sum()
     }
 }
 impl Profile {
@@ -785,6 +939,7 @@ impl Profile {
             parameters_map: String::new(),
             system_registers_map: include_str!("../assets/maps/system_registers.map").into(),
             board_types_map: include_str!("../assets/maps/boardtypes.map").into(),
+            board_types: vec![],
             sys_commands: library_commands(),
             registers_metadata: BTreeMap::new(),
             parameters_metadata: BTreeMap::new(),
@@ -850,6 +1005,7 @@ pub fn default_profiles() -> Vec<Profile> {
         parameters_map: p.into(),
         system_registers_map: s.into(),
         board_types_map: include_str!("../assets/maps/boardtypes.map").into(),
+        board_types: vec![],
         sys_commands: commands.clone(),
         registers_metadata: BTreeMap::new(),
         parameters_metadata: BTreeMap::new(),
@@ -907,6 +1063,9 @@ pub enum WidgetKind {
     ValueRead,
     Gauge,
     ProgressBar,
+    /// The former Encoder Display: read from older dashboards only, and
+    /// turned into a scaled [`WidgetKind::ValueRead`] as they load.
+    #[doc(hidden)]
     EncoderDisplay,
     /// The former LED Indicator: read from older dashboards only, and turned
     /// into a [`WidgetKind::StateLed`] as they load (see [`Dashboard`]).
@@ -927,11 +1086,10 @@ pub enum WidgetKind {
     Label,
 }
 impl WidgetKind {
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 15] = [
         Self::ValueRead,
         Self::Gauge,
         Self::ProgressBar,
-        Self::EncoderDisplay,
         Self::StateLed,
         Self::StatusMatrix,
         Self::Button,
@@ -1085,6 +1243,32 @@ pub struct Widget {
     /// Progress Bar and Value Write: show the current value as text.
     #[serde(default = "default_true")]
     pub show_value: bool,
+    /// Status Matrix: the status a set bit means.
+    #[serde(default = "default_set_role")]
+    pub set_role: Role,
+    /// Progress Bar: the minimum and maximum under the bar's ends.
+    #[serde(default)]
+    pub show_limits: bool,
+    /// Data Table and Alarm List: a caption row naming the columns.
+    #[serde(default)]
+    pub show_header: bool,
+    /// Label: text placement, weight and colour.
+    #[serde(default)]
+    pub align: TextAlign,
+    #[serde(default)]
+    pub bold: bool,
+    #[serde(default)]
+    pub tone: TextTone,
+    /// Button: its look.
+    #[serde(default)]
+    pub style: ButtonStyle,
+    /// Value Readout: show `value × factor` with `decimals` places instead
+    /// of the Display format (the former Encoder Display).
+    #[serde(default)]
+    pub scaled: bool,
+}
+fn default_set_role() -> Role {
+    Role::Ok
 }
 fn default_text_size() -> f32 {
     1.
@@ -1176,6 +1360,20 @@ impl Widget {
                 &self.thresholds,
             );
         }
+        if self.kind == WidgetKind::EncoderDisplay {
+            self.kind = WidgetKind::ValueRead;
+            self.scaled = true;
+        }
+        // A Button took its look from its first threshold; it now has a
+        // style, and its thresholds no longer apply.
+        if self.kind == WidgetKind::Button && !self.thresholds.is_empty() {
+            self.style = match self.thresholds[0].role {
+                Role::Error => ButtonStyle::Danger,
+                Role::Idle => ButtonStyle::Neutral,
+                _ => self.style,
+            };
+            self.thresholds.clear();
+        }
         self.children.iter_mut().for_each(Widget::convert_legacy);
     }
     pub fn new(kind: WidgetKind) -> Self {
@@ -1216,6 +1414,14 @@ impl Widget {
             spacing: 8.,
             text_size: 1.,
             show_value: true,
+            set_role: Role::Ok,
+            show_limits: false,
+            show_header: false,
+            align: TextAlign::Left,
+            bold: false,
+            tone: TextTone::Normal,
+            style: ButtonStyle::Action,
+            scaled: false,
         }
     }
 }
@@ -1225,6 +1431,27 @@ pub struct Dashboard {
     pub id: String,
     pub name: String,
     pub widgets: Vec<Widget>,
+}
+impl Dashboard {
+    /// Ids of the dashboards DSHub ships and updates.
+    pub const BUNDLED: [&'static str; 4] = [
+        "cnc-emulator-control-v2",
+        "cnc-emulator-monitoring-v2",
+        "cnc-emulator-tuning-v2",
+        crate::showcase_dashboard::ID,
+    ];
+    /// Built-in dashboards are read-only: a release may replace them, so
+    /// changes are made on a copy.
+    pub fn bundled(&self) -> bool {
+        Self::BUNDLED.contains(&self.id.as_str())
+    }
+    /// An editable copy with its own identity.
+    pub fn duplicate(&self) -> Self {
+        let mut copy = self.clone();
+        copy.id = unique_id();
+        copy.name = format!("{} (copy)", self.name);
+        copy
+    }
 }
 /// A dashboard as stored, before older widget kinds are converted.
 #[derive(Deserialize)]
@@ -1268,6 +1495,10 @@ pub struct Preferences {
     pub log_settings: crate::types::LogSettings,
     /// Devices connected to most recently, newest first.
     pub recent: Vec<RecentDevice>,
+    /// Interface scale: 1 is the theme's own sizes.
+    pub scale: f32,
+    /// Thin spaces between groups of three digits in dashboard read-outs.
+    pub group_digits: bool,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecentDevice {
@@ -1314,6 +1545,8 @@ impl Default for Preferences {
             max_points: 20000,
             log_settings: Default::default(),
             recent: vec![],
+            scale: 1.,
+            group_digits: true,
         }
     }
 }
@@ -1321,6 +1554,64 @@ impl Default for Preferences {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn former_encoder_displays_and_threshold_coloured_buttons_convert_on_load() {
+        let mut encoder = Widget::new(WidgetKind::EncoderDisplay);
+        encoder.factor = 0.01;
+        encoder.decimals = 2;
+        let mut stop = Widget::new(WidgetKind::Button);
+        stop.thresholds = vec![Threshold::new(Comparator::Eq, 0., Role::Error, "")];
+        let mut quiet = Widget::new(WidgetKind::Button);
+        quiet.thresholds = vec![Threshold::new(Comparator::Eq, 0., Role::Idle, "")];
+        let mut group = Widget::new(WidgetKind::Container);
+        group.children = vec![encoder, stop, quiet];
+        let stored = serde_json::json!({"id": "d", "name": "D", "widgets": [group]});
+        let d: Dashboard = serde_json::from_value(stored).unwrap();
+        let [encoder, stop, quiet] = &d.widgets[0].children[..] else {
+            panic!("three children");
+        };
+        assert_eq!(encoder.kind, WidgetKind::ValueRead);
+        assert!(encoder.scaled && encoder.factor == 0.01 && encoder.decimals == 2);
+        assert_eq!(stop.style, ButtonStyle::Danger);
+        assert!(stop.thresholds.is_empty());
+        assert_eq!(quiet.style, ButtonStyle::Neutral);
+        assert!(!WidgetKind::ALL.contains(&WidgetKind::EncoderDisplay));
+    }
+    #[test]
+    fn digits_group_in_threes_and_leave_other_text_alone() {
+        assert_eq!(grouped("1234567"), "1\u{2009}234\u{2009}567");
+        assert_eq!(grouped("-12345.678"), "-12\u{2009}345.678");
+        assert_eq!(grouped("1234"), "1234");
+        assert_eq!(grouped("0x0001E240"), "0x0001E240");
+        assert_eq!(grouped("—"), "—");
+        assert_eq!(grouped("1e10"), "1e10");
+        assert_eq!(grouped(""), "");
+    }
+    #[test]
+    fn imported_profiles_ask_before_acting_and_report_skipped_sections() {
+        let mut p = default_profiles().remove(1);
+        let mut button = Widget::new(WidgetKind::Button);
+        button.command = Some(14);
+        let mut group = Widget::new(WidgetKind::Container);
+        group.children.push(button.clone());
+        let mut readout = Widget::new(WidgetKind::ValueRead);
+        readout.confirm = false;
+        p.dashboards.truncate(1);
+        p.dashboards[0].widgets = vec![button, group, readout];
+        assert_eq!(p.require_confirmation(), 2);
+        assert!(p.dashboards[0].widgets[0].confirm);
+        assert!(p.dashboards[0].widgets[1].children[0].confirm);
+        assert!(!p.dashboards[0].widgets[2].confirm, "readouts never act");
+        assert_eq!(p.require_confirmation(), 0, "already asking");
+
+        let mut file = p.export();
+        file["maps"]["sysCommands"] = serde_json::json!("not a list");
+        let (imported, notes) = Profile::import_with_notes(&file.to_string()).unwrap();
+        assert!(imported.sys_commands.is_empty());
+        assert_eq!(notes, vec!["Commands could not be read and were left out"]);
+        let (_, notes) = Profile::import_with_notes(&p.export().to_string()).unwrap();
+        assert!(notes.is_empty());
+    }
     #[test]
     fn former_led_indicators_load_as_state_leds() {
         // A native dashboard saved before the LED Indicator was merged, with
@@ -1372,7 +1663,7 @@ mod tests {
         ] {
             assert_eq!(kind.min_height(), 24., "{kind:?}");
         }
-        assert_eq!(WidgetKind::EncoderDisplay.min_height(), 36.);
+        assert_eq!(WidgetKind::ValueRead.min_height(), 24.);
         assert_eq!(WidgetKind::Gauge.min_height(), 48.);
     }
     #[test]

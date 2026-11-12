@@ -132,6 +132,19 @@ async fn native_backend_tcp_udp_control_reads_writes_commands_and_subscriptions(
             !write_ack(&app, 0).await.valid,
             "read-only writes must be reported refused"
         );
+        // A read past the end of the map is refused, not a value of 0.
+        commands::read_register(60000, "MISSING".into(), app.state())
+            .await
+            .unwrap();
+        let Event::Register(refused) = wait(
+            &app,
+            |e| matches!(e, Event::Register(r) if r.address == 60000),
+        )
+        .await
+        else {
+            unreachable!()
+        };
+        assert!(!refused.valid, "a refused read must not look like a value");
         let id = poll::subscribe_address(
             poll::DataSource::SysRegister,
             3,

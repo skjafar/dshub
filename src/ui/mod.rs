@@ -109,6 +109,13 @@ pub struct Pane {
     /// Plot panes: the time (Unix seconds) the view is frozen at, if paused.
     #[serde(skip)]
     pub frozen: Option<f64>,
+    /// Plot panes: this plot's time window in seconds; 0 follows Preferences.
+    pub plot_span: f64,
+    /// Plot panes: draw each trace as a percentage of its own range, so
+    /// traces of different magnitudes share one plot.
+    pub normalise: bool,
+    /// Dashboard panes: stretch the dashboard to the pane's width when viewing.
+    pub fit_width: bool,
 }
 impl Default for Pane {
     fn default() -> Self {
@@ -138,6 +145,9 @@ impl Pane {
             min_level: 0,
             log_source: 0,
             frozen: None,
+            plot_span: 0.,
+            normalise: false,
+            fit_width: false,
         }
     }
 }
@@ -217,7 +227,7 @@ pub struct LayoutState {
 const SCHEMA: u32 = 2;
 /// Revision of the bundled dashboards' layout. Raise it when they change so
 /// stored copies are refreshed.
-const BUNDLED_LAYOUTS: u32 = 2;
+const BUNDLED_LAYOUTS: u32 = 5;
 fn legacy_schema() -> u32 {
     1
 }
@@ -257,6 +267,9 @@ impl Saved {
         if self.bundled_layouts >= BUNDLED_LAYOUTS {
             return;
         }
+        // Until revision 3 built-in dashboards could be edited in place, so a
+        // stored copy that differs from the current layout is kept beside it.
+        let keep_edits = self.bundled_layouts < 3;
         self.bundled_layouts = BUNDLED_LAYOUTS;
         for fresh in default_profiles() {
             let Some(p) = self.profiles.iter_mut().find(|p| p.id == fresh.id) else {
@@ -267,6 +280,7 @@ impl Saved {
                 && p.system_registers_map == fresh.system_registers_map;
             let showcase =
                 crate::showcase_dashboard::fits(p).then(|| crate::showcase_dashboard::dashboard(p));
+            let mut previous = vec![];
             for d in &mut p.dashboards {
                 let replacement = if d.id == crate::showcase_dashboard::ID {
                     showcase.clone()
@@ -276,9 +290,15 @@ impl Saved {
                     None
                 };
                 if let Some(new) = replacement {
+                    if keep_edits && layout_signature(d) != layout_signature(&new) {
+                        let mut kept = d.duplicate();
+                        kept.name = format!("{} (previous)", d.name);
+                        previous.push(kept);
+                    }
                     *d = new;
                 }
             }
+            p.dashboards.extend(previous);
         }
     }
     fn leave_dashboard_edit_mode(&mut self) {
@@ -301,6 +321,27 @@ impl Saved {
         }
     }
 }
+
+/// A dashboard's content without widget ids, which are fresh each time the
+/// built-in dashboards are generated.
+fn layout_signature(d: &Dashboard) -> serde_json::Value {
+    fn strip(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(map) => {
+                map.remove("id");
+                map.values_mut().for_each(strip);
+            }
+            serde_json::Value::Array(items) => items.iter_mut().for_each(strip),
+            _ => {}
+        }
+    }
+    let mut value = serde_json::to_value(&d.widgets).unwrap_or_default();
+    strip(&mut value);
+    value
+}
+
+/// The longest device data waits before it is drawn.
+const DATA_REPAINT: std::time::Duration = std::time::Duration::from_millis(25);
 
 const STORAGE_KEY: &str = "dshub-native-v1";
 
@@ -443,6 +484,8 @@ pub struct Desktop {
     pending_connect: Option<(String, bool)>,
     /// The theme last applied to the context; visuals change only when it differs.
     applied_dark: Option<bool>,
+    /// The interface scale last applied; Ctrl +/− changes are read back.
+    applied_scale: Option<f32>,
     /// False when unreadable settings could not be backed up: saving would
     /// overwrite the user's only copy.
     persist: bool,
@@ -451,6 +494,43 @@ pub struct Desktop {
     /// Set by user input, window moves and imports; autosave serialises
     /// `saved` only when this is set, so an idle application writes nothing.
     touched: bool,
+    /// Link figures for the status bar.
+    link: LinkView,
+    /// A Profile chosen while a device is connected, awaiting confirmation.
+    pending_profile: Option<String>,
+}
+/// What the status bar shows about the link, sampled once a second.
+#[derive(Default)]
+struct LinkView {
+    sampled_at: f64,
+    answered: u64,
+    /// Requests answered per second over the last sample.
+    rate: f64,
+    /// Since when the request queue has been more than half full.
+    backlog_since: Option<f64>,
+}
+impl LinkView {
+    /// Refreshes the figures; returns whether the queue has been backing up
+    /// for over a second.
+    fn sample(&mut self, state: &crate::commands::AppState, now: f64) -> bool {
+        use std::sync::atomic::Ordering;
+        if now - self.sampled_at >= 1000. {
+            let answered = state.metrics.answered.load(Ordering::Relaxed);
+            self.rate =
+                answered.saturating_sub(self.answered) as f64 * 1000. / (now - self.sampled_at);
+            self.answered = answered;
+            self.sampled_at = now;
+        }
+        match state.queue_depth() {
+            Some((depth, capacity)) if depth * 2 > capacity => {
+                self.backlog_since.get_or_insert(now);
+            }
+            Some(_) => self.backlog_since = None,
+            // The sender is busy this instant: keep the state.
+            None => {}
+        }
+        self.backlog_since.is_some_and(|since| now - since > 1000.)
+    }
 }
 impl Desktop {
     /// Reverses a removal reported by a toast.
@@ -496,6 +576,7 @@ impl Desktop {
                 let index = index.min(self.saved.series.len());
                 self.saved.series.insert(index, series);
             }
+            session::Undo::Histories(cleared) => self.session.restore_histories(cleared),
         }
         self.touched = true;
     }
@@ -561,9 +642,12 @@ impl Desktop {
             settings_tab: 0,
             pending_connect: None,
             applied_dark: None,
+            applied_scale: None,
             persist,
             profile_files,
             touched: true,
+            link: LinkView::default(),
+            pending_profile: None,
         };
         if app.saved.profiles.is_empty() {
             app.saved.profiles = default_profiles();
@@ -572,9 +656,14 @@ impl Desktop {
             app.saved.active = app.saved.profiles[0].id.clone();
         }
         app.active_profile = app.saved.active.clone();
-        // Repaint when the backend has news instead of polling on a timer.
+        // Repaint when the backend has news instead of polling on a timer,
+        // but at most about 40 times a second: a repaint per reading follows
+        // the device's request rate, far beyond what anyone can read. Input
+        // still repaints at once.
         let ctx = cc.egui_ctx.clone();
-        app.session.app.set_notifier(move || ctx.request_repaint());
+        app.session
+            .app
+            .set_notifier(move || ctx.request_repaint_after(DATA_REPAINT));
         app.session.send(Action::LogSettings(
             app.saved.preferences.log_settings.clone(),
         ));
@@ -645,6 +734,10 @@ impl Desktop {
             self.palette_query.clear();
             self.palette_selected = 0;
         }
+        // Ctrl+S saves the dashboard and map drafts in view.
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
+            ctx.data_mut(|d| d.insert_temp(egui::Id::new(SAVE_REQUEST), true));
+        }
         let idle = ctx.memory(|m| m.focused().is_none());
         if idle
             && !self.palette_open
@@ -694,8 +787,7 @@ impl Desktop {
             .frame(
                 egui::Frame::new()
                     .fill(palette.surface)
-                    .inner_margin(egui::Margin::symmetric(10, 6))
-                    .stroke(egui::Stroke::new(1_f32, palette.ghost)),
+                    .inner_margin(egui::Margin::symmetric(10, 6)),
             )
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -734,8 +826,7 @@ impl Desktop {
             .frame(
                 egui::Frame::new()
                     .fill(palette.surface)
-                    .inner_margin(egui::Margin::symmetric(10, 3))
-                    .stroke(egui::Stroke::new(1_f32, palette.ghost)),
+                    .inner_margin(egui::Margin::symmetric(10, 3)),
             )
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -747,6 +838,36 @@ impl Desktop {
                     )));
                     if !self.saved.windows.is_empty() {
                         ui.label(weak(format!("· {} windows", self.saved.windows.len())));
+                    }
+                    if self.session.connected() {
+                        use std::sync::atomic::Ordering;
+                        let state = self.session.app.state();
+                        let backing_up = self.link.sample(state, crate::communicator::now_ms());
+                        let round_trip =
+                            state.metrics.round_trip_us.load(Ordering::Relaxed) as f64 / 1000.;
+                        let timeouts = state.metrics.timeouts.load(Ordering::Relaxed);
+                        ui.label(weak(format!(
+                            "· {round_trip:.1} ms · {:.0} req/s",
+                            self.link.rate
+                        )))
+                        .on_hover_text(format!(
+                            "Round-trip time of the last request and requests answered per \
+                             second. {timeouts} timeouts since start."
+                        ));
+                        if backing_up {
+                            ui.label(
+                                RichText::new("· Queue backing up")
+                                    .small()
+                                    .color(colors::role(ui, Role::Warn)),
+                            )
+                            .on_hover_text(
+                                "Polling asks for more than the device answers, so reads, \
+                                 writes and commands wait in the queue. Poll fewer values or \
+                                 use a longer interval.",
+                            );
+                        }
+                    } else {
+                        self.link.backlog_since = None;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(weak(format!("v{}", env!("CARGO_PKG_VERSION"))));
@@ -814,6 +935,135 @@ impl Desktop {
             let address = self.saved.preferences.last_ip.clone();
             self.session
                 .connect_to(&address, self.saved.preferences.udp);
+        }
+        self.board_warning(ui);
+        if self.session.connection.is_some()
+            && !self.session.busy
+            && ui
+                .button("Disconnect")
+                .on_hover_text("Close the connection to this device")
+                .clicked()
+        {
+            self.session.send(Action::Disconnect);
+        }
+    }
+    /// Asks before a Profile chosen while connected takes effect.
+    fn confirm_profile_switch(&mut self, ctx: &egui::Context) {
+        let Some(id) = self.pending_profile.clone() else {
+            return;
+        };
+        let Some(name) = self
+            .saved
+            .profiles
+            .iter()
+            .find(|p| p.id == id)
+            .map(|p| p.name.clone())
+        else {
+            self.pending_profile = None;
+            return;
+        };
+        let device = self
+            .session
+            .connection
+            .as_ref()
+            .map(|c| {
+                c.device_name
+                    .clone()
+                    .unwrap_or_else(|| format!("{}:{}", c.ip, c.port))
+            })
+            .unwrap_or_default();
+        let mut decided = None;
+        let response = egui::Modal::new(egui::Id::new("confirm-profile-switch")).show(ctx, |ui| {
+            ui.set_max_width(420.);
+            ui.heading("Switch Profile while connected?");
+            ui.label(format!(
+                "Tables and dashboards will address {device} through {name}'s maps. \
+                 Make sure this Profile describes this device."
+            ));
+            ui.add_space(8.);
+            ui.horizontal(|ui| {
+                let cancel = ui.button("Cancel");
+                if ui.memory(|m| m.focused().is_none()) {
+                    cancel.request_focus();
+                }
+                if cancel.clicked() {
+                    decided = Some(false);
+                }
+                if ui
+                    .button(RichText::new("Switch").color(colors::role(ui, Role::Warn)))
+                    .clicked()
+                {
+                    decided = Some(true);
+                }
+            });
+        });
+        if response.should_close() {
+            decided.get_or_insert(false);
+        }
+        match decided {
+            Some(true) => {
+                // Takes effect in this frame, after the check above.
+                self.saved.active = id;
+                self.pending_profile = None;
+                self.touched = true;
+            }
+            Some(false) => self.pending_profile = None,
+            None => {}
+        }
+    }
+    /// Warns when the active Profile is not marked for the connected board,
+    /// and offers the Profile that is.
+    fn board_warning(&mut self, ui: &mut egui::Ui) {
+        let Some(board) = self.session.board_type() else {
+            return;
+        };
+        let active = &self.saved.profiles[self.profile_index()];
+        if active.suits_board(board) {
+            return;
+        }
+        let board_name = active.board_type_name(board);
+        // Only a Profile that names this board is a suggestion.
+        let matching: Vec<(String, String)> = self
+            .saved
+            .profiles
+            .iter()
+            .filter(|p| p.board_types.contains(&board))
+            .map(|p| (p.id.clone(), p.name.clone()))
+            .collect();
+        let warn = colors::role(ui, Role::Warn);
+        let (label, hint) = match matching.as_slice() {
+            [(_, name)] => (
+                format!("{} Switch to {name}", icons::WARNING),
+                format!(
+                    "{} is not marked for this device's board ({board_name}). {name} is.",
+                    active.name
+                ),
+            ),
+            _ => (
+                format!("{} Profile mismatch", icons::WARNING),
+                format!(
+                    "{} is not marked for this device's board ({board_name}). \
+                     Addresses may not mean what this Profile says. Open Profiles to choose \
+                     another or change its board types.",
+                    active.name
+                ),
+            ),
+        };
+        let clicked = ui
+            .add(
+                egui::Button::new(RichText::new(label).color(warn))
+                    .stroke(egui::Stroke::new(1_f32, warn.gamma_multiply(0.5))),
+            )
+            .on_hover_text(hint)
+            .clicked();
+        if clicked {
+            match matching.as_slice() {
+                [(id, _)] => {
+                    self.saved.active = id.clone();
+                    self.touched = true;
+                }
+                _ => self.profiles_open = true,
+            }
         }
     }
     /// Returns true when the panel should close.
@@ -966,7 +1216,19 @@ impl Desktop {
                             "MAC {} · ID {} · TCP {} / UDP {}\nDouble-click to connect",
                             device.mac_address, device.device_id, device.tcp_port, device.udp_port
                         ));
-                    ui.monospace(&device.ip_address);
+                    ui.horizontal(|ui| {
+                        ui.monospace(&device.ip_address);
+                        if let Some(claimed) = &device.claimed_ip {
+                            ui.label(
+                                RichText::new(icons::WARNING).color(colors::role(ui, Role::Warn)),
+                            )
+                            .on_hover_text(format!(
+                                "This reply came from {} but reports {claimed}. \
+                                 DSHub connects to {}.",
+                                device.ip_address, device.ip_address
+                            ));
+                        }
+                    });
                     ui.label(profile.board_type_name(device.board_type));
                     ui.monospace(format!("0x{:04X}", device.firmware_version));
                     ui.end_row();
@@ -988,7 +1250,6 @@ impl Desktop {
         close
     }
     fn profile_controls(&mut self, ui: &mut egui::Ui) {
-        let old = self.saved.active.clone();
         let index = self.profile_index();
         egui::ComboBox::from_id_salt("profile")
             .selected_text(&self.saved.profiles[index].name)
@@ -1003,12 +1264,6 @@ impl Desktop {
                 }
             });
         ui.label(theme::caption(ui, "Profile"));
-        if old != self.saved.active {
-            self.session.confirm = None;
-            self.session.readings.clear();
-            self.session.histories.clear();
-            self.session.selection = None;
-        }
         let review_count = review::count(
             &self.saved.profiles[self.profile_index()],
             &self.saved.series,
@@ -1138,6 +1393,42 @@ impl Desktop {
                             ui.end_row();
                         }
                     });
+                ui.add_space(6.);
+                ui.label(theme::caption(ui, "Board types"));
+                let boards = self.saved.profiles[i].board_type_list();
+                let chosen = &mut self.saved.profiles[i].board_types;
+                let summary = if chosen.is_empty() {
+                    "Any board".to_string()
+                } else {
+                    boards
+                        .iter()
+                        .filter(|(id, _)| chosen.contains(id))
+                        .map(|(_, name)| name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                ui.menu_button(summary, |ui| {
+                    if boards.is_empty() {
+                        ui.weak("The board types map defines none (Map Editor).");
+                    }
+                    for (id, name) in &boards {
+                        let mut on = chosen.contains(id);
+                        if ui.checkbox(&mut on, format!("{name} ({id})")).changed() {
+                            if on {
+                                chosen.push(*id);
+                                chosen.sort_unstable();
+                            } else {
+                                chosen.retain(|b| b != id);
+                            }
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "DSHub warns when a connected device reports a board type not ticked here. \
+                     With none ticked the Profile suits any board.",
+                );
+                let p = &self.saved.profiles[i];
                 ui.add_space(4.);
                 ui.label(
                     RichText::new("Maps, metadata, commands and dashboards belong to the Profile.")
@@ -1221,6 +1512,20 @@ impl Desktop {
                 ui.label("Theme");
                 controls::segmented(ui, &mut p.dark, &[(true, "Dark"), (false, "Light")]);
                 ui.end_row();
+                ui.label("Interface scale")
+                    .on_hover_text("Size of text and controls. Ctrl + and Ctrl − also change it.");
+                egui::ComboBox::from_id_salt("interface-scale")
+                    .selected_text(format!("{:.0} %", p.scale * 100.))
+                    .show_ui(ui, |ui| {
+                        for scale in [0.8, 0.9, 1., 1.1, 1.25, 1.5, 1.75, 2.] {
+                            ui.selectable_value(
+                                &mut p.scale,
+                                scale,
+                                format!("{:.0} %", scale * 100.),
+                            );
+                        }
+                    });
+                ui.end_row();
             }),
             1 => grid(ui, "prefs-connection", &mut |ui| {
                 ui.label("On startup");
@@ -1271,6 +1576,10 @@ impl Desktop {
                 ui.end_row();
                 ui.label("Samples kept per trace");
                 ui.add(egui::DragValue::new(&mut p.max_points).range(100..=100000));
+                ui.end_row();
+                ui.label("Dashboard numbers");
+                ui.checkbox(&mut p.group_digits, "Group digits in threes")
+                    .on_hover_text("1 234 567 instead of 1234567; inputs are never grouped");
                 ui.end_row();
             }),
             _ => grid(ui, "prefs-log", &mut |ui| {
@@ -1471,6 +1780,8 @@ fn guide(ui: &mut egui::Ui) {
                 "Command palette: panes, entries, commands, windows",
             ),
             ("/", "Focus the search field"),
+            ("Ctrl+S", "Save the dashboard or map changes in view"),
+            ("Ctrl +, Ctrl −", "Make the interface larger or smaller"),
             (
                 "Double-click, Enter",
                 "Edit a value in a table; Enter writes, Esc discards. Unsent values stay outlined",
@@ -1510,6 +1821,12 @@ fn guide(ui: &mut egui::Ui) {
 }
 /// Temp-data key set by `/`; the first search field drawn takes focus.
 pub(crate) const FOCUS_SEARCH: &str = "focus-search";
+const SAVE_REQUEST: &str = "save-request";
+/// Whether Ctrl+S was pressed this frame: unsaved drafts in view save.
+pub(super) fn save_requested(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(egui::Id::new(SAVE_REQUEST)))
+        .unwrap_or(false)
+}
 /// How long a critical command's Confirm button must be held.
 const HOLD_SECONDS: f64 = 1.5;
 /// The pending device-action confirmation, shown modally in every viewport so it
@@ -1620,6 +1937,23 @@ impl eframe::App for Desktop {
         self.session
             .drain(&self.saved.profiles[i], &self.saved.preferences);
         self.session.interests.clear();
+        // Interface scale: the preference drives egui's zoom, and a zoom made
+        // with Ctrl +/− is kept as the preference.
+        let scale = self.saved.preferences.scale.clamp(0.5, 3.);
+        match self.applied_scale {
+            Some(applied) if (applied - scale).abs() < 0.001 => {
+                let current = ctx.zoom_factor();
+                if (current - applied).abs() > 0.001 {
+                    self.saved.preferences.scale = current;
+                    self.applied_scale = Some(current);
+                    self.touched = true;
+                }
+            }
+            _ => {
+                ctx.set_zoom_factor(scale);
+                self.applied_scale = Some(scale);
+            }
+        }
         if self.applied_dark != Some(self.saved.preferences.dark) {
             theme::apply(ctx, self.saved.preferences.dark);
             self.applied_dark = Some(self.saved.preferences.dark);
@@ -1628,8 +1962,27 @@ impl eframe::App for Desktop {
             self.undo(undo);
         }
         while let Some(import) = self.session.take_import(&ImportTarget::Profile) {
-            match import.and_then(|text| Profile::import(&text)) {
-                Ok(p) => {
+            match import.and_then(|text| Profile::import_with_notes(&text)) {
+                Ok((mut p, notes)) => {
+                    // A file's dashboards can label a button anything, so
+                    // every acting widget asks first until the user decides.
+                    let asking = p.require_confirmation();
+                    let mut text = format!(
+                        "Imported {}: {} dashboards, {} commands.",
+                        p.name,
+                        p.dashboards.len(),
+                        p.commands().len()
+                    );
+                    if asking > 0 {
+                        text.push_str(&format!(
+                            " {asking} widgets that write or send commands now ask first; \
+                             turn that off per widget once you have checked them."
+                        ));
+                    }
+                    for note in notes {
+                        text.push_str(&format!(" {note}."));
+                    }
+                    self.session.toast(Role::Info, text);
                     self.saved.active = p.id.clone();
                     self.saved.profiles.push(p);
                     self.touched = true;
@@ -1640,6 +1993,23 @@ impl eframe::App for Desktop {
         self.chrome(ui);
         self.dialogs(ctx);
         self.keyboard(ctx);
+        // Changing Profile while connected re-addresses the same device
+        // through other maps, so it is confirmed first. A Profile that was
+        // deleted is simply left.
+        if self.active_profile != self.saved.active
+            && self.session.connected()
+            && self
+                .saved
+                .profiles
+                .iter()
+                .any(|p| p.id == self.active_profile)
+        {
+            self.pending_profile = Some(std::mem::replace(
+                &mut self.saved.active,
+                self.active_profile.clone(),
+            ));
+        }
+        self.confirm_profile_switch(ctx);
         if self.active_profile != self.saved.active {
             self.saved.profile_sessions.insert(
                 self.active_profile.clone(),
@@ -1793,6 +2163,7 @@ impl eframe::App for Desktop {
         self.touched |= touched || !closed.is_empty();
         // `/` with no search field in view does nothing.
         ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::new(FOCUS_SEARCH)));
+        ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::new(SAVE_REQUEST)));
         for i in closed.into_iter().rev() {
             let window = self.saved.windows.remove(i);
             for (_, p) in window.dock.iter_all_tabs() {

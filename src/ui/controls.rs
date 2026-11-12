@@ -71,16 +71,29 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut egui::Ui, value: &mut T, options:
                 ui.visuals().selection.bg_fill
             } else {
                 ui.visuals().widgets.inactive.weak_bg_fill
-            });
-            if ui.add(button).clicked() {
+            })
+            // Reported to assistive technology as the chosen segment.
+            .selected(selected);
+            let response = ui.add(button);
+            if selected {
+                // An underline as well as colour marks the choice.
+                let rect = response.rect;
+                ui.painter().hline(
+                    rect.x_range().shrink(3.),
+                    rect.bottom() - 1.5,
+                    egui::Stroke::new(2_f32, super::theme::of(ui).accent),
+                );
+            }
+            if response.clicked() {
                 *value = *option;
             }
         }
     });
 }
 
-/// A button that fires only after being held for `seconds`; the fill shows
-/// progress, and releasing early cancels.
+/// A button that fires only after being held for `seconds` (pointer, or
+/// Space/Enter while focused); the fill shows progress, and releasing early
+/// cancels.
 pub fn hold_button(ui: &mut egui::Ui, label: &str, seconds: f64) -> bool {
     let warn = colors::role(ui, Role::Warn);
     let response = ui.add(
@@ -88,7 +101,10 @@ pub fn hold_button(ui: &mut egui::Ui, label: &str, seconds: f64) -> bool {
     );
     let id = response.id.with("hold");
     let now = ui.input(|i| i.time);
-    if !response.is_pointer_button_down_on() {
+    // Held with the pointer, or with Space or Enter while focused.
+    let keyed = response.has_focus()
+        && ui.input(|i| i.key_down(egui::Key::Space) || i.key_down(egui::Key::Enter));
+    if !(response.is_pointer_button_down_on() || keyed) {
         ui.data_mut(|d| d.remove_temp::<f64>(id));
         return false;
     }

@@ -5,6 +5,8 @@ use crate::model::*;
 /// Canvas width the panels are laid out for.
 const WIDTH: f32 = 1200.;
 const AXES: [&str; 3] = ["X", "Y", "Z"];
+/// Height of the short position trend in each axis group.
+const TREND: f32 = 96.;
 
 pub fn dashboards(profile: &Profile) -> Vec<Dashboard> {
     vec![
@@ -49,6 +51,26 @@ fn button(code: u16, label: &str, confirm: bool) -> Widget {
     w.label = label.into();
     w.command = Some(code);
     w.confirm = confirm;
+    w
+}
+/// A button that takes something away (disable, stop): quiet, so the
+/// actions that start motion stand out.
+fn quiet(code: u16, label: &str) -> Widget {
+    let mut w = button(code, label, false);
+    w.style = ButtonStyle::Neutral;
+    w
+}
+/// Spindle load: heavy cutting from 80 %, as the map describes.
+fn spindle_load(profile: &Profile, label: &str) -> Widget {
+    let mut load = register(profile, WidgetKind::ProgressBar, "SPINDLE_LOAD", label);
+    load.thresholds = vec![Threshold::new(Comparator::Ge, 80., Role::Warn, "High load")];
+    load.show_limits = true;
+    load
+}
+/// A short trend with the latest value in its title.
+fn trend(profile: &Profile, name: &str, label: &str, seconds: f64) -> Widget {
+    let mut w = register(profile, WidgetKind::MiniPlot, name, label);
+    w.time_span = seconds;
     w
 }
 fn controller_state(profile: &Profile) -> Widget {
@@ -136,7 +158,7 @@ fn operator(profile: &Profile) -> Vec<Widget> {
     state.text_size = 1.25;
     let state = Block::fit(state, 240.);
     let mut stop = button(14, "EMERGENCY STOP", false);
-    stop.thresholds = vec![Threshold::new(Comparator::Eq, 0., Role::Error, "")];
+    stop.style = ButtonStyle::Danger;
     stop.text_size = 1.15;
     let stop = Block::sized(stop, 240., height - state.height - GAP);
     let commands_width = inner_width - 240. - GAP;
@@ -154,7 +176,7 @@ fn operator(profile: &Profile) -> Vec<Widget> {
             buttons(
                 vec![
                     button(0, "Enable all axes", true),
-                    button(1, "Disable all axes", false),
+                    quiet(1, "Disable all axes"),
                 ],
                 commands_width,
                 command_height,
@@ -179,13 +201,9 @@ fn operator(profile: &Profile) -> Vec<Widget> {
         .enumerate()
         .map(|(i, axis)| {
             let i = i as u16;
-            let mut position = register(
-                profile,
-                WidgetKind::EncoderDisplay,
-                &format!("MOTOR_{axis}_ENCODER"),
-                "Position",
-            );
-            position.unit = "counts".into();
+            let encoder = format!("MOTOR_{axis}_ENCODER");
+            let mut position = register(profile, WidgetKind::ValueRead, &encoder, "Position");
+            position.text_size = 1.2;
             let mut target = register(
                 profile,
                 WidgetKind::ValueWrite,
@@ -200,16 +218,14 @@ fn operator(profile: &Profile) -> Vec<Widget> {
                 column(
                     vec![
                         Block::fit(position, w),
+                        Block::sized(trend(profile, &encoder, "", 30.), w, TREND),
+                        Block::fit(target, w),
                         Block::fit(
                             enabled(profile, &format!("MOTOR_{axis}_ENABLED"), "Driver"),
                             w,
                         ),
-                        Block::fit(target, w),
                         buttons(
-                            vec![
-                                button(2 + i, "Enable", true),
-                                button(5 + i, "Disable", false),
-                            ],
+                            vec![button(2 + i, "Enable", true), quiet(5 + i, "Disable")],
                             w,
                             32.,
                         ),
@@ -222,8 +238,7 @@ fn operator(profile: &Profile) -> Vec<Widget> {
         .collect();
     let mut rpm = register(profile, WidgetKind::Gauge, "SPINDLE_RPM", "Speed");
     rpm.max = 24000.;
-    let mut load = register(profile, WidgetKind::ProgressBar, "SPINDLE_LOAD", "Load");
-    load.thresholds = vec![Threshold::new(Comparator::Ge, 80., Role::Warn, "High load")];
+    let load = spindle_load(profile, "Load");
     let mut speed = register(
         profile,
         WidgetKind::ValueWrite,
@@ -239,13 +254,9 @@ fn operator(profile: &Profile) -> Vec<Widget> {
             vec![
                 Block::fit(rpm, w),
                 Block::fit(load, w),
-                Block::fit(enabled(profile, "SPINDLE_ENABLED", "Spindle"), w),
                 Block::fit(speed, w),
-                buttons(
-                    vec![button(8, "Start", true), button(9, "Stop", false)],
-                    w,
-                    32.,
-                ),
+                Block::fit(enabled(profile, "SPINDLE_ENABLED", "Spindle"), w),
+                buttons(vec![button(8, "Start", true), quiet(9, "Stop")], w, 32.),
             ],
             GAP,
         ),
@@ -258,29 +269,8 @@ fn operator(profile: &Profile) -> Vec<Widget> {
 }
 
 fn trends(profile: &Profile) -> Vec<Widget> {
-    let quarter = span(WIDTH, 4, 1, SECTION);
-    let mut now: Vec<Block> = AXES
-        .iter()
-        .map(|axis| {
-            let mut w = register(
-                profile,
-                WidgetKind::EncoderDisplay,
-                &format!("MOTOR_{axis}_ENCODER"),
-                &format!("{axis} position"),
-            );
-            w.unit = "counts".into();
-            Block::fit(w, quarter)
-        })
-        .collect();
-    now.push(Block::fit(
-        register(
-            profile,
-            WidgetKind::EncoderDisplay,
-            "SPINDLE_RPM",
-            "Spindle speed",
-        ),
-        quarter,
-    ));
+    // Four trends, each with its latest value in the title, beside the
+    // machine's state and the link's health.
     let plots_width = span(WIDTH, 3, 2, SECTION);
     let plot_width = span(plots_width, 2, 1, SECTION);
     let plots = grid(
@@ -291,54 +281,74 @@ fn trends(profile: &Profile) -> Vec<Widget> {
             ("SPINDLE_RPM", "Spindle speed"),
         ]
         .into_iter()
-        .map(|(name, label)| {
-            let mut w = register(profile, WidgetKind::MiniPlot, name, label);
-            w.time_span = 60.;
-            Block::sized(w, plot_width, 240.)
-        })
+        .map(|(name, label)| Block::sized(trend(profile, name, label, 60.), plot_width, 260.))
         .collect(),
         2,
         SECTION,
     );
     let side = inner(WIDTH - plots_width - SECTION);
-    let mut diagnostics = Widget::new(WidgetKind::DataTable);
-    diagnostics.label = "Communication".into();
-    diagnostics.rows = profile
-        .entries(Space::SysRegister)
-        .iter()
-        .map(|e| Binding::new(Space::SysRegister, e))
-        .collect();
-    diagnostics.decimals = 0;
-    let mut load = register(
-        profile,
-        WidgetKind::ProgressBar,
-        "SPINDLE_LOAD",
-        "Spindle load",
+    let half = span(side, 2, 1, GAP);
+    let mut state = controller_state(profile);
+    state.text_size = 1.25;
+    let drivers = grid(
+        [
+            ("MOTOR_X_ENABLED", "X driver"),
+            ("MOTOR_Y_ENABLED", "Y driver"),
+            ("MOTOR_Z_ENABLED", "Z driver"),
+            ("SPINDLE_ENABLED", "Spindle"),
+        ]
+        .into_iter()
+        .map(|(name, label)| Block::fit(enabled(profile, name, label), half))
+        .collect(),
+        2,
+        GAP,
     );
-    load.thresholds = vec![Threshold::new(Comparator::Ge, 80., Role::Warn, "High load")];
-    let status = group(
+    let machine = group(
         "Machine",
         column(
             vec![
-                Block::fit(controller_state(profile), side),
-                Block::fit(load, side),
-                Block::fit(diagnostics, side),
+                Block::fit(state, side),
+                drivers,
+                Block::fit(spindle_load(profile, "Spindle load"), side),
             ],
             GAP,
         ),
     );
-    column(
-        vec![row(now, SECTION), row(vec![plots, status], SECTION)],
-        SECTION,
-    )
-    .into_widgets()
+    let mut link = Widget::new(WidgetKind::DataTable);
+    link.label = String::new();
+    link.show_header = true;
+    link.decimals = 0;
+    for (name, label) in [
+        ("DS_PACKET_COUNT", "Packets"),
+        ("DS_ERROR_COUNT", "Errors"),
+        ("CONTROL_INTERFACE", "Control"),
+        ("COUNTER_1HZ", "Seconds"),
+    ] {
+        let entry = profile
+            .entries(Space::SysRegister)
+            .into_iter()
+            .find(|e| e.name == name)
+            .expect("library system register exists");
+        link.rows.push(Binding::new(Space::SysRegister, &entry));
+        link.row_styles.insert(
+            name.into(),
+            RowStyle {
+                label: label.into(),
+                ..Default::default()
+            },
+        );
+    }
+    let link = group("Communication", Block::fit(link, side));
+    row(vec![plots, column(vec![machine, link], SECTION)], SECTION).into_widgets()
 }
 
 fn tuning(profile: &Profile) -> Vec<Widget> {
+    let third = span(WIDTH, 3, 1, SECTION);
     let table = |label: &str, rows: &[(String, &str)]| {
         let mut w = Widget::new(WidgetKind::DataTable);
         w.label = label.into();
         w.confirm = true;
+        w.show_header = true;
         for (name, short) in rows {
             let entry = profile
                 .entries(Space::Parameter)
@@ -355,9 +365,8 @@ fn tuning(profile: &Profile) -> Vec<Widget> {
                 },
             );
         }
-        w
+        Block::fit(w, third)
     };
-    let third = span(WIDTH, 3, 1, SECTION);
     let axes = AXES
         .iter()
         .map(|axis| {
@@ -370,7 +379,7 @@ fn tuning(profile: &Profile) -> Vec<Widget> {
                 (format!("MOTOR_{axis}_STEPS_PER_MM"), "Steps per mm"),
                 (format!("HOME_{axis}_POSITION"), "Home position"),
             ];
-            Block::fit(table(&format!("{axis} axis"), &rows), third)
+            table(&format!("{axis} axis"), &rows)
         })
         .collect();
     let spindle = table(
@@ -384,24 +393,42 @@ fn tuning(profile: &Profile) -> Vec<Widget> {
         "Homing and stopping",
         &[
             ("HOMING_SPEED".into(), "Homing speed"),
-            ("E_STOP_DECEL".into(), "E-stop deceleration"),
+            ("E_STOP_DECEL".into(), "E-stop decel."),
         ],
     );
     let mut note = Widget::new(WidgetKind::Label);
-    note.label = "Parameters are read continuously. Type a value and press Write; \
-                  each write asks first and shows its outcome beside the button."
+    note.label = "Point at a row to type a new value, then press Write. Each write \
+                  asks first and shows its outcome beside the button. Changes are \
+                  lost at restart unless they are written to flash."
         .into();
+    note.tone = TextTone::Weak;
+    // Library commands every datastream device has.
+    let flash = |code: u16, label: &str, style: ButtonStyle| {
+        let mut w = button(code, label, true);
+        w.style = style;
+        w
+    };
+    let memory = group(
+        "Flash memory",
+        column(
+            vec![
+                buttons(
+                    vec![
+                        flash(65001, "Write flash", ButtonStyle::Action),
+                        flash(65000, "Read flash", ButtonStyle::Neutral),
+                    ],
+                    inner(third),
+                    32.,
+                ),
+                Block::fit(note, inner(third)),
+            ],
+            GAP,
+        ),
+    );
     column(
         vec![
             row(axes, SECTION),
-            row(
-                vec![
-                    Block::fit(spindle, third),
-                    Block::fit(motion, third),
-                    Block::fit(note, third),
-                ],
-                SECTION,
-            ),
+            row(vec![spindle, motion, memory], SECTION),
         ],
         SECTION,
     )

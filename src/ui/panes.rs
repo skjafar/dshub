@@ -127,7 +127,7 @@ impl Viewer<'_> {
                     };
                     key(ui, "State");
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("●").color(colors::role(ui, role)));
+                        ui.label(RichText::new(colors::mark(role)).color(colors::role(ui, role)));
                         ui.label(state);
                     });
                     ui.end_row();
@@ -284,11 +284,11 @@ impl Viewer<'_> {
                     for e in &entries {
                         let r = self.session.readings.get(&(s, e.address));
                         text.push_str(&format!(
-                            "{},\"{}\",{},\"{}\",{}\n",
+                            "{},{},{},{},{}\n",
                             e.address,
-                            e.name,
+                            csv_cell(&e.name),
                             e.data_type,
-                            r.map(|r| e.format(r.value)).unwrap_or_default(),
+                            csv_cell(&r.map(|r| e.format(r.value)).unwrap_or_default()),
                             r.is_some_and(|r| r.valid)
                         ));
                     }
@@ -440,7 +440,7 @@ impl Viewer<'_> {
                                         r.value,
                                         self.profile.metadata(s, &e.name),
                                     ),
-                                    Some(_) => "error".into(),
+                                    Some(_) => "refused".into(),
                                     None => "—".into(),
                                 };
                                 let color = match reading {
@@ -481,7 +481,11 @@ impl Viewer<'_> {
                         } else {
                             let (role, label) =
                                 colors::reading(connected, reading, p.auto.then_some(p.interval));
-                            ui.label(RichText::new("●").small().color(colors::role(ui, role)));
+                            ui.label(
+                                RichText::new(colors::mark(role))
+                                    .small()
+                                    .color(colors::role(ui, role)),
+                            );
                             ui.label(RichText::new(label).small().color(palette.text_weak));
                         }
                     });
@@ -551,6 +555,19 @@ impl Viewer<'_> {
                     }
                 });
             });
+        // A new connection reads the rows in view once, so the table is not
+        // a column of "Unread" until Live or Read all is found.
+        let epoch_id = ui.id().with((&p.id, "read-epoch"));
+        let seen = ui.ctx().data(|d| d.get_temp::<u64>(epoch_id));
+        if connected && seen != Some(self.session.connection_epoch) {
+            ui.ctx()
+                .data_mut(|d| d.insert_temp(epoch_id, self.session.connection_epoch));
+            if !p.auto {
+                for &i in &visible {
+                    self.session.read(s, entries[i]);
+                }
+            }
+        }
         if p.auto {
             for i in visible {
                 self.session
@@ -686,13 +703,15 @@ impl Viewer<'_> {
                         self.session.notice = "The argument must be a signed 32-bit integer".into();
                     }
                 }
-                ui.add(egui::DragValue::new(&mut p.address).range(0..=64999));
+                ui.add(
+                    super::widgets::typed(egui::DragValue::new(&mut p.address)).range(0..=64999),
+                );
                 ui.label(RichText::new("Other code").color(palette.text_weak));
             });
         });
         ui.add_space(4.);
         let search = p.search.trim().to_lowercase();
-        let commands: Vec<SysCommand> = self
+        let mut commands: Vec<SysCommand> = self
             .profile
             .commands()
             .into_iter()
@@ -702,6 +721,11 @@ impl Viewer<'_> {
                     || c.code.to_string().contains(&search)
             })
             .collect();
+        // The Profile's own commands come first; the library's flash and
+        // reset commands sit below them, away from everyday use.
+        commands.sort_by_key(|c| (65000..=65002).contains(&c.code));
+        let argument = p.input.trim().to_string();
+        let warn = colors::role(ui, Role::Warn);
         let mut send = None;
         egui_extras::TableBuilder::new(ui)
             .id_salt((&p.id, "commands"))
@@ -734,6 +758,10 @@ impl Viewer<'_> {
                         });
                     });
                     row.col(|ui| {
+                        if c.critical {
+                            ui.label(RichText::new(super::icons::WARNING).color(warn))
+                                .on_hover_text("Critical: asks for press-and-hold before sending");
+                        }
                         ui.label(&c.name);
                         if library {
                             ui.label(RichText::new("library").small().color(palette.text_weak));
@@ -748,8 +776,14 @@ impl Viewer<'_> {
                         }
                     });
                     row.col(|ui| {
+                        let label = if c.critical {
+                            RichText::new("Send").color(warn)
+                        } else {
+                            RichText::new("Send")
+                        };
                         if ui
-                            .add_enabled(controlled, egui::Button::new("Send").small())
+                            .add_enabled(controlled, egui::Button::new(label).small())
+                            .on_hover_text(format!("Send {} with argument {argument}", c.name))
                             .on_disabled_hover_text("Take Control to send commands")
                             .clicked()
                         {
@@ -791,7 +825,10 @@ impl Viewer<'_> {
                                 ui.selectable_value(&mut p.space, s, s.title());
                             }
                         });
-                    ui.add(egui::DragValue::new(&mut p.address).prefix("address "));
+                    ui.add(
+                        super::widgets::typed(egui::DragValue::new(&mut p.address))
+                            .prefix("address "),
+                    );
                     if ui
                         .add_enabled(self.session.connected(), egui::Button::new("Read"))
                         .clicked()
@@ -863,7 +900,11 @@ impl Viewer<'_> {
         });
         let (role, label) = colors::reading(self.session.connected(), reading.as_ref(), Some(250));
         ui.horizontal(|ui| {
-            ui.label(RichText::new("●").small().color(colors::role(ui, role)));
+            ui.label(
+                RichText::new(colors::mark(role))
+                    .small()
+                    .color(colors::role(ui, role)),
+            );
             ui.label(RichText::new(label).small().color(palette.text_weak));
             if let Some(r) = &reading {
                 ui.label(
@@ -1182,9 +1223,31 @@ impl Viewer<'_> {
             {
                 p.frozen = paused.then(|| crate::communicator::now_ms() / 1000.);
             }
-            if ui.button("Clear data").clicked() {
-                self.session.histories.clear();
+            if ui
+                .button("Clear data")
+                .on_hover_text("Remove every plot's samples; the notice offers Undo")
+                .clicked()
+            {
+                self.session.clear_histories();
             }
+            egui::ComboBox::from_id_salt((&p.id, "window"))
+                .selected_text(if p.plot_span > 0. {
+                    span_label(p.plot_span)
+                } else {
+                    format!("Window: {}", span_label(self.prefs.time_span))
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut p.plot_span, 0., "Preferences default");
+                    for seconds in [10., 30., 60., 300., 900., 3600.] {
+                        ui.selectable_value(&mut p.plot_span, seconds, span_label(seconds));
+                    }
+                })
+                .response
+                .on_hover_text("How much time this plot shows");
+            ui.checkbox(&mut p.normalise, "Normalise").on_hover_text(
+                "Draw each trace as 0–100 % of its own range, so values of very different \
+                 size share the plot. The read-out still shows real values.",
+            );
             ui.separator();
             let recording = self.session.recording.as_ref().map(|r| {
                 let seconds = (crate::communicator::now_ms() - r.started) / 1000.;
@@ -1242,8 +1305,10 @@ impl Viewer<'_> {
                     {
                         for point in h {
                             csv.push_str(&format!(
-                                "\"{}\",{:.3},{}\n",
-                                s.binding.name, point[0], point[1]
+                                "{},{:.3},{}\n",
+                                csv_cell(&s.binding.name),
+                                point[0],
+                                point[1]
                             ));
                         }
                     }
@@ -1289,8 +1354,12 @@ impl Viewer<'_> {
         if self.series.is_empty() {
             ui.label("Click Plot beside an entry to add a trace.");
         }
-        let span = self.prefs.time_span;
-        let traces: Vec<(String, Vec<[f64; 2]>)> = self
+        let span = if p.plot_span > 0. {
+            p.plot_span
+        } else {
+            self.prefs.time_span
+        };
+        let mut traces: Vec<(String, Vec<[f64; 2]>)> = self
             .series
             .iter()
             .filter(|s| p.plot_series.contains(&s.id) && s.binding.matches(self.profile))
@@ -1330,6 +1399,26 @@ impl Viewer<'_> {
             });
             return;
         }
+        // Normalised: each trace becomes a percentage of its own range. The
+        // (minimum, range) pairs turn read-out values back into real ones.
+        let ranges: Vec<Option<(f64, f64)>> = traces
+            .iter_mut()
+            .map(|(_, points)| {
+                if !p.normalise || points.is_empty() {
+                    return None;
+                }
+                let (low, high) = points
+                    .iter()
+                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
+                        (lo.min(p[1]), hi.max(p[1]))
+                    });
+                let range = if high > low { high - low } else { 1. };
+                for point in points.iter_mut() {
+                    point[1] = (point[1] - low) / range * 100.;
+                }
+                Some((low, range))
+            })
+            .collect();
         let newest = traces
             .iter()
             .filter_map(|(_, points)| points.last().map(|p| p[0]))
@@ -1374,15 +1463,29 @@ impl Viewer<'_> {
                     .map(|pointer| {
                         traces
                             .iter()
-                            .filter_map(|(name, points)| {
-                                nearest(points, pointer.x).map(|point| (name.clone(), point))
+                            .zip(&ranges)
+                            .filter_map(|((name, points), range)| {
+                                nearest(points, pointer.x).map(|mut point| {
+                                    if let Some((low, range)) = range {
+                                        point[1] = point[1] / 100. * range + low;
+                                    }
+                                    (name.clone(), point)
+                                })
                             })
                             .collect()
                     })
                     .unwrap_or_default();
                 let time = plot_ui.pointer_coordinate().map(|pointer| pointer.x);
-                for (name, points) in traces {
-                    plot_ui.line(egui_plot::Line::new(name, points));
+                let dark = plot_ui.ctx().global_style().visuals.dark_mode;
+                for (index, (name, points)) in traces.into_iter().enumerate() {
+                    // Theme colours, and dashes past the fourth trace, so
+                    // traces are told apart without relying on hue alone.
+                    let (colour, dashed) = theme::trace(dark, index);
+                    let mut line = egui_plot::Line::new(name, points).color(colour);
+                    if dashed {
+                        line = line.style(egui_plot::LineStyle::dashed_dense());
+                    }
+                    plot_ui.line(line);
                 }
                 (time, readout)
             })
@@ -1460,7 +1563,7 @@ impl Viewer<'_> {
                 } else {
                     ui.button("Save Profile")
                 };
-                if save.clicked() {
+                if save.clicked() || (dirty && super::save_requested(ui.ctx())) {
                     let errors: Vec<_> = Space::ALL
                         .into_iter()
                         .flat_map(|s| parse_map(draft.map(s), s).err().unwrap_or_default())
@@ -1576,7 +1679,7 @@ impl Viewer<'_> {
                     let before = saved.sys_commands.iter().find(|s| s.code == c.code);
                     let differs = |f: &dyn Fn(&SysCommand) -> bool| before.is_none_or(f);
                     ui.horizontal(|ui| {
-                        let code = ui.add(egui::DragValue::new(&mut c.code));
+                        let code = ui.add(super::widgets::typed(egui::DragValue::new(&mut c.code)));
                         controls::mark_unsaved(ui, code, before.is_none());
                         let name = ui.text_edit_singleline(&mut c.name);
                         controls::mark_unsaved(ui, name, differs(&|s| s.name != c.name));
@@ -1911,6 +2014,29 @@ pub(super) fn window(
     out
 }
 
+/// A text cell for a CSV export: quoted, with embedded quotes doubled. Text
+/// a spreadsheet would run as a formula is prefixed with an apostrophe;
+/// plain numbers, including negative ones, are left alone.
+pub(super) fn csv_cell(text: &str) -> String {
+    let formula = text.starts_with(['=', '+', '-', '@']) && text.parse::<f64>().is_err();
+    format!(
+        "\"{}{}\"",
+        if formula { "'" } else { "" },
+        text.replace('"', "\"\"")
+    )
+}
+
+/// A time window as "30 s", "5 min" or "1 h".
+fn span_label(seconds: f64) -> String {
+    if seconds >= 3600. {
+        format!("{:.0} h", seconds / 3600.)
+    } else if seconds >= 60. {
+        format!("{:.0} min", seconds / 60.)
+    } else {
+        format!("{seconds:.0} s")
+    }
+}
+
 /// A key in a key/value grid.
 fn key(ui: &mut egui::Ui, text: &str) {
     ui.label(RichText::new(text).color(theme::of(ui).text_weak));
@@ -2079,7 +2205,15 @@ pub fn log_color(dark: bool, l: &LogLevel) -> Color32 {
 
 #[cfg(test)]
 mod crosshair_tests {
-    use super::nearest;
+    use super::{csv_cell, nearest};
+
+    #[test]
+    fn csv_cells_are_quoted_and_never_formulas() {
+        assert_eq!(csv_cell("SPEED"), "\"SPEED\"");
+        assert_eq!(csv_cell("a \"b\""), "\"a \"\"b\"\"\"");
+        assert_eq!(csv_cell("=SUM(A1)"), "\"'=SUM(A1)\"");
+        assert_eq!(csv_cell("-12.5"), "\"-12.5\"", "a negative number is data");
+    }
 
     #[test]
     fn crosshair_picks_the_sample_closest_in_time() {

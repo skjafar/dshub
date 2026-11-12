@@ -28,7 +28,22 @@ pub struct Palette {
     pub ghost: Color32,
     /// Outlines that must be noticed (focus, hover).
     pub ghost_strong: Color32,
+    /// The boundary of a control a user must find to operate (inputs, menus,
+    /// buttons): at least 3:1 against the surfaces around it.
+    pub outline: Color32,
+    /// The empty part of a bar, arc or lamp: visible on cards, quieter than
+    /// any filled part.
+    pub track: Color32,
 }
+
+/// Corner radius of controls (buttons, inputs, menus).
+pub const RADIUS_CONTROL: u8 = 3;
+/// Corner radius of cards and widget outlines.
+pub const RADIUS_CARD: u8 = 4;
+/// Corner radius of small cells (bits, bar tracks).
+pub const RADIUS_CELL: u8 = 2;
+/// The space between a dashboard widget's edge and its content.
+pub const WIDGET_INSET: f32 = 6.;
 
 const fn rgb(hex: u32) -> Color32 {
     Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
@@ -46,6 +61,8 @@ pub const DARK: Palette = Palette {
     accent: rgb(0x5cd2dc),
     ghost: Color32::from_rgba_premultiplied(30, 32, 36, 38),
     ghost_strong: Color32::from_rgba_premultiplied(60, 64, 70, 70),
+    outline: rgb(0x70757d),
+    track: rgb(0x3a3d43),
 };
 
 pub const LIGHT: Palette = Palette {
@@ -60,7 +77,23 @@ pub const LIGHT: Palette = Palette {
     accent: rgb(0x0e6973),
     ghost: Color32::from_rgba_premultiplied(0, 0, 0, 28),
     ghost_strong: Color32::from_rgba_premultiplied(0, 0, 0, 56),
+    outline: rgb(0x80858d),
+    track: rgb(0xc4c9d1),
 };
+
+/// Plot trace colours, readable on each theme's plot background. Traces
+/// beyond the first four also differ in line style (see [`trace`]).
+const TRACES_DARK: [u32; 8] = [
+    0x5cd2dc, 0xf59e0b, 0xa78bfa, 0x4ade80, 0xf472b6, 0x60a5fa, 0xfb923c, 0xcbd5e1,
+];
+const TRACES_LIGHT: [u32; 8] = [
+    0x0e6973, 0x9a4a00, 0x6d28d9, 0x14532d, 0xbe185d, 0x1d4ed8, 0xc2410c, 0x475569,
+];
+/// The colour of the `index`th plot trace and whether it is drawn dashed.
+pub fn trace(dark: bool, index: usize) -> (Color32, bool) {
+    let colours = if dark { TRACES_DARK } else { TRACES_LIGHT };
+    (rgb(colours[index % 8]), index % 8 >= 4)
+}
 
 pub fn palette(dark: bool) -> Palette {
     if dark {
@@ -90,15 +123,15 @@ pub fn apply(ctx: &egui::Context, dark: bool) {
     } else {
         egui::Visuals::light()
     };
-    let radius = CornerRadius::same(3);
+    let radius = CornerRadius::same(RADIUS_CONTROL);
     visuals.panel_fill = p.base;
     visuals.window_fill = p.surface;
     visuals.faint_bg_color = p.raised;
     visuals.extreme_bg_color = p.well;
     visuals.code_bg_color = p.raised;
     visuals.window_stroke = Stroke::new(1_f32, p.ghost_strong);
-    visuals.window_corner_radius = CornerRadius::same(4);
-    visuals.menu_corner_radius = CornerRadius::same(4);
+    visuals.window_corner_radius = CornerRadius::same(RADIUS_CARD);
+    visuals.menu_corner_radius = CornerRadius::same(RADIUS_CARD);
     visuals.window_shadow = Shadow {
         offset: [0, 4],
         blur: 16,
@@ -127,11 +160,11 @@ pub fn apply(ctx: &egui::Context, dark: bool) {
     w.noninteractive.fg_stroke = Stroke::new(1_f32, p.text);
     w.inactive.bg_fill = p.control;
     w.inactive.weak_bg_fill = p.control;
-    w.inactive.bg_stroke = Stroke::new(1_f32, p.ghost);
+    w.inactive.bg_stroke = Stroke::new(1_f32, p.outline);
     w.inactive.fg_stroke = Stroke::new(1_f32, p.text);
     w.hovered.bg_fill = p.hover;
     w.hovered.weak_bg_fill = p.hover;
-    w.hovered.bg_stroke = Stroke::new(1_f32, p.ghost_strong);
+    w.hovered.bg_stroke = Stroke::new(1_f32, p.text_weak);
     w.hovered.fg_stroke = Stroke::new(1_f32, p.text);
     w.hovered.expansion = 0.;
     w.active.bg_fill = p.hover;
@@ -141,7 +174,7 @@ pub fn apply(ctx: &egui::Context, dark: bool) {
     w.active.expansion = 0.;
     w.open.bg_fill = p.hover;
     w.open.weak_bg_fill = p.hover;
-    w.open.bg_stroke = Stroke::new(1_f32, p.ghost_strong);
+    w.open.bg_stroke = Stroke::new(1_f32, p.text_weak);
     w.open.fg_stroke = Stroke::new(1_f32, p.text);
     for v in [
         &mut w.noninteractive,
@@ -245,4 +278,71 @@ pub fn dock_style(ui: &egui::Ui) -> egui_dock::Style {
     style.buttons.close_tab_bg_fill = p.hover;
     style.overlay.selection_color = p.accent.gamma_multiply(0.35);
     style
+}
+
+/// WCAG 2.1 contrast, shared by the palette tests.
+#[cfg(test)]
+pub(crate) mod contrast {
+    use super::Color32;
+    pub fn luminance(c: Color32) -> f64 {
+        let channel = |v: u8| {
+            let v = v as f64 / 255.;
+            if v <= 0.03928 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel(c.r()) + 0.7152 * channel(c.g()) + 0.0722 * channel(c.b())
+    }
+    pub fn ratio(a: Color32, b: Color32) -> f64 {
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn control_outlines_and_text_meet_contrast_guidelines() {
+        for p in [DARK, LIGHT] {
+            for surface in [p.well, p.base, p.surface, p.raised] {
+                assert!(
+                    contrast::ratio(p.outline, surface) >= 3.,
+                    "outline {:?} on {surface:?}",
+                    p.outline
+                );
+                assert!(contrast::ratio(p.text, surface) >= 7.);
+                assert!(contrast::ratio(p.text_weak, surface) >= 4.5);
+            }
+        }
+        for dark in [true, false] {
+            let p = palette(dark);
+            for surface in [p.surface, p.raised] {
+                let r = contrast::ratio(p.track, surface);
+                assert!((1.4..=2.5).contains(&r), "track {r:.2} dark={dark}");
+            }
+            for role in [
+                crate::model::Role::Ok,
+                crate::model::Role::Warn,
+                crate::model::Role::Error,
+            ] {
+                let fill = super::super::colors::rgb(dark, role);
+                let r = contrast::ratio(fill, p.track);
+                assert!(r >= 3., "{role:?} on track {r:.2} dark={dark}");
+            }
+            assert!(
+                contrast::ratio(p.accent, p.track) >= 3.,
+                "accent dark={dark}"
+            );
+            for index in 0..8 {
+                let (colour, _) = trace(dark, index);
+                assert!(
+                    contrast::ratio(colour, palette(dark).well) >= 3.,
+                    "trace {index} dark={dark}"
+                );
+            }
+        }
+    }
 }

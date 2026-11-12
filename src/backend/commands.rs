@@ -33,19 +33,20 @@ pub struct ReconnectParams {
 
 // ── Managed application state ─────────────────────────────────────────────────
 
-/// Token-bucket limiter for outbound device requests.
+/// Spaces outbound device requests at the user's `requestRateLimit`.
 ///
-/// Backs the user-facing `requestRateLimit` setting, which previously existed in
-/// the settings model but was never enforced anywhere.
+/// Each caller reserves the next free slot and sleeps until it, so the limit
+/// holds however many poll tasks ask at once. (A token bucket that let every
+/// waiting caller sleep the same deficit admitted them all together.)
 pub struct RateLimiter {
-    /// (last refill instant, available tokens)
-    bucket: tokio::sync::Mutex<(tokio::time::Instant, f64)>,
+    /// The earliest instant the next request may be sent.
+    next: std::sync::Mutex<tokio::time::Instant>,
 }
 
 impl RateLimiter {
     fn new() -> Self {
         RateLimiter {
-            bucket: tokio::sync::Mutex::new((tokio::time::Instant::now(), 0.0)),
+            next: std::sync::Mutex::new(tokio::time::Instant::now()),
         }
     }
 
@@ -54,31 +55,30 @@ impl RateLimiter {
         if limit == 0 {
             return;
         }
-        let rate = limit as f64;
-        let sleep_for = {
-            let mut bucket = self.bucket.lock().await;
-            let (last, tokens) = *bucket;
-            let now = tokio::time::Instant::now();
-            // Refill, capped at one second's worth so an idle period cannot bank
-            // an unbounded burst.
-            let refilled = (tokens + now.duration_since(last).as_secs_f64() * rate).min(rate);
-            if refilled >= 1.0 {
-                *bucket = (now, refilled - 1.0);
-                None
-            } else {
-                // Charge the token now and sleep off the deficit.
-                let deficit = (1.0 - refilled) / rate;
-                *bucket = (now, 0.0);
-                Some(Duration::from_secs_f64(deficit))
-            }
+        let interval = Duration::from_secs_f64(1. / limit as f64);
+        let at = {
+            let mut next = self.next.lock().unwrap_or_else(|e| e.into_inner());
+            let at = (*next).max(tokio::time::Instant::now());
+            *next = at + interval;
+            at
         };
-        if let Some(d) = sleep_for {
-            tokio::time::sleep(d).await;
-        }
+        tokio::time::sleep_until(at).await;
     }
 }
 
+/// Link health for the status bar, updated by the communicator without locks.
+#[derive(Default)]
+pub struct LinkMetrics {
+    /// Round-trip time of the last answered request, in microseconds.
+    pub round_trip_us: std::sync::atomic::AtomicU64,
+    /// Requests answered since start.
+    pub answered: std::sync::atomic::AtomicU64,
+    /// Requests that timed out since start.
+    pub timeouts: std::sync::atomic::AtomicU64,
+}
+
 pub struct AppState {
+    pub metrics: LinkMetrics,
     /// Sender half of the communicator channel; None when not connected
     pub communicator_tx: tokio::sync::Mutex<Option<mpsc::Sender<DeviceRequest>>>,
     /// Liveness heartbeat for the current connection; aborted on disconnect.
@@ -115,6 +115,7 @@ impl Default for AppState {
 impl AppState {
     pub fn new() -> Self {
         AppState {
+            metrics: LinkMetrics::default(),
             communicator_tx: tokio::sync::Mutex::new(None),
             heartbeat: tokio::sync::Mutex::new(None),
             connection: tokio::sync::Mutex::new(None),
@@ -125,6 +126,16 @@ impl AppState {
             poll_subscriptions: tokio::sync::Mutex::new(crate::poll::PollSubscriptions::new()),
             poll_tasks: tokio::sync::Mutex::new(Default::default()),
         }
+    }
+}
+
+impl AppState {
+    /// Requests waiting in the queue and its capacity, or `None` when not
+    /// connected or the sender is momentarily locked. Never blocks.
+    pub fn queue_depth(&self) -> Option<(usize, usize)> {
+        let guard = self.communicator_tx.try_lock().ok()?;
+        let tx = guard.as_ref()?;
+        Some((tx.max_capacity() - tx.capacity(), tx.max_capacity()))
     }
 }
 
@@ -389,6 +400,7 @@ fn spawn_heartbeat(app: AppHandle, tx: mpsc::Sender<DeviceRequest>) -> JoinHandl
                 address: 2,
                 name: Some("CONTROL_INTERFACE".into()),
                 origin: Origin::Heartbeat,
+                in_flight: None,
             };
             if tx.send(req).await.is_err() {
                 break; // channel closed — exit silently
@@ -508,6 +520,7 @@ pub async fn take_control(state: &AppState) -> Result<(), String> {
             address: 0,
             name: Some("TAKE_CONTROL".into()),
             origin: Origin::Manual,
+            in_flight: None,
         },
     )
     .await
@@ -522,6 +535,7 @@ async fn read(state: &AppState, command: u16, address: u16, name: String) -> Res
             address,
             name: Some(name),
             origin: Origin::Manual,
+            in_flight: None,
         },
     )
     .await
@@ -536,6 +550,7 @@ async fn write(state: &AppState, command: u16, address: u16, value: i32) -> Resu
             address,
             name: None,
             origin: Origin::Manual,
+            in_flight: None,
         },
     )
     .await
@@ -576,6 +591,7 @@ pub async fn send_sys_command(sys_cmd: u16, value: i32, state: &AppState) -> Res
             address: sys_cmd,
             name: Some(format!("SYS_CMD_{}", sys_cmd)),
             origin: Origin::Manual,
+            in_flight: None,
         },
     )
     .await
@@ -603,6 +619,27 @@ mod tests {
         assert_eq!(first.command, CMD_READ_SYS_REG);
         assert_eq!(first.address, 2);
         assert_eq!(first.name.as_deref(), Some("CONTROL_INTERFACE"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_rate_limit_holds_for_concurrent_callers() {
+        let limiter = Arc::new(RateLimiter::new());
+        let start = tokio::time::Instant::now();
+        let tasks: Vec<_> = (0..50)
+            .map(|_| {
+                let limiter = limiter.clone();
+                tokio::spawn(async move { limiter.acquire(100).await })
+            })
+            .collect();
+        for task in tasks {
+            task.await.unwrap();
+        }
+        // Fifty requests at 100 a second take at least 0.49 s.
+        assert!(start.elapsed() >= Duration::from_millis(490));
+        // No limit: no wait.
+        let start = tokio::time::Instant::now();
+        limiter.acquire(0).await;
+        assert_eq!(start.elapsed(), Duration::ZERO);
     }
 
     #[test]

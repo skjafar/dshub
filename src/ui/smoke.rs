@@ -22,6 +22,12 @@ impl Desktop {
         pane.auto = true;
         pane.editing = scene == "cnc-edit";
         let profile = &mut self.saved.profiles[1];
+        if scene == "cnc-edit" {
+            // Built-in dashboards are read-only; edit a copy.
+            let copy = profile.dashboards[0].duplicate();
+            profile.dashboards.push(copy);
+            pane.dashboard = profile.dashboards.len() - 1;
+        }
         for kind in WidgetKind::ALL
             .into_iter()
             .filter(|_| !matches!(scene, "cnc" | "cnc-edit"))

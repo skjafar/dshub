@@ -100,15 +100,27 @@ impl ProfileStore {
             .collect();
         for id in removed {
             let _ = std::fs::remove_file(self.path(&id));
+            let _ = std::fs::remove_file(self.path(&id).with_extension("json.bak"));
             self.written.remove(&id);
         }
         Ok(())
     }
 }
 
+/// Replaces `path` with `text`: written to a temporary file and synced
+/// before the rename, so a power cut leaves the old or the new file, never
+/// an empty one. The version being replaced is kept as `<name>.json.bak`.
 fn write_atomically(path: &Path, text: &str) -> Result<(), String> {
+    use std::io::Write;
     let temporary = path.with_extension("json.tmp");
-    std::fs::write(&temporary, text).map_err(|e| e.to_string())?;
+    let mut file = std::fs::File::create(&temporary).map_err(|e| e.to_string())?;
+    file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+    file.sync_all().map_err(|e| e.to_string())?;
+    drop(file);
+    if path.exists() {
+        // Best effort: a missing backup must not stop the save.
+        let _ = std::fs::copy(path, path.with_extension("json.bak"));
+    }
     std::fs::rename(&temporary, path).map_err(|e| e.to_string())
 }
 

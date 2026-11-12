@@ -59,7 +59,11 @@ pub fn dashboard(profile: &Profile) -> Dashboard {
     let mut w = widget(WidgetKind::ValueRead, "Packets received");
     w.binding = Some(sys("DS_PACKET_COUNT"));
     w.decimals = 0;
-    items.push(("Value Readout", "One value, large and borderless.", w));
+    items.push((
+        "Value Readout",
+        "One value, large and borderless; it can also scale by a factor.",
+        w,
+    ));
 
     let mut w = widget(WidgetKind::Gauge, "Protocol errors");
     w.binding = Some(sys("DS_ERROR_COUNT"));
@@ -79,12 +83,6 @@ pub fn dashboard(profile: &Profile) -> Dashboard {
         "A value between a minimum and a maximum.",
         w,
     ));
-
-    let mut w = widget(WidgetKind::EncoderDisplay, "Uptime");
-    w.binding = Some(sys("COUNTER_1HZ"));
-    w.unit = "s".into();
-    w.decimals = 0;
-    items.push(("Encoder Display", "A scaled, fixed-width readout.", w));
 
     let mut w = widget(WidgetKind::StateLed, "Control interface");
     w.binding = Some(sys("CONTROL_INTERFACE"));
@@ -152,6 +150,20 @@ pub fn dashboard(profile: &Profile) -> Dashboard {
     .into_iter()
     .map(sys)
     .collect();
+    for (name, label) in [
+        ("DS_PACKET_COUNT", "Packets"),
+        ("DS_ERROR_COUNT", "Errors"),
+        ("CONTROL_INTERFACE", "Control"),
+        ("COUNTER_1HZ", "Seconds"),
+    ] {
+        w.row_styles.insert(
+            name.into(),
+            RowStyle {
+                label: label.into(),
+                ..Default::default()
+            },
+        );
+    }
     items.push(("Data Table", "Several values in aligned rows.", w));
 
     let mut w = widget(WidgetKind::AlarmList, "Link health");
@@ -230,6 +242,7 @@ pub fn dashboard(profile: &Profile) -> Dashboard {
     let mut heading = Widget::new(WidgetKind::Label);
     heading.label = "Widget showcase".into();
     heading.text_size = 1.6;
+    heading.bold = true;
     let mut intro = Widget::new(WidgetKind::Label);
     intro.label = "Every widget kind, bound to the datastream library's system registers \
                    so it shows live values on any device. Writes go to PLACEHOLDER and ask \

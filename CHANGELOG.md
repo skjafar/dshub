@@ -1,3 +1,37 @@
+## Unreleased
+
+- A new connection reads the rows in view once, so tables no longer show "Unread" until Live or Read all is used.
+- Commands pane: the Profile's commands come first and library commands below; critical commands are marked, and Send shows the argument it will use.
+- Status bar shows the round-trip time, requests answered per second, and a warning when the request queue is backing up.
+- Disconnect button in the top bar. Ctrl+S saves the dashboard or map changes in view. Preferences has an interface scale, which Ctrl + and Ctrl − also change.
+- Built-in dashboards are read-only: "Duplicate to edit" makes an editable copy. A built-in that was edited before this version is kept as "(previous)" when it is replaced.
+- A Profile can name the board types it is for. DSHub warns when the connected device reports another board and offers the matching Profile.
+- Plot panes have their own time window, a Normalise view, and Undo for Clear data.
+- Dashboards can **Fit width** in view mode. Thresholds, limits, scale factors, command codes and array lengths change only by typing, never by an accidental drag.
+- A read the device refuses is shown as "Read refused" instead of a value, and is never plotted or recorded.
+- The request rate limit holds when many values are polled at once (it let concurrent polls through together).
+- Each polled address has at most one read waiting, so polling faster than the device answers no longer fills the request queue ahead of operator reads, writes and commands.
+- Switching Profile while connected asks first. Imported Profiles report sections that could not be read, and their write and command widgets ask before acting.
+- Discovery connects to the address a reply came from and flags a reply that claims another.
+- Device data repaints at most about 40 times a second, and the backend uses two worker threads: about half the CPU on busy dashboards.
+- Input controls have outlines of at least 3:1 contrast. Warning, error and information statuses carry a shape as well as a colour; the dark theme's amber and the light theme's green and amber were changed so they also differ in brightness. Extra threshold colours and plot traces have light-theme variants, and traces past the fourth are dashed.
+- Hold-to-confirm works with Space or Enter. Segmented choices are underlined and report their selection to screen readers.
+- A late acknowledgement settles a write or command shown as "Unknown". A recording that cannot be written stops and says so. Profile files are synced before replacing the old one, which is kept as `.json.bak`. CSV exports escape quotes and formulas.
+- CI runs on every push to master, checks advisories, licences and sources with cargo-deny, pins actions by commit, and publishes SHA-256 checksums with each release.
+- The emulator can delay replies (`--latency-ms`) and drop UDP replies (`--drop-rate`, `--seed`) for testing slow and lossy links.
+- Dashboard widgets share one layout: content starts the same distance from every widget's edge, widgets inside a group draw no second border, and every widget's title is the same quiet caption. Corner radii are named theme values.
+- A healthy reading shows no status mark; only stale, refused, unread or offline readings are marked and explained. A table whose rows all share one status says it once in its title.
+- Choosing an entry for a widget fills its Unit from the map, or empties it when the map has none; the unit can then be edited. Value Write shows its unit.
+- Disabled dashboard controls say why on hover: Edit mode, no connection, no Control, or a read-only entry. Write and command outcomes are one status glyph beside the control, so widgets no longer grow while a write is pending; the jog pad shows its last outcome in its centre.
+- Buttons have a Style: Action, Neutral or Danger (red text and outline). Buttons coloured by their first threshold convert on load; EMERGENCY STOP is Danger.
+- Encoder Display is merged into Value Readout, which can multiply by a factor with fixed decimals and show the raw value. Stored Encoder Displays and version-one Profiles convert on load, and exports still write them as encoder displays.
+- Value Write no longer overflows its box. Bars, gauge arcs, unlit lamps and clear bits have a track tone that is visible on the light theme.
+- Gauges are centred and show threshold zones and ticks; Progress Bars are thicker, can show their limits, and mark each threshold. The Dropdown fills its width. Text size scales every part of a widget.
+- Large decimal numbers on dashboards are grouped in threes with thin spaces (Preferences → Data → Group digits; inputs are never grouped).
+- Status Matrix: "A set bit is" OK, Warning or Error. Mini-Plot fills its box, uses the trace palette and shows the latest value in its title. Data Table inputs appear on the hovered row, and tables can name their columns. Labels can be aligned, semibold and weak or accent.
+- Redesigned CNC dashboards. Operator: a short position trend in each axis group, quiet Disable and Stop buttons beside the actions that start motion, and limits on the spindle load bar. Trends: four larger plots with the latest value in their titles, beside driver states and link health. Tuning: tables with column headings and a Flash memory group. The CNC Profile gains write limits (spindle speed 0–24000 RPM, no negative gains, speeds or jog distance) and a 1000-count jog step.
+- A widget's status no longer runs over its title: the title shortens, and a narrow widget shows the mark alone.
+
 ## [0.3.1] - 2026-11-10 - Dashboard redesign
 
 - Dashboard edits are a draft saved with Save or discarded with Revert; changed widgets are outlined as in the Map Editor, and leaving edit mode, switching dashboards or closing the pane waits until the draft is saved or reverted.

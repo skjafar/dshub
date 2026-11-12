@@ -197,7 +197,8 @@ pub fn show(
                         mark_unsaved(ui, array, differs(&|r| r.array != row.array));
                         let count = ui.add_enabled(
                             row.array,
-                            egui::DragValue::new(&mut row.count).range(1..=65536),
+                            super::widgets::typed(egui::DragValue::new(&mut row.count))
+                                .range(1..=65536),
                         );
                         mark_unsaved(ui, count, row.array && differs(&|r| r.count != row.count));
                         if space == Space::Register {

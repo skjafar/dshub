@@ -101,6 +101,8 @@ pub enum Undo {
     },
     /// A plot trace, restored at its old position in the trace list.
     Trace { index: usize, series: PlotSeries },
+    /// Plot samples cleared with "Clear data".
+    Histories(BTreeMap<(Space, u16), VecDeque<[f64; 2]>>),
 }
 pub struct Session {
     pub _runtime: tokio::runtime::Runtime,
@@ -110,6 +112,8 @@ pub struct Session {
     imports: Imports,
     received_imports: Vec<(ImportTarget, Result<String, String>)>,
     pub connection: Option<DeviceConnection>,
+    /// Counts connections established, so views can act once per connection.
+    pub connection_epoch: u64,
     pub devices: Vec<DiscoveredDevice>,
     pub scanning: bool,
     pub busy: bool,
@@ -149,7 +153,9 @@ impl Default for Session {
 }
 impl Session {
     pub fn new() -> Self {
+        // One socket and a few timers: two workers, not one per core.
         let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
             .enable_all()
             .build()
             .expect("Tokio runtime");
@@ -213,6 +219,7 @@ impl Session {
             imports: Default::default(),
             received_imports: vec![],
             connection: None,
+            connection_epoch: 0,
             devices: vec![],
             scanning: false,
             busy: false,
@@ -393,6 +400,14 @@ impl Session {
             None
         }
     }
+    /// The connected Device's board type, when discovery reported it.
+    pub fn board_type(&self) -> Option<u8> {
+        let c = self.connection.as_ref().filter(|_| self.connected())?;
+        self.devices
+            .iter()
+            .find(|d| d.ip_address == c.ip)
+            .map(|d| d.board_type)
+    }
     pub fn connected(&self) -> bool {
         self.connection
             .as_ref()
@@ -476,6 +491,28 @@ impl Session {
         if !self.notice.is_empty() {
             let text = std::mem::take(&mut self.notice);
             self.toast(Role::Warn, text);
+        }
+    }
+    /// Clears every plot's samples; a toast offers to bring them back.
+    pub fn clear_histories(&mut self) {
+        let cleared = std::mem::take(&mut self.histories);
+        let samples: usize = cleared.values().map(VecDeque::len).sum();
+        if samples > 0 {
+            self.removed(
+                format!("Cleared {samples} plot samples"),
+                Undo::Histories(cleared),
+            );
+        }
+    }
+    /// Puts cleared samples back, ahead of any recorded since.
+    pub fn restore_histories(&mut self, cleared: BTreeMap<(Space, u16), VecDeque<[f64; 2]>>) {
+        for (key, mut points) in cleared {
+            if let Some(newer) = self.histories.remove(&key) {
+                points.extend(newer);
+            }
+            // Kept through this frame's sync even if no plot asked yet.
+            self.history_wanted.entry(key).or_default();
+            self.histories.insert(key, points);
         }
     }
     /// Asks for `b`'s readings to be kept as a plot history.
@@ -696,6 +733,9 @@ impl Session {
                             "Connection restored. Take Control again before writing or sending commands.",
                         );
                     }
+                    if c.connected && !self.connected() {
+                        self.connection_epoch += 1;
+                    }
                     self.connection = Some(c);
                 }
                 Event::Disconnected => {
@@ -747,8 +787,12 @@ impl Session {
                         _ => Space::SysRegister,
                     };
                     if let Some(outcome) = self.writes.get_mut(&(s, ack.address)) {
-                        if outcome.status == OutcomeStatus::Sending
-                            && ack.timestamp >= outcome.sent_at
+                        // A late acknowledgement still settles a write that
+                        // was given up on as "Unknown".
+                        if matches!(
+                            outcome.status,
+                            OutcomeStatus::Sending | OutcomeStatus::Unknown
+                        ) && ack.timestamp >= outcome.sent_at
                         {
                             outcome.status = if ack.valid {
                                 OutcomeStatus::Confirmed
@@ -828,6 +872,14 @@ impl Session {
         if r.valid {
             if let Some(recorder) = &mut self.recording {
                 recorder.write(s, &r, p.entry_at(s, r.address).as_ref());
+            }
+            // A recording that can no longer be written stops, and says so.
+            if let Some(error) = self.recording.as_mut().and_then(|r| r.error.take()) {
+                let samples = self.recording.take().map_or(0, |r| r.samples);
+                self.toast(
+                    Role::Error,
+                    format!("Recording stopped after {samples} samples: {error}"),
+                );
             }
         }
         if s == Space::SysRegister && r.address == CONTROL_INTERFACE && r.valid {

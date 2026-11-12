@@ -19,6 +19,10 @@ to each requesting client. Start it with `--local` to listen on `127.0.0.1`
 only, or `--host <address>` for one interface. The protocol has no
 authentication, so only run it on the network where that is acceptable. The
 launcher scripts pass their arguments through (`./run_emulator.sh --local`).
+
+To test how DSHub copes with a slow or lossy link, add `--latency-ms 20` to
+delay every reply, or `--drop-rate 0.2` to leave a share of UDP requests
+unanswered (`--seed 1` makes the drops repeatable).
 Open the Dashboard pane and select **CNC Control**, **Monitoring**, or
 **Motion tuning**. Existing saved profiles can use **Add CNC panels** to append
 the panels while retaining their dashboards. Map changes still require binding

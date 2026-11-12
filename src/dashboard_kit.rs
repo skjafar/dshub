@@ -157,6 +157,8 @@ pub fn height(w: &Widget, width: f32) -> f32 {
                 .sum();
             return (lines.max(1.) * 18. * scale + 6.).ceil();
         }
+        // Converted to a scaled Value Readout as dashboards load.
+        WidgetKind::EncoderDisplay => title + 48.,
         WidgetKind::Container => {
             return w
                 .children
@@ -166,11 +168,12 @@ pub fn height(w: &Widget, width: f32) -> f32 {
                 + PADDING * 2.
                 + HEADER
         }
-        WidgetKind::ValueRead => title + 48.,
+        WidgetKind::ValueRead => title + 58. + if w.scaled && w.show_raw { 20. } else { 0. },
         WidgetKind::StateLed | WidgetKind::LedIndicator | WidgetKind::Dropdown => title + 26.,
-        WidgetKind::ProgressBar => title + if w.show_value { 40. } else { 14. },
-        WidgetKind::ValueWrite => title + if w.show_value { 56. } else { 28. },
-        WidgetKind::EncoderDisplay => card + title + 48. + if w.show_raw { 26. } else { 0. },
+        WidgetKind::ProgressBar => {
+            title + if w.show_value { 50. } else { 18. } + if w.show_limits { 34. } else { 0. }
+        }
+        WidgetKind::ValueWrite => title + if w.show_value { 60. } else { 30. },
         WidgetKind::Gauge => card + title + 112.,
         WidgetKind::StatusMatrix => {
             card + title + 28. * (w.bit_count.clamp(8, 32) as f32 / 8.).ceil()
@@ -181,10 +184,13 @@ pub fn height(w: &Widget, width: f32) -> f32 {
                 .filter(|r| w.directions.iter().any(|d| d.direction.cell().1 == *r))
                 .count()
                 .max(1) as f32;
-            card + title + rows * 34. + (rows - 1.) * 6.
+            card + title + rows * 34. + (rows - 1.) * 6. + 4.
         }
         WidgetKind::DataTable | WidgetKind::AlarmList => {
-            card + title + 4. + 26. * w.rows.len().max(1) as f32
+            let header = if w.show_header { 22. } else { 0. };
+            // An untitled table still gets a title row when its rows need
+            // attention (offline, stale), so room is kept for one.
+            card + TITLE + 4. + header + 26. * w.rows.len().max(1) as f32
         }
         WidgetKind::DeviceInfo => card + title + 90.,
         WidgetKind::MiniPlot => card + title + 160.,
