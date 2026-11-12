@@ -27,10 +27,13 @@ pub async fn scan_devices(app: AppHandle) {
         return;
     }
 
+    // This machine's addresses: a reply from one of them is a local device.
+    let mut own: Vec<std::net::IpAddr> = vec![];
     // Broadcast discovery request on every non-loopback IPv4 interface
     match get_if_addrs() {
         Ok(interfaces) => {
             for iface in interfaces {
+                own.push(iface.ip());
                 if let IfAddr::V4(v4) = iface.addr {
                     if v4.ip.is_loopback() {
                         continue;
@@ -77,7 +80,9 @@ pub async fn scan_devices(app: AppHandle) {
 
         match tokio::time::timeout(remaining, socket.recv_from(&mut buf)).await {
             Ok(Ok((n, source))) => {
-                if let Some(device) = parse_discovery_response(&buf[..n], source.ip()) {
+                if let Some(device) =
+                    parse_discovery_response(&buf[..n], source.ip()).map(|d| same_machine(d, &own))
+                {
                     log::info!(
                         "Device discovered: {} at {}",
                         device.board_name,
@@ -166,6 +171,26 @@ fn parse_discovery_response(data: &[u8], source: std::net::IpAddr) -> Option<Dis
     })
 }
 
+/// A device on this machine that claims a loopback address is reached
+/// there: it may serve only on loopback (as `--local` emulators did while
+/// still answering discovery on every interface), and the claim names this
+/// same machine, so nothing is redirected elsewhere.
+fn same_machine(mut d: DiscoveredDevice, own: &[std::net::IpAddr]) -> DiscoveredDevice {
+    let local = d
+        .ip_address
+        .parse::<std::net::IpAddr>()
+        .is_ok_and(|ip| own.contains(&ip));
+    let loopback = d
+        .claimed_ip
+        .as_deref()
+        .and_then(|c| c.parse::<std::net::IpAddr>().ok())
+        .is_some_and(|ip| ip.is_loopback());
+    if local && loopback {
+        d.ip_address = d.claimed_ip.take().unwrap();
+    }
+    d
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,6 +223,20 @@ mod tests {
         let d = parse_discovery_response(&response([0; 6], 2009, 2011), from(66)).unwrap();
         assert_eq!(d.ip_address, "10.0.0.66");
         assert_eq!(d.claimed_ip.as_deref(), Some("10.0.0.5"));
+    }
+
+    #[test]
+    fn a_device_on_this_machine_claiming_loopback_is_reached_on_loopback() {
+        let mut reply = response([0; 6], 2009, 2011);
+        reply[12..16].copy_from_slice(&[127, 0, 0, 1]);
+        let own = [from(66)];
+        let d = same_machine(parse_discovery_response(&reply, from(66)).unwrap(), &own);
+        assert_eq!(d.ip_address, "127.0.0.1");
+        assert_eq!(d.claimed_ip, None);
+        // From another machine, the claim is only shown, never followed.
+        let d = same_machine(parse_discovery_response(&reply, from(67)).unwrap(), &own);
+        assert_eq!(d.ip_address, "10.0.0.67");
+        assert_eq!(d.claimed_ip.as_deref(), Some("127.0.0.1"));
     }
 
     #[test]

@@ -1,5 +1,8 @@
 ## [0.3.2] - 2026-11-12 - Consistent widgets
 
+- System register reads answered with the operation code (6), as earlier emulators and firmware did, are accepted again. They were discarded as unmatched, so each one waited out the request timeout: readings nearly froze and the request queue backed up.
+- A device on this machine whose discovery reply claims a loopback address is reached on loopback, so an emulator serving only on 127.0.0.1 connects from the scan list.
+
 - A new connection reads the rows in view once, so tables no longer show "Unread" until Live or Read all is used.
 - Commands pane: the Profile's commands come first and library commands below; critical commands are marked, and Send shows the argument it will use.
 - Status bar shows the round-trip time, requests answered per second, and a warning when the request queue is backing up.

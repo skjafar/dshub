@@ -254,7 +254,10 @@ fn response_matches(req: &DeviceRequest, data: &[u8]) -> bool {
     }
     let status = i16::from_le_bytes([data[0], data[1]]);
     let known = req.command <= CMD_WRITE_SYS_REG;
-    if known && status >= 0 && status != success_status(req.command) {
+    // Earlier emulators and firmware echoed the operation code for system
+    // register reads too (6); the address check below still correlates them.
+    let legacy = req.command == CMD_READ_SYS_REG && status == CMD_READ_SYS_REG as i16;
+    if known && status >= 0 && status != success_status(req.command) && !legacy {
         return false;
     }
     match req.command {
@@ -760,6 +763,21 @@ mod tests {
     fn accepts_a_response_for_the_requested_address() {
         let r = req(CMD_READ_REGISTER, 0x1234);
         assert!(response_matches(&r, &response(1, 0x1234, 42)));
+    }
+
+    #[test]
+    fn system_register_reads_accept_the_older_echoed_status() {
+        // The datastream library answers with READ_REGISTER_OK (1); older
+        // emulators answered with the operation code (6). Rejecting those
+        // made every system register read wait out the request timeout.
+        let r = req(CMD_READ_SYS_REG, 3);
+        assert!(response_matches(&r, &response(1, 3, 42)));
+        assert!(response_matches(&r, &response(6, 3, 42)));
+        assert!(!response_matches(&r, &response(6, 2, 42)));
+        assert!(!response_matches(
+            &req(CMD_READ_REGISTER, 3),
+            &response(6, 3, 42)
+        ));
     }
 
     #[test]
