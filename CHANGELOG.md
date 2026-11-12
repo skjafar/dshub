@@ -1,3 +1,7 @@
+## Unreleased
+
+- Emulator: behaves as a device built on the datastream library. TCP serves one client at a time and reads one frame per receive, answering a partial frame with a size error instead of joining it with the next. Writable registers and parameters take any value, as `dsSetRegister()` and `dsSetParameter()` do; homing and E-stop override setpoints instead of refusing writes, and unusable parameter values fall back to defaults. Reset firmware restarts without a reply. Size-error replies carry address 0, as in datastream 0.3.3.1.
+
 ## [0.3.3] - 2026-11-13 - Write fields
 
 - Registers, Parameters and the Inspector have a Write column with a field for every read/write entry; values are no longer edited in place. Enter sends, Esc discards, and there are no Write buttons, here or in dashboard Data Table and Value Write widgets. A write field is outlined, with the reason on hover, while its value is unsent, refused or unacknowledged, or when the device reads back a different value.

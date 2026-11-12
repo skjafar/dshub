@@ -332,8 +332,6 @@ class UserRegisterMap:
             return False  # Read-only — caller should return PERMISSION_ERROR
         if address not in self.registers:
             return False
-        if address in (REG_SPINDLE_SPEED_SETPOINT, REG_JOG_DISTANCE) and value < 0:
-            return False
         self.registers[address] = _clamp_i32(value)
         return True
 
@@ -439,7 +437,9 @@ class CNCController:
         elif cmd in (CMD_JOG_X_POSITIVE, CMD_JOG_X_NEGATIVE,
                      CMD_JOG_Y_POSITIVE, CMD_JOG_Y_NEGATIVE,
                      CMD_JOG_Z_POSITIVE, CMD_JOG_Z_NEGATIVE):
-            jog_distance = self.user_regs.read(REG_JOG_DISTANCE)
+            # A negative distance (written as a value the map reads unsigned)
+            # does not move the axis backwards.
+            jog_distance = max(0, self.user_regs.read(REG_JOG_DISTANCE))
             axis_map = {
                 CMD_JOG_X_POSITIVE: ('X', 1,  REG_MOTOR_X_SETPOINT),
                 CMD_JOG_X_NEGATIVE: ('X', -1, REG_MOTOR_X_SETPOINT),
@@ -458,11 +458,6 @@ class CNCController:
 
         return -1
 
-    def homing_target(self, address: int) -> bool:
-        """Whether `address` is the setpoint of an axis being homed."""
-        return any(REG_MOTOR_X_SETPOINT + i == address and axis in self.homing
-                   for i, axis in enumerate(self.motors))
-
     def _cancel_homing(self, axes):
         for axis in axes:
             self.homing.pop(axis, None)
@@ -471,7 +466,7 @@ class CNCController:
 
     def _home(self, i: int, axis: str, motor: MotorAxis, dt: float):
         """One step of an axis's homing sequence."""
-        speed = self.parameters.read(21)
+        speed = self.parameters.usable(21)
         phase = self.homing[axis]
         machine = {'seek': 0.0, 'backoff': HOMING_BACKOFF, 'approach': 0.0}[phase]
         goal = machine + motor.offset
@@ -496,10 +491,10 @@ class CNCController:
             return
         homing = self.state == STATE_HOMING
         for i, (axis, motor) in enumerate(self.motors.items()):
-            motor.max_vel = self.parameters.read(i)
-            motor.max_accel = self.parameters.read(20 if self.state == STATE_E_STOP else 3 + i)
+            motor.max_vel = self.parameters.usable(i)
+            motor.max_accel = self.parameters.usable(20 if self.state == STATE_E_STOP else 3 + i)
             motor.kp, motor.ki, motor.kd = [
-                struct.unpack('<f', struct.pack('<i', self.parameters.read(6 + i * 3 + j)))[0]
+                struct.unpack('<f', struct.pack('<i', self.parameters.usable(6 + i * 3 + j)))[0]
                 for j in range(3)]
             target = REG_MOTOR_X_SETPOINT + i
             if axis in self.homing:
@@ -508,8 +503,8 @@ class CNCController:
                 continue
             motor.setpoint = self.user_regs.read(target)
             motor.update(dt)
-        self.spindle.max_rpm = self.parameters.read(18)
-        self.spindle.accel = self.parameters.read(19)
+        self.spindle.max_rpm = self.parameters.usable(18)
+        self.spindle.accel = self.parameters.usable(19)
         self.spindle.setpoint = max(0, min(self.spindle.max_rpm,
             self.user_regs.read(REG_SPINDLE_SPEED_SETPOINT)))
         self.spindle.update(dt)
@@ -567,21 +562,31 @@ class ParameterMap:
             23: 0,
             24: 0,
         }
+        self.defaults = dict(self.parameters)
 
     def read(self, address: int) -> int:
         return self.parameters.get(address, 0)
 
     def write(self, address: int, value: int) -> bool:
+        """Like dsSetParameter(): any value is stored at an address in range.
+        The controller checks values where it uses them (see `usable`)."""
         if address < 0 or address > 24:
-            return False
-        if 6 <= address <= 17:
-            decoded = struct.unpack('<f', struct.pack('<i', value))[0]
-            if not math.isfinite(decoded) or decoded < 0 or (address >= 15 and decoded == 0):
-                return False
-        elif address <= 21 and value <= 0:
             return False
         self.parameters[address] = _clamp_i32(value)
         return True
+
+    def usable(self, address: int) -> int:
+        """The parameter as the controller uses it: a value it cannot use (a
+        speed or acceleration of 0 or less, a gain that is not a finite
+        non-negative float, or zero steps per mm) gives way to the default."""
+        value = self.read(address)
+        if 6 <= address <= 17:
+            decoded = struct.unpack('<f', struct.pack('<i', value))[0]
+            if not math.isfinite(decoded) or decoded < 0 or (address >= 15 and decoded == 0):
+                return self.defaults[address]
+        elif address <= 21 and value <= 0:
+            return self.defaults[address]
+        return value
 
     def get_mac_address(self) -> bytes:
         return bytes([0x02, 0x00, 0x00, 0x00, 0x00, 0x01])
@@ -596,6 +601,12 @@ def _pack_response(status: int, address: int, value: int) -> bytes:
     """Pack an 8-byte response packet (protocol v0.2.2).
     status: signed i16, address: unsigned u16, value: signed i32."""
     return struct.pack('<hHi', status, address, value)
+
+
+# Returned instead of a response by RESET_FIRMWARE: like a device built on
+# the library, the emulator restarts before it can reply, and a TCP client
+# loses its connection.
+RESTART = object()
 
 
 class DSHubEmulator:
@@ -628,6 +639,8 @@ class DSHubEmulator:
         self.discovery_socket: Optional[socket.socket] = None
         self.tcp_socket: Optional[socket.socket] = None
         self.running = False
+        # The library serves one TCP client at a time.
+        self.tcp_client_active = threading.Event()
         self.total_packets_received = 0
         self.total_packets_sent = 0
         self.lock = threading.RLock()
@@ -684,15 +697,14 @@ class DSHubEmulator:
                             self._send_discovery_response(addr)
                     elif len(data) == 8:
                         response = self._process_packet(data, 'UDP', addr)
+                        if response is RESTART:
+                            continue
                         if response and self.random.random() >= self.drop_rate:
                             if self.latency:
                                 time.sleep(self.latency)
                             self.discovery_socket.sendto(response, addr)
                     elif data:
-                        with self.lock:
-                            self.system_registers.increment_error_count()
-                        self.discovery_socket.sendto(
-                            _pack_response(STATUS_PACKET_SIZE_ERROR, 0, 0), addr)
+                        self.discovery_socket.sendto(self._size_error(), addr)
                 except socket.timeout:
                     continue
                 except Exception as e:
@@ -745,6 +757,15 @@ class DSHubEmulator:
                 try:
                     self.tcp_socket.settimeout(1.0)
                     client, addr = self.tcp_socket.accept()
+                    # One client at a time, as the library serves them; a
+                    # client that just left gets a moment to be torn down.
+                    if self.tcp_client_active.is_set():
+                        time.sleep(0.2)
+                    if self.tcp_client_active.is_set():
+                        print(f"[TCP] Refused {addr[0]}:{addr[1]}: another client is connected")
+                        client.close()
+                        continue
+                    self.tcp_client_active.set()
                     print(f"[TCP] Client connected from {addr[0]}:{addr[1]}")
                     threading.Thread(target=self._handle_tcp_client,
                                      args=(client, addr), daemon=True).start()
@@ -757,22 +778,26 @@ class DSHubEmulator:
             print(f"[TCP] Failed to start: {e}")
 
     def _handle_tcp_client(self, client: socket.socket, addr: Tuple[str, int]):
+        """Serves one TCP client the way the library does: each receive takes
+        at most one frame's bytes, and a short one is answered with
+        PACKET_SIZE_ERROR and discarded, never joined with the next."""
         try:
             client.settimeout(1.0)
-            pending = b''
             while self.running:
                 try:
-                    data = client.recv(1024)
+                    data = client.recv(8)
                     if not data:
                         break
-                    pending += data
-                    while len(pending) >= 8:
-                        packet, pending = pending[:8], pending[8:]
-                        response = self._process_packet(packet, 'TCP', addr)
-                        if response:
-                            if self.latency:
-                                time.sleep(self.latency)
-                            client.sendall(response)
+                    if len(data) < 8:
+                        client.sendall(self._size_error())
+                        continue
+                    response = self._process_packet(data, 'TCP', addr)
+                    if response is RESTART:
+                        break
+                    if response:
+                        if self.latency:
+                            time.sleep(self.latency)
+                        client.sendall(response)
                 except socket.timeout:
                     continue
                 except Exception as e:
@@ -780,7 +805,14 @@ class DSHubEmulator:
                     break
         finally:
             client.close()
+            self.tcp_client_active.clear()
             print(f"[TCP] Client disconnected from {addr[0]}:{addr[1]}")
+
+    def _size_error(self) -> bytes:
+        """A PACKET_SIZE_ERROR reply. Its address is 0, as in datastream 0.3.3.1."""
+        with self.lock:
+            self.system_registers.increment_error_count()
+        return _pack_response(STATUS_PACKET_SIZE_ERROR, 0, 0)
 
     def _motion_update_thread(self):
         dt = 0.01
@@ -871,6 +903,7 @@ class DSHubEmulator:
                         self.cnc_controller = CNCController(
                             self.system_registers, self.user_registers, self.parameters)
                         self.system_registers.set_control_interface(CONTROL_UNDECIDED)
+                        return RESTART
                     response = _pack_response(STATUS_SYS_COMMAND_OK, address, 0)
                 elif address in cnc_cmd_names:
                     cmd_name = cnc_cmd_names[address]
@@ -894,11 +927,11 @@ class DSHubEmulator:
                 response = _pack_response(STATUS_READ_REGISTER_OK, address, reg_value)
 
             elif command == CMD_WRITE_REGISTER:
-                # A homing axis takes no new target until it is homed.
-                if (self.cnc_controller.state in (STATE_E_STOP, STATE_ERROR)
-                        or self.cnc_controller.homing_target(address)):
-                    self.system_registers.increment_error_count()
-                    return _pack_response(STATUS_PERMISSION_ERROR, address, 0)
+                # Like dsSetRegister(), a writable register in range always
+                # takes the value; firmware cannot refuse it with a status.
+                # The controller decides what a setpoint does: a homing axis
+                # ignores it and ends homed with its home value, and E-stop
+                # reset replaces setpoints with the current positions.
                 success = self.user_registers.write(address, value)
                 if not success:
                     if address < USER_REG_READ_ONLY_COUNT:

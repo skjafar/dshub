@@ -37,7 +37,7 @@ spindle, and parameter writes require confirmation in the dashboard.
 
 ## Wire contract
 
-Protocol v0.2.4 uses **8-byte little-endian packets**, answered as the datastream library v0.2.4.1 answers them (see [PROTOCOL.md](../PROTOCOL.md)):
+Protocol v0.2.4 uses **8-byte little-endian packets**, answered as the datastream library 0.3.3.1 answers them (see [PROTOCOL.md](../PROTOCOL.md)):
 
 - Request: `type: u16`, `address: u16`, `value: i32` (`<HHi`).
 - Response: `status: i16`, `address: u16`, `value: i32` (`<hHi`).
@@ -46,12 +46,19 @@ Protocol v0.2.4 uses **8-byte little-endian packets**, answered as the datastrea
 - Successful statuses echo the request type, except system register reads,
   which answer 1 (`READ_REGISTER_OK`). Negative status means refusal: -1 command
   failed or unknown, -2 unknown type, -3 wrong datagram size, -4 invalid address,
-  -5 read-only, -6 not in Control.
+  -5 read-only, -6 not in Control. A writable register or a parameter in range
+  always takes the written value, as in the library; the controller decides what
+  the value does.
 - Writes and system commands require Control on the requesting transport.
   Take Control gives Control to the transport it arrives on; its value is
   ignored and there is no release.
 - Discovery answers with the library's 44-byte response (MAC at offset 20).
-- TCP also accepts fragmented and concatenated packets, which the library does not.
+- TCP serves one client at a time; another connection is closed at once.
+  Each receive takes at most one frame's bytes, and a shorter one is answered
+  with -3 and discarded, as the library does.
+- A wrong-size frame is answered with -3 and address 0.
+- Reset firmware (65002) restarts the emulated device without a reply; a TCP
+  client loses its connection.
 
 The authoritative maps are in `assets/maps/cnc_*.map`; command definitions and
 metadata are in `assets/cnc-profile-data.json`. User and system register spaces
@@ -88,19 +95,24 @@ Homing enables the selected axes and, for each one, seeks the home switch at
 the homing speed, backs off 200 counts and approaches it again at a quarter of
 that speed. On the switch the encoder reads the axis's home position parameter,
 which also becomes its setpoint. An axis already at home still moves, so homing
-is always visible. While an axis homes, writes to its setpoint and jogs are
+is always visible. While an axis homes, its setpoint is ignored (a write is
+accepted, and homing ends by replacing it with the home position) and jogs are
 refused; disabling it cancels its homing.
 PAUSED is reserved and has no command in the CNC catalog.
 
 Spindle speed ramps at the configured rate and clamps to the configured maximum.
 Load is simulated between 30% and 70% while running. E-stop disables drives,
 cancels homing and pending targets, uses the configured emergency deceleration,
-and blocks enable, home, and jog commands until reset. Reset is refused until motion has stopped and leaves drives disabled.
+and blocks enable, home, and jog commands until reset. Setpoint writes are
+accepted but drives stay disabled, and reset replaces the setpoints with the
+current positions. Reset is refused until motion has stopped and leaves drives disabled.
 
 Flash commands save/load a parameter snapshot in memory. Firmware reset restores
 that snapshot, clears motion state, and releases Control. Snapshots do not survive
-emulator process exit. Negative speed/jog values, non-finite gains, negative gains,
-and nonpositive speed/acceleration/scaling parameters are refused.
+emulator process exit. Parameters store any value, as the library does; where
+the controller cannot use one (a non-finite or negative gain, or a speed,
+acceleration or scaling of 0 or less) it uses that parameter's default. A
+negative jog distance does not jog.
 
 ## Verification
 
@@ -112,8 +124,8 @@ bash tests/native-smoke.sh
 ```
 
 The Python suite covers every CNC command family, homing, feedback, limits,
-parameter application, E-stop, flash, permissions, invalid addresses, and TCP
-stream framing. The Rust integration test connects the production backend over
+parameter application, E-stop, flash, permissions, invalid addresses, TCP
+framing, one client at a time, and reset without a reply. The Rust integration test connects the production backend over
 both TCP and UDP. Native smoke tests capture the CNC panel and other native panes.
 Local socket access and a graphical display are required for the corresponding tests.
 

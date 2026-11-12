@@ -29,6 +29,8 @@ class CNCBehavior(unittest.TestCase):
     def packet(self, cmd, address=0, value=0, interface='TCP'):
         with contextlib.redirect_stdout(io.StringIO()):
             response = self.device._process_packet(struct.pack('<HHi', cmd, address, value), interface, ('127.0.0.1', 12345))
+        if response is d.RESTART:
+            return None
         return struct.unpack('<hHi', response)
 
     def test_all_axis_commands_jog_feedback_and_disable(self):
@@ -106,16 +108,28 @@ class CNCBehavior(unittest.TestCase):
         self.ticks(3)
         self.assertEqual(self.c.motors['X'].get_encoder(), 250)
 
-    def test_a_homing_axis_refuses_new_targets_and_jogs(self):
+    def test_a_homing_axis_ignores_written_targets_and_refuses_jogs(self):
         self.packet(5, 0, 1)  # Take Control over TCP
+        self.p.write(22, 250)
         self.c.handle_sys_command(11, 0)
-        status, _, _ = self.packet(2, 10, 5000)
-        self.assertLess(status, 0)
+        # Like dsSetRegister(), the write is accepted; homing overrides it.
+        self.assertEqual(self.packet(2, 10, 5000), (2, 10, 5000))
         self.assertEqual(self.c.handle_sys_command(20, 0), -1)
-        # Other axes still take targets.
         self.assertEqual(self.packet(2, 11, 100)[0], 2)
         self.ticks(3)
+        self.assertEqual(self.c.motors['X'].get_encoder(), 250)
+        self.assertEqual(self.r.read(10), 250)
         self.assertEqual(self.packet(2, 10, 100)[0], 2)
+
+    def test_writes_during_estop_are_accepted_and_replaced_on_reset(self):
+        self.packet(5, 0, 1)
+        self.packet(0, 0)
+        self.packet(0, 14)
+        self.assertEqual(self.packet(2, 10, 4000), (2, 10, 4000))
+        self.ticks(1)
+        self.assertEqual(self.c.motors['X'].get_encoder(), 0)
+        self.packet(0, 15)
+        self.assertEqual(self.r.read(10), 0)
 
     def test_parameters_drive_motion_and_spindle_clamps(self):
         self.p.write(0, 25)
@@ -162,33 +176,44 @@ class CNCBehavior(unittest.TestCase):
         self.packet(0, 65000)
         self.assertEqual(self.p.read(0), 123)
         self.packet(0, 0)
-        self.packet(0, 65002)
+        # The device restarts before it can reply.
+        self.assertIsNone(self.packet(0, 65002))
         self.assertEqual(self.p.read(0), 123)
         self.assertEqual(self.device.cnc_controller.state, d.STATE_IDLE)
         self.assertTrue(all(not m.enabled for m in self.device.cnc_controller.motors.values()))
         self.assertEqual(self.packet(6, 2)[2], 0)
 
-    def test_tcp_stream_handles_fragmented_and_coalesced_frames(self):
+    def test_tcp_reads_one_frame_at_a_time_like_the_library(self):
         server, client = socket.socketpair()
         client.settimeout(2)
         self.device.running = True
+        self.device.tcp_client_active.set()
         worker = threading.Thread(target=self.device._handle_tcp_client,
                                   args=(server, ('127.0.0.1', 12345)))
         worker.start()
-        try:
-            first = struct.pack('<HHi', 5, 0, 1)
-            client.sendall(first[:3])
-            client.sendall(first[3:] + struct.pack('<HHi', 2, 10, 321) + struct.pack('<HHi', 1, 10, 0))
+
+        def replies(n):
             data = b''
-            while len(data) < 24:
-                data += client.recv(24 - len(data))
-            self.assertEqual([struct.unpack('<hHi', data[i:i+8]) for i in range(0, 24, 8)],
-                             [(5, 0, 0), (2, 10, 321), (1, 10, 321)])
+            while len(data) < 8 * n:
+                data += client.recv(8 * n - len(data))
+            return [struct.unpack('<hHi', data[i:i + 8]) for i in range(0, len(data), 8)]
+        try:
+            # A partial frame is answered with PACKET_SIZE_ERROR and discarded.
+            client.sendall(struct.pack('<HHi', 5, 0, 1)[:3])
+            self.assertEqual(replies(1), [(-3, 0, 0)])
+            # Whole frames arriving together are answered one by one.
+            client.sendall(struct.pack('<HHi', 5, 0, 1) + struct.pack('<HHi', 2, 10, 321)
+                           + struct.pack('<HHi', 1, 10, 0))
+            self.assertEqual(replies(3), [(5, 0, 0), (2, 10, 321), (1, 10, 321)])
+            # Reset firmware drops the connection without a reply.
+            client.sendall(struct.pack('<HHi', 0, 65002, 0))
+            self.assertEqual(client.recv(8), b'')
         finally:
             self.device.running = False
             client.close()
             worker.join(timeout=3)
             self.assertFalse(worker.is_alive())
+            self.assertFalse(self.device.tcp_client_active.is_set())
 
     def test_updated_emulator_over_real_tcp_udp_and_discovery(self):
         # Reserve independent ports so a developer's running device is untouched.
@@ -212,6 +237,12 @@ class CNCBehavior(unittest.TestCase):
                         time.sleep(.01)
                 with tcp, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
                     tcp.settimeout(2)
+                    # One TCP client at a time: a second one is closed.
+                    with socket.create_connection(('127.0.0.1', tcp_port), timeout=2) as second:
+                        try:
+                            self.assertEqual(second.recv(8), b'')
+                        except ConnectionResetError:
+                            pass
                     udp.settimeout(2)
                     udp.sendto(struct.pack('<IB', d.DS_DISCOVERY_MAGIC, 1), ('127.0.0.1', udp_port))
                     discovery = udp.recv(1024)
@@ -261,15 +292,25 @@ class CNCBehavior(unittest.TestCase):
                 self.assertEqual(self.packet(2, address, 1, interface)[0], -5)
             for cmd in [1, 3, 6]:
                 self.assertEqual(self.packet(cmd, 500, 0, interface)[0], -4)
-            self.assertLess(self.packet(4, 30, 1, interface)[0], 0)
-            self.assertLess(self.packet(4, 0, -1, interface)[0], 0)
+            self.assertEqual(self.packet(4, 30, 1, interface)[0], -4)
+            # Like dsSetParameter(), any value in range is stored.
+            self.assertEqual(self.packet(4, 0, -1, interface), (4, 0, -1))
             self.assertEqual(self.packet(7, 0, 1, interface)[0], -5)
             self.assertEqual(self.packet(0, 0, 0, interface)[0], 0)
             self.assertLess(self.packet(0, 999, 0, interface)[0], 0)
             self.assertEqual(self.packet(6, 2, 0, interface), (1, 2, owner))
             self.assertEqual(self.packet(42, 0, 0, interface)[0], -2)
-        self.assertFalse(self.p.write(6, struct.unpack('<i', struct.pack('<f', float('nan')))[0]))
-        self.assertFalse(self.r.write(14, -1))
+        # The controller uses defaults for values it cannot use.
+        nan = struct.unpack('<i', struct.pack('<f', float('nan')))[0]
+        self.assertTrue(self.p.write(6, nan))
+        self.assertEqual(self.p.usable(6), self.p.defaults[6])
+        self.assertEqual(self.p.usable(0), self.p.defaults[0])
+        # A negative jog distance does not move the axis backwards.
+        self.assertTrue(self.r.write(14, -1))
+        before = self.r.read(10)
+        self.c.handle_sys_command(0, 0)
+        self.c.handle_sys_command(20, 0)
+        self.assertEqual(self.r.read(10), before)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,6 @@
 # DSHub Wire Protocol
 
-Protocol version **v0.2.4**, as implemented by the datastream firmware library v0.2.4.1. The library's version has four parts: the first three match the DSHub release that speaks the same protocol, and the fourth counts library-only changes that need no DSHub update.
+Protocol version **v0.2.4**, as implemented by the datastream firmware library 0.3.3.1. The library's version has four parts: the first three match the DSHub release that speaks the same protocol, and the fourth counts library-only changes that need no DSHub update.
 
 This document describes what devices running the datastream library actually send and accept. It was written from the library sources (`datastream.h`, `datastream.c`, `dsRegisters.c`, `dsParameters.c`, `dsTCP.c`, `dsUDP.c`, `ds_default_config.h`). DSHub and the Python emulator follow it; [Compatibility notes](#compatibility-notes) lists firmware requirements and older library defects.
 
@@ -18,7 +18,7 @@ All multi-byte fields are **little-endian** unless stated otherwise.
 
 Ports are build-time settings; the device reports its TCP and UDP data ports in its discovery response.
 
-**TCP** accepts **one client at a time**. The device reads exactly one frame per `recv()` call and does not reassemble frames: a read that returns fewer bytes than a frame is answered with `PACKET_SIZE_ERROR` and those bytes are discarded. Hosts must therefore send each request as one complete frame (DSHub sets `TCP_NODELAY` and writes whole frames) and wait for its response before sending the next. When the client disconnects, the device closes the socket and listens again.
+**TCP** serves **one client at a time**; while one is connected, others are not served (FreeRTOS+TCP refuses them, ESP32 queues them until the current client leaves). The device reads exactly one frame per `recv()` call and does not reassemble frames: a read that returns fewer bytes than a frame is answered with `PACKET_SIZE_ERROR` and those bytes are discarded. Hosts must therefore send each request as one complete frame (DSHub sets `TCP_NODELAY` and writes whole frames) and wait for its response before sending the next. When the client disconnects, the device closes the socket and listens again.
 
 **UDP** answers each datagram to the address and port it came from. A datagram is classified by its size:
 
@@ -95,8 +95,8 @@ The library declares `Value` as `u32`. DSHub handles it as `i32`; both carry the
 | Write register / parameter, success | Echo of the value written |
 | Write, refused | 0 |
 | `SYS_COMMAND` | Set by the command handler; 0 for built-in commands and on error |
-| `CONTROL_INTERFACE` | 0. Library v0.2.4.1 and earlier leave the previous response's value |
-| `PACKET_SIZE_ERROR` | 0 (the `Address` field is not updated and repeats the previous response's) |
+| `CONTROL_INTERFACE` | 0. datastream v0.2.4.1 and earlier leave the previous response's value |
+| `PACKET_SIZE_ERROR` | 0, with `Address` 0. datastream 0.3.3.0 and earlier do not update `Address`, so it repeats the previous response's |
 
 ### CRC-8 (optional)
 
@@ -114,7 +114,7 @@ Polynomial 0x07, initial value 0x00, no reflection, no final XOR, computed over 
 | 5 | `ds_type_CONTROL_INTERFACE` | Take Control for the transport this request arrived on | — |
 | 6 | `ds_type_READ_SYSTEM_REGISTER` | Read library system register at `Address` | No |
 | 7 | `ds_type_WRITE_SYSTEM_REGISTER` | Always refused with `PERMISSION_ERROR` | — |
-| 8–99 | — | Reserved for the library; answered with `INPUT_TYPE_ERROR` | — |
+| 8–99 | — | Reserved for the library. Like 100 and above, passed to the firmware's `dsProcessUserDefinedType()`, which answers `INPUT_TYPE_ERROR` unless the firmware handles them | — |
 | 100–65535 | `ds_type_USER_DEFINED_START`… | Application-defined; firmware that does not handle them answers `INPUT_TYPE_ERROR` | Firmware-defined |
 
 ### Status Codes
@@ -135,7 +135,7 @@ Polynomial 0x07, initial value 0x00, no reflection, no final XOR, computed over 
 | -6 | `CONTROL_INTERFACE_ERROR` | This transport does not hold Control (write or command), or Take Control came from an unregistered task |
 | -7 | `SYNTAX_ERROR` | Defined for the CLI; not sent on data frames by the library |
 | -8 | `PARAMETERS_ERROR` | Defined for the CLI; not sent on data frames by the library |
-| -9 | `CRC_ERROR` | CRC mismatch (only with `CRC8_ENABLE`) |
+| -9 | `CRC_ERROR` | CRC mismatch (only with `CRC8_ENABLE`). The reply's CRC byte and `Value` are not updated |
 
 Every response with a negative status increments `DS_ERROR_COUNT` (when statistics are enabled).
 
@@ -149,8 +149,8 @@ Checks are made in this order: Control first, then the address, then read-only p
 
 Registers, parameters and system registers are three separate address spaces, each indexed from 0 in 32-bit words.
 
-- **User registers** (types 1 and 2): the first `DS_REGISTERS_READ_ONLY_COUNT` registers are read-only from the wire; the rest are read/write. Firmware updates read-only registers itself.
-- **Parameters** (types 3 and 4): all writable. `READ_FLASH` and `WRITE_FLASH` load and store them.
+- **User registers** (types 1 and 2): the first `DS_REGISTERS_READ_ONLY_COUNT` registers are read-only from the wire; the rest are read/write. Firmware updates read-only registers itself. A write to a read/write register in range, with Control, always succeeds and stores the value; the firmware's set callback sees it but cannot refuse it.
+- **Parameters** (types 3 and 4): all writable, and any value in range is stored. `READ_FLASH` and `WRITE_FLASH` load and store them.
 - **System registers** (types 6 and 7): owned by the library, read-only from the wire.
 
 The firmware's register and parameter layout is defined in its `ds_app_register_names.h` / `ds_app_parameter_names.h`; DSHub's map files must describe the same layout. Firmware may run callbacks on every register or parameter read and write.
@@ -255,17 +255,17 @@ DSHub v0.3.3 and the bundled emulator follow this document. Remaining limits and
 
 | Area | Library | DSHub | Effect |
 |------|---------|-------|--------|
-| `SYS_COMMAND` status in library v0.2.4.1 and earlier | `dsProcessPacket` does not copy the command's reply into the status, so the reply repeats the previous response's status. Fixed in the library after v0.2.4.1 | Requires status 0 or a negative code | On older firmware a command answered after a successful read or write is discarded as unmatched and reported with an unknown outcome. Update the firmware's library |
-| `CONTROL_INTERFACE` reply value in library v0.2.4.1 and earlier | Not written (stale); 0 after the fix | Ignores it and takes the new control state from the interface it requested | None |
+| `SYS_COMMAND` status in library v0.2.4.1 and earlier | `dsProcessPacket` does not copy the command's reply into the status, so the reply repeats the previous response's status. Fixed in datastream 0.3.3.0 | Requires status 0 or a negative code | On older firmware a command answered after a successful read or write is discarded as unmatched and reported with an unknown outcome. Update the firmware's library to 0.3.3.0 or later |
+| `CONTROL_INTERFACE` reply value in library v0.2.4.1 and earlier | Not written (stale); 0 from 0.3.3.0 | Ignores it and takes the new control state from the interface it requested | None |
 | CRC-8 frames | Optional 9-byte frames | Not supported | Build firmware with `CRC8_ENABLE 0` |
 | System registers without statistics | `CONTROL_INTERFACE` moves to address 0 | Reads address 2 | Build firmware with `DS_STATS_ENABLE 1` |
-| TCP framing | No reassembly of split frames | Sends whole frames with `TCP_NODELAY`; the emulator also reassembles | None |
+| TCP framing | No reassembly of split frames | Sends whole frames with `TCP_NODELAY`; the emulator reads frames as the library does | None |
 
 ---
 
 ## Reference
 
-- Firmware library: datastream v0.2.4.1 (`include/datastream.h`, `src/datastream.c`, `src/dsTCP.c`, `src/dsUDP.c`)
+- Firmware library: datastream 0.3.3.1 (`include/datastream.h`, `src/datastream.c`, `src/dsTCP.c`, `src/dsUDP.c`)
 - Rust constants: [src/backend/types.rs](src/backend/types.rs)
 - TCP/UDP communicator: [src/backend/communicator.rs](src/backend/communicator.rs)
 - Discovery scanner: [src/backend/scanner.rs](src/backend/scanner.rs)
