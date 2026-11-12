@@ -296,6 +296,7 @@ fn write_outcomes_wait_for_device_acknowledgement_and_preserve_refusal() {
     let sending = || WriteOutcome {
         sent_at: now,
         status: OutcomeStatus::Sending,
+        acked_at: None,
     };
     h.session.writes.insert((Space::Register, 10), sending());
     h.session.app.emit(Event::WriteAck(ack(-5, now + 1.)));
@@ -336,6 +337,7 @@ fn write_outcomes_wait_for_device_acknowledgement_and_preserve_refusal() {
         WriteOutcome {
             sent_at: now - 6000.,
             status: OutcomeStatus::Sending,
+            acked_at: None,
         },
     );
     h.session.drain(&h.profile, &h.prefs);
@@ -1357,13 +1359,13 @@ fn built_in_dashboard_widgets_fit_their_boxes() {
             super::widgets::fits::take();
             h.frame(vec![]);
             for (name, fit, size) in super::widgets::fits::take() {
-                if fit.y > size.y + 2. {
+                if fit.y > size.y + 0.5 {
                     overflowing.push(format!(
                         "{name} in {}: content needs {:.0} px of height, box is {:.0}",
                         h.profile.dashboards[index].name, fit.y, size.y
                     ));
                 }
-                if fit.x > size.x + 2. {
+                if fit.x > size.x + 0.5 {
                     overflowing.push(format!(
                         "{name} in {}: content needs {:.0} px of width, box is {:.0}",
                         h.profile.dashboards[index].name, fit.x, size.x
@@ -1483,6 +1485,7 @@ fn widgets_keep_their_size_and_width_while_writing() {
         WriteOutcome {
             sent_at: 0.,
             status: OutcomeStatus::Sending,
+            acked_at: None,
         },
     );
     let after = measure(&mut h);
@@ -1490,4 +1493,158 @@ fn widgets_keep_their_size_and_width_while_writing() {
         before[0].1, after[0].1,
         "a pending write does not resize the widget"
     );
+}
+#[test]
+fn write_fields_outline_unsent_refused_and_mismatched_values() {
+    use session::{OutcomeStatus, WriteOutcome};
+    use write_field::{attention, Sent, State, Target};
+    let mut h = Harness::new(PaneKind::Registers);
+    let entry: Entry = h.profile.entry_at(Space::Register, 10).unwrap().clone();
+    let target = Target {
+        space: Space::Register,
+        entry: &entry,
+        meta: None,
+        format: DisplayFormat::Native,
+        confirm: false,
+        initial: "",
+    };
+    let key = (Space::Register, 10);
+    let now = crate::communicator::now_ms();
+    let role = |h: &Harness, state: &State| attention(&h.session, &target, state).map(|n| n.0);
+    let mut state = State {
+        text: "500".into(),
+        sent: None,
+    };
+    assert_eq!(role(&h, &state), Some(Role::Warn), "typed but not sent");
+    state.sent = Some(Sent {
+        text: "500".into(),
+        raw: 500,
+        at: now,
+    });
+    assert_eq!(
+        role(&h, &state),
+        Some(Role::Warn),
+        "a declined confirmation leaves the value unsent"
+    );
+    let outcome = |status, acked_at| WriteOutcome {
+        sent_at: now,
+        status,
+        acked_at,
+    };
+    h.session
+        .writes
+        .insert(key, outcome(OutcomeStatus::Sending, None));
+    assert_eq!(role(&h, &state), None, "sending");
+    h.session
+        .writes
+        .insert(key, outcome(OutcomeStatus::Refused, None));
+    assert_eq!(role(&h, &state), Some(Role::Error), "refused");
+    h.session
+        .writes
+        .insert(key, outcome(OutcomeStatus::Unknown, None));
+    assert_eq!(role(&h, &state), Some(Role::Warn), "no acknowledgement");
+    h.session
+        .writes
+        .insert(key, outcome(OutcomeStatus::Confirmed, Some(now + 1.)));
+    let read = |h: &mut Harness, value: i32, timestamp: f64| {
+        h.session.readings.insert(
+            key,
+            RegisterData {
+                address: 10,
+                name: entry.name.clone(),
+                value,
+                valid: true,
+                timestamp,
+            },
+        );
+    };
+    read(&mut h, 480, now + 0.5);
+    assert_eq!(role(&h, &state), None, "a reading from before the ack");
+    read(&mut h, 500, now + 2.);
+    assert_eq!(role(&h, &state), None, "read back as sent");
+    read(&mut h, 480, now + 3.);
+    let note = attention(&h.session, &target, &state).unwrap();
+    assert_eq!(note.0, Role::Error, "the device holds another value");
+    assert!(
+        note.1.contains("500") && note.1.contains("480"),
+        "{}",
+        note.1
+    );
+    state.text = "600".into();
+    assert_eq!(role(&h, &state), Some(Role::Warn), "edited after sending");
+    state.text.clear();
+    assert_eq!(role(&h, &state), None, "an empty field needs nothing");
+}
+#[test]
+fn widgets_fitted_to_their_content_never_scroll() {
+    // "Fit contents" sizes a widget to the size it records; at that size the
+    // content must fit its viewport exactly, in view and edit mode.
+    let mut h = Harness::new(PaneKind::Dashboard);
+    connect(&mut h, true);
+    // The showcase has every kind, bound to its own Profile's entries.
+    h.profile = default_profiles()
+        .into_iter()
+        .find(|p| p.dashboards.iter().any(|d| d.name == "Widget showcase"))
+        .unwrap();
+    let index = h
+        .profile
+        .dashboards
+        .iter()
+        .position(|d| d.name == "Widget showcase")
+        .unwrap();
+    let mut showcase = h.profile.dashboards.remove(index);
+    // Built-in dashboards are read-only; edit a copy.
+    showcase.id = "test-showcase".into();
+    h.profile.dashboards.insert(0, showcase);
+    h.pane.dashboard = 0;
+    let mut problems = vec![];
+    for editing in [false, true] {
+        h.pane.editing = editing;
+        h.pane.dashboard_draft = None;
+        // Fit every widget, innermost first, until the sizes settle.
+        for _ in 0..4 {
+            h.frame(vec![]);
+            super::widgets::fits::take();
+            h.frame(vec![]);
+            let fits = super::widgets::fits::take();
+            fn apply(widgets: &mut [Widget], fits: &[(String, egui::Vec2, egui::Vec2)]) {
+                for w in widgets {
+                    apply(&mut w.children, fits);
+                    let name = format!("{:?} \"{}\"", w.kind, w.label);
+                    if let Some((_, fit, _)) = fits.iter().find(|f| f.0 == name) {
+                        w.width = fit.x.ceil().max(120.);
+                        w.height = fit.y.ceil().max(w.kind.min_height());
+                    }
+                }
+            }
+            let widgets = match h.pane.dashboard_draft.as_mut() {
+                Some(d) => &mut d.widgets,
+                None => &mut h.profile.dashboards[0].widgets,
+            };
+            apply(widgets, &fits);
+        }
+        super::widgets::fits::take_scrolls();
+        h.frame(vec![]);
+        // In edit mode a hovered widget shows its edit controls; hover across
+        // the canvas so nested widgets show theirs too.
+        if editing {
+            for y in (0..1000).step_by(40) {
+                for x in (0..1400).step_by(60) {
+                    h.frame(vec![egui::Event::PointerMoved(egui::pos2(
+                        x as f32, y as f32,
+                    ))]);
+                }
+            }
+        }
+        for (name, content, viewport) in super::widgets::fits::take_scrolls() {
+            if content.x > viewport.x + 0.5 || content.y > viewport.y + 0.5 {
+                problems.push(format!(
+                    "{name} (editing: {editing}): content {content:?} in viewport {viewport:?}"
+                ));
+            }
+        }
+    }
+    problems.sort();
+    problems.dedup();
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
 }

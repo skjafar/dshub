@@ -187,13 +187,9 @@ pub fn device_chip(ui: &egui::Ui, session: &super::session::Session) -> egui::te
 /// Outlines a field whose value is changed but not yet saved or sent;
 /// `changed` false leaves it unmarked. Returns the response for chaining.
 pub fn mark_unsaved(ui: &egui::Ui, response: egui::Response, changed: bool) -> egui::Response {
+    // Drawn inside the field, so table rows and cards never clip it.
     if changed {
-        ui.painter().rect_stroke(
-            response.rect.expand(1.),
-            3.,
-            egui::Stroke::new(1.5_f32, colors::role(ui, Role::Warn)),
-            egui::StrokeKind::Outside,
-        );
+        super::write_field::outline(ui, response.rect, Role::Warn);
     }
     response
 }

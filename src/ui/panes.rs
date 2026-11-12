@@ -1,4 +1,4 @@
-use super::{clock, colors, controls, theme};
+use super::{clock, colors, controls, table_fit, theme, write_field};
 use super::{
     session::{ImportTarget, Session},
     widgets, Pane, PaneKind,
@@ -7,7 +7,7 @@ use crate::model::Role;
 use crate::{model::*, types::*};
 use eframe::egui::{self, Color32, RichText};
 use egui_dock::{tab_viewer::OnCloseResponse, TabViewer};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 pub struct Viewer<'a> {
@@ -323,14 +323,6 @@ impl Viewer<'_> {
             return;
         }
 
-        // In-place editing, per pane: values typed but not yet sent, by
-        // address, and the field to focus this frame. A value stays pending
-        // (outlined) when its field loses focus, until it is sent or discarded.
-        let edit_id = ui.id().with((&p.id, "editing"));
-        let (mut pending, mut focus): (BTreeMap<u16, String>, Option<u16>) = ui
-            .ctx()
-            .data_mut(|d| d.get_temp(edit_id))
-            .unwrap_or_default();
         let controlled = self.session.connected() && self.session.controlled();
         let connected = self.session.connected();
         let row_height = 24.;
@@ -339,19 +331,86 @@ impl Viewer<'_> {
         // Live polls only the rows in view, so a long map costs no more
         // device traffic than a short one.
         let mut visible = vec![];
-        egui_extras::TableBuilder::new(ui)
-            .id_salt((&p.id, "entries"))
+        // Column fits measure what the column shows for every listed entry,
+        // so a double-clicked divider fits rows that are scrolled out of view.
+        use egui::TextStyle::{Body, Monospace, Small};
+        let values = || {
+            entries
+                .iter()
+                .map(|e| match self.session.readings.get(&(s, e.address)) {
+                    Some(r) if r.valid => {
+                        p.format
+                            .format_with(e, r.value, self.profile.metadata(s, &e.name))
+                    }
+                    Some(_) => "refused".into(),
+                    None => "—".into(),
+                })
+                .collect::<Vec<String>>()
+        };
+        let salt = (&p.id, "entries");
+        let captions = |title: &str| table_fit::widest(ui, Small, [title.to_uppercase()]);
+        let columns = [
+            table_fit::column(ui, salt, 0, 52., || {
+                table_fit::widest(ui, Monospace, entries.iter().map(|e| e.address.to_string()))
+                    .max(captions("Addr"))
+            }),
+            table_fit::column(ui, salt, 1, 230., || {
+                table_fit::widest(ui, Body, entries.iter().map(|e| e.name.as_str()))
+            }),
+            table_fit::column(ui, salt, 2, 70., || {
+                table_fit::widest(ui, Small, entries.iter().map(|e| e.data_type.as_str()))
+                    .max(captions("Type"))
+            }),
+            table_fit::column(ui, salt, 3, 150., || {
+                table_fit::widest(ui, Monospace, values()).max(captions("Value"))
+            }),
+            table_fit::column(ui, salt, 4, 84., || {
+                table_fit::widest(
+                    ui,
+                    Body,
+                    entries.iter().map(|e| {
+                        self.profile
+                            .metadata(s, &e.name)
+                            .map(|m| m.unit.clone())
+                            .unwrap_or_default()
+                    }),
+                )
+                .max(captions("Unit"))
+            }),
+            // Wide enough to type in, however short the values are.
+            table_fit::column(ui, salt, 5, 130., || {
+                (table_fit::widest(ui, Monospace, values()) + 12.).max(64.)
+            }),
+            table_fit::column(ui, salt, 6, 130., || {
+                // A status mark, then its label.
+                16. + table_fit::widest(
+                    ui,
+                    Small,
+                    [
+                        "Read OK",
+                        "Unread",
+                        "Offline",
+                        "Stale",
+                        "refused",
+                        "Writing…",
+                        "Written",
+                        "Refused",
+                        "No ack",
+                    ],
+                )
+            }),
+        ];
+        let mut table = egui_extras::TableBuilder::new(ui)
+            .id_salt(salt)
             .striped(true)
             .resizable(true)
             .sense(egui::Sense::click())
-            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-            .column(egui_extras::Column::exact(52.))
-            .column(egui_extras::Column::initial(230.).at_least(120.).clip(true))
-            .column(egui_extras::Column::exact(70.))
-            .column(egui_extras::Column::initial(150.).at_least(90.).clip(true))
-            .column(egui_extras::Column::initial(84.).at_least(36.).clip(true))
-            .column(egui_extras::Column::initial(130.).at_least(90.))
-            .column(egui_extras::Column::remainder().at_least(120.))
+            .cell_layout(egui::Layout::left_to_right(egui::Align::Center));
+        for column in columns {
+            table = table.column(column);
+        }
+        table
+            .column(egui_extras::Column::remainder().at_least(table_fit::MIN_COLUMN))
             .header(22., |mut header| {
                 for (title, right) in [
                     ("Addr", true),
@@ -359,6 +418,7 @@ impl Viewer<'_> {
                     ("Type", false),
                     ("Value", true),
                     ("Unit", false),
+                    ("Write", true),
                     ("Status", false),
                     ("", false),
                 ] {
@@ -387,9 +447,9 @@ impl Viewer<'_> {
                         .as_ref()
                         .is_some_and(|(ss, ee)| *ss == s && ee.address == e.address);
                     row.set_selected(selected);
-                    let reading = self.session.readings.get(&(s, e.address));
+                    let reading = self.session.readings.get(&(s, e.address)).cloned();
+                    let reading = reading.as_ref();
                     let writable = e.writable && s != Space::SysRegister;
-                    let is_editing = pending.contains_key(&e.address);
                     row.col(|ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(
@@ -411,68 +471,53 @@ impl Viewer<'_> {
                     });
                     row.col(|ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if let Some(text) = pending.get_mut(&e.address) {
-                                let edit = ui.add(
-                                    egui::TextEdit::singleline(text)
-                                        .font(egui::TextStyle::Monospace)
-                                        .horizontal_align(egui::Align::Max)
-                                        .desired_width(f32::INFINITY),
-                                );
-                                if focus == Some(e.address) {
-                                    edit.request_focus();
-                                    focus = None;
-                                }
-                                let typing = edit.has_focus() || edit.lost_focus();
-                                if typing && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                                    actions.push(RowAction::Cancel(e.address));
-                                } else if edit.lost_focus()
-                                    && ui.input(|i| i.key_pressed(egui::Key::Enter))
-                                {
-                                    actions.push(RowAction::Write(e.clone(), text.clone()));
-                                }
-                                controls::mark_unsaved(ui, edit, true).on_hover_text(
-                                    "Not sent. Enter or Write sends it; Esc discards it.",
-                                );
-                            } else {
-                                let text = match reading {
-                                    Some(r) if r.valid => p.format.format_with(
-                                        e,
-                                        r.value,
-                                        self.profile.metadata(s, &e.name),
-                                    ),
-                                    Some(_) => "refused".into(),
-                                    None => "—".into(),
-                                };
-                                let color = match reading {
-                                    Some(r) if !r.valid => colors::role(ui, Role::Error),
-                                    Some(_) => palette.text,
-                                    None => palette.text_weak,
-                                };
-                                let value = ui.add(
-                                    egui::Label::new(RichText::new(text).monospace().color(color))
-                                        .sense(egui::Sense::click()),
-                                );
-                                if writable && controlled && value.double_clicked() {
-                                    actions.push(RowAction::Edit(
-                                        e.address,
-                                        reading
-                                            .filter(|r| r.valid)
-                                            .map(|r| {
-                                                p.format.format_with(
-                                                    e,
-                                                    r.value,
-                                                    self.profile.metadata(s, &e.name),
-                                                )
-                                            })
-                                            .unwrap_or_default(),
-                                    ));
-                                }
-                            }
+                            let text = match reading {
+                                Some(r) if r.valid => p.format.format_with(
+                                    e,
+                                    r.value,
+                                    self.profile.metadata(s, &e.name),
+                                ),
+                                Some(_) => "refused".into(),
+                                None => "—".into(),
+                            };
+                            let color = match reading {
+                                Some(r) if !r.valid => colors::role(ui, Role::Error),
+                                Some(_) => palette.text,
+                                None => palette.text_weak,
+                            };
+                            ui.label(RichText::new(text).monospace().color(color));
                         });
                     });
                     row.col(|ui| {
                         if let Some(m) = self.profile.metadata(s, &e.name) {
                             ui.label(RichText::new(&m.unit).color(palette.text_weak));
+                        }
+                    });
+                    // Only read/write entries get a field; Enter sends it.
+                    row.col(|ui| {
+                        if writable {
+                            let blocked = if !connected {
+                                Some("Connect to a device first")
+                            } else if !controlled {
+                                Some("Take Control to write")
+                            } else {
+                                None
+                            };
+                            write_field::show(
+                                ui,
+                                self.session,
+                                egui::Id::new(("pane-write", &p.id, s, e.address)),
+                                write_field::Target {
+                                    space: s,
+                                    entry: e,
+                                    meta: self.profile.metadata(s, &e.name),
+                                    format: p.format,
+                                    confirm: false,
+                                    initial: "",
+                                },
+                                blocked,
+                                ui.available_width(),
+                            );
                         }
                     });
                     row.col(|ui| {
@@ -492,20 +537,7 @@ impl Viewer<'_> {
                     row.col(|ui| {
                         let hovered =
                             ui.rect_contains_pointer(ui.max_rect().expand2(egui::vec2(2000., 0.)));
-                        if !(hovered || selected || is_editing) {
-                            return;
-                        }
-                        if let Some(text) = pending.get(&e.address) {
-                            if ui
-                                .add_enabled(controlled, controls::primary(ui, "Write"))
-                                .on_disabled_hover_text("Take Control to write")
-                                .clicked()
-                            {
-                                actions.push(RowAction::Write(e.clone(), text.clone()));
-                            }
-                            if ui.small_button("Discard").clicked() {
-                                actions.push(RowAction::Cancel(e.address));
-                            }
+                        if !(hovered || selected) {
                             return;
                         }
                         if ui
@@ -516,27 +548,6 @@ impl Viewer<'_> {
                         }
                         if ui.small_button("Plot").clicked() {
                             actions.push(RowAction::Plot(e.clone()));
-                        }
-                        if writable
-                            && ui
-                                .add_enabled(controlled, egui::Button::new("Edit").small())
-                                .on_hover_text("Write a new value (or double-click the value)")
-                                .on_disabled_hover_text("Take Control to write")
-                                .clicked()
-                        {
-                            actions.push(RowAction::Edit(
-                                e.address,
-                                reading
-                                    .filter(|r| r.valid)
-                                    .map(|r| {
-                                        p.format.format_with(
-                                            e,
-                                            r.value,
-                                            self.profile.metadata(s, &e.name),
-                                        )
-                                    })
-                                    .unwrap_or_default(),
-                            ));
                         }
                     });
                     let response = row.response();
@@ -578,36 +589,12 @@ impl Viewer<'_> {
             match action {
                 RowAction::Read(e) => self.session.read(s, &e),
                 RowAction::Plot(e) => self.add_series(s, &e),
-                RowAction::Edit(address, text) => {
-                    pending.insert(address, text);
-                    focus = Some(address);
-                }
-                RowAction::Cancel(address) => {
-                    pending.remove(&address);
-                }
-                RowAction::Write(e, text) => {
-                    let meta = self.profile.metadata(s, &e.name);
-                    // A refused value stays pending, with the reason shown.
-                    if self
-                        .session
-                        .write_formatted(s, &e, &text, p.format, meta, false)
-                    {
-                        pending.remove(&e.address);
-                    }
-                }
             }
         }
         if let Some(e) = clicked {
             self.session.read(s, &e);
             self.session.selection = Some((s, e));
         }
-        ui.ctx().data_mut(|d| {
-            if pending.is_empty() {
-                d.remove::<(BTreeMap<u16, String>, Option<u16>)>(edit_id);
-            } else {
-                d.insert_temp(edit_id, (pending, focus));
-            }
-        });
     }
     /// Plots a recording: its samples become histories, each track becomes a
     /// trace in this pane, and the view freezes at the recording's end.
@@ -727,16 +714,46 @@ impl Viewer<'_> {
         let argument = p.input.trim().to_string();
         let warn = colors::role(ui, Role::Warn);
         let mut send = None;
-        egui_extras::TableBuilder::new(ui)
-            .id_salt((&p.id, "commands"))
+        use egui::TextStyle::{Body, Monospace, Small};
+        let salt = (&p.id, "commands");
+        let columns = [
+            table_fit::column(ui, salt, 0, 60., || {
+                table_fit::widest(ui, Monospace, commands.iter().map(|c| c.code.to_string()))
+                    .max(table_fit::widest(ui, Small, ["CODE"]))
+            }),
+            // A critical mark, the name, and a "library" tag.
+            table_fit::column(ui, salt, 1, 200., || {
+                commands
+                    .iter()
+                    .map(|c| {
+                        let library = (65000..=65002).contains(&c.code);
+                        table_fit::widest(ui, Body, [c.name.as_str()])
+                            + if c.critical { 22. } else { 0. }
+                            + if library {
+                                8. + table_fit::widest(ui, Small, ["library"])
+                            } else {
+                                0.
+                            }
+                    })
+                    .fold(0., f32::max)
+            }),
+            table_fit::column(ui, salt, 2, 260., || {
+                table_fit::widest(ui, Body, commands.iter().map(|c| c.description.as_str()))
+            }),
+            table_fit::column(ui, salt, 3, 110., || {
+                16. + table_fit::widest(ui, Small, ["Writing…", "Written", "Refused", "No ack"])
+            }),
+        ];
+        let mut table = egui_extras::TableBuilder::new(ui)
+            .id_salt(salt)
             .striped(true)
             .resizable(true)
-            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-            .column(egui_extras::Column::exact(60.))
-            .column(egui_extras::Column::initial(200.).at_least(120.).clip(true))
-            .column(egui_extras::Column::initial(260.).at_least(80.).clip(true))
-            .column(egui_extras::Column::initial(110.).at_least(80.))
-            .column(egui_extras::Column::remainder().at_least(60.))
+            .cell_layout(egui::Layout::left_to_right(egui::Align::Center));
+        for column in columns {
+            table = table.column(column);
+        }
+        table
+            .column(egui_extras::Column::remainder().at_least(table_fit::MIN_COLUMN))
             .header(22., |mut header| {
                 for title in ["Code", "Command", "Description", "Result", ""] {
                     header.col(|ui| {
@@ -990,22 +1007,28 @@ impl Viewer<'_> {
             ui.add_space(6.);
             ui.label(theme::caption(ui, "Write"));
             ui.horizontal(|ui| {
-                let input = ui.add(
-                    egui::TextEdit::singleline(&mut p.input)
-                        .font(egui::TextStyle::Monospace)
-                        .desired_width(140.),
+                let blocked = if !self.session.connected() {
+                    Some("Connect to a device first")
+                } else if !self.session.controlled() {
+                    Some("Take Control to write")
+                } else {
+                    None
+                };
+                write_field::show(
+                    ui,
+                    self.session,
+                    egui::Id::new(("inspector-write", &p.id, s, e.address)),
+                    write_field::Target {
+                        space: s,
+                        entry: e,
+                        meta: self.profile.metadata(s, &e.name),
+                        format: DisplayFormat::Native,
+                        confirm: false,
+                        initial: "",
+                    },
+                    blocked,
+                    140.,
                 );
-                let submit = input.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                let controlled = self.session.controlled();
-                if ui
-                    .add_enabled(controlled, controls::primary(ui, "Write"))
-                    .on_disabled_hover_text("Take Control to write")
-                    .clicked()
-                    || (submit && controlled)
-                {
-                    let meta = self.profile.metadata(s, &e.name);
-                    self.session.write(s, e, &p.input, meta, false);
-                }
                 if let Some(outcome) = self.session.writes.get(&(s, e.address)) {
                     colors::outcome_inline(ui, outcome);
                 }
@@ -1424,7 +1447,7 @@ impl Viewer<'_> {
             .filter_map(|(_, points)| points.last().map(|p| p[0]))
             .fold(f64::NEG_INFINITY, f64::max);
         let mut plot = egui_plot::Plot::new((&p.id, "chart"))
-            .legend(egui_plot::Legend::default())
+            .legend(egui_plot::Legend::default().position(egui_plot::Corner::LeftTop))
             .height((ui.available_height() - 8.).max(100.))
             .x_axis_formatter(|mark, _| clock::short_time(mark.value * 1000.))
             // The crosshair read-out below lists every trace at once.
@@ -1509,16 +1532,26 @@ impl Viewer<'_> {
             )
             .show(|ui| {
                 ui.label(RichText::new(time).color(theme::of(ui).text_weak));
+                // Values are right-aligned in a column as wide as the widest
+                // one; a right-to-left layout would stretch the read-out to
+                // the widest a tooltip may be.
+                let values: Vec<String> = readout
+                    .iter()
+                    .map(|(_, point)| format_float(point[1] as f32))
+                    .collect();
+                let width = table_fit::widest(ui, egui::TextStyle::Monospace, values.clone());
+                let height = ui.text_style_height(&egui::TextStyle::Body);
                 egui::Grid::new("crosshair")
                     .num_columns(2)
                     .spacing([16., 2.])
                     .show(ui, |ui| {
-                        for (name, point) in readout {
+                        for ((name, _), value) in readout.iter().zip(values) {
                             ui.label(name);
-                            ui.with_layout(
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(width, height),
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    ui.monospace(format_float(point[1] as f32));
+                                    ui.monospace(value);
                                 },
                             );
                             ui.end_row();
@@ -2046,9 +2079,6 @@ fn key(ui: &mut egui::Ui, text: &str) {
 enum RowAction {
     Read(Entry),
     Plot(Entry),
-    Edit(u16, String),
-    Cancel(u16),
-    Write(Entry, String),
 }
 
 /// Focuses `field` if `/` was pressed this frame and no other field took it.

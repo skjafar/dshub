@@ -76,11 +76,20 @@ CNC command codes:
 
 ## Simulation behavior
 
-A 100 Hz loop applies axis velocity and acceleration limits and PID gains from
-the live parameter map. Scaling parameters describe counts per millimeter;
-wire positions remain encoder counts. Homing enables the selected axes, respects
-homing speed, and retains the configured home targets until settled. Normal
-motion reports RUNNING, then READY when settled; disabled axes report IDLE.
+A 100 Hz loop moves each axis along a trapezoidal profile within the axis
+velocity and acceleration limits from the live parameter map, braking so that it
+stops on the target without overshoot. The PID gains are stored and applied to
+the parameter map for the tuning dashboards; the simulated drive is an ideal
+position loop. Scaling parameters describe counts per millimeter; wire positions
+remain encoder counts. Normal motion reports RUNNING, then READY when settled;
+disabled axes report IDLE.
+
+Homing enables the selected axes and, for each one, seeks the home switch at
+the homing speed, backs off 200 counts and approaches it again at a quarter of
+that speed. On the switch the encoder reads the axis's home position parameter,
+which also becomes its setpoint. An axis already at home still moves, so homing
+is always visible. While an axis homes, writes to its setpoint and jogs are
+refused; disabling it cancels its homing.
 PAUSED is reserved and has no command in the CNC catalog.
 
 Spindle speed ramps at the configured rate and clamps to the configured maximum.

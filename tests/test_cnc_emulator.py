@@ -67,6 +67,56 @@ class CNCBehavior(unittest.TestCase):
             self.ticks(60)
             self.assertEqual(self.c.state, d.STATE_READY)
 
+    def test_moves_stop_on_target_without_overshoot(self):
+        self.c.handle_sys_command(0, 0)
+        for target in (5000, -3000, 37, 0):
+            start = self.c.motors['X'].position
+            self.r.write(10, target)
+            worst = 0.0
+            for _ in range(1000):
+                self.c.update(.01)
+                x = self.c.motors['X'].position
+                worst = max(worst, (x - target) if target > start else (target - x))
+                if self.c.motors['X'].at(target):
+                    break
+            self.assertTrue(self.c.motors['X'].at(target), target)
+            self.assertLess(worst, .5, target)
+        self.assertEqual(self.c.state, d.STATE_READY)
+
+    def test_homing_moves_off_the_switch_even_from_home_and_sets_the_home_value(self):
+        # An axis already at its home position still seeks, backs off and
+        # approaches the switch, so homing is visible and reported.
+        self.p.write(22, 250)
+        self.assertEqual(self.c.handle_sys_command(11, 0), 0)
+        self.assertTrue(self.c.motors['X'].enabled)
+        self.c.update(.01)
+        self.assertEqual(self.c.state, d.STATE_HOMING)
+        furthest = 0.0
+        for _ in range(500):
+            self.c.update(.01)
+            furthest = max(furthest, self.c.motors['X'].position)
+            if self.c.state != d.STATE_HOMING:
+                break
+        self.assertGreater(furthest, 100)
+        self.assertEqual(self.c.state, d.STATE_READY)
+        self.assertEqual(self.c.motors['X'].get_encoder(), 250)
+        self.assertEqual(self.r.read(10), 250)
+        # Homing again from the new frame lands on the same value.
+        self.c.handle_sys_command(11, 0)
+        self.ticks(3)
+        self.assertEqual(self.c.motors['X'].get_encoder(), 250)
+
+    def test_a_homing_axis_refuses_new_targets_and_jogs(self):
+        self.packet(5, 0, 1)  # Take Control over TCP
+        self.c.handle_sys_command(11, 0)
+        status, _, _ = self.packet(2, 10, 5000)
+        self.assertLess(status, 0)
+        self.assertEqual(self.c.handle_sys_command(20, 0), -1)
+        # Other axes still take targets.
+        self.assertEqual(self.packet(2, 11, 100)[0], 2)
+        self.ticks(3)
+        self.assertEqual(self.packet(2, 10, 100)[0], 2)
+
     def test_parameters_drive_motion_and_spindle_clamps(self):
         self.p.write(0, 25)
         self.p.write(3, 50)

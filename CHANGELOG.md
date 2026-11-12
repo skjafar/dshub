@@ -1,3 +1,14 @@
+## [0.3.3] - 2026-11-13 - Write fields
+
+- Registers, Parameters and the Inspector have a Write column with a field for every read/write entry; values are no longer edited in place. Enter sends, Esc discards, and there are no Write buttons, here or in dashboard Data Table and Value Write widgets. A write field is outlined, with the reason on hover, while its value is unsent, refused or unacknowledged, or when the device reads back a different value.
+- Data Table write fields are always shown on writable rows, not only on hover.
+- Double-clicking a column divider in the Registers, Parameters and Commands tables fits the column to its contents; columns can be narrowed to a sliver but not hidden.
+- Changed-value outlines are drawn inside their fields, so table rows no longer clip them.
+- A container fitted to its contents no longer scrolls, including in edit mode while one of its widgets is hovered, and a container narrower than 160 px no longer scrolls sideways.
+- Plot legends sit at the top left, and the crosshair read-out is only as wide as its names and values.
+- A widget sized to its content fit no longer clips its last row; write fields are exactly one control tall.
+- Emulator: axes follow a trapezoidal motion profile and stop on target; the former model overshot by about half the move and oscillated, so homing could take a minute to settle. Homing seeks the switch, backs off and approaches again, then sets the home position, so it is visible even from home. Setpoint writes and jogs for a homing axis are refused.
+
 ## [0.3.2] - 2026-11-12 - Consistent widgets
 
 - System register reads answered with the operation code (6), as earlier emulators and firmware did, are accepted again. They were discarded as unmatched, so each one waited out the request timeout: readings nearly froze and the request queue backed up.

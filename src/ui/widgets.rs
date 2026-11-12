@@ -738,7 +738,23 @@ fn render_grid(
         .map(|w| (w.id.clone(), egui::vec2(w.width, w.height)))
         .collect();
     let mut remove = None;
-    let mut extent = egui::vec2(available, 0.);
+    // A container's grid claims only the width it is given, so it never
+    // scrolls sideways when narrower than the packing width.
+    let mut extent = egui::vec2(
+        if depth == 0 {
+            available
+        } else {
+            ui.available_width()
+        },
+        0.,
+    );
+    // The canvas keeps a gap past its last widget; a container's grid ends at
+    // its children, so a container fitted to them never needs to scroll.
+    let trailing = if depth == 0 {
+        egui::vec2(8., 8.)
+    } else {
+        egui::Vec2::ZERO
+    };
     for index in order {
         let w = &mut widgets[index];
         let min_height = w.kind.min_height();
@@ -1106,7 +1122,7 @@ fn render_grid(
             render_widget(&mut child, w, editing, session, profile, prefs, depth, room);
             egui::vec2(120., child.spacing().interact_size.y)
         } else {
-            egui::ScrollArea::both()
+            let output = egui::ScrollArea::both()
                 .id_salt(id.with("content"))
                 .scroll_source(egui::scroll_area::ScrollSource {
                     drag: egui::scroll_area::DragScroll::Never,
@@ -1116,8 +1132,10 @@ fn render_grid(
                 .max_width(child.available_width().max(1.))
                 .show(&mut child, |ui| {
                     render_widget(ui, w, editing, session, profile, prefs, depth, room);
-                })
-                .content_size
+                });
+            #[cfg(test)]
+            fits::scrolled(w, output.content_size, output.inner_rect.size());
+            output.content_size
         };
         let fit = if w.kind == WidgetKind::Container {
             w.children.iter().fold(egui::vec2(120., 48.), |size, c| {
@@ -1128,7 +1146,8 @@ fn render_grid(
                 ))
             })
         } else {
-            content_size + margin * 2. + egui::vec2(0., header)
+            // Rounded up: a box a fraction of a pixel short clips the last row.
+            (content_size + margin * 2. + egui::vec2(0., header)).ceil()
         };
         ui.ctx()
             .data_mut(|data| data.insert_temp(id.with("content-fit"), fit));
@@ -1180,9 +1199,14 @@ fn render_grid(
                 );
             }
         }
-        extent = extent.max(rect.max - origin + egui::vec2(8., 8.));
+        extent = extent.max(rect.max - origin + trailing);
     }
-    ui.allocate_space(extent);
+    // Claimed from the grid's origin: edit controls placed on a hovered
+    // widget move the cursor, and claiming from there made containers scroll.
+    ui.allocate_rect(
+        egui::Rect::from_min_size(origin, extent),
+        egui::Sense::hover(),
+    );
     if let Some(i) = remove {
         session.removed_widget = Some((parent.map(str::to_owned), i, widgets.remove(i)));
     }
@@ -2135,74 +2159,25 @@ fn render_widget(
                             && e.writable
                             && b.space != Space::SysRegister
                         {
-                            let id = ui.id().with(("value", &b.name));
-                            let edit_id = id.with("edit");
-                            let mut input = ui
-                                .ctx()
-                                .data_mut(|d| d.get_temp::<String>(id).unwrap_or_default());
-                            // The input and Write button appear on the hovered
-                            // row, or while a value is being entered; their
-                            // cells stay allocated so the columns hold still.
-                            let size = egui::vec2(64., ui.spacing().interact_size.y);
-                            let row_hovered = ui
-                                .ctx()
-                                .data_mut(|d| d.get_temp::<bool>(id.with("hovered")))
-                                .unwrap_or(false);
-                            let focused = ui.memory(|m| m.has_focus(edit_id));
                             let outcome = session.writes.get(&(b.space, b.address)).cloned();
-                            let active = row_hovered || focused || !input.is_empty();
-                            let mut hovered = false;
-                            if active {
-                                let edit = ui.add_sized(
-                                    size,
-                                    egui::TextEdit::singleline(&mut input)
-                                        .font(egui::TextStyle::Monospace)
-                                        .id(edit_id),
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 4.;
+                                super::write_field::show(
+                                    ui,
+                                    session,
+                                    egui::Id::new(("table-write", &w.id, &b.name)),
+                                    super::write_field::Target {
+                                        space: b.space,
+                                        entry: &e,
+                                        meta,
+                                        format,
+                                        confirm: w.confirm,
+                                        initial: "",
+                                    },
+                                    blocked_reason,
+                                    80.,
                                 );
-                                hovered |= edit.hovered();
-                                let submit = edit.lost_focus()
-                                    && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                                let button = ui
-                                    .horizontal(|ui| {
-                                        ui.spacing_mut().item_spacing.x = 4.;
-                                        let button = ui
-                                            .add_enabled(
-                                                blocked_reason.is_none(),
-                                                styled(ui, "Write", ButtonStyle::Action, false),
-                                            )
-                                            .on_disabled_hover_text(
-                                                blocked_reason.unwrap_or_default(),
-                                            );
-                                        outcome_mark(ui, outcome.as_ref());
-                                        button
-                                    })
-                                    .inner;
-                                hovered |= button.hovered();
-                                if (button.clicked() || submit) && blocked_reason.is_none() {
-                                    session.write_formatted(
-                                        b.space, &e, &input, format, meta, w.confirm,
-                                    );
-                                }
-                            } else {
-                                let (cell, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = 4.;
-                                    let write = egui::vec2(48., size.y);
-                                    ui.allocate_exact_size(write, egui::Sense::hover());
-                                    outcome_mark(ui, outcome.as_ref());
-                                });
-                                hovered |= ui.rect_contains_pointer(cell);
-                            }
-                            ui.ctx().data_mut(|d| d.insert_temp(id, input.clone()));
-                            let row_rect = ui.min_rect();
-                            let pointer_on_row =
-                                ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| {
-                                    p.y >= ui.cursor().top()
-                                        && p.y <= ui.cursor().top() + size.y
-                                        && row_rect.x_range().contains(p.x)
-                                });
-                            ui.ctx().data_mut(|d| {
-                                d.insert_temp(id.with("hovered"), hovered || pointer_on_row)
+                                outcome_mark(ui, outcome.as_ref());
                             });
                         }
                     }
@@ -2712,28 +2687,29 @@ fn render_widget(
                     }
                 });
             }
-            // Right to left: the Write button and outcome keep their size and
-            // the input takes what is left, so the row never overflows.
+            // Right to left: the outcome and unit keep their size and the
+            // field takes what is left, so the row never overflows.
             control_row(ui, |ui| {
-                let write = ui
-                    .add_enabled(
-                        blocked_reason.is_none(),
-                        styled(ui, "Write", ButtonStyle::Action, false),
-                    )
-                    .on_disabled_hover_text(blocked_reason.unwrap_or_default());
                 outcome_mark(ui, outcome.as_ref());
                 if !unit.is_empty() {
                     ui.label(RichText::new(unit).small().color(palette.text_weak));
                 }
-                let input = ui.add(
-                    egui::TextEdit::singleline(&mut w.value)
-                        .font(egui::TextStyle::Monospace)
-                        .desired_width(ui.available_width().max(24.)),
+                let width = ui.available_width().max(24.);
+                super::write_field::show(
+                    ui,
+                    session,
+                    egui::Id::new(("value-write", &w.id)),
+                    super::write_field::Target {
+                        space: binding.space,
+                        entry: &e,
+                        meta,
+                        format,
+                        confirm: w.confirm,
+                        initial: &w.value,
+                    },
+                    blocked_reason,
+                    width,
                 );
-                let submit = input.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if (write.clicked() || submit) && blocked_reason.is_none() {
-                    session.write_formatted(binding.space, &e, &w.value, format, meta, w.confirm);
-                }
             });
         }
         WidgetKind::Dropdown => {
@@ -3175,6 +3151,18 @@ pub(super) mod fits {
             f.borrow_mut()
                 .push((name, fit, egui::vec2(w.width, w.height)))
         });
+    }
+    thread_local! {
+        static SCROLLS: RefCell<Vec<(String, egui::Vec2, egui::Vec2)>> = const { RefCell::new(vec![]) };
+    }
+    /// A widget's scrolled content and the viewport it had.
+    pub fn scrolled(w: &Widget, content: egui::Vec2, viewport: egui::Vec2) {
+        let name = format!("{:?} \"{}\"", w.kind, w.label);
+        SCROLLS.with(|s| s.borrow_mut().push((name, content, viewport)));
+    }
+    /// Takes the (widget, content size, viewport size) records since the last call.
+    pub fn take_scrolls() -> Vec<(String, egui::Vec2, egui::Vec2)> {
+        SCROLLS.with(|s| std::mem::take(&mut *s.borrow_mut()))
     }
     /// Takes the (widget, content size, box size) records since the last call.
     pub fn take() -> Vec<(String, egui::Vec2, egui::Vec2)> {

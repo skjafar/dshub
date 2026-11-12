@@ -108,6 +108,9 @@ STATE_PAUSED = 4
 STATE_ERROR  = 5
 STATE_E_STOP = 6
 
+# Counts an axis moves off its home switch before approaching it again.
+HOMING_BACKOFF = 200.0
+
 # ── System register address constants (cmd 6) ────────────────────────────────
 # Only the 4 library-managed fields from ds_system_register_names_t.
 SYSREG_DS_PACKET_COUNT      = 0
@@ -141,24 +144,33 @@ USER_REG_READ_ONLY_COUNT    = 10
 
 
 class MotorAxis:
-    """Simulates a servo motor with encoder feedback and bounded PID control."""
+    """A servo axis with encoder feedback.
+
+    Motion follows a trapezoidal profile: the axis accelerates at most at
+    max_accel, cruises at most at max_vel and brakes so that it stops on the
+    target without overshooting. The PID gains are stored for the tuning
+    dashboards; the simulated drive is an ideal position loop.
+    """
 
     def __init__(self, name: str, kp: float, ki: float, kd: float, max_vel: float, max_accel: float):
         self.name = name
+        # Encoder counts; the machine (home switch) position is position - offset.
         self.position = 0.0
+        self.offset = 0.0
         self.velocity = 0.0
         self.setpoint = 0
         self.enabled = False
         self.kp = kp
         self.ki = ki
         self.kd = kd
-        self.integral = 0.0
-        self.prev_error = 0.0
         self.max_vel = max_vel
         self.max_accel = max_accel
 
-    def update(self, dt: float):
+    def update(self, dt: float, target: Optional[float] = None, speed: Optional[float] = None):
+        """Advances one step towards `target` (default: the setpoint), at
+        most at `speed` (default: max_vel)."""
         if not self.enabled:
+            # A disabled drive coasts to a stop at the axis deceleration.
             if abs(self.velocity) > 0.1:
                 decel = -self.max_accel if self.velocity > 0 else self.max_accel
                 old_velocity = self.velocity
@@ -170,27 +182,31 @@ class MotorAxis:
                 self.velocity = 0.0
             return
 
-        error = self.setpoint - self.position
-        if abs(error) < 0.5 and abs(self.velocity) < 1.0:
-            self.position = float(self.setpoint)
+        goal = float(self.setpoint if target is None else target)
+        error = goal - self.position
+        limit = self.max_vel if speed is None else min(self.max_vel, speed)
+        if abs(error) < 0.5 and abs(self.velocity) <= self.max_accel * dt:
+            self.position = goal
             self.velocity = 0.0
-            self.reset_integrator()
             return
-        self.integral = max(-self.max_accel, min(self.max_accel, self.integral + error * dt))
-        derivative = (error - self.prev_error) / dt if dt > 0 else 0.0
-        accel = self.kp * error + self.ki * self.integral + self.kd * derivative
-        accel = max(-self.max_accel, min(self.max_accel, accel))
-        self.velocity += accel * dt
-        self.velocity = max(-self.max_vel, min(self.max_vel, self.velocity))
+        # The fastest speed from which the axis can still stop at the goal,
+        # allowing for one step of reaction (v²/2a + v·dt ≤ distance), and
+        # never more than the remaining distance in one step.
+        reaction = self.max_accel * dt
+        brake = math.sqrt(reaction * reaction + 2 * self.max_accel * abs(error)) - reaction
+        wanted = math.copysign(min(limit, brake, abs(error) / dt), error)
+        step = self.max_accel * dt
+        self.velocity += max(-step, min(step, wanted - self.velocity))
         self.position += self.velocity * dt
-        self.prev_error = error
+
+    def at(self, goal: float) -> bool:
+        return abs(goal - self.position) < 0.5 and self.velocity == 0.0
 
     def get_encoder(self) -> int:
-        return int(self.position)
+        return int(round(self.position))
 
     def reset_integrator(self):
-        self.integral = 0.0
-        self.prev_error = 0.0
+        """Kept for callers of the former PID model; the profile has no state."""
 
 
 class SpindleController:
@@ -342,7 +358,9 @@ class CNCController:
             'Z': MotorAxis('Z', kp=2.0, ki=0.1, kd=0.5, max_vel=8000,  max_accel=4000),
         }
         self.spindle = SpindleController(max_rpm=24000, accel_rpm_per_sec=10000)
-        self.homing_axis = None
+        # Axes being homed and their phase: 'seek' the switch at homing
+        # speed, 'backoff' clear of it, then 'approach' it again slowly.
+        self.homing: Dict[str, str] = {}
 
     def handle_sys_command(self, cmd: int, value: int) -> int:
         if self.state in (STATE_E_STOP, STATE_ERROR) and cmd not in (
@@ -356,9 +374,7 @@ class CNCController:
             return 0
 
         elif cmd == CMD_DISABLE_ALL_MOTORS:
-            if self.state == STATE_HOMING:
-                self.state = STATE_IDLE
-                self.homing_axis = None
+            self._cancel_homing(self.motors)
             for motor in self.motors.values():
                 motor.enabled = False
             return 0
@@ -371,9 +387,7 @@ class CNCController:
         elif cmd in (CMD_DISABLE_MOTOR_X, CMD_DISABLE_MOTOR_Y, CMD_DISABLE_MOTOR_Z):
             axis = {CMD_DISABLE_MOTOR_X: 'X', CMD_DISABLE_MOTOR_Y: 'Y', CMD_DISABLE_MOTOR_Z: 'Z'}[cmd]
             self.motors[axis].enabled = False
-            if self.state == STATE_HOMING and self.homing_axis in ('ALL', axis):
-                self.state = STATE_IDLE
-                self.homing_axis = None
+            self._cancel_homing([axis])
             return 0
 
         elif cmd == CMD_ENABLE_SPINDLE:
@@ -387,15 +401,13 @@ class CNCController:
             self.spindle.enabled = False
             return 0
 
-        elif cmd == CMD_HOME_ALL:
+        elif cmd in (CMD_HOME_ALL, CMD_HOME_X, CMD_HOME_Y, CMD_HOME_Z):
+            axes = {CMD_HOME_ALL: 'XYZ', CMD_HOME_X: 'X', CMD_HOME_Y: 'Y', CMD_HOME_Z: 'Z'}[cmd]
+            # Homing drives the axes, so it enables them.
+            for axis in axes:
+                self.motors[axis].enabled = True
+                self.homing[axis] = 'seek'
             self.state = STATE_HOMING
-            self.homing_axis = 'ALL'
-            return 0
-
-        elif cmd in (CMD_HOME_X, CMD_HOME_Y, CMD_HOME_Z):
-            axis = {CMD_HOME_X: 'X', CMD_HOME_Y: 'Y', CMD_HOME_Z: 'Z'}[cmd]
-            self.state = STATE_HOMING
-            self.homing_axis = axis
             return 0
 
         elif cmd == CMD_E_STOP:
@@ -403,7 +415,7 @@ class CNCController:
             for motor in self.motors.values():
                 motor.enabled = False
             self.spindle.enabled = False
-            self.homing_axis = None
+            self.homing.clear()
             for i, motor in enumerate(self.motors.values()):
                 motor.reset_integrator()
                 self.user_regs.write_internal(REG_MOTOR_X_SETPOINT + i, motor.get_encoder())
@@ -437,12 +449,46 @@ class CNCController:
                 CMD_JOG_Z_NEGATIVE: ('Z', -1, REG_MOTOR_Z_SETPOINT),
             }
             axis, direction, reg_addr = axis_map[cmd]
+            if axis in self.homing:
+                return -1
             new_setpoint = self.user_regs.read(reg_addr) + (jog_distance * direction)
             self.motors[axis].setpoint = new_setpoint
             self.user_regs.write_internal(reg_addr, new_setpoint)
             return 0
 
         return -1
+
+    def homing_target(self, address: int) -> bool:
+        """Whether `address` is the setpoint of an axis being homed."""
+        return any(REG_MOTOR_X_SETPOINT + i == address and axis in self.homing
+                   for i, axis in enumerate(self.motors))
+
+    def _cancel_homing(self, axes):
+        for axis in axes:
+            self.homing.pop(axis, None)
+        if self.state == STATE_HOMING and not self.homing:
+            self.state = STATE_IDLE
+
+    def _home(self, i: int, axis: str, motor: MotorAxis, dt: float):
+        """One step of an axis's homing sequence."""
+        speed = self.parameters.read(21)
+        phase = self.homing[axis]
+        machine = {'seek': 0.0, 'backoff': HOMING_BACKOFF, 'approach': 0.0}[phase]
+        goal = machine + motor.offset
+        motor.update(dt, goal, speed if phase != 'approach' else max(speed / 4, 1))
+        if not motor.at(goal):
+            return
+        if phase == 'seek':
+            self.homing[axis] = 'backoff'
+        elif phase == 'backoff':
+            self.homing[axis] = 'approach'
+        else:
+            # On the switch: the encoder now reads the configured home value.
+            home = self.parameters.read(22 + i)
+            motor.offset = float(home)
+            motor.position = float(home)
+            self.user_regs.write_internal(REG_MOTOR_X_SETPOINT + i, home)
+            del self.homing[axis]
 
     def update(self, dt: float):
         """Update CNC controller state and motors (called at 100Hz)"""
@@ -456,10 +502,10 @@ class CNCController:
                 struct.unpack('<f', struct.pack('<i', self.parameters.read(6 + i * 3 + j)))[0]
                 for j in range(3)]
             target = REG_MOTOR_X_SETPOINT + i
-            if homing and self.homing_axis in ('ALL', axis):
-                motor.enabled = True
-                motor.max_vel = min(motor.max_vel, self.parameters.read(21))
-                self.user_regs.write_internal(target, self.parameters.read(22 + i))
+            if axis in self.homing:
+                # A homing axis ignores its setpoint until it is homed.
+                self._home(i, axis, motor, dt)
+                continue
             motor.setpoint = self.user_regs.read(target)
             motor.update(dt)
         self.spindle.max_rpm = self.parameters.read(18)
@@ -470,10 +516,8 @@ class CNCController:
         moving = any(m.enabled and (abs(m.setpoint - m.position) >= 0.5 or abs(m.velocity) >= 1)
                      for m in self.motors.values())
         if homing:
-            selected = [m for axis, m in self.motors.items() if self.homing_axis in ('ALL', axis)]
-            if all(abs(m.setpoint - m.position) < 0.5 and abs(m.velocity) < 1 for m in selected):
+            if not self.homing:
                 self.state = STATE_READY
-                self.homing_axis = None
         elif self.state not in (STATE_E_STOP, STATE_ERROR):
             self.state = (STATE_RUNNING if moving else
                           STATE_READY if any(m.enabled for m in self.motors.values()) else STATE_IDLE)
@@ -850,7 +894,9 @@ class DSHubEmulator:
                 response = _pack_response(STATUS_READ_REGISTER_OK, address, reg_value)
 
             elif command == CMD_WRITE_REGISTER:
-                if self.cnc_controller.state in (STATE_E_STOP, STATE_ERROR):
+                # A homing axis takes no new target until it is homed.
+                if (self.cnc_controller.state in (STATE_E_STOP, STATE_ERROR)
+                        or self.cnc_controller.homing_target(address)):
                     self.system_registers.increment_error_count()
                     return _pack_response(STATUS_PERMISSION_ERROR, address, 0)
                 success = self.user_registers.write(address, value)

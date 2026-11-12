@@ -54,6 +54,9 @@ pub enum OutcomeStatus {
 pub struct WriteOutcome {
     pub sent_at: f64,
     pub status: OutcomeStatus,
+    /// When the device accepted the write; readings from then on show what
+    /// it holds after the write.
+    pub acked_at: Option<f64>,
 }
 impl WriteOutcome {
     pub fn label(&self) -> &'static str {
@@ -326,6 +329,7 @@ impl Session {
                     WriteOutcome {
                         sent_at: crate::communicator::now_ms(),
                         status: OutcomeStatus::Sending,
+                        acked_at: None,
                     },
                 );
             }
@@ -335,6 +339,7 @@ impl Session {
                     WriteOutcome {
                         sent_at: crate::communicator::now_ms(),
                         status: OutcomeStatus::Sending,
+                        acked_at: None,
                     },
                 );
             }
@@ -799,6 +804,7 @@ impl Session {
                             } else {
                                 OutcomeStatus::Refused
                             };
+                            outcome.acked_at = ack.valid.then_some(ack.timestamp);
                         }
                     }
                     // Read the value back so every view shows what the Device

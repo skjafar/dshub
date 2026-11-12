@@ -13,10 +13,10 @@ The existing backend was ported into `src/backend/` with mechanical integration 
 | Surface | Native implementation |
 |---|---|
 | Link and discovery | UDP scan, discovered-device selection, TCP/UDP connect/disconnect, Take Control, connection/control status, startup scan/connect and retry preferences |
-| Data panes | Searchable Registers, Parameters and read-only System Registers as tables; manual/live reads of the rows in view; DEFAULT (declared type), decimal, hex and binary views; engineering units and write limits from metadata; in-place editing with unsent values outlined; validated writes and device outcomes; CSV export |
+| Data panes | Searchable Registers, Parameters and read-only System Registers as tables; manual/live reads of the rows in view; DEFAULT (declared type), decimal, hex and binary views; engineering units and write limits from metadata; a Write column for read/write entries (Enter sends, Esc discards) outlined while unsent, refused, unacknowledged or read back differently; columns fit their contents on a divider double-click; validated writes and device outcomes; CSV export |
 | Inspector | Shared selection, raw address reads, signed/unsigned/float/hex/binary decoding, entry metadata and plot/write actions |
 | Commands | Profile and built-in commands, integer arguments, confirmation (press-and-hold for critical commands), acknowledgements/refusals, custom code entry, Ctrl+K command palette |
-| Plot | Independent trace selections per Plot pane, typed decoding, retained samples, pause, live following, zoom/pan, crosshair read-out, legend, PNG and CSV export, CSV recording with offline replay |
+| Plot | Independent trace selections per Plot pane, typed decoding, retained samples, pause, live following, zoom/pan, crosshair read-out, top-left legend, PNG and CSV export, CSV recording with offline replay |
 | Dashboards | Named dashboards, duplicate/delete/rename, canvas positions on a snapping grid, selection, keyboard nudge, layout undo/redo, bindings, formats, thresholds, controls, nested containers, all sixteen portable widget kinds and native Labels |
 | Profiles | Default and CNC bundled maps, CNC commands/metadata, create/duplicate/rename/delete, one file per Profile, version-one import/export and native dashboard preservation |
 | Map Editor | Separate drafts, add/edit/import/export maps, firmware C headers, command-map import/export and command header export, board type definitions and entry metadata; unsaved fields outlined; save/revert without overwriting dashboard changes |
@@ -54,7 +54,7 @@ The `native-smoke` feature is opt-in and is not part of the release build. The n
 
 Linux compilation, automated UI/device checks and rendered layout inspection do not establish complete workflow parity on every platform. Before the first native release, exercise the engineer/operator workflows on Windows and macOS, native dialogs, multi-monitor window movement/restoration, prolonged reconnect/polling load and physical hardware. The CI matrix is configured for those platforms but has not run from this local checkout.
 
-Native release packaging supplies archives, a macOS app bundle (signed and notarized when certificates are configured) and a Debian package. Windows installers and RPM packaging are not built. The `dshub-bin` AUR package installs the 0.3.2 Linux release.
+Native release packaging supplies archives, a macOS app bundle (signed and notarized when certificates are configured) and a Debian package. Windows installers and RPM packaging are not built. The `dshub-bin` AUR package installs the 0.3.3 Linux release.
 
 The user's backend-only review has not been performed. Keep that review separate from native interface acceptance.
 

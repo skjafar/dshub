@@ -14,9 +14,11 @@ mod review;
 mod session;
 #[cfg(feature = "native-smoke")]
 mod smoke;
+mod table_fit;
 mod theme;
 mod toasts;
 mod widgets;
+mod write_field;
 use crate::model::*;
 use eframe::egui::{self, RichText};
 use egui_dock::{DockArea, DockState, NodeIndex};

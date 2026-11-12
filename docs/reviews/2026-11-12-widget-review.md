@@ -13,7 +13,7 @@ Companion document: [2026-11-12-widget-instructions.md](2026-11-12-widget-instru
 - **W5:** Button has a Style: Action, Neutral or Danger. Buttons whose first threshold was in the error role load as Danger, idle ones as Neutral, and their thresholds are dropped. Exports add a matching first threshold so the former application keeps the colour.
 - **W10/W11:** A healthy widget shows no mark. When a table's rows all share one status that is not OK, the status shows once in the title; with every row healthy the mark column is left out.
 - **W16:** The widget-level "A set bit is" option is done. The optional role per named bit in the map metadata is not.
-- **W19:** The Data Table input is 64 px and appears on the hovered row; two built-in tables got shorter row names so they fit.
+- **W19:** The Data Table input is 64 px and, by later decision, always shown on writable rows; two built-in tables got shorter row names so they fit.
 
 Found while fixing: the title row reserved space for an empty status area, and the layout test assumed a fixed title height. The test now measures the drawn title row and checks widths as well as heights; the built-in layout estimates were corrected.
 
@@ -103,7 +103,7 @@ Fixing the six above would do more for the look than any new feature. The rest o
 | W16 | P3 | **A set bit is always green.** In an interlock or fault word a set bit means trouble, but the Status Matrix lights it in the ok colour. | A widget option "A set bit is: ok / warning / error", and optionally a role per bit in the map metadata. | Partly done: widget option done; per-bit roles from the map not done |
 | W17 | P3 | **The Gauge shows no limits on its arc.** Thresholds colour the value only; nothing shows where the warning zone starts. | Draw threshold zones as thin coloured arcs outside the main arc, and a tick at each threshold. | Done |
 | W18 | P3 | **The Progress Bar is thin and unlabelled.** 8 px, with no minimum, maximum or threshold marks. | A 12 px bar (scaled by Text size), optional min and max labels under it, and a notch at each threshold. | Done |
-| W19 | P3 | **Data Table rows are always in edit mode.** Every writable row shows an empty input and a Write button, and there is no column header. | Show the input when the row is hovered, focused or has text typed, as the Registers table does. Add an optional header row. | Done |
+| W19 | P3 | **Data Table rows are always in edit mode.** Every writable row shows an empty input and a Write button, and there is no column header. | Show the input when the row is hovered, focused or has text typed, as the Registers table does. Add an optional header row. | Header done; input kept always visible on writable rows by later decision |
 | W20 | P3 | **Label has only text and size.** Headings cannot be centred, bold or muted. | Add alignment (left, centre, right), weight (regular, semibold) and tone (normal, weak, accent). | Done |
 | W21 | P3 | **Corner radii and strokes vary** without a rule: cards 4, buttons 3, bit cells and bars 2. | Name three radii in the theme (control 3, card 4, cell 2) and use them by name. | Done |
 
