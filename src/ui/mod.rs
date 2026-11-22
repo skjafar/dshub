@@ -1876,7 +1876,11 @@ impl eframe::App for Desktop {
         let ctx = &ui.ctx().clone();
         self.frame_count += 1;
         if let Ok(path) = std::env::var("DSHUB_SCREENSHOT") {
-            if self.frame_count > 25 && !self.screenshot_requested {
+            let after = std::env::var("DSHUB_SCREENSHOT_AFTER_FRAMES")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(25);
+            if self.frame_count > after && !self.screenshot_requested {
                 #[cfg(feature = "native-smoke")]
                 if std::env::var_os("DSHUB_SMOKE_SCENE").is_some() {
                     assert!(

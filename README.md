@@ -2,6 +2,21 @@
 
 DSHub is a native Rust workstation for monitoring and controlling devices over TCP and UDP. The application uses **egui / eframe** for its desktop interface and **Tokio** for device I/O. The native build has no JavaScript, Node.js, Tauri, WebView, or HTTP server dependency.
 
+![DSHub workspace: live registers, encoder plot and device overview](docs/screenshots/workspace.png)
+
+## Screenshots
+
+| | |
+|---|---|
+| ![CNC operator dashboard with axis positions, driver state and spindle gauge](docs/screenshots/cnc.png) | ![Plot of three encoder traces following live](docs/screenshots/plot.png) |
+| CNC operator dashboard | Live plot with crosshair read-out, record and replay |
+| ![Registers table with typed values, units and read status](docs/screenshots/registers.png) | ![Map Editor for the register map](docs/screenshots/editor.png) |
+| Registers, polled live | Map Editor |
+| ![Workspace in the light theme](docs/screenshots/light.png) | |
+| Light theme | |
+
+Screenshots were taken against the bundled emulator with simulated CNC motion.
+
 ## Run
 
 Install Rust 1.95 or newer, then run from the repository root:

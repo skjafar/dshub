@@ -60,11 +60,20 @@ impl Desktop {
         }
         let entry = profile.entries(Space::Register)[0].clone();
         self.session.selection = Some((Space::Register, entry.clone()));
-        self.saved.series.push(PlotSeries {
-            id: unique_id(),
-            binding: Binding::new(Space::Register, &entry),
-            enabled: true,
-        });
+        // DSHUB_SMOKE_SERIES (comma-separated register indices) picks the traces.
+        let series: Vec<usize> = std::env::var("DSHUB_SMOKE_SERIES")
+            .ok()
+            .map(|v| v.split(',').filter_map(|i| i.trim().parse().ok()).collect())
+            .unwrap_or_else(|| vec![0]);
+        for index in series {
+            if let Some(entry) = profile.entries(Space::Register).get(index) {
+                self.saved.series.push(PlotSeries {
+                    id: unique_id(),
+                    binding: Binding::new(Space::Register, entry),
+                    enabled: true,
+                });
+            }
+        }
         if kind == PaneKind::Plot {
             pane.plot_series = self.saved.series.iter().map(|s| s.id.clone()).collect();
         }
@@ -74,6 +83,15 @@ impl Desktop {
         } else {
             DockState::new(vec![pane])
         };
+        if matches!(scene, "workspace" | "light") {
+            let ids: Vec<String> = self.saved.series.iter().map(|s| s.id.clone()).collect();
+            for (_, tab) in self.saved.dock.iter_all_tabs_mut() {
+                tab.auto = true;
+                if tab.kind == PaneKind::Plot {
+                    tab.plot_series = ids.clone();
+                }
+            }
+        }
         if scene == "native-window" {
             self.saved.windows.push(NativeWindow {
                 id: "smoke-daughter".into(),
