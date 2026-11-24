@@ -1266,6 +1266,28 @@ pub struct Widget {
     /// of the Display format (the former Encoder Display).
     #[serde(default)]
     pub scaled: bool,
+    /// Dropdown: the bits of the entry its options choose between, 0 for
+    /// the whole value. Options then name the field's value shifted down to
+    /// bit 0, and choosing one rewrites only these bits of the last reading.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub bit_mask: u32,
+}
+fn is_zero(v: &u32) -> bool {
+    *v == 0
+}
+/// The value of the bit field `mask` in `raw`, shifted down to bit 0.
+pub fn bit_field(raw: i32, mask: u32) -> u32 {
+    (raw as u32 & mask) >> mask.trailing_zeros().min(31)
+}
+/// `raw` with the bit field `mask` set to `value`, or None when `value`
+/// does not fit the field.
+pub fn with_bit_field(raw: i32, mask: u32, value: u32) -> Option<i32> {
+    if mask == 0 {
+        return None;
+    }
+    let shifted = value.checked_shl(mask.trailing_zeros())?;
+    (shifted & !mask == 0 && shifted >> mask.trailing_zeros() == value)
+        .then_some(((raw as u32 & !mask) | shifted) as i32)
 }
 fn default_set_role() -> Role {
     Role::Ok
@@ -1422,6 +1444,7 @@ impl Widget {
             tone: TextTone::Normal,
             style: ButtonStyle::Action,
             scaled: false,
+            bit_mask: 0,
         }
     }
 }
@@ -1499,6 +1522,9 @@ pub struct Preferences {
     pub scale: f32,
     /// Thin spaces between groups of three digits in dashboard read-outs.
     pub group_digits: bool,
+    /// Plot statistics: decimals shown, reduced down to 2 when the table
+    /// would not fit its pane.
+    pub stats_decimals: usize,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecentDevice {
@@ -1547,6 +1573,7 @@ impl Default for Preferences {
             recent: vec![],
             scale: 1.,
             group_digits: true,
+            stats_decimals: 6,
         }
     }
 }
@@ -1836,6 +1863,22 @@ mod parse_tests {
     fn invalid_declarations_quote_the_offending_text() {
         let errors = parse_map("floot A;", Space::Register).unwrap_err();
         assert!(errors[0].contains("floot A;"), "{errors:?}");
+    }
+
+    #[test]
+    fn bit_fields_change_only_their_bits() {
+        assert_eq!(bit_field(0x05FE, 1 << 10), 1);
+        assert_eq!(bit_field(0x05FE, 1 << 9), 0);
+        assert_eq!(bit_field(-1, 0xF000_0000), 0xF);
+        assert_eq!(with_bit_field(0x05FE, 1 << 10, 0), Some(0x01FE));
+        assert_eq!(with_bit_field(0x05FE, 1 << 9, 1), Some(0x07FE));
+        assert_eq!(with_bit_field(0, 0xF000_0000, 0xF), Some(-0x1000_0000));
+        assert_eq!(
+            with_bit_field(0x05FE, 1 << 9, 2),
+            None,
+            "value wider than the field"
+        );
+        assert_eq!(with_bit_field(0x05FE, 0, 1), None);
     }
 
     #[test]

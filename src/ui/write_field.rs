@@ -35,6 +35,9 @@ pub(super) struct Sent {
 pub(super) struct State {
     pub text: String,
     pub sent: Option<Sent>,
+    /// Take the keyboard back once the confirmation dialog for the last
+    /// send closes, so the next value can be typed straight away.
+    pub refocus: bool,
 }
 
 const UNSENT: &str = "Not sent. Enter sends it; Esc discards it.";
@@ -55,6 +58,7 @@ pub fn show(
         .unwrap_or_else(|| State {
             text: target.initial.to_string(),
             sent: None,
+            refocus: false,
         });
     let edit = ui.add_enabled(
         blocked.is_none(),
@@ -98,7 +102,16 @@ pub fn show(
                     at,
                 });
             }
+            // Enter takes focus from a one-line field; give it back so the
+            // value can be changed and sent again without clicking.
+            state.refocus = true;
         }
+    }
+    // While a confirmation is open the field waits, so typing cannot reach
+    // it behind the dialog.
+    if state.refocus && session.confirm.is_none() && blocked.is_none() {
+        edit.request_focus();
+        state.refocus = false;
     }
     let note = attention(session, &target, &state);
     if let Some((role, _)) = &note {

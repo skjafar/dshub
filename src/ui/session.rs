@@ -41,6 +41,7 @@ pub enum ImportTarget {
     CommandMap { pane: String },
     Map { pane: String, space: Space },
     Recording { pane: String },
+    Values { pane: String, space: Space },
 }
 type Imports = Arc<Mutex<Vec<(ImportTarget, Result<String, String>)>>>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,8 +103,14 @@ pub enum Undo {
         index: usize,
         widget: Box<Widget>,
     },
-    /// A plot trace, restored at its old position in the trace list.
-    Trace { index: usize, series: PlotSeries },
+    /// A trace removed from the Plot `pane`, restored at `position` in that
+    /// Plot and, if no Plot kept it, at `index` in the Profile's trace list.
+    Trace {
+        index: usize,
+        series: PlotSeries,
+        pane: String,
+        position: usize,
+    },
     /// Plot samples cleared with "Clear data".
     Histories(BTreeMap<(Space, u16), VecDeque<[f64; 2]>>),
 }

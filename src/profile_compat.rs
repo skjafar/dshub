@@ -110,6 +110,10 @@ fn widget(v: &Value, p: &Profile, depth: usize) -> Option<Widget> {
         .map(ButtonStyle::from)
         .unwrap_or_default();
     w.scaled = c["scaled"].as_bool().unwrap_or(false);
+    w.bit_mask = c["bitMask"]
+        .as_u64()
+        .and_then(|v| u32::try_from(v).ok())
+        .unwrap_or(0);
     if c["target"]["kind"] == "command" {
         w.command = c["target"]["code"]
             .as_u64()
@@ -306,7 +310,7 @@ fn export_widget(w: &Widget) -> Value {
     } else {
         Value::Null
     };
-    let config = json!({"label":w.label,"binding":w.binding.as_ref().map(export_binding),"format":w.format,"thresholds":thresholds,"min":w.min,"max":w.max,"unit":w.unit,"conversionFactor":w.factor,"primaryUnit":w.unit,"secondaryUnit":w.secondary_unit,"showRawValue":w.show_raw,"decimals":w.decimals,"orientation":if w.vertical{"vertical"}else{"horizontal"},"target":target,"value":w.value.parse::<f64>().unwrap_or(0.),"options":w.options.iter().map(|o|json!({"value":o.value.parse::<f64>().unwrap_or(0.),"label":o.label})).collect::<Vec<_>>(),"confirmationRequired":w.confirm,"rows":rows,"alarms":rows,"showInactive":w.show_inactive,"bitCount":w.bit_count,"directions":w.directions,"layout":"8way","series":w.binding.as_ref().map(export_binding),"pollInterval":w.poll_ms,"timeSpan":w.time_span,"padding":w.padding,"spacing":w.spacing,"textSize":w.text_size,"showValue":w.show_value,"setRole":w.set_role,"showLimits":w.show_limits,"showHeader":w.show_header,"textAlign":w.align,"bold":w.bold,"tone":w.tone,"style":w.style,"scaled":w.scaled,"childWidgets":export_widgets(&w.children)});
+    let config = json!({"label":w.label,"binding":w.binding.as_ref().map(export_binding),"format":w.format,"thresholds":thresholds,"min":w.min,"max":w.max,"unit":w.unit,"conversionFactor":w.factor,"primaryUnit":w.unit,"secondaryUnit":w.secondary_unit,"showRawValue":w.show_raw,"decimals":w.decimals,"orientation":if w.vertical{"vertical"}else{"horizontal"},"target":target,"value":w.value.parse::<f64>().unwrap_or(0.),"options":w.options.iter().map(|o|json!({"value":o.value.parse::<f64>().unwrap_or(0.),"label":o.label})).collect::<Vec<_>>(),"confirmationRequired":w.confirm,"rows":rows,"alarms":rows,"showInactive":w.show_inactive,"bitCount":w.bit_count,"directions":w.directions,"layout":"8way","series":w.binding.as_ref().map(export_binding),"pollInterval":w.poll_ms,"timeSpan":w.time_span,"padding":w.padding,"spacing":w.spacing,"textSize":w.text_size,"showValue":w.show_value,"setRole":w.set_role,"showLimits":w.show_limits,"showHeader":w.show_header,"textAlign":w.align,"bold":w.bold,"tone":w.tone,"style":w.style,"scaled":w.scaled,"bitMask":w.bit_mask,"childWidgets":export_widgets(&w.children)});
     json!({"id":w.id,"kind":kind,"config":config,"layout":{"x":0,"y":0,"w":(w.width/80.).max(1.) as u32,"h":(w.height/60.).max(1.) as u32}})
 }
 pub fn export_dashboards(ds: &[Dashboard]) -> Value {
@@ -356,6 +360,21 @@ mod tests {
         old["config"].as_object_mut().unwrap().remove("style");
         let w = widget(&old, &p, 0).unwrap();
         assert_eq!(w.style, ButtonStyle::Danger);
+    }
+    #[test]
+    fn dropdown_bit_masks_survive_both_formats() {
+        let mut p = default_profiles().remove(1);
+        let mut dropdown = Widget::new(WidgetKind::Dropdown);
+        dropdown.bit_mask = 1 << 10;
+        p.dashboards[0].widgets = vec![dropdown.clone()];
+        let exported = p.export();
+        let back = Profile::import(&exported.to_string()).unwrap();
+        assert_eq!(back.dashboards[0].widgets[0].bit_mask, 1 << 10);
+        let legacy = &exported["dashboards"]["dashboards"][0]["widgets"][0];
+        assert_eq!(widget(legacy, &p, 0).unwrap().bit_mask, 1 << 10);
+        let mut old = legacy.clone();
+        old["config"].as_object_mut().unwrap().remove("bitMask");
+        assert_eq!(widget(&old, &p, 0).unwrap().bit_mask, 0);
     }
     #[test]
     fn all_widget_kinds_roundtrip_through_the_version_one_dashboard_shape() {

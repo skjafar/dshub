@@ -1491,6 +1491,16 @@ fn config(ui: &mut egui::Ui, w: &mut Widget, profile: &Profile) {
                     }
                 });
             ui.end_row();
+            if w.kind == WidgetKind::Dropdown {
+                ui.label("Bit mask");
+                ui.add(egui::DragValue::new(&mut w.bit_mask).hexadecimal(4, false, true))
+                    .on_hover_text(
+                        "0 chooses the whole value. Otherwise options name the value of \
+                         these bits shifted down to bit 0, and choosing one changes only \
+                         these bits",
+                    );
+                ui.end_row();
+            }
             if w.kind != WidgetKind::Dropdown {
                 ui.label("Unit");
                 let from_map = map_unit(w.binding.as_ref(), profile);
@@ -2713,11 +2723,38 @@ fn render_widget(
             });
         }
         WidgetKind::Dropdown => {
-            // Options name raw device values, not engineering values.
-            let current = raw.map(|v| e.decode(v)).and_then(|v| {
-                w.options
-                    .iter()
-                    .find(|o| o.value.trim().parse::<f64>().ok() == Some(v))
+            // Options name raw device values, not engineering values; with a
+            // bit mask, the value of those bits alone.
+            let mask = w.bit_mask;
+            let current = raw
+                .map(|v| {
+                    if mask == 0 {
+                        e.decode(v)
+                    } else {
+                        f64::from(crate::model::bit_field(v, mask))
+                    }
+                })
+                .and_then(|v| {
+                    w.options
+                        .iter()
+                        .find(|o| o.value.trim().parse::<f64>().ok() == Some(v))
+                });
+            // A bit field is written over the last reading, so that reading
+            // must already show the device after any earlier write.
+            let blocked_reason = blocked_reason.or_else(|| {
+                if mask == 0 {
+                    None
+                } else if raw.is_none() {
+                    Some("Waiting for the first reading of this entry")
+                } else if outcome.as_ref().is_some_and(|o| {
+                    o.status == super::session::OutcomeStatus::Sending
+                        || o.acked_at
+                            .is_some_and(|at| r.is_none_or(|r| r.timestamp < at))
+                }) {
+                    Some("Waiting for the device to read back the last write")
+                } else {
+                    None
+                }
             });
             control_row(ui, |ui| {
                 outcome_mark(ui, outcome.as_ref());
@@ -2746,7 +2783,34 @@ fn render_widget(
                                 .on_disabled_hover_text(blocked_reason.unwrap_or_default())
                                 .clicked()
                             {
-                                session.write(binding.space, &e, &o.value, meta, w.confirm);
+                                match (mask, raw) {
+                                    (0, _) => {
+                                        session.write(binding.space, &e, &o.value, meta, w.confirm)
+                                    }
+                                    (_, Some(raw)) => {
+                                        match o.value.trim().parse::<u32>().ok().and_then(|v| {
+                                            crate::model::with_bit_field(raw, mask, v)
+                                        }) {
+                                            Some(value) => {
+                                                session.write_raw(
+                                                    binding.space,
+                                                    &e,
+                                                    value,
+                                                    &o.label,
+                                                    meta,
+                                                    w.confirm,
+                                                );
+                                            }
+                                            None => {
+                                                session.notice = format!(
+                                                    "Option {} does not fit bit mask {mask:#X}",
+                                                    o.value.trim()
+                                                )
+                                            }
+                                        }
+                                    }
+                                    (_, None) => {}
+                                }
                                 ui.close();
                             }
                         }

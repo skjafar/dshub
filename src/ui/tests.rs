@@ -10,6 +10,7 @@ struct Harness {
     prefs: Preferences,
     series: Vec<PlotSeries>,
     time: f64,
+    width: f32,
 }
 impl Harness {
     fn new(kind: PaneKind) -> Self {
@@ -30,6 +31,7 @@ impl Harness {
             prefs: Preferences::default(),
             series: vec![],
             time: 0.,
+            width: 1400.,
         }
     }
     fn frame(&mut self, events: Vec<egui::Event>) -> egui::FullOutput {
@@ -37,7 +39,7 @@ impl Harness {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
-                egui::vec2(1400., 1000.),
+                egui::vec2(self.width, 1000.),
             )),
             time: Some(self.time),
             events,
@@ -74,18 +76,23 @@ impl Harness {
             .widgets
     }
     fn click(&mut self, label: &str) {
+        self.click_nth(label, 0);
+    }
+    /// Clicks the `n`th control named `label`, in drawing order.
+    fn click_nth(&mut self, label: &str, n: usize) {
         self.frame(vec![]);
         let output = self.frame(vec![]);
         let position = output
             .shapes
             .iter()
-            .find_map(|shape| {
+            .filter_map(|shape| {
                 if let egui::Shape::Text(t) = &shape.shape {
                     (t.galley.text() == label).then(|| t.pos + t.galley.size() / 2.)
                 } else {
                     None
                 }
             })
+            .nth(n)
             .unwrap_or_else(|| panic!("No rendered control named {label}"));
         self.frame(vec![
             egui::Event::PointerMoved(position),
@@ -421,21 +428,37 @@ fn plot_panes_select_traces_independently() {
         binding: Binding::new(Space::Register, &e),
         enabled: true,
     });
+    // Another Plot's trace is not shown, only offered.
+    h.frame(vec![]);
+    let output = h.frame(vec![]);
+    assert!(text_shown(&output, "Add trace…"));
+    assert!(!text_shown(&output, "CONTROLLER_STATE"));
+    h.click("Add trace…");
     h.click("CONTROLLER_STATE");
     assert_eq!(h.pane.plot_series, vec!["state"]);
-    let first = h.pane.clone();
-    h.pane = Pane::new(PaneKind::Plot);
     h.frame(vec![]);
-    assert!(h.pane.plot_series.is_empty());
-    h.click("CONTROLLER_STATE");
-    h.click("CONTROLLER_STATE");
-    assert!(h.pane.plot_series.is_empty());
-    assert_eq!(first.plot_series, vec!["state"]);
-    assert_eq!(
-        h.series.len(),
-        1,
-        "trace selection must not delete another pane's series"
+    assert!(
+        !text_shown(&h.frame(vec![]), "Add trace…"),
+        "nothing left to add"
     );
+    let first = h.pane.clone();
+
+    h.pane = Pane::new(PaneKind::Plot);
+    h.click("Add trace…");
+    h.click("CONTROLLER_STATE");
+    h.click(super::icons::CLOSE);
+    assert!(h.pane.plot_series.is_empty(), "removed from this Plot");
+    assert_eq!(first.plot_series, vec!["state"], "the other Plot keeps it");
+    assert_eq!(h.series.len(), 1, "the App drops traces no Plot shows");
+    let toast = h.session.toasts.last().expect("removal can be undone");
+    assert!(toast.undo.is_some());
+}
+
+fn text_shown(output: &egui::FullOutput, text: &str) -> bool {
+    output
+        .shapes
+        .iter()
+        .any(|shape| matches!(&shape.shape, egui::Shape::Text(t) if t.galley.text() == text))
 }
 
 #[test]
@@ -1042,6 +1065,8 @@ fn removed_widgets_and_traces_can_be_restored_in_place() {
                 binding: Binding::new(Space::Register, &entry),
                 enabled: true,
             },
+            pane: "plot".into(),
+            position: 0,
         },
     );
     let toast = session.toasts.last().unwrap();
@@ -1514,6 +1539,7 @@ fn write_fields_outline_unsent_refused_and_mismatched_values() {
     let mut state = State {
         text: "500".into(),
         sent: None,
+        refocus: false,
     };
     assert_eq!(role(&h, &state), Some(Role::Warn), "typed but not sent");
     state.sent = Some(Sent {
@@ -1647,4 +1673,602 @@ fn widgets_fitted_to_their_content_never_scroll() {
     problems.sort();
     problems.dedup();
     assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+#[test]
+fn bit_mask_dropdowns_rewrite_only_their_bits() {
+    let mut h = Harness::new(PaneKind::Dashboard);
+    let e = h
+        .profile
+        .entries(Space::Register)
+        .into_iter()
+        .find(|e| e.writable && e.data_type != DataType::Float)
+        .expect("a writable integer register");
+    let mut w = Widget::new(WidgetKind::Dropdown);
+    w.label = "Cal input".into();
+    w.binding = Some(Binding::new(Space::Register, &e));
+    w.bit_mask = 1 << 9;
+    w.confirm = true;
+    w.options = vec![
+        ValueLabel {
+            value: "0".into(),
+            label: "Ref 2.5 V".into(),
+        },
+        ValueLabel {
+            value: "1".into(),
+            label: "Ref GND".into(),
+        },
+    ];
+    h.profile.dashboards[0].widgets = vec![w];
+    connect(&mut h, true);
+    let key = (Space::Register, e.address);
+    let now = crate::communicator::now_ms();
+    h.session.readings.insert(
+        key,
+        RegisterData {
+            address: e.address,
+            name: e.name.clone(),
+            value: 0x05FE,
+            valid: true,
+            timestamp: now,
+        },
+    );
+    // Bit 9 clear names the first option, whatever the other bits hold.
+    h.click("Ref 2.5 V");
+    h.click("Ref GND");
+    let Some((_, Action::Write(space, address, value))) = h.session.confirm.take() else {
+        panic!("choosing an option asks to write");
+    };
+    assert_eq!((space, address), key);
+    assert_eq!(value, 0x07FE, "only bit 9 changes: {value:#X}");
+
+    // Until the device reads back an earlier write, the field has no
+    // trustworthy base and the options stay disabled.
+    h.session.writes.insert(
+        key,
+        session::WriteOutcome {
+            sent_at: now,
+            status: session::OutcomeStatus::Confirmed,
+            acked_at: Some(now + 1.),
+        },
+    );
+    h.click("Ref 2.5 V");
+    h.click("Ref GND");
+    assert!(
+        h.session.confirm.is_none(),
+        "stale base must not be written"
+    );
+}
+
+#[test]
+fn linked_plots_share_time_settings_and_crosshair() {
+    let mut h = Harness::new(PaneKind::Plot);
+    let e = h.profile.entries(Space::Register)[0].clone();
+    h.series.push(PlotSeries {
+        id: "state".into(),
+        binding: Binding::new(Space::Register, &e),
+        enabled: true,
+    });
+    let now = crate::communicator::now_ms() / 1000.;
+    h.session.histories.insert(
+        (Space::Register, e.address),
+        (0..50)
+            .map(|i| [now - 5. + i as f64 * 0.1, i as f64])
+            .collect(),
+    );
+    let mut panes = [0, 1, 2].map(|i| {
+        let mut p = Pane::new(PaneKind::Plot);
+        p.id = format!("plot-{i}");
+        p.plot_series = vec!["state".into()];
+        p
+    });
+    // Three Plots side by side in one pass, as the dock draws them.
+    let pass = |h: &mut Harness, panes: &mut [Pane; 3], events| {
+        h.time += 0.02;
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(2400., 800.),
+            )),
+            time: Some(h.time),
+            events,
+            ..Default::default()
+        };
+        let mut out = h.ctx.run_ui(input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
+                ui.columns(3, |columns| {
+                    for (ui, pane) in columns.iter_mut().zip(panes.iter_mut()) {
+                        let (mut moved, mut added) = (vec![], vec![]);
+                        let mut viewer = panes::Viewer {
+                            session: &mut h.session,
+                            profile: &mut h.profile,
+                            prefs: &h.prefs,
+                            series: &mut h.series,
+                            moved: &mut moved,
+                            added: &mut added,
+                            window_id: "test",
+                            destinations: &[],
+                        };
+                        let id = pane.id.clone();
+                        ui.push_id(id, |ui| egui_dock::TabViewer::ui(&mut viewer, ui, pane));
+                    }
+                });
+            });
+        });
+        out.textures_delta.clear();
+        out
+    };
+    // Where `label` is drawn in Plot `column`.
+    let find = |out: &egui::FullOutput, column: usize, label: &str| {
+        out.shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(t) if t.galley.text() == label => {
+                    Some(t.pos + t.galley.size() / 2.)
+                }
+                _ => None,
+            })
+            .find(|pos| (pos.x / 800.) as usize == column)
+    };
+    let click = |h: &mut Harness, panes: &mut [Pane; 3], column: usize, label: &str| {
+        pass(h, panes, vec![]);
+        let out = pass(h, panes, vec![]);
+        let pos = find(&out, column, label)
+            .unwrap_or_else(|| panic!("No control named {label} in Plot {column}"));
+        pass(
+            h,
+            panes,
+            vec![egui::Event::PointerMoved(pos), pointer_button(pos, true)],
+        );
+        pass(h, panes, vec![pointer_button(pos, false)]);
+    };
+
+    click(&mut h, &mut panes, 0, "Link time");
+    assert!(panes[0].plot_linked, "the tick links the Plot");
+    // A pause and window chosen in one linked Plot reach the others.
+    click(&mut h, &mut panes, 0, "Pause");
+    let frozen = panes[0].frozen.expect("paused");
+    click(&mut h, &mut panes, 0, "Window: 1 min");
+    click(&mut h, &mut panes, 0, "30 s");
+    assert_eq!(panes[0].plot_span, 30.);
+    click(&mut h, &mut panes, 1, "Link time");
+    assert_eq!(
+        (panes[1].frozen, panes[1].plot_span),
+        (Some(frozen), 30.),
+        "joining adopts the group's settings"
+    );
+    assert_eq!(
+        (panes[2].frozen, panes[2].plot_span),
+        (None, 0.),
+        "an unlinked Plot stays apart"
+    );
+    // Unpausing the second Plot unpauses the first.
+    click(&mut h, &mut panes, 1, "Pause");
+    pass(&mut h, &mut panes, vec![]);
+    assert_eq!((panes[0].frozen, panes[1].frozen), (None, None));
+
+    // Hovering one linked Plot shows the read-out in the other linked Plot,
+    // not in the unlinked one.
+    pass(&mut h, &mut panes, vec![]);
+    let resting = pass(&mut h, &mut panes, vec![]);
+    let names = |out: &egui::FullOutput, column: usize| {
+        out.shapes
+            .iter()
+            .filter(|s| match &s.shape {
+                egui::Shape::Text(t) => {
+                    t.galley.text() == e.name && (t.pos.x / 800.) as usize == column
+                }
+                _ => false,
+            })
+            .count()
+    };
+    let plot_centre = egui::pos2(400., 500.);
+    pass(
+        &mut h,
+        &mut panes,
+        vec![egui::Event::PointerMoved(plot_centre)],
+    );
+    let hovered = pass(&mut h, &mut panes, vec![]);
+    assert!(
+        names(&hovered, 1) > names(&resting, 1),
+        "linked Plot shows the read-out"
+    );
+    assert_eq!(
+        names(&hovered, 2),
+        names(&resting, 2),
+        "unlinked Plot does not"
+    );
+
+    // Cursors placed in one linked Plot appear in the other.
+    click(&mut h, &mut panes, 0, "Cursors");
+    pass(&mut h, &mut panes, vec![]);
+    assert!(panes[0].cursors.is_some());
+    assert_eq!(panes[1].cursors, panes[0].cursors, "linked cursors");
+    assert_eq!(panes[2].cursors, None, "unlinked Plot has none");
+}
+
+#[test]
+fn plot_stats_use_every_sample_in_the_span() {
+    use super::panes::stats;
+    let h: std::collections::VecDeque<[f64; 2]> = (0..10).map(|i| [i as f64, i as f64]).collect();
+    let s = stats(&h, 2., 5., None).unwrap();
+    assert_eq!(
+        (s.count, s.last, s.min, s.max, s.mean),
+        (4, 5., 2., 5., 3.5)
+    );
+    assert!((s.std_dev - 1.25_f64.sqrt()).abs() < 1e-12);
+    // Engineering scaling applies before the statistics.
+    let s = stats(&h, 0., 1., Some((2., 10.))).unwrap();
+    assert_eq!((s.min, s.max, s.mean), (10., 12., 11.));
+    assert!(stats(&h, 20., 30., None).is_none(), "nothing in the span");
+    // A tiny spread on a large value keeps its precision.
+    let big: std::collections::VecDeque<[f64; 2]> = (0..1000)
+        .map(|i| [i as f64, 1e9 + if i % 2 == 0 { 0.001 } else { -0.001 }])
+        .collect();
+    let s = stats(&big, 0., 1000., None).unwrap();
+    // 1e9 ± 0.001 is stored to about 1e-7, so that is the spread recorded.
+    assert!((s.std_dev - 0.001).abs() < 1e-6, "{}", s.std_dev);
+}
+
+/// A Plot of two traces with five seconds of samples; returns the entries.
+fn stats_harness() -> (Harness, Vec<Entry>, f64) {
+    let mut h = Harness::new(PaneKind::Plot);
+    let entries: Vec<Entry> = h.profile.entries(Space::Register)[..2].to_vec();
+    let now = crate::communicator::now_ms() / 1000.;
+    for (i, e) in entries.iter().enumerate() {
+        let id = format!("trace-{i}");
+        h.series.push(PlotSeries {
+            id: id.clone(),
+            binding: Binding::new(Space::Register, e),
+            enabled: true,
+        });
+        h.pane.plot_series.push(id);
+        h.session.histories.insert(
+            (Space::Register, e.address),
+            (0..50)
+                .map(|n| [now - 5. + n as f64 * 0.1, (n + 100 * i) as f64])
+                .collect(),
+        );
+    }
+    h.pane.auto = true;
+    (h, entries, now)
+}
+/// How often `text` is drawn in the statistics table, below its header.
+fn count_text(out: &egui::FullOutput, text: &str) -> usize {
+    let top = out
+        .shapes
+        .iter()
+        .find_map(|s| match &s.shape {
+            egui::Shape::Text(t) if t.galley.text() == "Trace" => Some(t.pos.y),
+            _ => None,
+        })
+        .unwrap_or(f32::INFINITY);
+    out.shapes
+        .iter()
+        .filter(|s| {
+            matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == text && t.pos.y >= top)
+        })
+        .count()
+}
+
+#[test]
+fn sigma_on_a_trace_puts_it_in_the_stats_table() {
+    let (mut h, _, _) = stats_harness();
+    h.frame(vec![]);
+    let out = h.frame(vec![]);
+    assert_eq!(count_text(&out, "Peak-to-peak"), 0, "off by default");
+    assert_eq!(count_all(&out, "Σ"), 0, "no Σ without Stats");
+    h.click("Stats");
+    h.frame(vec![]);
+    let out = h.frame(vec![]);
+    assert_eq!(count_all(&out, "Σ"), 2, "a Σ beside each trace");
+    assert_eq!(count_text(&out, "Peak-to-peak"), 1);
+    // Trace 0 runs 0..49 and trace 1 100..149.
+    assert_eq!(
+        count_text(&out, "49.000000"),
+        4,
+        "current, max and peak-to-peak of trace 1, peak-to-peak of trace 2"
+    );
+    assert_eq!(
+        count_text(&out, "149.000000"),
+        2,
+        "current and max of trace 2"
+    );
+    let name = h.series[1].binding.name.clone();
+    assert_eq!(count_text(&out, &name), 1, "trace 2 has a row");
+
+    // Σ off: the trace leaves the table altogether.
+    h.click_nth("Σ", 1);
+    assert_eq!(h.pane.stats_hidden, vec!["trace-1"]);
+    h.frame(vec![]);
+    let out = h.frame(vec![]);
+    assert_eq!(count_text(&out, &name), 0, "no row for trace 2");
+    assert_eq!(count_text(&out, "149.000000"), 0);
+    assert_eq!(count_text(&out, "49.000000"), 3, "trace 1 untouched");
+
+    // With every Σ off the table says how to bring rows back.
+    h.click_nth("Σ", 0);
+    h.frame(vec![]);
+    let out = h.frame(vec![]);
+    assert_eq!(
+        count_all(&out, "Turn on Σ beside a trace to show its statistics."),
+        1
+    );
+    h.click_nth("Σ", 1);
+    assert_eq!(h.pane.stats_hidden, vec!["trace-0"], "Σ on again");
+}
+
+/// How often `text` is drawn anywhere.
+fn count_all(out: &egui::FullOutput, text: &str) -> usize {
+    out.shapes
+        .iter()
+        .filter(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == text))
+        .count()
+}
+
+#[test]
+fn cursors_switch_stats_to_their_span_and_drag() {
+    let (mut h, _, now) = stats_harness();
+    h.pane.plot_stats = true;
+    h.click("Cursors");
+    let [a, b] = h.pane.cursors.expect("cursors placed in view");
+    assert!(a < b);
+    // Cursors over samples 11..=20 of each trace; A sits nearest sample 10.
+    h.pane.cursors = Some([now - 4. + 0.05, now - 3. + 0.05]);
+    h.frame(vec![]);
+    let out = h.frame(vec![]);
+    assert_eq!(count_text(&out, "At A"), 1, "cursor columns");
+    assert_eq!(
+        count_text(&out, "10.000000"),
+        3,
+        "trace 1 at A, and B − A of each trace"
+    );
+    assert_eq!(count_text(&out, "10"), 2, "samples of each trace");
+    assert_eq!(count_text(&out, "110.000000"), 1, "trace 2 at A");
+    assert_eq!(
+        count_text(&out, "111.000000"),
+        1,
+        "trace 2 minimum in the span"
+    );
+
+    // Drag cursor A by its line.
+    let label = out
+        .shapes
+        .iter()
+        .find_map(|s| match &s.shape {
+            egui::Shape::Text(t) if t.galley.text() == "A" => Some(t.pos),
+            _ => None,
+        })
+        .expect("cursor A label");
+    let on_line = egui::pos2(label.x - 4., label.y - 60.);
+    let before = h.pane.cursors.unwrap()[0];
+    h.frame(vec![egui::Event::PointerMoved(on_line)]);
+    h.frame(vec![pointer_button(on_line, true)]);
+    let to = on_line + egui::vec2(80., 0.);
+    h.frame(vec![egui::Event::PointerMoved(to)]);
+    h.frame(vec![pointer_button(to, false)]);
+    let after = h.pane.cursors.unwrap()[0];
+    assert!(after > before + 0.1, "A moved right: {before} → {after}");
+    // The view itself did not pan.
+    assert!(h.pane.auto, "still following live");
+}
+
+#[test]
+fn stats_columns_fill_the_pane_and_hold_their_width() {
+    let (mut h, entries, now) = stats_harness();
+    h.pane.plot_stats = true;
+    h.prefs.stats_decimals = 3;
+    h.frame(vec![]);
+    let out = h.frame(vec![]);
+    assert_eq!(count_text(&out, "149.000"), 2, "three decimals");
+    let header_x = |out: &egui::FullOutput, text: &str| {
+        out.shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Text(t) if t.galley.text() == text => {
+                    Some(t.pos.x + t.galley.size().x)
+                }
+                _ => None,
+            })
+            .unwrap()
+    };
+    let samples = header_x(&out, "Samples");
+    assert!(samples > 1300., "the table fills the pane: {samples}");
+    let max = header_x(&out, "Max");
+
+    // Much larger values keep the columns where they were.
+    h.session.histories.insert(
+        (Space::Register, entries[1].address),
+        (0..50)
+            .map(|n| [now - 5. + n as f64 * 0.1, -1_234_567.0 * n as f64])
+            .collect(),
+    );
+    h.frame(vec![]);
+    let out = h.frame(vec![]);
+    assert_eq!(header_x(&out, "Max"), max);
+    assert_eq!(header_x(&out, "Samples"), samples);
+
+    // A narrow pane keeps fewer decimals, never below two.
+    h.prefs.stats_decimals = 10;
+    h.width = 420.;
+    h.frame(vec![]);
+    let out = h.frame(vec![]);
+    let decimals: Vec<usize> = out
+        .shapes
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Text(t) => t
+                .galley
+                .text()
+                .strip_prefix("49.")
+                .filter(|d| d.chars().all(|c| c == '0'))
+                .map(str::len),
+            _ => None,
+        })
+        .collect();
+    assert!(!decimals.is_empty(), "trace 1 values shown");
+    assert!(
+        decimals.iter().all(|&d| (2..10).contains(&d)),
+        "fewer decimals when narrow: {decimals:?}"
+    );
+}
+
+#[test]
+fn write_fields_keep_focus_to_send_again() {
+    let mut h = Harness::new(PaneKind::Dashboard);
+    connect(&mut h, true);
+    let e = h
+        .profile
+        .entries(Space::Register)
+        .into_iter()
+        .find(|e| e.writable && e.data_type != DataType::Float)
+        .unwrap();
+    let mut write = Widget::new(WidgetKind::ValueWrite);
+    write.id = "vw".into();
+    write.binding = Some(Binding::new(Space::Register, &e));
+    write.value = String::new();
+    h.profile.dashboards[0].widgets = vec![write];
+    let field = egui::Id::new(("value-write", "vw")).with("edit");
+    let enter = egui::Event::Key {
+        key: egui::Key::Enter,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: Default::default(),
+    };
+    let focused = |h: &Harness| h.ctx.memory(|m| m.focused()) == Some(field);
+    h.frame(vec![]);
+    h.ctx.memory_mut(|m| m.request_focus(field));
+    h.frame(vec![]);
+    assert!(focused(&h));
+
+    // Without confirmation: sent, and the field is ready for the next value.
+    h.frame(vec![egui::Event::Text("5".into()), enter.clone()]);
+    let first = h.session.writes[&(Space::Register, e.address)].sent_at;
+    h.frame(vec![]);
+    assert!(focused(&h), "focus returns after Enter");
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    h.frame(vec![egui::Event::Text("7".into()), enter.clone()]);
+    let second = h.session.writes[&(Space::Register, e.address)].sent_at;
+    assert!(second > first, "the new value is sent too");
+
+    // With confirmation: the field waits for the dialog, then takes focus.
+    h.profile.dashboards[0].widgets[0].confirm = true;
+    h.frame(vec![]);
+    h.frame(vec![egui::Event::Text("9".into()), enter.clone()]);
+    let (message, _) = h.session.confirm.clone().expect("asks first");
+    assert!(message.contains("579"), "{message}");
+    h.frame(vec![]);
+    assert!(!focused(&h), "nothing types behind the dialog");
+    h.session.confirm = None;
+    h.frame(vec![]);
+    h.frame(vec![]);
+    assert!(focused(&h), "editable again after the dialog");
+    h.frame(vec![egui::Event::Text("1".into()), enter]);
+    assert!(h.session.confirm.is_some(), "and sendable again");
+}
+
+#[test]
+fn moving_average_covers_the_span_and_starts_with_the_data() {
+    use super::panes::averaged;
+    let h: std::collections::VecDeque<[f64; 2]> = (0..10).map(|i| [i as f64, i as f64]).collect();
+    // Each point averages it and up to three samples before it, including
+    // samples before the span.
+    let a = averaged(&h, 5., 7., 4, None);
+    assert_eq!(a, vec![[5., 3.5], [6., 4.5], [7., 5.5]]);
+    // At the start of the history fewer samples are averaged.
+    let a = averaged(&h, 0., 2., 4, None);
+    assert_eq!(a, vec![[0., 0.], [1., 0.5], [2., 1.]]);
+    // Engineering scaling applies to the average.
+    let a = averaged(&h, 9., 9., 2, Some((10., 1.)));
+    assert_eq!(a, vec![[9., 86.]]);
+}
+
+#[test]
+fn averaged_traces_draw_and_list_what_is_shown() {
+    let (mut h, entries, _) = stats_harness();
+    h.pane.plot_stats = true;
+    h.pane.trace_average.insert("trace-0".into(), 4);
+    h.frame(vec![]);
+    let out = h.frame(vec![]);
+    let avg = format!("{} · avg 4", entries[0].name);
+    let raw = format!("{} · raw", entries[0].name);
+    assert!(
+        count_all(&out, &avg) >= 2,
+        "legend and stats row name the average"
+    );
+    assert_eq!(count_all(&out, &raw), 0, "raw line hidden by default");
+    assert_eq!(
+        count_all(&out, "avg 4"),
+        1,
+        "the trace row shows the window"
+    );
+    assert_eq!(count_all(&out, "Show raw"), 1);
+    // Trace 0 is 0..49: the average's current value is (46+47+48+49)/4.
+    assert_eq!(
+        count_text(&out, "47.500000"),
+        3,
+        "current, max and peak-to-peak of the average"
+    );
+
+    h.pane.show_raw = true;
+    h.frame(vec![]);
+    let out = h.frame(vec![]);
+    assert!(count_all(&out, &raw) >= 2, "raw line and its stats row");
+    assert_eq!(
+        count_text(&out, "49.000000"),
+        4,
+        "raw current, max and peak-to-peak, and trace 2 peak-to-peak"
+    );
+    assert_eq!(count_text(&out, "47.500000"), 3, "average still listed");
+}
+
+#[test]
+fn restoring_a_moved_value_warns_then_writes_it() {
+    use super::values::{plan, Dialog, SavedValue, ValuesFile};
+    let mut h = Harness::new(PaneKind::Registers);
+    connect(&mut h, true);
+    let e = h
+        .profile
+        .entries(Space::Register)
+        .into_iter()
+        .find(|e| e.writable && e.data_type != DataType::Float)
+        .unwrap();
+    let file = ValuesFile {
+        dshub_values: 1,
+        profile: h.profile.name.clone(),
+        space: Space::Register,
+        saved: "earlier".into(),
+        board_type: None,
+        entries: vec![SavedValue {
+            name: e.name.clone(),
+            address: e.address + 40,
+            data_type: e.data_type,
+            raw: 7,
+            value: "7".into(),
+            unit: String::new(),
+        }],
+    };
+    let mut rows = plan(&file, &h.profile.entries(Space::Register));
+    assert!(!rows[0].selected, "moved values start unticked");
+    rows[0].selected = true;
+    h.pane.values = Some(Dialog::Preview {
+        file,
+        rows,
+        filter: String::new(),
+    });
+    h.click("Restore 1 (1 changed)");
+    assert!(
+        matches!(h.pane.values, Some(Dialog::Warning { .. })),
+        "warned before anything is sent"
+    );
+    assert!(h.session.writes.is_empty());
+    h.click("Restore anyway");
+    assert!(matches!(h.pane.values, Some(Dialog::Restoring { .. })));
+    let outcome = &h.session.writes[&(Space::Register, e.address)];
+    assert_eq!(
+        outcome.status,
+        session::OutcomeStatus::Sending,
+        "written to the current address"
+    );
 }

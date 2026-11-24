@@ -7,7 +7,7 @@ use crate::model::Role;
 use crate::{model::*, types::*};
 use eframe::egui::{self, Color32, RichText};
 use egui_dock::{tab_viewer::OnCloseResponse, TabViewer};
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 pub struct Viewer<'a> {
@@ -279,6 +279,10 @@ impl Viewer<'_> {
                 ],
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // Registers and Parameters save and restore their own values.
+                if s != Space::SysRegister {
+                    super::values::buttons(ui, self.session, self.profile, p, s);
+                }
                 if ui.button("Export CSV").clicked() {
                     let mut text = "address,name,type,value,valid\n".to_string();
                     for e in &entries {
@@ -310,6 +314,9 @@ impl Viewer<'_> {
                 );
             });
         });
+        if s != Space::SysRegister {
+            super::values::dialog(ui.ctx(), self.session, self.profile, p, s);
+        }
         ui.add_space(4.);
         if entries.is_empty() {
             ui.label(
@@ -1235,13 +1242,27 @@ impl Viewer<'_> {
         }
     }
     fn plot(&mut self, ui: &mut egui::Ui, p: &mut Pane) {
+        let pass = ui.ctx().cumulative_pass_nr();
+        // A linked Plot takes the group's time settings before drawing them.
+        let shared = PlotLink::load(ui.ctx(), pass);
+        if p.plot_linked {
+            if let Some(link) = &shared {
+                link.apply(p);
+            }
+        }
+        let before = (p.plot_linked, p.auto, p.frozen, p.plot_span, p.cursors);
+        let range_id = egui::Id::new((&p.id, "visible-range"));
         ui.horizontal(|ui| {
+            ui.checkbox(&mut p.plot_linked, "Link time").on_hover_text(
+                "Share the time axis, window, Pause, Follow live and crosshair with every \
+                 other linked Plot",
+            );
             ui.checkbox(&mut p.auto, "Follow live");
             // Pausing freezes this pane's view; recording continues.
             let mut paused = p.frozen.is_some();
             if ui
                 .checkbox(&mut paused, "Pause")
-                .on_hover_text("Freeze this plot. Data keeps recording.")
+                .on_hover_text("Freeze this plot, or every linked Plot. Data keeps recording.")
                 .changed()
             {
                 p.frozen = paused.then(|| crate::communicator::now_ms() / 1000.);
@@ -1271,6 +1292,33 @@ impl Viewer<'_> {
                 "Draw each trace as 0–100 % of its own range, so values of very different \
                  size share the plot. The read-out still shows real values.",
             );
+            if p.trace_average.values().any(|&n| n > 1) {
+                ui.checkbox(&mut p.show_raw, "Show raw")
+                    .on_hover_text("Also draw each averaged trace's raw samples, faintly");
+            }
+            ui.checkbox(&mut p.plot_stats, "Stats").on_hover_text(
+                "Current, minimum, maximum, mean, peak-to-peak and standard deviation of \
+                 each trace over the visible time, or between the cursors",
+            );
+            let mut cursors = p.cursors.is_some();
+            if ui
+                .checkbox(&mut cursors, "Cursors")
+                .on_hover_text("Two cursors, A and B, to drag over a span of time")
+                .changed()
+            {
+                p.cursors = cursors.then(|| {
+                    // A third and two thirds of the way across the view.
+                    let [from, to] = ui
+                        .ctx()
+                        .data(|d| d.get_temp::<[f64; 2]>(range_id))
+                        .unwrap_or_else(|| {
+                            let now = crate::communicator::now_ms() / 1000.;
+                            [now - 60., now]
+                        });
+                    let third = (to - from) / 3.;
+                    [from + third, to - third]
+                });
+            }
             ui.separator();
             let recording = self.session.recording.as_ref().map(|r| {
                 let seconds = (crate::communicator::now_ms() - r.started) / 1000.;
@@ -1339,17 +1387,15 @@ impl Viewer<'_> {
                 self.session.export(csv, "plot.csv", "csv");
             }
         });
+        // This Plot's own traces; others in the Profile are offered by Add
+        // trace. Removing one takes it from this Plot alone.
         let mut remove = None;
         ui.horizontal_wrapped(|ui| {
-            for (i, s) in self.series.iter_mut().enumerate() {
-                let mut selected = p.plot_series.contains(&s.id);
-                if ui.checkbox(&mut selected, &s.binding.name).changed() {
-                    if selected {
-                        p.plot_series.push(s.id.clone());
-                    } else {
-                        p.plot_series.retain(|id| id != &s.id);
-                    }
-                }
+            for (index, s) in self.series.iter_mut().enumerate() {
+                let Some(position) = p.plot_series.iter().position(|id| id == &s.id) else {
+                    continue;
+                };
+                ui.label(RichText::new(&s.binding.name).monospace());
                 if !s.binding.matches(self.profile) {
                     ui.colored_label(colors::role(ui, Role::Warn), "Needs review");
                     if let Some(e) = self.profile.resolve(&s.binding) {
@@ -1358,60 +1404,220 @@ impl Viewer<'_> {
                         }
                     }
                 }
+                // Avg: a moving average over this trace's samples.
+                let average = p.trace_average.get(&s.id).copied().filter(|&n| n > 1);
+                let spacing = self
+                    .session
+                    .histories
+                    .get(&(s.binding.space, s.binding.address))
+                    .and_then(sample_spacing);
+                let label = match average {
+                    Some(n) => {
+                        RichText::new(format!("avg {n}")).color(colors::role(ui, Role::Accent))
+                    }
+                    None => RichText::new("Avg").color(theme::of(ui).text_weak),
+                };
+                ui.menu_button(label, |ui| {
+                    ui.label(RichText::new("Moving average").strong());
+                    let mut n = average.unwrap_or(16);
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut n)
+                                .range(2..=10_000)
+                                .suffix(" samples"),
+                        );
+                        if let Some(dt) = spacing {
+                            ui.label(
+                                RichText::new(format!("≈ {}", duration_label(dt * n as f64)))
+                                    .color(theme::of(ui).text_weak),
+                            );
+                        }
+                    });
+                    if average.is_some() || ui.button("Average").clicked() {
+                        p.trace_average.insert(s.id.clone(), n);
+                    }
+                    if average.is_some() && ui.button("Off").clicked() {
+                        p.trace_average.remove(&s.id);
+                        ui.close();
+                    }
+                })
+                .response
+                .on_hover_text("Draw a moving average of this trace");
+                // Σ: whether this trace has a row in the statistics table.
+                if p.plot_stats {
+                    let shown = !p.stats_hidden.contains(&s.id);
+                    let label = RichText::new("Σ").color(if shown {
+                        colors::role(ui, Role::Accent)
+                    } else {
+                        theme::of(ui).text_weak
+                    });
+                    if ui
+                        .add(egui::Button::new(label).small().selected(shown))
+                        .on_hover_text(if shown {
+                            "Hide this trace's statistics"
+                        } else {
+                            "Show this trace's statistics"
+                        })
+                        .clicked()
+                    {
+                        if shown {
+                            p.stats_hidden.push(s.id.clone());
+                        } else {
+                            p.stats_hidden.retain(|id| id != &s.id);
+                        }
+                    }
+                }
                 if ui
                     .small_button(super::icons::CLOSE)
-                    .on_hover_text("Delete this trace from every Plot")
+                    .on_hover_text("Remove this trace from this Plot")
                     .clicked()
                 {
-                    remove = Some(i);
+                    remove = Some((index, position));
                 }
+                ui.add_space(6.);
+            }
+            let others: Vec<(String, String)> = self
+                .series
+                .iter()
+                .filter(|s| !p.plot_series.contains(&s.id))
+                .map(|s| (s.id.clone(), s.binding.name.clone()))
+                .collect();
+            if !others.is_empty() {
+                ui.menu_button("Add trace…", |ui| {
+                    for (id, name) in others {
+                        if ui.button(RichText::new(name).monospace()).clicked() {
+                            p.plot_series.push(id);
+                            ui.close();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text("Add a trace another Plot in this Profile uses");
             }
         });
-        if let Some(index) = remove {
-            let series = self.series.remove(index);
-            self.session.removed(
-                format!("Removed trace {}", series.binding.name),
-                super::session::Undo::Trace { index, series },
-            );
+        if let Some((index, position)) = remove {
+            let id = p.plot_series.remove(position);
+            if let Some(series) = self.series.iter().find(|s| s.id == id) {
+                self.session.removed(
+                    format!("Removed trace {}", series.binding.name),
+                    super::session::Undo::Trace {
+                        index,
+                        series: series.clone(),
+                        pane: p.id.clone(),
+                        position,
+                    },
+                );
+            }
         }
-        if self.series.is_empty() {
+        if p.plot_series.is_empty() {
             ui.label("Click Plot beside an entry to add a trace.");
         }
+        let mut link = p.plot_linked.then(|| {
+            let newly = !before.0;
+            match shared {
+                // Joining a group adopts its settings.
+                Some(link) if newly => {
+                    link.apply(p);
+                    link
+                }
+                Some(mut link) => {
+                    if (p.auto, p.frozen, p.plot_span, p.cursors)
+                        != (before.1, before.2, before.3, before.4)
+                    {
+                        link.auto = p.auto;
+                        link.frozen = p.frozen;
+                        link.span = p.plot_span;
+                        link.cursors = p.cursors;
+                    }
+                    link
+                }
+                None => PlotLink {
+                    auto: p.auto,
+                    frozen: p.frozen,
+                    span: p.plot_span,
+                    cursors: p.cursors,
+                    now: 0.,
+                    now_pass: 0,
+                    pass,
+                    pointer: None,
+                    pointer_owner: String::new(),
+                },
+            }
+        });
+        if let Some(link) = &mut link {
+            link.pass = pass;
+            // One "now" per frame, so every linked Plot ends at the same time.
+            if link.now_pass != pass {
+                link.now = crate::communicator::now_ms() / 1000.;
+                link.now_pass = pass;
+            }
+        }
+        let linked_end = link.as_ref().map(|l| p.frozen.unwrap_or(l.now));
         let span = if p.plot_span > 0. {
             p.plot_span
         } else {
             self.prefs.time_span
         };
-        let mut traces: Vec<(String, Vec<[f64; 2]>)> = self
+        // Each drawn line, and what its statistics row needs. An averaged
+        // trace draws its average, and its raw samples too with Show raw.
+        let mut sources: Vec<StatSource> = vec![];
+        let mut traces: Vec<(String, Vec<[f64; 2]>)> = vec![];
+        let mut drawn = 0;
+        for s in self
             .series
             .iter()
             .filter(|s| p.plot_series.contains(&s.id) && s.binding.matches(self.profile))
-            .filter_map(|s| {
-                let h = self
-                    .session
-                    .histories
-                    .get(&(s.binding.space, s.binding.address))?;
-                let end = p.frozen.or_else(|| h.back().map(|last| last[0]))?;
+        {
+            let key = (s.binding.space, s.binding.address);
+            let Some(h) = self.session.histories.get(&key) else {
+                continue;
+            };
+            let Some(end) = linked_end
+                .or(p.frozen)
+                .or_else(|| h.back().map(|last| last[0]))
+            else {
+                continue;
+            };
+            // Plot in engineering units, as tables and widgets show them.
+            let scaling = self
+                .profile
+                .metadata(s.binding.space, &s.binding.name)
+                .and_then(Metadata::scaling);
+            let average = p.trace_average.get(&s.id).copied().filter(|&n| n > 1);
+            let source = |average: Option<usize>| StatSource {
+                id: s.id.clone(),
+                key,
+                scaling,
+                average,
+                colour: drawn,
+                faint: average.is_none() && p.trace_average.get(&s.id).is_some_and(|&n| n > 1),
+            };
+            if average.is_none() || p.show_raw {
                 let mut points = window(h, end - span, end, MAX_TRACE_POINTS);
-                // Plot in engineering units, as tables and widgets show them.
-                if let Some((scale, offset)) = self
-                    .profile
-                    .metadata(s.binding.space, &s.binding.name)
-                    .and_then(Metadata::scaling)
-                {
-                    for point in &mut points {
-                        point[1] = point[1] * scale + offset;
-                    }
+                for point in &mut points {
+                    point[1] = scaled(point[1], scaling);
                 }
-                Some((s.binding.name.clone(), points))
-            })
-            .collect();
+                let name = if average.is_some() {
+                    format!("{} · raw", s.binding.name)
+                } else {
+                    s.binding.name.clone()
+                };
+                sources.push(source(None));
+                traces.push((name, points));
+            }
+            if let Some(n) = average {
+                let points = thin(averaged(h, end - span, end, n, scaling), MAX_TRACE_POINTS);
+                sources.push(source(Some(n)));
+                traces.push((format!("{} · avg {n}", s.binding.name), points));
+            }
+            drawn += 1;
+        }
         if traces.iter().all(|(_, points)| points.is_empty()) {
             ui.add_space(24.);
             ui.vertical_centered(|ui| {
                 ui.label(
                     RichText::new(if p.plot_series.is_empty() {
-                        "Tick a trace above, or choose Plot on an entry."
+                        "Add a trace above, or choose Plot on an entry."
                     } else if self.session.connected() {
                         "Waiting for samples…"
                     } else {
@@ -1422,50 +1628,100 @@ impl Viewer<'_> {
             });
             return;
         }
-        // Normalised: each trace becomes a percentage of its own range. The
+        // Normalised: each trace becomes a percentage of its own range, shared
+        // by its raw and averaged lines so they stay on top of each other. The
         // (minimum, range) pairs turn read-out values back into real ones.
-        let ranges: Vec<Option<(f64, f64)>> = traces
-            .iter_mut()
-            .map(|(_, points)| {
-                if !p.normalise || points.is_empty() {
-                    return None;
+        let ranges: Vec<Option<(f64, f64)>> = {
+            let mut bounds: BTreeMap<usize, (f64, f64)> = BTreeMap::new();
+            for (source, (_, points)) in sources.iter().zip(&traces) {
+                let b = bounds
+                    .entry(source.colour)
+                    .or_insert((f64::INFINITY, f64::NEG_INFINITY));
+                for p in points {
+                    *b = (b.0.min(p[1]), b.1.max(p[1]));
                 }
-                let (low, high) = points
-                    .iter()
-                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
-                        (lo.min(p[1]), hi.max(p[1]))
-                    });
-                let range = if high > low { high - low } else { 1. };
-                for point in points.iter_mut() {
-                    point[1] = (point[1] - low) / range * 100.;
-                }
-                Some((low, range))
-            })
-            .collect();
-        let newest = traces
+            }
+            sources
+                .iter()
+                .zip(traces.iter_mut())
+                .map(|(source, (_, points))| {
+                    let (low, high) = bounds[&source.colour];
+                    if !p.normalise || !low.is_finite() {
+                        return None;
+                    }
+                    let range = if high > low { high - low } else { 1. };
+                    for point in points.iter_mut() {
+                        point[1] = (point[1] - low) / range * 100.;
+                    }
+                    Some((low, range))
+                })
+                .collect()
+        };
+        let newest = linked_end.unwrap_or_else(|| {
+            traces
+                .iter()
+                .filter_map(|(_, points)| points.last().map(|p| p[0]))
+                .fold(f64::NEG_INFINITY, f64::max)
+        });
+        // Room under the chart for the cursor line and the statistics table.
+        let row = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+        let caption = if p.plot_stats || p.cursors.is_some() {
+            row + 4.
+        } else {
+            0.
+        };
+        let with_stats = sources
             .iter()
-            .filter_map(|(_, points)| points.last().map(|p| p[0]))
-            .fold(f64::NEG_INFINITY, f64::max);
+            .filter(|s| !p.stats_hidden.contains(&s.id))
+            .count();
+        let table = if p.plot_stats {
+            ((with_stats.max(1) + 1) as f32 * row + 8.).min(ui.available_height() * 0.4)
+        } else {
+            0.
+        };
+        let names: Vec<String> = traces.iter().map(|(name, _)| name.clone()).collect();
+        let drag_id = egui::Id::new((&p.id, "cursor-drag"));
+        let near_id = egui::Id::new((&p.id, "cursor-near"));
+        let dragging = ui.ctx().data(|d| d.get_temp::<usize>(drag_id));
+        let near = ui
+            .ctx()
+            .data(|d| d.get_temp::<bool>(near_id))
+            .unwrap_or(false);
         let mut plot = egui_plot::Plot::new((&p.id, "chart"))
             .legend(egui_plot::Legend::default().position(egui_plot::Corner::LeftTop))
-            .height((ui.available_height() - 8.).max(100.))
+            .height((ui.available_height() - 8. - caption - table).max(100.))
             .x_axis_formatter(|mark, _| clock::short_time(mark.value * 1000.))
             // The crosshair read-out below lists every trace at once.
             .label_formatter(|_| None)
             .show_x(false)
             .show_y(false);
-        plot = plot.allow_zoom(true).allow_drag(true);
+        // Pressing on a cursor drags the cursor, not the view.
+        plot = plot
+            .allow_zoom(true)
+            .allow_drag(dragging.is_none() && !near);
+        if link.is_some() {
+            plot = plot.link_axis(egui::Id::new("linked-plot-time-axis"), [true, false]);
+        }
+        // The pointer's time in another linked Plot, shown here as well.
+        let elsewhere = link
+            .as_ref()
+            .filter(|l| l.pointer_owner != p.id)
+            .and_then(|l| l.pointer);
         let crosshair = theme::of(ui).text_weak.gamma_multiply(0.6);
         let response = theme::plot_tone(ui, |ui| {
             plot.show(ui, |plot_ui| {
                 if p.auto && newest.is_finite() {
                     // Follow the newest sample and fit Y to what is visible.
-                    let (low, high) = traces
+                    let (mut low, mut high) = traces
                         .iter()
                         .flat_map(|(_, points)| points.iter().map(|p| p[1]))
                         .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
                             (lo.min(v), hi.max(v))
                         });
+                    // A linked Plot keeps following with nothing to show yet.
+                    if !low.is_finite() {
+                        (low, high) = (0., 1.);
+                    }
                     let pad = if high > low {
                         (high - low) * 0.08
                     } else if high != 0. {
@@ -1481,14 +1737,19 @@ impl Viewer<'_> {
                 // Crosshair: each trace's sample nearest the pointer's time.
                 // It is painted over the plot afterwards, not added as a plot
                 // item, so it never takes part in automatic bounds.
-                let readout: Vec<(String, [f64; 2])> = plot_ui
+                let own = plot_ui
                     .pointer_coordinate()
-                    .map(|pointer| {
+                    .filter(|_| plot_ui.response().contains_pointer())
+                    .map(|pointer| pointer.x);
+                let time = own.or(elsewhere);
+                let x = time.map(|t| plot_ui.screen_from_plot(egui_plot::PlotPoint::new(t, 0.)).x);
+                let readout: Vec<(String, [f64; 2])> = time
+                    .map(|time| {
                         traces
                             .iter()
                             .zip(&ranges)
                             .filter_map(|((name, points), range)| {
-                                nearest(points, pointer.x).map(|mut point| {
+                                nearest(points, time).map(|mut point| {
                                     if let Some((low, range)) = range {
                                         point[1] = point[1] / 100. * range + low;
                                     }
@@ -1498,29 +1759,115 @@ impl Viewer<'_> {
                             .collect()
                     })
                     .unwrap_or_default();
-                let time = plot_ui.pointer_coordinate().map(|pointer| pointer.x);
                 let dark = plot_ui.ctx().global_style().visuals.dark_mode;
-                for (index, (name, points)) in traces.into_iter().enumerate() {
+                for (source, (name, points)) in sources.iter().zip(traces) {
                     // Theme colours, and dashes past the fourth trace, so
-                    // traces are told apart without relying on hue alone.
-                    let (colour, dashed) = theme::trace(dark, index);
+                    // traces are told apart without relying on hue alone. Raw
+                    // samples behind an average are faint.
+                    let (mut colour, dashed) = theme::trace(dark, source.colour);
+                    if source.faint {
+                        colour = colour.gamma_multiply(0.35);
+                    }
                     let mut line = egui_plot::Line::new(name, points).color(colour);
-                    if dashed {
+                    if dashed && !source.faint {
                         line = line.style(egui_plot::LineStyle::dashed_dense());
                     }
                     plot_ui.line(line);
                 }
-                (time, readout)
+                (own, time, x, readout)
             })
         });
         let rect = response.response.rect;
-        let pointer = ui
-            .ctx()
-            .pointer_hover_pos()
-            .filter(|pos| rect.contains(*pos));
-        if let (Some(pos), (Some(time), readout)) = (pointer, &response.inner) {
+        let transform = response.transform;
+        let bounds = transform.bounds();
+        let visible = [bounds.min()[0], bounds.max()[0]];
+        ui.ctx().data_mut(|d| d.insert_temp(range_id, visible));
+        // Cursors: drawn over the chart and dragged by their line.
+        let mut moved_cursor = false;
+        if let Some(cursors) = &mut p.cursors {
+            let pointer = ui.ctx().pointer_latest_pos();
+            let xs = cursors.map(|t| transform.position_from_point_x(t));
+            let hovered = pointer.filter(|pos| rect.contains(*pos)).and_then(|pos| {
+                (0..2)
+                    .filter(|&i| (xs[i] - pos.x).abs() <= 6.)
+                    .min_by(|&a, &b| (xs[a] - pos.x).abs().total_cmp(&(xs[b] - pos.x).abs()))
+            });
+            let (pressed, down) =
+                ui.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_down()));
+            let mut drag = dragging.filter(|_| down);
+            if pressed && drag.is_none() {
+                drag = hovered;
+            }
+            if let (Some(i), Some(pos)) = (drag, pointer) {
+                let t = transform.value_from_position(pos).x;
+                if t != cursors[i] {
+                    cursors[i] = t;
+                    moved_cursor = true;
+                }
+            }
+            ui.ctx().data_mut(|d| {
+                match drag {
+                    Some(i) => {
+                        d.insert_temp(drag_id, i);
+                    }
+                    None => {
+                        d.remove_temp::<usize>(drag_id);
+                    }
+                }
+                d.insert_temp(near_id, hovered.is_some());
+            });
+            if hovered.is_some() || drag.is_some() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+            }
+            let accent = colors::role(ui, Role::Accent);
+            let painter = ui.painter_at(rect);
+            for (i, t) in cursors.iter().enumerate() {
+                let x = transform.position_from_point_x(*t);
+                if !(rect.left()..=rect.right()).contains(&x) {
+                    continue;
+                }
+                let width = if drag == Some(i) || hovered == Some(i) {
+                    2.
+                } else {
+                    1.
+                };
+                painter.vline(x, rect.y_range(), egui::Stroke::new(width, accent));
+                painter.text(
+                    egui::pos2(x + 4., rect.bottom() - 4.),
+                    egui::Align2::LEFT_BOTTOM,
+                    ["A", "B"][i],
+                    egui::FontId::monospace(12.),
+                    accent,
+                );
+            }
+        } else {
+            ui.ctx().data_mut(|d| {
+                d.remove_temp::<usize>(drag_id);
+                d.remove_temp::<bool>(near_id);
+            });
+        }
+        let (own, time, x, readout) = &response.inner;
+        if let Some(link) = &mut link {
+            if moved_cursor {
+                link.cursors = p.cursors;
+            }
+            let pointer = match own {
+                Some(t) => Some(*t),
+                None if link.pointer_owner == p.id => None,
+                None => link.pointer,
+            };
+            if pointer != link.pointer {
+                link.pointer = pointer;
+                link.pointer_owner = p.id.clone();
+                // Other linked Plots draw the crosshair on their next pass.
+                ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
+            }
+            link.store(ui.ctx());
+        }
+        if let (Some(time), Some(x)) = (time, x) {
+            let x = x.clamp(rect.left(), rect.right());
             ui.painter_at(rect)
-                .vline(pos.x, rect.y_range(), egui::Stroke::new(1_f32, crosshair));
+                .vline(x, rect.y_range(), egui::Stroke::new(1_f32, crosshair));
             // Shown directly rather than as a hover tooltip, which egui hides
             // while the pointer moves.
             let time = clock::time_of_day(time * 1000.);
@@ -1528,7 +1875,11 @@ impl Viewer<'_> {
                 ui.ctx().clone(),
                 ui.layer_id(),
                 egui::Id::new((&p.id, "crosshair")),
-                egui::PopupAnchor::Pointer,
+                if own.is_some() {
+                    egui::PopupAnchor::Pointer
+                } else {
+                    egui::PopupAnchor::Position(egui::pos2(x + 12., rect.top() + 12.))
+                },
             )
             .show(|ui| {
                 ui.label(RichText::new(time).color(theme::of(ui).text_weak));
@@ -1565,6 +1916,86 @@ impl Viewer<'_> {
                 .send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::new(
                     PlotShot(response.response.rect),
                 )));
+        }
+        // The span the numbers cover: between the cursors, or what is visible.
+        if let Some([a, b]) = p.cursors {
+            ui.horizontal(|ui| {
+                let accent = colors::role(ui, Role::Accent);
+                ui.label(RichText::new("Cursors").color(accent));
+                ui.monospace(format!(
+                    "A {}   B {}   Δt {}",
+                    clock::time_of_day(a * 1000.),
+                    clock::time_of_day(b * 1000.),
+                    duration_label(b - a)
+                ));
+            });
+        } else if p.plot_stats {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Visible").color(theme::of(ui).text_weak));
+                ui.monospace(format!(
+                    "{} → {}",
+                    clock::time_of_day(visible[0] * 1000.),
+                    clock::time_of_day(visible[1] * 1000.)
+                ));
+            });
+        }
+        if p.plot_stats {
+            let [from, to] = match p.cursors {
+                Some([a, b]) => [a.min(b), a.max(b)],
+                None => visible,
+            };
+            let dark = ui.visuals().dark_mode;
+            // A row for each drawn line: raw, averaged, or both.
+            let rows: Vec<StatRow> = sources
+                .iter()
+                .zip(names)
+                .filter(|(source, _)| !p.stats_hidden.contains(&source.id))
+                .map(|(source, name)| {
+                    let history = self.session.histories.get(&source.key);
+                    let (stats, at) = match (history, source.average) {
+                        (None, _) => (None, p.cursors.map(|_| [None, None])),
+                        (Some(h), None) => {
+                            let value_at =
+                                |t: f64| sample_at(h, t).map(|v| scaled(v, source.scaling));
+                            (
+                                stats(h, from, to, source.scaling),
+                                p.cursors.map(|[a, b]| [value_at(a), value_at(b)]),
+                            )
+                        }
+                        (Some(h), Some(n)) => {
+                            let points = averaged(h, from, to, n, source.scaling);
+                            let value_at = |t: f64| nearest(&points, t).map(|p| p[1]);
+                            (
+                                stats_of(points.iter().map(|p| p[1])),
+                                p.cursors.map(|[a, b]| [value_at(a), value_at(b)]),
+                            )
+                        }
+                    };
+                    let mut colour = theme::trace(dark, source.colour).0;
+                    if source.faint {
+                        colour = colour.gamma_multiply(0.35);
+                    }
+                    StatRow {
+                        name,
+                        colour,
+                        stats,
+                        at,
+                    }
+                })
+                .collect();
+            if rows.is_empty() {
+                ui.label(
+                    RichText::new("Turn on Σ beside a trace to show its statistics.")
+                        .color(theme::of(ui).text_weak),
+                );
+            } else {
+                egui::ScrollArea::vertical()
+                    .id_salt((&p.id, "stats"))
+                    .max_height(table)
+                    .show(ui, |ui| {
+                        stats_table(ui, &p.id, &rows, self.prefs.stats_decimals)
+                    });
+            }
         }
     }
     fn editor(&mut self, ui: &mut egui::Ui, p: &mut Pane) {
@@ -2021,13 +2452,17 @@ pub(super) fn window(
     max: usize,
 ) -> Vec<[f64; 2]> {
     let start = h.partition_point(|p| p[0] < from);
-    let end = h.partition_point(|p| p[0] <= to);
-    let n = end.saturating_sub(start);
+    let end = h.partition_point(|p| p[0] <= to).max(start);
+    thin(h.range(start..end).copied().collect(), max)
+}
+/// At most `max` of `points`, keeping each bucket's minimum and maximum so
+/// spikes stay visible.
+pub(super) fn thin(points: Vec<[f64; 2]>, max: usize) -> Vec<[f64; 2]> {
+    let n = points.len();
     if n <= max {
-        return h.range(start..end).copied().collect();
+        return points;
     }
     let bucket = n.div_ceil(max / 2);
-    let points: Vec<_> = h.range(start..end).copied().collect();
     let mut out = Vec::with_capacity(max + 2);
     for chunk in points.chunks(bucket) {
         let (mut lo, mut hi) = (0, 0);
@@ -2271,4 +2706,297 @@ mod packet_tests {
             .starts_with("-2 ("));
         assert!(super::packet_fields(&request[..4], true).is_empty());
     }
+}
+
+/// Time settings every linked Plot shares, kept in egui memory for the
+/// running session; each Plot also keeps its own copy in its layout.
+#[derive(Clone)]
+struct PlotLink {
+    auto: bool,
+    frozen: Option<f64>,
+    span: f64,
+    cursors: Option<[f64; 2]>,
+    /// The common right-hand edge while following, taken once per pass.
+    now: f64,
+    now_pass: u64,
+    /// The last pass a linked Plot was drawn in.
+    pass: u64,
+    /// The pointer's time in the hovered linked Plot, and which Plot that is.
+    pointer: Option<f64>,
+    pointer_owner: String,
+}
+impl PlotLink {
+    const ID: &str = "linked-plot-time";
+    /// The group's settings, unless no linked Plot was drawn lately.
+    fn load(ctx: &egui::Context, pass: u64) -> Option<Self> {
+        ctx.data(|d| d.get_temp::<Self>(egui::Id::new(Self::ID)))
+            .filter(|l| pass.saturating_sub(l.pass) <= 2)
+    }
+    fn store(&self, ctx: &egui::Context) {
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new(Self::ID), self.clone()));
+    }
+    fn apply(&self, p: &mut Pane) {
+        p.auto = self.auto;
+        p.frozen = self.frozen;
+        p.plot_span = self.span;
+        p.cursors = self.cursors;
+    }
+}
+
+/// Statistics of one trace over a span of time, in engineering units.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Stats {
+    pub count: usize,
+    /// The last sample in the span.
+    pub last: f64,
+    pub min: f64,
+    pub max: f64,
+    pub mean: f64,
+    /// Population standard deviation.
+    pub std_dev: f64,
+}
+/// `v` in engineering units.
+fn scaled(v: f64, scaling: Option<(f64, f64)>) -> f64 {
+    scaling.map_or(v, |(scale, offset)| v * scale + offset)
+}
+/// Statistics of the samples of a time-sorted history within `from..=to`.
+/// Every recorded sample counts, not the thinned points a chart draws.
+pub(super) fn stats(
+    h: &VecDeque<[f64; 2]>,
+    from: f64,
+    to: f64,
+    scaling: Option<(f64, f64)>,
+) -> Option<Stats> {
+    let start = h.partition_point(|p| p[0] < from);
+    let end = h.partition_point(|p| p[0] <= to);
+    stats_of(
+        h.range(start..end.max(start))
+            .map(|point| scaled(point[1], scaling)),
+    )
+}
+/// Statistics of a sequence of values, in order.
+pub(super) fn stats_of(values: impl Iterator<Item = f64>) -> Option<Stats> {
+    let mut out: Option<Stats> = None;
+    // Welford's running mean and variance stay exact for small spreads
+    // around large values, where a sum of squares would cancel.
+    let mut m2 = 0.;
+    for v in values {
+        let s = out.get_or_insert(Stats {
+            count: 0,
+            last: v,
+            min: v,
+            max: v,
+            mean: 0.,
+            std_dev: 0.,
+        });
+        s.count += 1;
+        s.last = v;
+        s.min = s.min.min(v);
+        s.max = s.max.max(v);
+        let delta = v - s.mean;
+        s.mean += delta / s.count as f64;
+        m2 += delta * (v - s.mean);
+    }
+    out.map(|mut s| {
+        s.std_dev = (m2 / s.count as f64).sqrt();
+        s
+    })
+}
+/// The recorded value nearest time `t`.
+fn sample_at(h: &VecDeque<[f64; 2]>, t: f64) -> Option<f64> {
+    let i = h.partition_point(|p| p[0] < t);
+    [i.checked_sub(1), Some(i)]
+        .into_iter()
+        .flatten()
+        .filter_map(|i| h.get(i))
+        .min_by(|a, b| (a[0] - t).abs().total_cmp(&(b[0] - t).abs()))
+        .map(|p| p[1])
+}
+/// A span of time as text, in seconds or minutes.
+fn duration_label(seconds: f64) -> String {
+    if seconds.abs() < 60. {
+        format!("{seconds:.3} s")
+    } else {
+        format!("{:.0} min {:.3} s", (seconds / 60.).trunc(), seconds % 60.)
+    }
+}
+/// A drawn line: its trace's id, history key and engineering scaling, its
+/// moving-average window if averaged, its colour slot and whether it is the
+/// faint raw line behind an average.
+struct StatSource {
+    id: String,
+    key: (Space, u16),
+    scaling: Option<(f64, f64)>,
+    average: Option<usize>,
+    colour: usize,
+    faint: bool,
+}
+/// The moving average over `n` samples of a history within `from..=to`, in
+/// engineering units, one point per recorded sample. Each point averages it
+/// and the samples before it, up to `n`; the first points of the history
+/// average fewer, so the line starts where the data does.
+pub(super) fn averaged(
+    h: &VecDeque<[f64; 2]>,
+    from: f64,
+    to: f64,
+    n: usize,
+    scaling: Option<(f64, f64)>,
+) -> Vec<[f64; 2]> {
+    let n = n.max(1);
+    let start = h.partition_point(|p| p[0] < from);
+    let end = h.partition_point(|p| p[0] <= to).max(start);
+    let first = start.saturating_sub(n - 1);
+    let mut sum = 0.;
+    let mut out = Vec::with_capacity(end - start);
+    for i in first..end {
+        sum += h[i][1];
+        if i >= first + n {
+            sum -= h[i - n][1];
+        }
+        if i >= start {
+            let count = (i - first + 1).min(n);
+            out.push([h[i][0], scaled(sum / count as f64, scaling)]);
+        }
+    }
+    out
+}
+/// The typical time between samples of a history, in seconds.
+fn sample_spacing(h: &VecDeque<[f64; 2]>) -> Option<f64> {
+    let (first, last) = (h.front()?, h.back()?);
+    (h.len() > 1).then(|| (last[0] - first[0]) / (h.len() - 1) as f64)
+}
+/// A fixed-width table cell with `text` right-aligned, whatever its length.
+fn cell(
+    ui: &mut egui::Ui,
+    width: f32,
+    height: f32,
+    text: &str,
+    style: egui::TextStyle,
+    colour: Color32,
+) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+    ui.painter_at(rect).text(
+        rect.right_center(),
+        egui::Align2::RIGHT_CENTER,
+        text,
+        style.resolve(ui.style()),
+        colour,
+    );
+}
+/// Each row's values as text, with `decimals` places.
+fn stats_cells(rows: &[StatRow], decimals: usize) -> Vec<Vec<String>> {
+    let number = |v: Option<f64>| v.map_or("—".into(), |v| format!("{v:.decimals$}"));
+    rows.iter()
+        .map(|r| {
+            let s = r.stats;
+            let mut c = match r.at {
+                Some([a, b]) => vec![number(a), number(b), number(a.zip(b).map(|(a, b)| b - a))],
+                None => vec![number(s.map(|s| s.last))],
+            };
+            c.extend([
+                number(s.map(|s| s.min)),
+                number(s.map(|s| s.max)),
+                number(s.map(|s| s.mean)),
+                number(s.map(|s| s.max - s.min)),
+                number(s.map(|s| s.std_dev)),
+                s.map_or("0".into(), |s| s.count.to_string()),
+            ]);
+            c
+        })
+        .collect()
+}
+struct StatRow {
+    name: String,
+    colour: Color32,
+    stats: Option<Stats>,
+    /// The values at cursors A and B, when cursors are shown.
+    at: Option<[Option<f64>; 2]>,
+}
+/// The statistics table: a row for each trace whose Σ is on. It fills the
+/// visible width with value columns of equal width, which change only with
+/// the pane; values show up to `decimals` places, fewer (down to 2) when they
+/// would not fit those columns.
+fn stats_table(ui: &mut egui::Ui, id: &str, rows: &[StatRow], decimals: usize) {
+    let cursors = rows.iter().any(|r| r.at.is_some());
+    let mut headers = vec!["Trace"];
+    headers.extend(if cursors {
+        ["At A", "At B", "B − A"].as_slice()
+    } else {
+        ["Current"].as_slice()
+    });
+    headers.extend(["Min", "Max", "Mean", "Peak-to-peak", "Std dev", "Samples"]);
+    let spacing = 18.;
+    let columns = headers.len() - 1;
+    let name_width = (14.
+        + table_fit::widest(
+            ui,
+            egui::TextStyle::Monospace,
+            rows.iter().map(|r| r.name.clone()),
+        ))
+    .max(table_fit::widest(ui, egui::TextStyle::Small, [headers[0]]));
+    // What is visible: a wide toolbar can stretch the layout past the pane.
+    let room = ui
+        .available_width()
+        .min(ui.clip_rect().right() - ui.cursor().left());
+    let narrowest = table_fit::widest(ui, egui::TextStyle::Small, headers[1..].to_vec());
+    let width = ((room - name_width - spacing * columns as f32) / columns as f32).max(narrowest);
+    let fits = |cells: &[Vec<String>], margin: f32| {
+        cells.iter().flatten().all(|text| {
+            table_fit::widest(ui, egui::TextStyle::Monospace, [text.as_str()]) + margin <= width
+        })
+    };
+    let decimals = decimals.max(2);
+    let mut shown = (2..=decimals)
+        .rev()
+        .find(|&d| fits(&stats_cells(rows, d), 0.))
+        .unwrap_or(2);
+    // Add a decimal back only with a digit to spare, so a value hovering at
+    // a column's edge does not make the decimals flicker.
+    let memory = egui::Id::new((id, "stats-decimals"));
+    if let Some(last) = ui.ctx().data(|d| d.get_temp::<usize>(memory)) {
+        let digit = table_fit::widest(ui, egui::TextStyle::Monospace, ["0"]);
+        if (2..shown).contains(&last) && !fits(&stats_cells(rows, shown), digit) {
+            shown = last;
+        }
+    }
+    ui.ctx().data_mut(|d| d.insert_temp(memory, shown));
+    let cells = stats_cells(rows, shown);
+    let widths = vec![width; columns];
+    let height = ui.spacing().interact_size.y;
+    let weak = theme::of(ui).text_weak;
+    egui::Grid::new((id, "stats-table"))
+        .num_columns(headers.len())
+        .spacing([spacing, ui.spacing().item_spacing.y])
+        .show(ui, |ui| {
+            ui.allocate_ui_with_layout(
+                egui::vec2(name_width, height),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.set_min_width(name_width);
+                    ui.label(RichText::new(headers[0]).small().color(weak))
+                },
+            );
+            for (header, width) in headers[1..].iter().zip(&widths) {
+                cell(ui, *width, height, header, egui::TextStyle::Small, weak);
+            }
+            ui.end_row();
+            for (r, values) in rows.iter().zip(cells) {
+                ui.allocate_ui_with_layout(
+                    egui::vec2(name_width, height),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.set_min_width(name_width);
+                        let (swatch, _) =
+                            ui.allocate_exact_size(egui::vec2(10., 10.), egui::Sense::hover());
+                        ui.painter().rect_filled(swatch, 2., r.colour);
+                        ui.label(RichText::new(&r.name).monospace());
+                    },
+                );
+                let text = ui.visuals().text_color();
+                for (value, width) in values.iter().zip(&widths) {
+                    cell(ui, *width, height, value, egui::TextStyle::Monospace, text);
+                }
+                ui.end_row();
+            }
+        });
 }

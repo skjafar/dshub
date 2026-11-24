@@ -17,6 +17,7 @@ mod smoke;
 mod table_fit;
 mod theme;
 mod toasts;
+mod values;
 mod widgets;
 mod write_field;
 use crate::model::*;
@@ -116,6 +117,25 @@ pub struct Pane {
     /// Plot panes: draw each trace as a percentage of its own range, so
     /// traces of different magnitudes share one plot.
     pub normalise: bool,
+    /// Plot panes: share the time axis, window, Pause, Follow live and
+    /// crosshair with every other linked Plot.
+    pub plot_linked: bool,
+    /// Plot panes: show the statistics table under the chart.
+    pub plot_stats: bool,
+    /// Plot panes: traces whose statistics row is switched off. New traces
+    /// therefore start with statistics on.
+    pub stats_hidden: Vec<String>,
+    /// Plot panes: the moving-average window, in samples, of each averaged
+    /// trace (by series id). Traces not listed are drawn raw.
+    pub trace_average: std::collections::BTreeMap<String, usize>,
+    /// Plot panes: also draw an averaged trace's raw line, faintly.
+    pub show_raw: bool,
+    /// Registers and Parameters panes: the open save or restore dialog.
+    #[serde(skip)]
+    pub values: Option<values::Dialog>,
+    /// Plot panes: the times (Unix seconds) of cursors A and B, if shown.
+    #[serde(skip)]
+    pub cursors: Option<[f64; 2]>,
     /// Dashboard panes: stretch the dashboard to the pane's width when viewing.
     pub fit_width: bool,
 }
@@ -149,6 +169,13 @@ impl Pane {
             frozen: None,
             plot_span: 0.,
             normalise: false,
+            plot_linked: false,
+            plot_stats: false,
+            stats_hidden: vec![],
+            trace_average: Default::default(),
+            show_raw: false,
+            values: None,
+            cursors: None,
             fit_width: false,
         }
     }
@@ -484,6 +511,9 @@ pub struct Desktop {
     settings_tab: u8,
     /// A discovered device double-clicked in the connection panel.
     pending_connect: Option<(String, bool)>,
+    /// An imported Profile whose acting widgets do not all ask first, waiting
+    /// for the user to choose how to add it; with the file's notes.
+    pending_import: Option<(Profile, Vec<String>)>,
     /// The theme last applied to the context; visuals change only when it differs.
     applied_dark: Option<bool>,
     /// The interface scale last applied; Ctrl +/− changes are read back.
@@ -574,9 +604,37 @@ impl Desktop {
                     self.session.notice = "The widget's dashboard no longer exists".into();
                 }
             }
-            session::Undo::Trace { index, series } => {
-                let index = index.min(self.saved.series.len());
-                self.saved.series.insert(index, series);
+            session::Undo::Trace {
+                index,
+                series,
+                pane,
+                position,
+            } => {
+                let plot = self
+                    .saved
+                    .dock
+                    .iter_all_tabs_mut()
+                    .chain(
+                        self.saved
+                            .windows
+                            .iter_mut()
+                            .flat_map(|w| w.dock.iter_all_tabs_mut()),
+                    )
+                    .map(|(_, p)| p)
+                    .find(|p| p.id == pane && p.kind == PaneKind::Plot);
+                match plot {
+                    Some(plot) => {
+                        if !plot.plot_series.contains(&series.id) {
+                            let position = position.min(plot.plot_series.len());
+                            plot.plot_series.insert(position, series.id.clone());
+                        }
+                        if !self.saved.series.iter().any(|s| s.id == series.id) {
+                            let index = index.min(self.saved.series.len());
+                            self.saved.series.insert(index, series);
+                        }
+                    }
+                    None => self.session.notice = "The trace's Plot is closed".into(),
+                }
             }
             session::Undo::Histories(cleared) => self.session.restore_histories(cleared),
         }
@@ -643,6 +701,7 @@ impl Desktop {
             load_error,
             settings_tab: 0,
             pending_connect: None,
+            pending_import: None,
             applied_dark: None,
             applied_scale: None,
             persist,
@@ -1579,6 +1638,13 @@ impl Desktop {
                 ui.label("Samples kept per trace");
                 ui.add(egui::DragValue::new(&mut p.max_points).range(100..=100000));
                 ui.end_row();
+                ui.label("Plot statistics decimals");
+                ui.add(egui::DragValue::new(&mut p.stats_decimals).range(2..=10))
+                    .on_hover_text(
+                        "Decimals in a Plot's statistics table, so its columns keep their width. \
+                         A narrow pane shows fewer, down to 2.",
+                    );
+                ui.end_row();
                 ui.label("Dashboard numbers");
                 ui.checkbox(&mut p.group_digits, "Group digits in threes")
                     .on_hover_text("1 234 567 instead of 1234567; inputs are never grouped");
@@ -1833,6 +1899,82 @@ pub(super) fn save_requested(ctx: &egui::Context) -> bool {
 const HOLD_SECONDS: f64 = 1.5;
 /// The pending device-action confirmation, shown modally in every viewport so it
 /// appears wherever the operator is working and blocks other input until answered.
+impl Desktop {
+    /// Adds an imported Profile and makes it active; with `ask`, every
+    /// widget that writes or sends a command asks first.
+    fn add_imported(&mut self, mut p: Profile, notes: Vec<String>, ask: bool) {
+        let mut text = format!(
+            "Imported {}: {} dashboards, {} commands.",
+            p.name,
+            p.dashboards.len(),
+            p.commands().len()
+        );
+        if ask {
+            let asking = p.require_confirmation();
+            text.push_str(&format!(
+                " {asking} widgets that write or send commands now ask first; \
+                 turn that off per widget once you have checked them."
+            ));
+        }
+        for note in notes {
+            text.push_str(&format!(" {note}."));
+        }
+        self.session.toast(Role::Info, text);
+        self.saved.active = p.id.clone();
+        self.saved.profiles.push(p);
+        self.touched = true;
+    }
+    /// The choice for an imported Profile whose widgets act without asking.
+    fn import_modal(&mut self, ctx: &egui::Context) {
+        let Some((profile, _)) = &self.pending_import else {
+            return;
+        };
+        let acting = profile.clone().require_confirmation();
+        let name = profile.name.clone();
+        let mut choice = None;
+        let response = egui::Modal::new(egui::Id::new("import-confirmation")).show(ctx, |ui| {
+            ui.set_max_width(460.);
+            ui.heading(format!("Import {name}"));
+            ui.label(format!(
+                "{acting} widgets in this Profile write values or send commands without \
+                 asking first. A file's labels can hide what a widget really sends, so \
+                 import it as is only if you trust where it came from."
+            ));
+            ui.add_space(8.);
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() {
+                    choice = Some(None);
+                }
+                if ui
+                    .button("Ask before every write and command")
+                    .on_hover_text("Each of those widgets asks first; turn it off per widget later")
+                    .clicked()
+                {
+                    choice = Some(Some(true));
+                }
+                if ui
+                    .button(RichText::new("Import as is").color(colors::role(ui, Role::Warn)))
+                    .on_hover_text("Widgets keep the settings in the file")
+                    .clicked()
+                {
+                    choice = Some(Some(false));
+                }
+            });
+        });
+        if response.should_close() {
+            choice = Some(None);
+        }
+        if let Some(choice) = choice {
+            let (p, notes) = self.pending_import.take().unwrap();
+            match choice {
+                Some(ask) => self.add_imported(p, notes, ask),
+                None => self
+                    .session
+                    .toast(Role::Info, format!("Import of {name} cancelled.")),
+            }
+        }
+    }
+}
 fn confirm_modal(ctx: &egui::Context, session: &mut Session) {
     let Some((message, action)) = session.confirm.clone() else {
         return;
@@ -1969,35 +2111,21 @@ impl eframe::App for Desktop {
         }
         while let Some(import) = self.session.take_import(&ImportTarget::Profile) {
             match import.and_then(|text| Profile::import_with_notes(&text)) {
-                Ok((mut p, notes)) => {
+                Ok((p, notes)) => {
                     // A file's dashboards can label a button anything, so
-                    // every acting widget asks first until the user decides.
-                    let asking = p.require_confirmation();
-                    let mut text = format!(
-                        "Imported {}: {} dashboards, {} commands.",
-                        p.name,
-                        p.dashboards.len(),
-                        p.commands().len()
-                    );
-                    if asking > 0 {
-                        text.push_str(&format!(
-                            " {asking} widgets that write or send commands now ask first; \
-                             turn that off per widget once you have checked them."
-                        ));
+                    // widgets that act without asking need the user's say.
+                    if p.clone().require_confirmation() > 0 {
+                        self.pending_import = Some((p, notes));
+                    } else {
+                        self.add_imported(p, notes, false);
                     }
-                    for note in notes {
-                        text.push_str(&format!(" {note}."));
-                    }
-                    self.session.toast(Role::Info, text);
-                    self.saved.active = p.id.clone();
-                    self.saved.profiles.push(p);
-                    self.touched = true;
                 }
                 Err(e) => self.session.notice = e,
             }
         }
         self.chrome(ui);
         self.dialogs(ctx);
+        self.import_modal(ctx);
         self.keyboard(ctx);
         // Changing Profile while connected re-addresses the same device
         // through other maps, so it is confirmed first. A Profile that was
@@ -2071,7 +2199,10 @@ impl eframe::App for Desktop {
             .filter(|(_, p)| p.kind == PaneKind::Plot)
             .flat_map(|(_, p)| p.plot_series.iter().cloned())
             .collect();
-        for s in series.iter().filter(|s| wanted.contains(&s.id)) {
+        // A trace belongs to the Plots that show it; one no Plot shows is
+        // dropped. Workspaces keep their own copy of the trace list.
+        series.retain(|s| wanted.contains(&s.id));
+        for s in series.iter() {
             self.session.interest(&s.binding, profile, prefs.poll_ms);
             self.session.want_history(&s.binding);
         }
