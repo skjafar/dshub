@@ -2833,8 +2833,9 @@ struct StatSource {
 }
 /// The moving average over `n` samples of a history within `from..=to`, in
 /// engineering units, one point per recorded sample. Each point averages it
-/// and the samples before it, up to `n`; the first points of the history
-/// average fewer, so the line starts where the data does.
+/// and the `n - 1` samples before it, which may lie before `from`. Samples
+/// too early in the history to have a full window give no point, so the
+/// line, and statistics taken from it, show only what the filter defines.
 pub(super) fn averaged(
     h: &VecDeque<[f64; 2]>,
     from: f64,
@@ -2843,20 +2844,19 @@ pub(super) fn averaged(
     scaling: Option<(f64, f64)>,
 ) -> Vec<[f64; 2]> {
     let n = n.max(1);
-    let start = h.partition_point(|p| p[0] < from);
-    let end = h.partition_point(|p| p[0] <= to).max(start);
-    let first = start.saturating_sub(n - 1);
-    let mut sum = 0.;
+    // The first sample with a full window behind it.
+    let start = h.partition_point(|p| p[0] < from).max(n - 1);
+    let end = h.partition_point(|p| p[0] <= to);
+    if start >= end {
+        return vec![];
+    }
+    let first = start + 1 - n;
+    let mut sum: f64 = h.range(first..start).map(|p| p[1]).sum();
     let mut out = Vec::with_capacity(end - start);
-    for i in first..end {
+    for i in start..end {
         sum += h[i][1];
-        if i >= first + n {
-            sum -= h[i - n][1];
-        }
-        if i >= start {
-            let count = (i - first + 1).min(n);
-            out.push([h[i][0], scaled(sum / count as f64, scaling)]);
-        }
+        out.push([h[i][0], scaled(sum / n as f64, scaling)]);
+        sum -= h[i + 1 - n][1];
     }
     out
 }

@@ -2176,9 +2176,19 @@ fn moving_average_covers_the_span_and_starts_with_the_data() {
     // samples before the span.
     let a = averaged(&h, 5., 7., 4, None);
     assert_eq!(a, vec![[5., 3.5], [6., 4.5], [7., 5.5]]);
-    // At the start of the history fewer samples are averaged.
-    let a = averaged(&h, 0., 2., 4, None);
-    assert_eq!(a, vec![[0., 0.], [1., 0.5], [2., 1.]]);
+    // Samples before the first full window give no point.
+    assert!(averaged(&h, 0., 2., 4, None).is_empty());
+    let a = averaged(&h, 0., 4., 4, None);
+    assert_eq!(a, vec![[3., 1.5], [4., 2.5]]);
+    assert!(
+        averaged(&h, 0., 9., 11, None).is_empty(),
+        "fewer samples than the window"
+    );
+    assert_eq!(
+        averaged(&h, 0., 1., 1, None),
+        vec![[0., 0.], [1., 1.]],
+        "a window of one"
+    );
     // Engineering scaling applies to the average.
     let a = averaged(&h, 9., 9., 2, Some((10., 1.)));
     assert_eq!(a, vec![[9., 86.]]);
@@ -2205,10 +2215,23 @@ fn averaged_traces_draw_and_list_what_is_shown() {
     );
     assert_eq!(count_all(&out, "Show raw"), 1);
     // Trace 0 is 0..49: the average's current value is (46+47+48+49)/4.
+    // The first full window is 0..=3, so the average starts at 1.5 and its
+    // peak-to-peak is 46.
     assert_eq!(
         count_text(&out, "47.500000"),
-        3,
-        "current, max and peak-to-peak of the average"
+        2,
+        "current and max of the average"
+    );
+    assert_eq!(count_text(&out, "1.500000"), 1, "min of the average");
+    assert_eq!(
+        count_text(&out, "46.000000"),
+        1,
+        "peak-to-peak of the average"
+    );
+    assert_eq!(
+        count_text(&out, "47"),
+        1,
+        "its samples: 50 less the first 3"
     );
 
     h.pane.show_raw = true;
@@ -2220,7 +2243,7 @@ fn averaged_traces_draw_and_list_what_is_shown() {
         4,
         "raw current, max and peak-to-peak, and trace 2 peak-to-peak"
     );
-    assert_eq!(count_text(&out, "47.500000"), 3, "average still listed");
+    assert_eq!(count_text(&out, "47.500000"), 2, "average still listed");
 }
 
 #[test]
