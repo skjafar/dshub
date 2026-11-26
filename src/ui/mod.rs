@@ -1827,8 +1827,8 @@ fn guide(ui: &mut egui::Ui) {
     for (step, title, text) in [
         ("1", "Connect", "Open the device menu in the toolbar. Scan the network or enter an address (IP or IP:port), choose TCP or UDP and connect."),
         ("2", "Take Control", "Writes and commands need Control on this connection. The toolbar shows who holds it."),
-        ("3", "Inspect", "Registers, Parameters and System Registers list every entry of the Profile's maps. Double-click a value to write it; select a row for the Inspector."),
-        ("4", "Monitor", "Plot traces from any entry, or build Dashboards; dashboard edits apply on Save, and Revert discards them. Map edits that move entries ask for binding review before widgets read or write again."),
+        ("3", "Inspect", "Registers, Parameters and System Registers list every entry of the Profile's maps. Type in the Write column and press Enter to write; select a row for the Inspector. Save values and Restore values keep chosen entries in a file and write them back by name."),
+        ("4", "Monitor", "Plot traces from any entry: link Plots in time, average a trace, show Stats and place cursors over a span. Or build Dashboards; dashboard edits apply on Save, and Revert discards them. Map edits that move entries ask for binding review before widgets read or write again."),
         ("5", "Arrange", "Drag tabs to split panes. Right-click a tab to move it to its own window or focus it. Save layouts as Workspaces."),
     ] {
         ui.horizontal_top(|ui| {
@@ -1851,8 +1851,8 @@ fn guide(ui: &mut egui::Ui) {
             ("Ctrl+S", "Save the dashboard or map changes in view"),
             ("Ctrl +, Ctrl −", "Make the interface larger or smaller"),
             (
-                "Double-click, Enter",
-                "Edit a value in a table; Enter writes, Esc discards. Unsent values stay outlined",
+                "Enter, Esc",
+                "In a Write field: Enter sends and keeps the field ready for the next value; Esc discards. Unsent values stay outlined",
             ),
             ("Esc", "Leave Focus mode"),
             (

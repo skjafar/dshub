@@ -92,6 +92,7 @@ An opt-in native smoke fixture renders panes against the emulator with real devi
 | `src/main.rs` | Native desktop entry point |
 | `src/lib.rs` | Library crate shared by the binary, tests and examples |
 | `src/ui/` | egui shell, panes, dashboard widgets, review, Profile store and session actor |
+| `src/ui/values.rs` | Saving and restoring register and parameter values |
 | `src/model.rs` | Maps, Profiles, bindings, typed values and persistent domain models |
 | `src/profile_compat.rs` | Version-one Profile/dashboard file compatibility |
 | `src/map_files.rs` | Firmware header and command-map import/export |

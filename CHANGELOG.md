@@ -1,4 +1,15 @@
-## Unreleased
+## [0.3.4] - 2026-11-26 - Plot analysis and saved values
+
+- Each Plot lists only its own traces. **Add trace…** offers traces other Plots in the Profile use, and × removes a trace from that Plot alone, with Undo. A trace no Plot shows is dropped.
+- **Link time** shares the time axis, window, Pause, Follow live, cursors and the crosshair read-out between linked Plots, including Plots in other windows. Off by default.
+- **Stats** adds a table under a Plot with each trace's current value, minimum, maximum, mean, peak-to-peak, standard deviation and sample count over the visible time, computed from every recorded sample. A **Σ** beside each trace puts it in the table or takes it out. The table fills the pane with columns whose width changes only with the pane; values show the decimals set in Preferences › Data (default 6), fewer, down to 2, when they would not fit.
+- **Cursors** places two draggable cursors, A and B. The table then covers the span between them and adds each trace's value at A, at B and their difference.
+- **Avg** beside a trace draws its moving average over a number of samples, starting at the first full window; its statistics leave out the samples before that. **Show raw** adds the raw samples faintly, and the Stats table lists each line drawn.
+- **Save values…** in the Registers and Parameters panes reads the ticked entries from the device and saves them to a `.dshub-values` file. **Restore values…** matches a file's entries by name; entries whose address or type changed are flagged, unticked until accepted and listed again before sending; missing, read-only and already-equal entries are skipped; retyped values are converted by value; each write shows its outcome.
+- Write fields keep the keyboard after Enter, and after a confirmation closes, so the next value can be typed and sent straight away.
+- A Dropdown can have a bit mask: its options then choose the value of those bits alone, and choosing one rewrites only those bits of the last reading, after any earlier write has been read back.
+- Importing a Profile whose widgets write or send commands without asking now offers to make them all ask first or to import the Profile as is, instead of always making them ask.
+- Hold to confirm for critical commands works: the hold no longer stopped counting after 0.8 s, and a second open window no longer reset it.
 
 - Emulator: behaves as a device built on the datastream library. TCP serves one client at a time and reads one frame per receive, answering a partial frame with a size error instead of joining it with the next. Writable registers and parameters take any value, as `dsSetRegister()` and `dsSetParameter()` do; homing and E-stop override setpoints instead of refusing writes, and unusable parameter values fall back to defaults. Reset firmware restarts without a reply. Size-error replies carry address 0, as in datastream 0.3.3.1.
 
