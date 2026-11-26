@@ -96,20 +96,25 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut egui::Ui, value: &mut T, options:
 /// cancels.
 pub fn hold_button(ui: &mut egui::Ui, label: &str, seconds: f64) -> bool {
     let warn = colors::role(ui, Role::Warn);
+    // egui stops treating a press as a click after 0.8 s; sensing drags too
+    // keeps the button pressed for as long as it is held.
     let response = ui.add(
-        egui::Button::new(egui::RichText::new(label).color(warn)).min_size(egui::vec2(140., 0.)),
+        egui::Button::new(egui::RichText::new(label).color(warn))
+            .min_size(egui::vec2(140., 0.))
+            .sense(egui::Sense::click_and_drag()),
     );
-    let id = response.id.with("hold");
-    let now = ui.input(|i| i.time);
     // Held with the pointer, or with Space or Enter while focused.
     let keyed = response.has_focus()
         && ui.input(|i| i.key_down(egui::Key::Space) || i.key_down(egui::Key::Enter));
-    if !(response.is_pointer_button_down_on() || keyed) {
-        ui.data_mut(|d| d.remove_temp::<f64>(id));
+    let held = response.is_pointer_button_down_on() || keyed;
+    // The same dialog is drawn in every native window, with the same ids;
+    // each window times its own hold, or one not being pressed would reset
+    // the other's every frame.
+    let key = response.id.with(("hold", ui.ctx().viewport_id()));
+    let now = ui.input(|i| i.time);
+    let Some(progress) = hold_progress(ui.ctx(), key, held, now, seconds) else {
         return false;
-    }
-    let start = ui.data_mut(|d| *d.get_temp_mut_or_insert_with(id, || now));
-    let progress = ((now - start) / seconds).clamp(0., 1.) as f32;
+    };
     let mut fill = response.rect;
     fill.set_width(fill.width() * progress);
     ui.painter().rect_filled(
@@ -118,11 +123,30 @@ pub fn hold_button(ui: &mut egui::Ui, label: &str, seconds: f64) -> bool {
         warn.gamma_multiply(0.3),
     );
     if progress >= 1. {
-        ui.data_mut(|d| d.remove_temp::<f64>(id));
         return true;
     }
     ui.ctx().request_repaint();
     false
+}
+/// How far a hold timed under `key` has come (0–1), or None when not held.
+/// Reaching 1 ends the hold, so the next press starts again from 0.
+pub(super) fn hold_progress(
+    ctx: &egui::Context,
+    key: egui::Id,
+    held: bool,
+    now: f64,
+    seconds: f64,
+) -> Option<f32> {
+    if !held {
+        ctx.data_mut(|d| d.remove_temp::<f64>(key));
+        return None;
+    }
+    let start = ctx.data_mut(|d| *d.get_temp_mut_or_insert_with(key, || now));
+    let progress = ((now - start) / seconds).clamp(0., 1.) as f32;
+    if progress >= 1. {
+        ctx.data_mut(|d| d.remove_temp::<f64>(key));
+    }
+    Some(progress)
 }
 
 /// The toolbar's connection summary: status dot, device and transport, and

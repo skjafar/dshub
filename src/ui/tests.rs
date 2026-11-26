@@ -2272,3 +2272,86 @@ fn restoring_a_moved_value_warns_then_writes_it() {
         "written to the current address"
     );
 }
+
+#[test]
+fn a_hold_in_one_window_is_not_reset_by_another() {
+    use super::controls::hold_progress;
+    let ctx = egui::Context::default();
+    let button = egui::Id::new("confirm-device-action").with("hold-button");
+    let main = button.with(("hold", egui::ViewportId::ROOT));
+    let daughter = button.with(("hold", egui::ViewportId::from_hash_of("daughter")));
+    // Held in the main window while the daughter window draws the same
+    // dialog, not pressed, on every pass.
+    let mut done = false;
+    for frame in 0..100 {
+        let now = frame as f64 * 0.02;
+        if hold_progress(&ctx, main, true, now, 1.5) == Some(1.) {
+            done = true;
+            break;
+        }
+        assert_eq!(hold_progress(&ctx, daughter, false, now, 1.5), None);
+    }
+    assert!(done, "the hold completes after 1.5 s");
+    // A completed hold starts again from zero.
+    assert_eq!(hold_progress(&ctx, main, true, 10., 1.5), Some(0.));
+    // One shared key, as before the fix, never completes.
+    let shared = button.with("hold");
+    for frame in 0..100 {
+        let now = frame as f64 * 0.02;
+        assert_ne!(hold_progress(&ctx, shared, true, now, 1.5), Some(1.));
+        hold_progress(&ctx, shared, false, now, 1.5);
+    }
+}
+
+#[test]
+fn holding_confirm_sends_a_critical_command() {
+    let mut h = Harness::new(PaneKind::Overview);
+    connect(&mut h, true);
+    h.session.confirm = Some(("Send Reset?".into(), Action::Command(5, 0)));
+    h.session.confirm_hold = true;
+    let pass = |h: &mut Harness, events: Vec<egui::Event>| {
+        h.time += 0.05;
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1400., 1000.),
+            )),
+            time: Some(h.time),
+            events,
+            ..Default::default()
+        };
+        let mut out = h.ctx.run_ui(input, |ui| {
+            super::confirm_modal(ui.ctx(), &mut h.session);
+        });
+        out.textures_delta.clear();
+        out
+    };
+    pass(&mut h, vec![]);
+    let out = pass(&mut h, vec![]);
+    let button = out
+        .shapes
+        .iter()
+        .find_map(|s| match &s.shape {
+            egui::Shape::Text(t) if t.galley.text() == "Hold to confirm" => {
+                Some(t.pos + t.galley.size() / 2.)
+            }
+            _ => None,
+        })
+        .expect("hold button");
+    pass(
+        &mut h,
+        vec![
+            egui::Event::PointerMoved(button),
+            pointer_button(button, true),
+        ],
+    );
+    for _ in 0..20 {
+        pass(&mut h, vec![]);
+    }
+    assert!(h.session.confirm.is_some(), "not yet after one second");
+    for _ in 0..20 {
+        pass(&mut h, vec![]);
+    }
+    assert!(h.session.confirm.is_none(), "held 2 s: confirmed");
+    assert!(h.session.commands.contains_key(&5), "and sent");
+}
